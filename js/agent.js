@@ -15,7 +15,8 @@ import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt } from './config.js';
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
-async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal }) {
+// （导出以供 tests/live-smoke.mjs 对真实 API 验证）
+export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal }) {
   const subTools = sandboxEnabled && def.tools.length
     ? TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent')
     : null;
