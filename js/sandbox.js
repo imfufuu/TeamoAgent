@@ -95,17 +95,135 @@ export async function runJavaScript(code, fsObj) {
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }
 
-export async function runPython(code, fsObj) {
+// ── Python：常驻 Worker（Pyodide 运行时只加载一次）─────────────────────
+let pyWorker = null;
+let pyBlobTried = false;
+
+export async function runPython(code, fsObj, onProgress) {
   if (pyodideBroken) {
     return { ok: false, logs: [], error: { message: 'Pyodide 运行时不可用（CDN 加载失败），请改用 execute_javascript' }, durationMs: 0 };
   }
-  const t0 = performance.now();
   const files = fsObj.export();
-  const out = await runInWorker('worker-py.js', { code, files }, SANDBOX_PY_TIMEOUT_MS);
-  if (!out.ok && /importScripts|loadPyodide|Failed to fetch|pyodide/i.test(String(out.error && out.error.message))) {
+  const t0 = performance.now();
+
+  const attempt = (useBlob) => new Promise((resolve) => {
+    const spawn = async () => {
+      if (useBlob) {
+        const res = await fetch(new URL('worker-py.js', import.meta.url));
+        if (!res.ok) throw new Error(`无法获取沙箱脚本（HTTP ${res.status}）`);
+        const url = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }));
+        return new Worker(url);
+      }
+      if (!pyWorker) pyWorker = new Worker(new URL('worker-py.js', import.meta.url));
+      return pyWorker;
+    };
+    spawn().then((worker) => {
+      let settled = false;
+      const finish = (v) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      };
+      const timer = setTimeout(() => {
+        try { worker.terminate(); } catch { /* noop */ }
+        if (pyWorker === worker) pyWorker = null;
+        finish({ ok: false, timedOut: true, logs: [], files, error: { message: `执行超时（>${Math.round(SANDBOX_PY_TIMEOUT_MS / 1000)}s），沙箱已强制终止` } });
+      }, SANDBOX_PY_TIMEOUT_MS);
+      worker.onmessage = (e) => {
+        if (e.data && e.data.__progress) { onProgress && onProgress(String(e.data.__progress)); return; }
+        finish(e.data);
+      };
+      worker.onerror = (e) => finish({ __workerError: e.message || '加载失败' });
+      worker.postMessage({ code, files });
+    }).catch((err) => resolve({ __workerError: err.message }));
+  });
+
+  let out = await attempt(false);
+  if (out.__workerError && !pyBlobTried) {
+    // 文件 Worker 被拦截（如 CSP）→ 回退 blob Worker 重试一次
+    pyBlobTried = true;
+    pyWorker = null;
+    out = await attempt(true);
+  }
+  if (out.__workerError) {
+    pyWorker = null;
+    return {
+      ok: false, logs: [], files,
+      error: { message: `Python 沙箱 Worker 加载失败：${out.__workerError}（可能受页面 CSP 限制）` },
+      durationMs: Math.round(performance.now() - t0),
+    };
+  }
+  if (out.timedOut) pyWorker = null;
+  if (!out.ok && /importScripts|loadPyodide|Failed to fetch|pyodide|indexURL/i.test(String(out.error && out.error.message))) {
     pyodideBroken = true;
+    pyWorker = null;
     out.error.message += '（已标记 Python 沙箱不可用，本次会话内请使用 execute_javascript）';
   }
   if (out.files && !out.timedOut) { fsObj.clear(); fsObj.import(out.files); }
   return { ...out, durationMs: Math.round(performance.now() - t0) };
+}
+
+// ── C++：Compiler Explorer 公共 API 远程编译执行 ───────────────────────
+// （浏览器内没有轻量 C++ 运行时；godbolt.org 已放行 CORS，实测执行/错误捕获可用）
+const CE_BASE = 'https://godbolt.org';
+let cppCompilerId = 'g142'; // 默认 GCC 14.2（已实测可用）
+let cppCompilerDetected = false;
+
+// 注意：编译器 ID 数字≠版本大小（g550=GCC 5.5.0 < g142=GCC 14.2），必须按 semver 字段排序
+async function detectCppCompiler() {
+  try {
+    const res = await fetch(`${CE_BASE}/api/compilers/c++?fields=id,semver`, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return;
+    const list = await res.json();
+    const bySemverDesc = (x, y) => {
+      const a = String(x.semver).split('.').map(Number);
+      const b = String(y.semver).split('.').map(Number);
+      for (let i = 0; i < 3; i++) if ((b[i] || 0) !== (a[i] || 0)) return (b[i] || 0) - (a[i] || 0);
+      return 0;
+    };
+    const valid = (c) => /^\d+\.\d+/.test(c.semver || '');
+    const gcc = list.filter((c) => /^g\d/.test(c.id) && valid(c)).sort(bySemverDesc);
+    const any = list.filter(valid).sort(bySemverDesc);
+    if (gcc.length) cppCompilerId = gcc[0].id;
+    else if (any.length) cppCompilerId = any[0].id;
+  } catch { /* 网络失败保留默认 g142 */ }
+}
+
+export async function runCpp(code) {
+  const t0 = performance.now();
+  const dur = () => Math.round(performance.now() - t0);
+  try {
+    if (!cppCompilerDetected) { cppCompilerDetected = true; await detectCppCompiler(); }
+    const res = await fetch(`${CE_BASE}/api/compiler/${cppCompilerId}/compile`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({
+        source: code,
+        options: {
+          userArguments: '-O2 -std=c++20',
+          executeParameters: { args: [], stdin: '' },
+          compilerOptions: { executorRequest: true }, // 关键：executorRequest 才是「编译并执行」
+          filters: { execute: true },
+          tools: [],
+        },
+        lang: 'c++',
+        allowStoreCodeDebug: true,
+      }),
+    });
+    if (!res.ok) return { ok: false, logs: [], error: { message: `Compiler Explorer HTTP ${res.status}` }, durationMs: dur() };
+    const j = await res.json();
+    const logs = [
+      ...(j.stdout || []).filter((l) => l.text !== '').map((l) => ({ level: 'log', text: l.text })),
+      ...(j.stderr || []).filter((l) => l.text && l.text.trim() !== '').map((l) => ({ level: 'error', text: l.text })),
+    ];
+    const ok = j.code === 0;
+    return {
+      ok, logs,
+      error: ok ? undefined : { message: j.code === -1 ? '编译失败（详见 stderr 诊断）' : `进程退出码 ${j.code}` },
+      durationMs: dur(),
+    };
+  } catch (err) {
+    return { ok: false, logs: [], error: { message: `C++ 远程执行失败：${err.message}（godbolt.org 不可达？）` }, durationMs: dur() };
+  }
 }

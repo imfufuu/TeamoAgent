@@ -1,5 +1,5 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
-import { runJavaScript, runPython, pythonAvailable } from './sandbox.js';
+import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
 
 export const TOOL_DEFS = [
   {
@@ -15,11 +15,22 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。首次调用需下载运行时（约 10-30 秒）。注意：无网络、无本地磁盘。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。注意：无网络、无本地磁盘。',
     parameters: {
       type: 'object',
       properties: {
         code: { type: 'string', description: '要执行的 Python 代码' },
+      },
+      required: ['code'],
+    },
+  },
+  {
+    name: 'execute_cpp',
+    description: '编译并执行 C++ 代码（通过 Compiler Explorer 公共服务远程执行：g++ -O2 -std=c++20）。代码需包含 main 函数；stdout/stderr 与退出码会被捕获。注意：远程服务，需数秒网络往返；不能访问虚拟文件系统；适合算法验证与性能测试。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '完整的 C++ 程序（含 #include 与 main）' },
       },
       required: ['code'],
     },
@@ -79,10 +90,16 @@ export async function executeTool(name, args, ctx) {
           emit({ status: 'error', lang: 'python', error: { message: msg } });
           return msg;
         }
-        emit({ status: 'running', lang: 'python' });
-        const out = await runPython(args.code || '', fs);
+        emit({ status: 'running', lang: 'python', note: '执行中…' });
+        const out = await runPython(args.code || '', fs, (note) => emit({ status: 'running', lang: 'python', note }));
         emit({ status: out.ok ? 'ok' : 'error', lang: 'python', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
         return formatExecResult('Python', out);
+      }
+      case 'execute_cpp': {
+        emit({ status: 'running', lang: 'cpp', note: '远程编译执行中…' });
+        const out = await runCpp(args.code || '');
+        emit({ status: out.ok ? 'ok' : 'error', lang: 'cpp', logs: out.logs, error: out.error, durationMs: out.durationMs });
+        return formatExecResult('C++', out);
       }
       case 'write_file': {
         fs.write(args.path, args.content ?? '');

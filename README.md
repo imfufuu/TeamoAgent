@@ -1,6 +1,8 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-黑白极简 UI · 模型自选 · 代码沙箱 · 对话回滚 · 成熟 Agent 架构（工具调用循环）。
+黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 对话回滚 · 附件 · 成熟 Agent 架构（工具调用循环）。
+
+布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。模型选择器与消息头像带供应商图标（内联 SVG 风格化标识）。
 
 ## 快速开始
 
@@ -61,7 +63,7 @@ sandbox.js Web Worker 沙箱（JS 8s / Pyodide Python 60s 超时强杀）+ 虚�
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
-**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM，CDN 失败自动降级）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`。
+**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`。
 
 **容错**：429/5xx 指数退避重试一次；HTTP 错误映射中文提示（401 查 Key / 402 充值 / 404 模型名）；直连失败自动切换 `/api/proxy` 中继并回放请求；中断按钮随时终止流。
 
@@ -116,4 +118,4 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 ## 说明
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
-- 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界。
+- JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。

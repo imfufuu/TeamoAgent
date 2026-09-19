@@ -2,6 +2,7 @@
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, BASE_URL } from './config.js';
 import { fetchModels, getTransport } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
+import { providerIcon } from './icons.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -109,7 +110,7 @@ export function mountUI(store, agent) {
     ddMenu.querySelectorAll('.dd-group').forEach((n) => n.remove());
     for (const p of order) {
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', esc(p)));
+      g.appendChild(el('div', 'dd-group-title', `${providerIcon(p)}<span>${esc(p)}</span>`));
       for (const m of groups.get(p)) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -133,6 +134,7 @@ export function mountUI(store, agent) {
     if (!order.length) ddMenu.appendChild(el('div', 'dd-empty', '无匹配模型'));
   }
   function updateModelBtn() {
+    $('#model-btn-icon').innerHTML = providerIcon(providerOf(store.state.model));
     $('#model-btn-name').textContent = store.state.model;
     $('#model-btn-provider').textContent = providerOf(store.state.model);
   }
@@ -200,27 +202,55 @@ export function mountUI(store, agent) {
     toast('已开启新对话');
   });
 
-  // ── 沙箱面板（宽屏并入网格 / 窄屏浮层 + 遮罩，绝不遮挡内容区）──
+  // ── 侧栏 & 沙箱面板收起体系 ───────────────────────────────────────────
+  // 宽屏：两者都并入网格（收起=列宽归零，展开=挤压布局，绝不遮挡内容）
+  // 窄屏：侧栏抽屉化（≤860px）、面板浮层化（≤760px），配遮罩点击关闭
+  const sidebar = $('.sidebar');
   const panel = $('#sandbox-panel');
-  const backdrop = $('#panel-backdrop');
-  const NARROW = 1180;
+  const backdrop = $('#overlay-backdrop');
+  const fab = $('#sidebar-fab');
+  const mqSidebar = window.matchMedia('(max-width: 860px)');
+  const mqPanel = window.matchMedia('(max-width: 760px)');
+
+  function updateBackdrop() {
+    const show = (mqSidebar.matches && sidebar.classList.contains('sidebar-open'))
+      || (mqPanel.matches && !panel.classList.contains('collapsed'));
+    backdrop.classList.toggle('show', show);
+  }
   function setPanelCollapsed(v) {
     panel.classList.toggle('collapsed', v);
     $('#panel-toggle').textContent = v ? '◧' : '◨';
-    backdrop.classList.toggle('show', !v && window.innerWidth < NARROW);
+    updateBackdrop();
+  }
+  function setSidebarOpen(open) {
+    sidebar.classList.toggle('sidebar-open', open);
+    updateBackdrop();
   }
   $('#panel-toggle').addEventListener('click', () => setPanelCollapsed(!panel.classList.contains('collapsed')));
-  backdrop.addEventListener('click', () => setPanelCollapsed(true));
+  $('#sidebar-toggle').addEventListener('click', () => {
+    if (mqSidebar.matches) setSidebarOpen(false);
+    else sidebar.classList.add('collapsed');
+  });
+  fab.addEventListener('click', () => {
+    if (mqSidebar.matches) setSidebarOpen(!sidebar.classList.contains('sidebar-open'));
+    else sidebar.classList.remove('collapsed');
+  });
+  backdrop.addEventListener('click', () => {
+    setSidebarOpen(false);
+    if (mqPanel.matches) setPanelCollapsed(true);
+    updateBackdrop();
+  });
   let resizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
-      if (window.innerWidth >= NARROW) backdrop.classList.remove('show');
-      else if (!panel.classList.contains('collapsed')) backdrop.classList.add('show');
+      if (!mqSidebar.matches) sidebar.classList.remove('sidebar-open');
+      updateBackdrop();
     }, 120);
   });
-  // 初始状态：始终默认收起，由用户显式打开
+  // 初始：面板默认收起；侧栏宽屏展开、窄屏隐藏（由 fab 打开）
   setPanelCollapsed(true);
+  updateBackdrop();
   $$('#panel-tabs button').forEach((b) => b.addEventListener('click', () => {
     $$('#panel-tabs button').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
@@ -295,7 +325,7 @@ export function mountUI(store, agent) {
       wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>`;
     } else {
       wrap.innerHTML = `
-        <div class="msg-head"><span class="avatar">◐</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>
+        <div class="msg-head"><span class="avatar">${providerIcon(providerOf(store.state.model))}</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-actions">
@@ -410,6 +440,17 @@ export function mountUI(store, agent) {
     const near = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight < 160;
     if (near || force) msgList.scrollTo({ top: msgList.scrollHeight, behavior: 'smooth' });
   }
+
+  // ── 定位到最新输出（向上滚动超过阈值时浮现）─────────────────────────
+  const jumpBtn = $('#jump-bottom');
+  msgList.addEventListener('scroll', () => {
+    const dist = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight;
+    jumpBtn.classList.toggle('show', dist > 240);
+  }, { passive: true });
+  jumpBtn.addEventListener('click', () => {
+    jumpBtn.classList.remove('show');
+    scrollToBottom(true);
+  });
 
   // ── 控制台（沙箱执行卡片）────────────────────────────────────────────
   function renderConsole() {
@@ -626,7 +667,9 @@ export function mountUI(store, agent) {
     onToolEvent(call, patch) {
       const card = execCards.find((c) => c.id === call.id);
       if (!card) return;
-      if (patch.durationMs != null) $('.exec-time', card.node).textContent = `${patch.durationMs}ms`;
+      const timeEl = $('.exec-time', card.node);
+      if (patch.durationMs != null) timeEl.textContent = `${patch.durationMs}ms`;
+      else if (patch.note) timeEl.textContent = patch.note.length > 26 ? patch.note.slice(0, 24) + '…' : patch.note;
     },
     attachToolResult,
     scrollToBottom: () => scrollToBottom(true),

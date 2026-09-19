@@ -1,13 +1,19 @@
 // TeamoAgent · Python 沙箱 Worker（Pyodide / WebAssembly，独立同源文件）
-// FILES 字典 = 虚拟文件系统；print 输出被捕获；全局变量 result 作为返回值
+// 关键：经典 Worker 中 importScripts 加载后，loadPyodide 必须显式传 indexURL，
+// 否则无法定位 pyodide.asm.wasm（这是官方文档明确要求的）。
+// Worker 常驻复用：运行时只加载一次，后续执行秒级启动。
+const PY_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 let loaded = null;
+
 self.onmessage = async (e) => {
   const { code, files } = e.data;
   const logs = [];
   try {
     if (!loaded) {
-      importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js');
-      loaded = await loadPyodide();
+      self.postMessage({ __progress: '正在加载 Python 运行时…' });
+      importScripts(PY_BASE + 'pyodide.js');
+      loaded = await loadPyodide({ indexURL: PY_BASE });
+      self.postMessage({ __progress: 'Python 运行时就绪' });
     }
     const pyodide = loaded;
     pyodide.setStdout({ batched: (s) => logs.push({ level: 'log', text: String(s) }) });

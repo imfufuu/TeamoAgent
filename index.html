@@ -15,6 +15,7 @@
     <div class="logo">
       <span class="logo-mark">◐</span>
       <span class="logo-text">TEAMO<i>AGENT</i></span>
+      <button id="sidebar-toggle" class="icon-btn" type="button" title="收起侧栏">⟨</button>
     </div>
 
     <!-- 模型选择 -->
@@ -23,7 +24,7 @@
       <div class="picker" id="model-picker">
         <button id="model-btn" class="model-btn" type="button">
           <span class="model-btn-main">
-            <span id="model-btn-name" class="mono">claude-sonnet-5</span>
+            <span class="model-btn-row"><span id="model-btn-icon" class="model-btn-icon"></span><span id="model-btn-name" class="mono">claude-sonnet-5</span></span>
             <span id="model-btn-provider" class="model-btn-provider">Anthropic</span>
           </span>
           <span class="model-btn-caret">▾</span>
@@ -67,6 +68,8 @@
 
     <div id="messages" class="messages"></div>
 
+    <button id="jump-bottom" type="button" title="定位到最新输出"><span class="jump-ico">↓</span>最新输出</button>
+
     <div class="composer-wrap">
       <div id="attach-chips" class="attach-chips" style="display:none"></div>
       <div class="composer">
@@ -82,8 +85,7 @@
     </div>
   </main>
 
-  <!-- ═══ 沙箱面板（默认收起，避免遮挡内容区；窄屏下为浮层 + 遮罩）═══ -->
-  <div id="panel-backdrop" class="panel-backdrop"></div>
+  <!-- ═══ 沙箱面板（默认收起；宽屏并入网格不遮挡，窄屏为浮层 + 遮罩）═══ -->
   <aside id="sandbox-panel" class="panel collapsed">
     <div id="panel-tabs" class="panel-tabs">
       <button class="active" data-tab="console" type="button">控制台</button>
@@ -99,6 +101,10 @@
     </div>
   </aside>
 </div>
+
+<!-- 侧栏展开把手（侧栏收起时浮现）+ 窄屏浮层遮罩 -->
+<button id="sidebar-fab" type="button" title="展开侧栏">☰</button>
+<div id="overlay-backdrop" class="overlay-backdrop"></div>
 
 <!-- ═══ API Key 弹窗 ═══ -->
 <div id="key-modal" class="modal">

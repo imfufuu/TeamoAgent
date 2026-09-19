@@ -12,7 +12,7 @@ export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const TOOL_LOOP_MAX = 8;          // Agent 工具循环最大迭代次数
 export const REQUEST_TIMEOUT_MS = 600000; // 官方服务器最长支持 600s
 export const SANDBOX_JS_TIMEOUT_MS = 8000;
-export const SANDBOX_PY_TIMEOUT_MS = 60000; // Pyodide 首次加载较慢
+export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
 export const STORAGE_KEY = 'teamo-agent-state-v1';
 
 // 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09）
@@ -94,7 +94,8 @@ export function systemPrompt(now = new Date()) {
     '## 能力',
     '当沙箱开启时，你可以调用以下工具：',
     '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。沙箱内提供 console（输出会被捕获）与 files 对象（虚拟文件系统，可直接读写键值），支持顶层 await。适合计算、数据处理、算法验证。',
-    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典（虚拟文件系统），将结果赋给全局变量 result 可被捕获。首次调用需加载运行时，可能较慢。',
+    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典（虚拟文件系统），将结果赋给全局变量 result 可被捕获。运行时常驻，仅会话首次调用需下载（10-30 秒）。',
+    '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files：操作会话级虚拟文件系统。',
     '- get_current_time：获取当前时间。',
     '',
