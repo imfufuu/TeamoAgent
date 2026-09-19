@@ -9,7 +9,9 @@
 export const BASE_URL = 'https://api.teamorouter.com';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
+export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
 export const TOOL_LOOP_MAX = 8;          // Agent 工具循环最大迭代次数
+export const SUBAGENT_LOOP_MAX = 4;      // 子智能体内部循环上限
 export const REQUEST_TIMEOUT_MS = 600000; // 官方服务器最长支持 600s
 export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
@@ -85,6 +87,19 @@ export function isFreeModel(modelId) {
 // GPT 系列支持 Fast mode（service_tier: "fast"，2x 计费）
 export function supportsFastMode(modelId) {
   return providerOf(modelId) === 'OpenAI';
+}
+
+// ── 思考模式参数（按模型家族路由到各自协议的思考字段）──────────────────
+// Claude: thinking.budget_tokens（需 max_tokens > budget）
+// GPT/Gemini/Grok: reasoning_effort；DeepSeek: reasoning；GLM: thinking.type
+// 不支持思考的模型若返回 400，api.js 会自动降级重试并记住该模型
+export function thinkingParamsFor(modelId) {
+  const m = String(modelId || '').toLowerCase();
+  if (m.startsWith('claude')) return { thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET } };
+  if (m.startsWith('deepseek')) return { reasoning: true };
+  if (m.startsWith('glm')) return { thinking: { type: 'enabled' } };
+  if (/^(gpt|o\d|chatgpt|gemini|grok)/.test(m)) return { reasoning_effort: 'medium' };
+  return { reasoning_effort: 'medium' }; // 未知模型尽力尝试，失败自动降级
 }
 
 export function systemPrompt(now = new Date()) {

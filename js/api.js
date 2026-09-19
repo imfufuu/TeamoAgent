@@ -2,7 +2,11 @@
 // 协议路由 + SSE 流式解析 + 传输层（浏览器直连 / 服务端代理兜底）
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
-import { BASE_URL, ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf } from './config.js';
+import { BASE_URL, ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+
+// 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
+const thinkingUnsupported = new Set();
+export function thinkingDisabledFor(model) { return thinkingUnsupported.has(model); }
 
 let transport = 'direct'; // 'direct' | 'proxy'
 export function getTransport() { return transport; }
@@ -222,21 +226,31 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS } = {})
   return { system, messages: out, max_tokens: maxTokens };
 }
 
-// ── 流式对话（含 429/5xx 单次退避重试）─────────────────────────────────
-export async function streamChat({ model, apiKey, messages, tools, fastMode = false, signal, onEvent }) {
+// ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
+export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent }) {
   const protocol = protocolOf(model);
-  let body;
-  if (protocol === 'anthropic') {
-    const p = buildAnthropicPayload(messages);
-    body = { model, stream: true, system: p.system, messages: p.messages, max_tokens: p.max_tokens };
-  } else {
-    body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
-    if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）
-  }
-  if (tools && tools.length) {
-    body.tools = protocol === 'anthropic' ? toAnthropicTools(tools) : toOpenAITools(tools);
-  }
+  const wantThinking = thinking && !thinkingUnsupported.has(model);
 
+  const buildBody = (withThinking) => {
+    let body;
+    if (protocol === 'anthropic') {
+      const p = buildAnthropicPayload(messages);
+      // 思考模式要求 max_tokens > budget_tokens
+      const maxTokens = withThinking ? Math.max(p.max_tokens, THINKING_BUDGET * 4) : p.max_tokens;
+      body = { model, stream: true, system: p.system, messages: p.messages, max_tokens: maxTokens };
+    } else {
+      body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
+      if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）
+    }
+    if (withThinking) Object.assign(body, thinkingParamsFor(model));
+    if (tools && tools.length) {
+      body.tools = protocol === 'anthropic' ? toAnthropicTools(tools) : toOpenAITools(tools);
+    }
+    return body;
+  };
+
+  let body = buildBody(wantThinking);
+  let bodyThinking = wantThinking;
   const headers = { 'Content-Type': 'application/json', ...authHeaders(protocol, apiKey) };
 
   // 发起请求（429/5xx 自动退避重试一次）
@@ -251,6 +265,15 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     }
     if (!r.ok) {
       const text = await r.text().catch(() => '');
+      // 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）
+      if (r.status === 400 && bodyThinking && /thinking|reasoning|extended/i.test(text)) {
+        thinkingUnsupported.add(model);
+        body = buildBody(false);
+        bodyThinking = false;
+        const err = new Error(httpErrorMessage(r.status, text));
+        err.status = 400; err.retryable = true;
+        throw err;
+      }
       const err = new Error(httpErrorMessage(r.status, text));
       err.status = r.status;
       throw err;

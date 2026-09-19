@@ -10,6 +10,9 @@ import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
 import { createStore } from '../js/state.js';
 import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor } from '../js/context.js';
+import { thinkingParamsFor } from '../js/config.js';
+import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
+import { TOOL_DEFS } from '../js/tools.js';
 
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`  ✓ ${name}`); };
@@ -274,6 +277,46 @@ test('上下文预算按模型家族', () => {
   assert.equal(contextBudgetFor('claude-sonnet-5'), 150000);
   assert.equal(contextBudgetFor('gemini-3.5-flash'), 400000);
   assert.equal(contextBudgetFor('unknown-model'), 90000);
+});
+
+console.log('思考模式参数路由');
+test('Claude → thinking.budget_tokens', () => {
+  const p = thinkingParamsFor('claude-sonnet-5');
+  assert.equal(p.thinking.type, 'enabled');
+  assert.ok(p.thinking.budget_tokens >= 1024);
+});
+test('GPT/Gemini/Grok → reasoning_effort', () => {
+  assert.equal(thinkingParamsFor('gpt-5.6-sol').reasoning_effort, 'medium');
+  assert.equal(thinkingParamsFor('gemini-3.5-flash').reasoning_effort, 'medium');
+  assert.equal(thinkingParamsFor('grok-4.6').reasoning_effort, 'medium');
+});
+test('DeepSeek → reasoning；GLM → thinking.type', () => {
+  assert.equal(thinkingParamsFor('deepseek-v4-pro').reasoning, true);
+  assert.equal(thinkingParamsFor('glm-5.3').thinking.type, 'enabled');
+});
+
+console.log('子智能体注册表');
+test('≥16 个子智能体且 ID 唯一', () => {
+  assert.ok(SUBAGENTS.length >= 16, `实际 ${SUBAGENTS.length}`);
+  assert.equal(new Set(SUBAGENTS.map((a) => a.id)).size, SUBAGENTS.length);
+});
+test('工具子集必须存在于 TOOL_DEFS，且不含 dispatch（防递归）', () => {
+  const valid = new Set(TOOL_DEFS.map((t) => t.name));
+  for (const a of SUBAGENTS) {
+    for (const t of a.tools) {
+      assert.ok(valid.has(t), `${a.id} 引用未知工具 ${t}`);
+      assert.notEqual(t, 'dispatch_subagent', `${a.id} 不得再委派`);
+    }
+    assert.ok(a.prompt.length > 30 && a.description && a.name && a.tag, `${a.id} 字段不完整`);
+  }
+});
+test('dispatch_subagent 工具已注册且 enum 覆盖全部子智能体', () => {
+  const d = TOOL_DEFS.find((t) => t.name === 'dispatch_subagent');
+  assert.ok(d, '未注册');
+  const en = d.parameters.properties.agent.enum;
+  assert.equal(en.length, SUBAGENTS.length);
+  assert.ok(findSubagent('code-reviewer'));
+  assert.ok(subagentGuide().includes('dispatch_subagent'));
 });
 
 console.log(`\n${passed} 项测试全部通过 ✅`);

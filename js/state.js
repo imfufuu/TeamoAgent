@@ -12,7 +12,7 @@ export function createStore(onChange) {
     checkpoints: [],       // {id, label, messageCount, ts}
     undoBranch: null,      // 回滚撤销栈（一步）：{checkpointId, discarded}
     files: {},             // 虚拟文件系统
-    settings: { sandboxEnabled: true, fastMode: false, theme: 'light' },
+    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true },
   };
 
   let saveTimer = null;

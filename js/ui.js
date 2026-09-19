@@ -3,6 +3,7 @@ import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, s
 import { fetchModels, getTransport } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon } from './icons.js';
+import { SUBAGENTS } from './subagents.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -167,6 +168,18 @@ export function mountUI(store, agent) {
   });
   syncSandbox();
 
+  // 思考模式（默认开启；按模型家族自动映射协议参数，不支持的模型 400 自动降级）
+  const thinkingToggle = $('#thinking-toggle');
+  const syncThinking = () => thinkingToggle.classList.toggle('on', store.state.settings.thinking !== false);
+  thinkingToggle.addEventListener('click', () => {
+    store.state.settings.thinking = !(store.state.settings.thinking !== false);
+    syncThinking(); store.notify();
+    toast(store.state.settings.thinking
+      ? '思考模式开启：Claude→thinking · GPT/Gemini/Grok→reasoning_effort · DeepSeek→reasoning · GLM→thinking（不支持自动降级）'
+      : '思考模式关闭');
+  });
+  syncThinking();
+
   const fastToggle = $('#fast-toggle');
   const syncFast = () => {
     fastToggle.classList.toggle('on', store.state.settings.fastMode);
@@ -254,9 +267,31 @@ export function mountUI(store, agent) {
   $$('#panel-tabs button').forEach((b) => b.addEventListener('click', () => {
     $$('#panel-tabs button').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
-    $('#tab-console').style.display = b.dataset.tab === 'console' ? '' : 'none';
-    $('#tab-files').style.display = b.dataset.tab === 'files' ? '' : 'none';
+    for (const tab of ['console', 'files', 'agents']) {
+      $(`#tab-${tab}`).style.display = b.dataset.tab === tab ? '' : 'none';
+    }
   }));
+
+  // 子智能体名录（只读展示；实际调用由主 Agent 委派）
+  const agentList = $('#agent-list');
+  for (const a of SUBAGENTS) {
+    const card = el('div', 'agent-card');
+    card.innerHTML = `<div class="agent-card-head"><span class="agent-name">${esc(a.name)}</span><span class="agent-tag mono">${esc(a.id)}</span></div>
+      <div class="agent-desc">${esc(a.description)}</div>
+      <div class="agent-tools mono">${a.tools.length ? a.tools.map(esc).join(' · ') : '纯推理（无工具）'}</div>`;
+    agentList.appendChild(card);
+  }
+
+  // 品牌图标加载失败兜底（捕获阶段监听资源错误）：替换为首字母徽章
+  document.addEventListener('error', (e) => {
+    const t = e.target;
+    if (t && t.classList && t.classList.contains('p-icon')) {
+      const span = document.createElement('span');
+      span.className = 'p-icon-fallback';
+      span.textContent = (t.alt || '?').slice(0, 1);
+      t.replaceWith(span);
+    }
+  }, true);
   $('#clear-files').addEventListener('click', () => { agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空'); });
 
   function renderFiles() {

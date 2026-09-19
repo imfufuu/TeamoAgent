@@ -60,7 +60,8 @@
     <header class="topbar">
       <div class="status"><span id="status-dot" class="dot ok"></span><span id="status-text">就绪</span></div>
       <div class="topbar-right">
-        <button id="sandbox-toggle" class="pill on" type="button" title="沙箱：Agent 可执行 JS/Python 代码并读写虚拟文件">⌗ 沙箱</button>
+        <button id="thinking-toggle" class="pill on" type="button" title="思考模式：Claude→thinking.budget_tokens / GPT·Gemini·Grok→reasoning_effort / DeepSeek→reasoning / GLM→thinking；不支持的模型自动降级">🧠 思考</button>
+        <button id="sandbox-toggle" class="pill on" type="button" title="沙箱：Agent 可执行 JS/Python/C++ 代码、读写虚拟文件并委派子智能体">⌗ 沙箱</button>
         <button id="fast-toggle" class="pill" type="button" title="TeamoRouter Fast mode（service_tier=fast，2x 计费，仅 GPT 系列）">⚡ Fast</button>
         <button id="panel-toggle" class="pill" type="button" title="沙箱面板">◧</button>
       </div>
@@ -90,6 +91,7 @@
     <div id="panel-tabs" class="panel-tabs">
       <button class="active" data-tab="console" type="button">控制台</button>
       <button data-tab="files" type="button">文件</button>
+      <button data-tab="agents" type="button">子智能体</button>
     </div>
     <div id="tab-console" class="panel-body">
       <div id="exec-list" class="exec-list"></div>
@@ -98,6 +100,10 @@
       <div class="files-toolbar"><span class="side-label" style="border:0;padding:0">虚拟文件系统</span><button id="clear-files" class="mini-btn" type="button">清空</button></div>
       <div id="file-list" class="file-list"></div>
       <div id="file-viewer" class="file-viewer"></div>
+    </div>
+    <div id="tab-agents" class="panel-body" style="display:none">
+      <div class="agents-hint">主 Agent 按需通过 <span class="mono">dispatch_subagent</span> 委派任务（同模型 · 专属提示词 · 独立上下文）</div>
+      <div id="agent-list" class="agent-list"></div>
     </div>
   </aside>
 </div>

@@ -1,5 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
+import { SUBAGENTS } from './subagents.js';
 
 export const TOOL_DEFS = [
   {
@@ -69,6 +70,21 @@ export const TOOL_DEFS = [
       properties: { timezone: { type: 'string', description: 'IANA 时区名，如 Asia/Tokyo，缺省为 Asia/Shanghai' } },
     },
   },
+  {
+    name: 'dispatch_subagent',
+    description:
+      '把专业任务委派给子智能体（同模型、专属系统提示词与工具子集，独立上下文）。' +
+      '子智能体看不到对话历史，task 必须自包含（附必要代码/数据/上下文）。返回其文字报告，由你整合后答复。可用子智能体：' +
+      SUBAGENTS.map((a) => `${a.id}=${a.name}(${a.description.split('：')[0].split('，')[0]})`).join('；'),
+    parameters: {
+      type: 'object',
+      properties: {
+        agent: { type: 'string', enum: SUBAGENTS.map((a) => a.id), description: '子智能体 ID' },
+        task: { type: 'string', description: '自包含的任务描述（含必要上下文、代码、数据与期望产出格式）' },
+      },
+      required: ['agent', 'task'],
+    },
+  },
 ];
 
 // 执行工具并返回字符串结果（会回填进对话）；onUi 用于驱动沙箱面板
@@ -123,6 +139,13 @@ export async function executeTool(name, args, ctx) {
         const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
         emit({ status: 'ok', note: msg });
         return msg;
+      }
+      case 'dispatch_subagent': {
+        if (!ctx.dispatch) return '子智能体调度器不可用。';
+        emit({ status: 'running', note: `子智能体 ${args.agent} 执行中…` });
+        const report = await ctx.dispatch(args.agent, args.task || '', (note) => emit({ status: 'running', note }));
+        emit({ status: 'ok', note: '报告已返回' });
+        return report;
       }
       default:
         return `未知工具: ${name}`;

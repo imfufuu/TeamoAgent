@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 对话回滚 · 附件 · 成熟 Agent 架构（工具调用循环）。
+黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 对话回滚 · 附件 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
 
 布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。模型选择器与消息头像带供应商图标（内联 SVG 风格化标识）。
 
@@ -63,7 +63,35 @@ sandbox.js Web Worker 沙箱（JS 8s / Pyodide Python 60s 超时强杀）+ 虚�
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
-**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`。
+**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）。
+
+## 子智能体（18 个专家，`dispatch_subagent` 委派）
+
+主 Agent 按需把专业任务委派给子智能体——**同模型、专属系统提示词、工具子集、独立上下文**（看不到会话历史，task 必须自包含；不可再委派，防递归；内部循环上限 4 轮）。面板「子智能体」页可查看名录。
+
+| 分类 | 子智能体 |
+|---|---|
+| 代码 | code-reviewer 审查 · debugger 调试 · refactor-expert 重构 · test-engineer 测试 · perf-optimizer 性能 · security-auditor 安全审计 |
+| 设计 | software-architect 架构 · api-designer API 设计 · prompt-engineer 提示词 |
+| 数据 | data-analyst 数据分析 · mathematician 数学 · sql-expert SQL · regex-expert 正则 |
+| 内容 | doc-writer 文档 · translator 翻译 · copywriter 文案 · explainer 讲解 · brainstormer 头脑风暴 |
+
+## 思考模式（默认开启）
+
+顶栏 🧠 开关；按模型家族自动映射到各自协议的思考参数，模型不支持（400）时**自动降级重试并记住**：
+
+| 模型家族 | 思考参数 |
+|---|---|
+| Claude | `thinking: {type:"enabled", budget_tokens:4096}`（max_tokens 自动升至 16384） |
+| GPT / Gemini / Grok | `reasoning_effort: "medium"` |
+| DeepSeek | `reasoning: true` |
+| GLM | `thinking: {type:"enabled"}` |
+
+思考流（Anthropic `thinking_delta` / OpenAI 兼容 `reasoning_content`）渲染为可折叠「思考过程」。
+
+## 图标来源与版权
+
+供应商 Logo 为各公司商标，SVG 下载自 Wikimedia（仅用于识别对应服务）：`Anthropic`=Claude AI symbol.svg · `OpenAI`=OpenAI logo 2025 (symbol).svg · `Google`=Google Gemini icon 2025.svg · `DeepSeek`=DeepSeek logo.svg · `GLM`=Z.ai (company logo).svg · `Grok`=Grok-2025-logo.svg。纯黑 Logo 在暗色主题下 CSS 反色；加载失败自动降级为首字母徽章。
 
 **容错**：429/5xx 指数退避重试一次；HTTP 错误映射中文提示（401 查 Key / 402 充值 / 404 模型名）；直连失败自动切换 `/api/proxy` 中继并回放请求；中断按钮随时终止流。
 

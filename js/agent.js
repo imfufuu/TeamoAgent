@@ -11,7 +11,43 @@ import { streamChat, createToolCallAccumulator, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
-import { TOOL_LOOP_MAX, systemPrompt } from './config.js';
+import { findSubagent, subagentGuide } from './subagents.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt } from './config.js';
+
+// ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
+async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal }) {
+  const subTools = sandboxEnabled && def.tools.length
+    ? TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent')
+    : null;
+  const messages = [
+    { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}` },
+    { role: 'user', text: task },
+  ];
+  let finalText = '';
+  for (let i = 0; i < SUBAGENT_LOOP_MAX; i++) {
+    if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    const acc = createToolCallAccumulator();
+    let text = '';
+    await streamChat({
+      model, apiKey, thinking, signal, tools: subTools,
+      messages,
+      onEvent: (ev) => {
+        if (ev.type === 'text') text += ev.text;
+        else if (ev.type === 'tool_delta') acc.push(ev);
+        else if (ev.type === 'error') throw new Error(ev.message);
+      },
+    });
+    finalText = text;
+    const calls = acc.result();
+    if (!calls.length) break;
+    messages.push({ role: 'assistant', text, toolCalls: calls });
+    for (const c of calls) {
+      const res = await executeTool(c.name, c.args, { fs, onUi: () => {} });
+      messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
+    }
+  }
+  return finalText || '（子智能体未产生最终报告）';
+}
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -27,7 +63,7 @@ export function createAgent(store, hooks = {}) {
     const { messages, model } = store.state;
     const budget = contextBudgetFor(model);
     const { messages: compacted, droppedCount } = compactMessages(messages, budget);
-    const sys = [{ role: 'system', text: systemPrompt() + fsNote() }];
+    const sys = [{ role: 'system', text: systemPrompt() + fsNote() + (store.state.settings.sandboxEnabled ? subagentGuide() : '') }];
     if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
     return [...sys, ...compacted];
   }
@@ -70,6 +106,7 @@ export function createAgent(store, hooks = {}) {
             await streamChat({
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
+              thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
               messages: buildMessages(),
               onEvent: (ev) => {
                 switch (ev.type) {
@@ -145,6 +182,19 @@ export function createAgent(store, hooks = {}) {
             result = await executeTool(call.name, call.args, {
               fs,
               onUi: (patch) => hooks.onToolEvent && hooks.onToolEvent(call, patch),
+              dispatch: async (agentId, subTask, onNote) => {
+                const def = findSubagent(agentId);
+                if (!def) return `未知子智能体：${agentId}。请用 enum 中列出的 ID。`;
+                onNote && onNote(`子智能体「${def.name}」思考中…`);
+                const report = await runSubagent(def, subTask, {
+                  apiKey: store.state.apiKey,
+                  model: store.state.model,
+                  thinking: store.state.settings.thinking !== false,
+                  sandboxEnabled: store.state.settings.sandboxEnabled,
+                  fs, signal,
+                });
+                return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;
+              },
             });
           }
           syncFS();
