@@ -9,14 +9,14 @@ const store = createStore();
 let ui = null;
 const hooks = {
   onStatus: (s) => ui && ui.setStatus(s),
-  onUserMessage: () => { ui && ui.renderCheckpoints(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
+  onUserMessage: () => { ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),
   onToolStart: (call) => ui && ui.onToolStart(call),
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
-  onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderCheckpoints(); ui && ui.updateStats(); },
+  onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); },
   onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onError: (err) => {
     console.error(err);

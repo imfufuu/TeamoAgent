@@ -319,4 +319,29 @@ test('dispatch_subagent 工具已注册且 enum 覆盖全部子智能体', () =>
   assert.ok(subagentGuide().includes('dispatch_subagent'));
 });
 
+console.log('多会话');
+test('创建/切换/删除会话，活动会话引用正确同步', () => {
+  const store = createStore();
+  store.createCheckpoint('A');
+  store.pushMessage({ role: 'user', text: '会话A的消息' });
+  const s1 = store.state.activeSessionId;
+  const s2 = store.createSession();
+  assert.equal(store.state.messages.length, 0, '新会话应为空');
+  store.pushMessage({ role: 'user', text: '会话B的消息' });
+  assert.ok(store.switchSession(s1));
+  assert.equal(store.state.messages.length, 1);
+  assert.equal(store.state.messages[0].text, '会话A的消息');
+  assert.equal(store.state.sessions.find((s) => s.id === s1).title, '会话A的消息', '自动标题');
+  assert.ok(store.deleteSession(s2.id));
+  assert.equal(store.state.sessions.length, 1);
+  assert.equal(store.state.activeSessionId, s1);
+});
+test('删除最后一个会话时自动补新会话', () => {
+  const store = createStore();
+  const id = store.state.activeSessionId;
+  store.deleteSession(id);
+  assert.equal(store.state.sessions.length, 1);
+  assert.notEqual(store.state.activeSessionId, id);
+});
+
 console.log(`\n${passed} 项测试全部通过 ✅`);

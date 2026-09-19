@@ -105,7 +105,7 @@ js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代�
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度
 js/agent.js       工具调用循环状态机
-js/state.js       消息 / 检查点 / 回滚 / localStorage 持久化
+js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道）
 tests/            node tests/agent.test.mjs（19 项，覆盖双协议解析与回滚）

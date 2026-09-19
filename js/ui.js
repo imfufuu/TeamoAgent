@@ -2,7 +2,7 @@
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, BASE_URL } from './config.js';
 import { fetchModels, getTransport } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
-import { providerIcon } from './icons.js';
+import { providerIcon, APP_LOGO } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -139,11 +139,21 @@ export function mountUI(store, agent) {
     $('#model-btn-name').textContent = store.state.model;
     $('#model-btn-provider').textContent = providerOf(store.state.model);
   }
-  const openMenu = () => { renderModelMenu(); ddMenu.classList.add('open'); setTimeout(() => ddSearch.focus(), 50); };
+  const openMenu = () => {
+    renderModelMenu();
+    // fixed 定位（脱离侧栏 overflow:hidden 裁剪），按按钮实际位置摆放
+    const r = ddBtn.getBoundingClientRect();
+    ddMenu.style.left = `${r.left}px`;
+    ddMenu.style.top = `${r.bottom + 6}px`;
+    ddMenu.style.width = `${Math.max(r.width + 60, 260)}px`;
+    ddMenu.classList.add('open');
+    setTimeout(() => ddSearch.focus(), 50);
+  };
   const closeMenu = () => ddMenu.classList.remove('open');
   ddBtn.addEventListener('click', () => ddMenu.classList.contains('open') ? closeMenu() : openMenu());
   ddSearch.addEventListener('input', renderModelMenu);
   document.addEventListener('click', (e) => { if (!$('#model-picker').contains(e.target)) closeMenu(); });
+  window.addEventListener('resize', closeMenu);
   updateModelBtn();
 
   $('#refresh-models').addEventListener('click', async () => {
@@ -207,13 +217,69 @@ export function mountUI(store, agent) {
   });
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
 
-  // ── 新对话 ──
-  $('#new-chat').addEventListener('click', () => {
-    if (!store.state.messages.length) return;
-    if (!confirm('开始新对话？当前消息与检查点将被清空（文件保留）。')) return;
-    store.clearChat(); msgNodes.clear(); msgList.innerHTML = ''; renderEmpty(); renderCheckpoints();
-    toast('已开启新对话');
+  // ── 会话记录（侧栏只做记录与切换；回滚全部在对话区）─────────────────
+  function sessionMeta(s) {
+    const n = s.messages.filter((m) => m.role === 'user').length;
+    const t = new Date(s.updatedAt || s.createdAt);
+    const time = t.toDateString() === new Date().toDateString()
+      ? t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+      : `${t.getMonth() + 1}/${t.getDate()}`;
+    return `${n} 轮 · ${time}`;
+  }
+  function renderSessions() {
+    const box = $('#session-list'); box.innerHTML = '';
+    for (const s of store.sortedSessions()) {
+      const node = el('div', 'sess-item' + (s.id === store.state.activeSessionId ? ' active' : ''));
+      node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span><button class="sess-del" type="button" title="删除会话">✕</button>`;
+      node.addEventListener('click', () => switchToSession(s.id));
+      $('.sess-del', node).addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (getBusy()) return toast('请等待当前回合结束', 'warn');
+        if (!confirm(`删除会话「${s.title || '新对话'}」？不可恢复。`)) return;
+        const wasActive = s.id === store.state.activeSessionId;
+        store.deleteSession(s.id);
+        if (wasActive) agent.loadFiles(store.state.files);
+        rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+        toast('会话已删除');
+      });
+      box.appendChild(node);
+    }
+  }
+  function switchToSession(id) {
+    if (id === store.state.activeSessionId) return;
+    if (getBusy()) return toast('请等待当前回合结束再切换会话', 'warn');
+    store.switchSession(id);
+    agent.loadFiles(store.state.files);
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+  }
+  $('#new-session').addEventListener('click', () => {
+    if (getBusy()) return toast('请等待当前回合结束', 'warn');
+    store.createSession();
+    agent.loadFiles({});
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+    composer.focus();
   });
+  renderSessions();
+
+  // ── 回滚撤销浮条（对话区内，回滚后出现 8 秒）────────────────────────
+  const undoPill = $('#undo-pill');
+  let undoTimer = null;
+  function showUndoPill() {
+    undoPill.classList.add('show');
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(() => undoPill.classList.remove('show'), 8000);
+  }
+  undoPill.addEventListener('click', () => {
+    undoPill.classList.remove('show');
+    if (store.undoRollback()) { rebuildMessages(); renderSessions(); updateStats(); toast('已撤销回滚'); }
+  });
+  function doRollback(m) {
+    if (getBusy()) return toast('请等待当前回合结束');
+    if (!confirm('回滚到本轮对话之前？该轮及其后的消息将被移除（可撤销）。')) return;
+    store.rollbackBeforeMessage(m.id);
+    rebuildMessages(); renderSessions(); updateStats(); showUndoPill();
+    toast('已回滚，可点击「撤销回滚」恢复', 'ok');
+  }
 
   // ── 侧栏 & 沙箱面板收起体系 ───────────────────────────────────────────
   // 宽屏：两者都并入网格（收起=列宽归零，展开=挤压布局，绝不遮挡内容）
@@ -312,36 +378,11 @@ export function mountUI(store, agent) {
   }
   renderFiles();
 
-  // ── 检查点时间线（回滚）──────────────────────────────────────────────
-  function renderCheckpoints() {
-    const box = $('#checkpoint-list'); box.innerHTML = '';
-    const cps = store.state.checkpoints;
-    if (!cps.length) { box.appendChild(el('div', 'empty-hint', '发送消息后自动生成检查点')); return; }
-    for (const cp of [...cps].reverse()) {
-      const node = el('button', 'cp-item');
-      node.type = 'button';
-      node.innerHTML = `<span class="cp-dot"></span><span class="cp-label">${esc(cp.label || '(空消息)')}</span><span class="cp-time">${new Date(cp.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>`;
-      node.addEventListener('click', () => {
-        if (!confirm(`回滚到「${cp.label || '检查点'}」？该点之后的消息将被移除（可一步撤销）。`)) return;
-        store.rollbackTo(cp.id);
-        rebuildMessages(); renderCheckpoints();
-        toast('已回滚，可点击「撤销回滚」恢复', 'ok', 4000);
-      });
-      box.appendChild(node);
-    }
-    const undoBtn = $('#undo-rollback');
-    undoBtn.style.display = store.state.undoBranch ? '' : 'none';
-  }
-  $('#undo-rollback').addEventListener('click', () => {
-    if (store.undoRollback()) { rebuildMessages(); renderCheckpoints(); toast('已撤销回滚'); }
-  });
-  renderCheckpoints();
-
   // ── 消息渲染 ──────────────────────────────────────────────────────────
   function renderEmpty() {
     if (store.state.messages.length) return;
     msgList.appendChild(el('div', 'empty-state', `
-      <div class="empty-logo">◐</div>
+      <div class="empty-logo">${APP_LOGO}</div>
       <h2>TeamoAgent</h2>
       <p>基于 <span class="mono">api.teamorouter.com</span> 的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
@@ -357,10 +398,17 @@ export function mountUI(store, agent) {
     const wrap = el('div', `msg msg-${m.role} enter`);
     wrap.dataset.id = m.id;
     if (m.role === 'user') {
-      wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>`;
+      wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
+        <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">⤺ 回滚</button></div>`;
+      $('.act', wrap).addEventListener('click', () => doRollback(m));
     } else {
+      // 模型名/头像每轮（一次 user 提问开始的回合）只显示一次：
+      // 仅当上一条消息是 user 时渲染 msg-head，工具循环产生的后续 assistant 消息不再重复
+      const idx = store.state.messages.findIndex((x) => x.id === m.id);
+      const prev = idx > 0 ? store.state.messages[idx - 1] : null;
+      const showHead = !prev || prev.role === 'user';
       wrap.innerHTML = `
-        <div class="msg-head"><span class="avatar">${providerIcon(providerOf(store.state.model))}</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>
+        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(store.state.model))}</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-actions">
@@ -371,20 +419,13 @@ export function mountUI(store, agent) {
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         const act = b.dataset.act;
         if (act === 'copy') { navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200)); }
-        if (act === 'rollback') {
-          if (getBusy()) return toast('请等待当前回合结束');
-          if (!confirm('回滚到本轮对话之前？')) return;
-          store.rollbackBeforeMessage(m.id);
-          rebuildMessages(); renderCheckpoints();
-          toast('已回滚', 'ok');
-        }
+        if (act === 'rollback') doRollback(m);
         if (act === 'regen') {
           if (getBusy()) return;
           agent.regenerate();
         }
       }));
     }
-    wrap.addEventListener('copy-code-click', () => {});
     return wrap;
   }
 
@@ -428,12 +469,14 @@ export function mountUI(store, agent) {
         }
       }
     }
-    // meta
+    // meta（无 msg-head 的续消息没有该节点）
     const meta = $('.msg-meta', wrap);
-    const parts = [];
-    if (m.usage) parts.push(`↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok`);
-    if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
-    meta.textContent = parts.join(' · ');
+    if (meta) {
+      const parts = [];
+      if (m.usage) parts.push(`↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok`);
+      if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
+      meta.textContent = parts.join(' · ');
+    }
     // 仅最后一条 assistant 显示重新生成
     const lastAssistant = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
     const regen = $('.act-regen', wrap);
@@ -659,7 +702,7 @@ export function mountUI(store, agent) {
     setStatus,
     updateTransportBadge,
     updateStats,
-    renderCheckpoints,
+    renderSessions,
     renderFiles,
     onAssistantStart(m) { appendMessage(m); streamingId = m.id; },
     onDelta(m, text) {
@@ -674,7 +717,7 @@ export function mountUI(store, agent) {
       if (wrap) paintAssistant(wrap, m);
       streamingId = null;
       scrollToBottom();
-      renderCheckpoints();
+      renderSessions(); // 刷新会话记录的轮数/时间
       updateTransportBadge();
     },
     onToolStart(call) {

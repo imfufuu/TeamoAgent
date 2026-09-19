@@ -1,57 +1,138 @@
-// ─── 会话状态：消息、检查点（回滚）、持久化 ────────────────────────────
+// ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
+// 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
 import { STORAGE_KEY } from './config.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
+
+function newSession(title = '') {
+  return { id: uid(), title, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {} };
+}
 
 export function createStore(onChange) {
   const state = {
     apiKey: '',
     model: 'claude-sonnet-5',
-    models: [],            // 从 /v1/models 拉取的实时列表（为空则用兜底表）
-    messages: [],          // {id, role, text?, content?, toolCalls?, toolCallId?, usage?, error?, cancelled?, ts}
-    checkpoints: [],       // {id, label, messageCount, ts}
-    undoBranch: null,      // 回滚撤销栈（一步）：{checkpointId, discarded}
-    files: {},             // 虚拟文件系统
+    models: [],
     settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true },
+    sessions: [newSession()],
+    activeSessionId: null,
+    // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
+    messages: [], checkpoints: [], files: {}, undoBranch: null,
+  };
+  state.activeSessionId = state.sessions[0].id;
+
+  const sess = () => state.sessions.find((s) => s.id === state.activeSessionId) || state.sessions[0];
+  const hydrate = () => {
+    const s = sess();
+    state.messages = s.messages;
+    state.checkpoints = s.checkpoints;
+    state.files = s.files;
+    state.undoBranch = s.undoBranch;
+  };
+  const commit = () => {
+    const s = sess();
+    s.messages = state.messages;
+    s.checkpoints = state.checkpoints;
+    s.files = state.files;
+    s.undoBranch = state.undoBranch;
+    s.updatedAt = Date.now();
+    if (!s.title) {
+      const firstUser = s.messages.find((m) => m.role === 'user');
+      if (firstUser && firstUser.text) s.title = firstUser.text.slice(0, 24);
+    }
   };
 
+  // ── 持久化（v2 结构；自动迁移 v1 单会话数据）──
   let saveTimer = null;
-  // 附件（尤其 base64 图片）可能超出 localStorage 配额：超限时剥离图片数据、截断文本
   const slimState = () => ({
     ...state,
-    messages: state.messages.map((m) => m.attachments ? {
-      ...m,
-      attachments: m.attachments.map((a) => ({
-        ...a,
-        dataUrl: undefined,
-        text: a.text != null ? String(a.text).slice(0, 1000) : undefined,
-        stripped: true,
-      })),
-    } : m),
+    sessions: state.sessions.map((s) => ({
+      ...s,
+      messages: s.messages.map((m) => m.attachments ? {
+        ...m,
+        attachments: m.attachments.map((a) => ({ ...a, dataUrl: undefined, text: a.text != null ? String(a.text).slice(0, 1000) : undefined, stripped: true })),
+      } : m),
+    })),
   });
   const save = () => {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       try {
+        commit();
         let json = JSON.stringify(state);
         if (json.length > 4000000) json = JSON.stringify(slimState());
-        localStorage.setItem(STORAGE_KEY, json);
+        localStorage.setItem(STORAGE_KEY + '-v2', json);
       } catch {
-        try { localStorage.setItem(STORAGE_KEY, JSON.stringify(slimState())); } catch { /* 仍失败则放弃本次持久化 */ }
+        try { localStorage.setItem(STORAGE_KEY + '-v2', JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
       }
     }, 300);
   };
-  const notify = () => { save(); onChange && onChange(state); };
+  const notify = () => { commit(); save(); onChange && onChange(state); };
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) Object.assign(state, JSON.parse(raw));
+    const raw = localStorage.getItem(STORAGE_KEY + '-v2');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      Object.assign(state, parsed);
+      if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
+      if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
+    } else {
+      const v1 = localStorage.getItem(STORAGE_KEY);
+      if (v1) { // v1 单会话 → 迁移为一个会话
+        const old = JSON.parse(v1);
+        const s = newSession();
+        s.messages = old.messages || [];
+        s.checkpoints = old.checkpoints || [];
+        s.files = old.files || {};
+        state.sessions = [s];
+        state.activeSessionId = s.id;
+        state.apiKey = old.apiKey || '';
+        state.model = old.model || state.model;
+        state.models = old.models || [];
+        state.settings = { ...state.settings, ...(old.settings || {}) };
+      }
+    }
   } catch { /* 损坏数据忽略 */ }
+  hydrate();
 
   return {
     state,
     notify,
     save,
+
+    // ── 多会话 ──
+    createSession() {
+      const s = newSession();
+      state.sessions.unshift(s);
+      state.activeSessionId = s.id;
+      hydrate();
+      notify();
+      return s;
+    },
+    switchSession(id) {
+      if (id === state.activeSessionId) return false;
+      if (!state.sessions.some((s) => s.id === id)) return false;
+      commit(); // 先落盘当前会话
+      state.activeSessionId = id;
+      hydrate();
+      notify();
+      return true;
+    },
+    deleteSession(id) {
+      const idx = state.sessions.findIndex((s) => s.id === id);
+      if (idx < 0) return false;
+      state.sessions.splice(idx, 1);
+      if (!state.sessions.length) state.sessions = [newSession()];
+      if (!state.sessions.some((s) => s.id === state.activeSessionId)) {
+        state.activeSessionId = state.sessions[Math.min(idx, state.sessions.length - 1)].id;
+      }
+      hydrate();
+      notify();
+      return true;
+    },
+    sortedSessions() {
+      return [...state.sessions].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+    },
 
     // ── 消息 ──
     pushMessage(msg) {
@@ -67,7 +148,7 @@ export function createStore(onChange) {
       return m;
     },
 
-    // ── 检查点 / 回滚 ──
+    // ── 检查点 / 回滚（触发入口都在对话区）──
     createCheckpoint(label) {
       const cp = { id: uid(), label: String(label || '').slice(0, 40), messageCount: state.messages.length, ts: Date.now() };
       state.checkpoints.push(cp);
@@ -86,17 +167,17 @@ export function createStore(onChange) {
       notify();
       return true;
     },
-    // 回滚到某条消息所在轮次的起点（该 user 消息之前）
     rollbackBeforeMessage(messageId) {
       const idx = state.messages.findIndex((m) => m.id === messageId);
       if (idx < 0) return false;
-      // 找到该消息之前（含自身）最近的 user 消息位置，再找对应检查点
       let userIdx = idx;
       while (userIdx >= 0 && state.messages[userIdx].role !== 'user') userIdx--;
       const targetCount = userIdx >= 0 ? userIdx : idx;
-      const cpIdx = findCheckpointAt(state.checkpoints, targetCount);
+      let cpIdx = -1;
+      for (let i = state.checkpoints.length - 1; i >= 0; i--) {
+        if (state.checkpoints[i].messageCount === targetCount) { cpIdx = i; break; }
+      }
       if (cpIdx >= 0) return this.rollbackTo(state.checkpoints[cpIdx].id);
-      // 没有精确检查点时按消息数直接截断
       const discarded = state.messages.slice(targetCount);
       state.undoBranch = { checkpointId: null, discarded };
       state.messages = state.messages.slice(0, targetCount);
@@ -110,7 +191,6 @@ export function createStore(onChange) {
       notify();
       return true;
     },
-    // 丢弃最后一轮 assistant 输出（重新生成用）：保留 user 消息
     dropLastAssistantTurn() {
       let i = state.messages.length - 1;
       while (i >= 0 && state.messages[i].role !== 'user') i--;
@@ -121,22 +201,9 @@ export function createStore(onChange) {
       return removed;
     },
 
-    clearChat() {
-      state.messages = [];
-      state.checkpoints = [];
-      state.undoBranch = null;
-      notify();
-    },
     clearFiles() {
       state.files = {};
       notify();
     },
   };
-}
-
-function findCheckpointAt(checkpoints, messageCount) {
-  for (let i = checkpoints.length - 1; i >= 0; i--) {
-    if (checkpoints[i].messageCount === messageCount) return i;
-  }
-  return -1;
 }

@@ -245,6 +245,13 @@ export function createAgent(store, hooks = {}) {
       await runLoop({ regenerate: true });
     },
 
+    // 会话切换后重载虚拟文件系统
+    loadFiles(obj) {
+      fs.clear();
+      fs.import(obj || {});
+      syncFS();
+    },
+
     fs,
   };
 }
