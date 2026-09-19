@@ -338,6 +338,24 @@ export function toAnthropicTools(tools) {
   return tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
 }
 
+// ── 账户余额（GET /api/user/self；兼容 new-api 系 quota 单位：500000 quota = $1）──
+export async function fetchBalance(apiKey, signal) {
+  const res = await request('/api/user/self', { method: 'GET', headers: authHeaders('openai', apiKey), signal });
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(httpErrorMessage(res.status, text));
+  }
+  const json = await res.json();
+  const d = json.data || json;
+  if (d == null || typeof d !== 'object') return null;
+  let usd = null, used;
+  if (typeof d.balance === 'number') usd = d.balance;
+  else if (typeof d.usd === 'number') usd = d.usd;
+  else if (typeof d.quota === 'number') { usd = d.quota / 500000; if (typeof d.used_quota === 'number') used = d.used_quota / 500000; }
+  if (usd == null) return null;
+  return { usd, used, username: d.username || d.name };
+}
+
 // ── 模型列表 ────────────────────────────────────────────────────────────
 export async function fetchModels(apiKey, signal) {
   const res = await request('/v1/models', { method: 'GET', headers: authHeaders('openai', apiKey), signal });

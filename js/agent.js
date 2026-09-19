@@ -80,6 +80,7 @@ export function createAgent(store, hooks = {}) {
     if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
     if (status === 'streaming' || status === 'thinking' || status === 'executing') return;
 
+    const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
     abortController = new AbortController();
     const signal = abortController.signal;
     const tools = settings.sandboxEnabled ? TOOL_DEFS : null;
@@ -221,6 +222,7 @@ export function createAgent(store, hooks = {}) {
       abortController = null;
       syncFS();
       store.notify();
+      try { hooks.onTurnTiming && hooks.onTurnTiming(Math.round(performance.now() - t0)); } catch { /* noop */ }
     }
   }
 

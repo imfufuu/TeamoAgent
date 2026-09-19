@@ -55,6 +55,7 @@ a { color: var(--fg); }
   display: grid;
   grid-template-columns: var(--sbw, 268px) minmax(0, 1fr) var(--pnw, 320px);
   height: 100vh;
+  height: 100dvh; /* 移动 Safari：地址栏收起时不被底部工具栏遮住 */
   overflow: hidden; /* 内容再长也只让 .messages 内部滚动 */
   transition: grid-template-columns .4s var(--ease);
 }
@@ -148,7 +149,7 @@ a { color: var(--fg); }
 [data-theme="light"] .p-icon.white { filter: invert(1); } /* 白色 Logo（Grok）亮色反色 */
 .p-icon-fallback {
   display: inline-flex; width: 16px; height: 16px; flex-shrink: 0;
-  border: 1px solid var(--line-2); border-radius: 5px;
+  border-radius: 5px;
   align-items: center; justify-content: center;
   font-size: 9px; font-weight: 800; color: var(--fg-2);
 }
@@ -222,6 +223,11 @@ a { color: var(--fg); }
   padding: 12px 24px; border-bottom: 1px solid var(--line);
 }
 .status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-2); }
+.status span:empty { display: none; }
+.time-stats { color: var(--fg-3); font-size: 11px; }
+/* LaTeX（KaTeX） */
+.md-body .katex { font-size: 1.06em; }
+.md-body .katex-display { overflow-x: auto; overflow-y: hidden; padding: 4px 0 6px; margin: 0 0 .7em; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-3); transition: background .3s; }
 .dot.ok { background: var(--fg); }
 .dot.busy { background: var(--fg); animation: pulse 1.1s ease-in-out infinite; }
@@ -255,7 +261,7 @@ a { color: var(--fg); }
 
 .msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .avatar {
-  min-width: 22px; height: 22px; padding: 0 5px; border-radius: 7px; border: 1.5px solid var(--fg);
+  min-width: 22px; height: 22px; padding: 0 5px; border-radius: 7px;
   display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
   overflow: hidden;
 }
@@ -335,7 +341,7 @@ a { color: var(--fg); }
 .suggest:hover { border-color: var(--fg); color: var(--fg); transform: translateY(-2px); box-shadow: var(--shadow); }
 
 /* ── 输入区 ──────────────────────────────────────────────────────────── */
-.composer-wrap { padding: 8px 28px 16px; }
+.composer-wrap { padding: 8px 28px 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
 
 /* 附件 */
 .attach-chips { max-width: 760px; margin: 0 auto 8px; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -352,12 +358,13 @@ a { color: var(--fg); }
 .attach-chip-x:hover { color: var(--bg); background: var(--fg); }
 
 #attach-btn {
-  width: 34px; height: 34px; border-radius: 9px; font-size: 15px; flex-shrink: 0;
+  width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  border: 1px solid transparent; filter: grayscale(1); opacity: .65;
+  border: 1px solid transparent; color: var(--fg-2);
   transition: all .22s var(--ease);
 }
-#attach-btn:hover { opacity: 1; border-color: var(--line-2); transform: translateY(-1px); }
+#attach-btn svg { width: 17px; height: 17px; }
+#attach-btn:hover { color: var(--fg); border-color: var(--line-2); transform: translateY(-1px); }
 
 /* 拖拽提示 */
 .main { position: relative; }

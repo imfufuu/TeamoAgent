@@ -5,7 +5,7 @@ import { STORAGE_KEY } from './config.js';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
 function newSession(title = '') {
-  return { id: uid(), title, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {} };
+  return { id: uid(), title, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {}, stats: { lastMs: 0, totalMs: 0 } };
 }
 
 export function createStore(onChange) {
@@ -17,7 +17,7 @@ export function createStore(onChange) {
     sessions: [newSession()],
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
-    messages: [], checkpoints: [], files: {}, undoBranch: null,
+    messages: [], checkpoints: [], files: {}, undoBranch: null, stats: { lastMs: 0, totalMs: 0 },
   };
   state.activeSessionId = state.sessions[0].id;
 
@@ -28,6 +28,7 @@ export function createStore(onChange) {
     state.checkpoints = s.checkpoints;
     state.files = s.files;
     state.undoBranch = s.undoBranch;
+    state.stats = s.stats || (s.stats = { lastMs: 0, totalMs: 0 });
   };
   const commit = () => {
     const s = sess();
@@ -35,6 +36,7 @@ export function createStore(onChange) {
     s.checkpoints = state.checkpoints;
     s.files = state.files;
     s.undoBranch = state.undoBranch;
+    s.stats = state.stats;
     s.updatedAt = Date.now();
     if (!s.title) {
       const firstUser = s.messages.find((m) => m.role === 'user');
@@ -190,6 +192,35 @@ export function createStore(onChange) {
       state.undoBranch = null;
       notify();
       return true;
+    },
+    // ── 导入会话：接受本应用导出的 JSON（含 messages 数组），新建一个会话 ──
+    importSession(data) {
+      if (!data || !Array.isArray(data.messages) || !data.messages.length) return null;
+      const s = newSession('');
+      s.messages = data.messages
+        .filter((m) => m && (m.role === 'user' || m.role === 'assistant' || m.role === 'tool'))
+        .map((m) => {
+          const atts = Array.isArray(m.attachments) ? m.attachments.map((a) => ({
+            kind: a.kind, name: a.name || '文件', size: a.size || 0,
+            data: a.data || null, text: a.text || '', mime: a.mime || '', stripped: !a.data,
+          })) : [];
+          return {
+            id: uid(), role: m.role, text: m.text || '',
+            content: typeof m.content === 'string' ? m.content : (m.content || ''),
+            toolCalls: m.toolCalls, toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+            ...(atts.length ? { attachments: atts } : {}),
+          };
+        });
+      if (!s.messages.length) return null;
+      const firstUser = s.messages.find((m) => m.role === 'user');
+      s.title = String(data.title || (firstUser && firstUser.text) || '导入会话').slice(0, 40);
+      s.createdAt = Date.now();
+      s.updatedAt = Date.now();
+      state.sessions.unshift(s);
+      state.activeSessionId = s.id;
+      hydrate();
+      notify();
+      return s;
     },
     dropLastAssistantTurn() {
       let i = state.messages.length - 1;

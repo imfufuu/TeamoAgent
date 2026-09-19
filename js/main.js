@@ -16,7 +16,8 @@ const hooks = {
   onToolStart: (call) => ui && ui.onToolStart(call),
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
-  onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); },
+  onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); ui && ui.refreshBalance(); },
+  onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onError: (err) => {
     console.error(err);

@@ -344,4 +344,36 @@ test('删除最后一个会话时自动补新会话', () => {
   assert.notEqual(store.state.activeSessionId, id);
 });
 
+console.log('导入会话');
+test('importSession：导入导出 JSON 会新建并激活会话', () => {
+  const store = createStore();
+  const before = store.state.sessions.length;
+  const s = store.importSession({
+    title: '我的导出会话',
+    messages: [
+      { id: 'old-1', role: 'user', text: '你好', attachments: [{ kind: 'text', name: 'a.txt', size: 12, stripped: true }] },
+      { id: 'old-2', role: 'assistant', text: '你好！', usage: { input_tokens: 3, output_tokens: 2 } },
+      { role: 'tool', toolCallId: 't1', name: 'read_file', content: 'ok' },
+    ],
+  });
+  assert.ok(s, '返回新会话');
+  assert.equal(store.state.sessions.length, before + 1);
+  assert.equal(store.state.activeSessionId, s.id, '导入后立即激活');
+  assert.equal(s.title, '我的导出会话', '优先用导出标题');
+  assert.equal(s.messages.length, 3);
+  assert.notEqual(s.messages[0].id, 'old-1', '消息重新分配 id');
+  assert.equal(s.messages[0].attachments[0].data, null, '附件不携带内容（stripped）');
+  assert.equal(store.state.messages[1].text, '你好！', '根级引用同步到导入会话');
+  assert.equal(store.state.stats.totalMs, 0, '新会话计时从零开始');
+});
+test('importSession：非法数据返回 null 且不改变状态', () => {
+  const store = createStore();
+  const before = store.state.sessions.length;
+  assert.equal(store.importSession(null), null);
+  assert.equal(store.importSession({}), null);
+  assert.equal(store.importSession({ messages: [] }), null);
+  assert.equal(store.importSession({ messages: [{ role: 'system' }] }), null, '无有效角色消息');
+  assert.equal(store.state.sessions.length, before);
+});
+
 console.log(`\n${passed} 项测试全部通过 ✅`);

@@ -1,6 +1,6 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, BASE_URL } from './config.js';
-import { fetchModels, getTransport } from './api.js';
+import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
@@ -30,13 +30,30 @@ function renderAttachments(atts) {
   return `<div class="att-row">${items}</div>`;
 }
 
-// ── 极简 Markdown 渲染（先转义再解析，无 XSS 面）─────────────────────
+// ── 极简 Markdown 渲染（先转义再解析，无 XSS 面）+ LaTeX（KaTeX）──────
 export function renderMarkdown(src) {
   const codeBlocks = [];
   let t = String(src || '').replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     codeBlocks.push({ lang, code });
     return `\u0000CB${codeBlocks.length - 1}\u0000`;
   });
+  // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在转义前提取，占位保护
+  const maths = [];
+  const hasKatex = typeof katex !== 'undefined';
+  const pushMath = (tex, display) => {
+    if (hasKatex) {
+      try {
+        maths.push(katex.renderToString(tex, { displayMode: display, throwOnError: false }));
+        return `\u0000M${maths.length - 1}\u0000`;
+      } catch { /* 渲染失败按原文处理 */ }
+    }
+    return display ? `\n\`\`\`tex\n${tex}\n\`\`\`\n` : `\`${tex}\``; // 降级：代码形式展示
+  };
+  t = t
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, x) => pushMath(x, true))
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => pushMath(x, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false))
+    .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => pushMath(x, false));
   t = esc(t);
   t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   t = t.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>')
@@ -55,6 +72,7 @@ export function renderMarkdown(src) {
     const { lang, code } = codeBlocks[+i];
     return `<pre data-lang="${esc(lang || 'text')}"><button class="copy-code" type="button">复制</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
   });
+  t = t.replace(/\u0000M(\d+)\u0000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
   return t;
 }
 
@@ -214,6 +232,7 @@ export function mountUI(store, agent) {
     keyModal.classList.remove('open');
     toast(store.state.apiKey ? 'API Key 已保存（仅存于浏览器 localStorage）' : 'API Key 已清除', 'ok');
     updateTransportBadge();
+    refreshBalance();
   });
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
 
@@ -250,13 +269,13 @@ export function mountUI(store, agent) {
     if (getBusy()) return toast('请等待当前回合结束再切换会话', 'warn');
     store.switchSession(id);
     agent.loadFiles(store.state.files);
-    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
   }
   $('#new-session').addEventListener('click', () => {
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
     store.createSession();
     agent.loadFiles({});
-    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
     composer.focus();
   });
   renderSessions();
@@ -483,12 +502,25 @@ export function mountUI(store, agent) {
     if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done) ? '' : 'none';
   }
 
+  // 复制/回滚/重新生成按钮每轮只出现一次：仅回合末尾的 assistant 消息显示
+  function refreshActionVisibility() {
+    for (const wrap of $$('.msg-assistant', msgList)) {
+      const idx = store.state.messages.findIndex((x) => x.id === wrap.dataset.id);
+      if (idx < 0) continue;
+      const next = store.state.messages[idx + 1];
+      const isTurnEnd = !next || next.role === 'user';
+      const acts = $('.msg-actions', wrap);
+      if (acts) acts.style.display = isTurnEnd ? '' : 'none';
+    }
+  }
+
   function appendMessage(m) {
     clearEmpty();
     const wrap = messageNode(m);
     msgNodes.set(m.id, wrap);
     if (m.role === 'assistant') paintAssistant(wrap, m);
     msgList.appendChild(wrap);
+    if (m.role === 'assistant') refreshActionVisibility();
     scrollToBottom();
   }
 
@@ -502,6 +534,7 @@ export function mountUI(store, agent) {
     }
     // 把 tool 结果回填到芯片
     for (const m of store.state.messages) if (m.role === 'tool') attachToolResult(m);
+    refreshActionVisibility();
   }
 
   function attachToolResult(toolMsg) {
@@ -540,8 +573,8 @@ export function mountUI(store, agent) {
 
   // ── 状态栏 ────────────────────────────────────────────────────────────
   const STATUS = {
-    idle: ['就绪', 'ok'], thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
-    executing: ['沙箱执行中', 'busy'], done: ['就绪', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
+    idle: ['', 'ok'], thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
+    executing: ['沙箱执行中', 'busy'], done: ['', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
   };
   function setStatus(s) {
     const [label, cls] = STATUS[s] || STATUS.idle;
@@ -560,6 +593,33 @@ export function mountUI(store, agent) {
     b.title = getTransport() === 'proxy' ? '浏览器直连失败，已通过本地服务器代理转发' : '浏览器直连 api.teamorouter.com（CORS 已放行）';
   }
 
+  // ── 账户余额（GET /api/user/self，兼容 new-api 系 quota 单位）────────
+  async function refreshBalance() {
+    const badge = $('#balance-badge');
+    if (!store.state.apiKey) { badge.textContent = ''; return; }
+    try {
+      const b = await fetchBalance(store.state.apiKey);
+      if (!b) { badge.textContent = '余额 —'; badge.title = '接口未返回余额字段'; return; }
+      badge.textContent = `余额 $${b.usd.toFixed(2)}${b.used != null ? ` · 已用 $${b.used.toFixed(2)}` : ''}`;
+      badge.title = `GET /api/user/self${b.username ? ' · ' + b.username : ''}`;
+    } catch (err) {
+      badge.textContent = '余额 —';
+      badge.title = err.message;
+    }
+  }
+
+  // ── 输出用时（本轮 / 会话累计，随会话持久化）────────────────────────
+  const fmtDur = (ms) => {
+    if (!(ms > 0)) return '—';
+    if (ms < 1000) return `${ms}ms`;
+    const s = ms / 1000;
+    return s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+  };
+  function renderTimeStats() {
+    const st = store.state.stats || {};
+    $('#time-stats').textContent = st.totalMs ? `本轮 ${fmtDur(st.lastMs)} · 累计 ${fmtDur(st.totalMs)}` : '';
+  }
+
   // ── 会话统计 & 导出 ───────────────────────────────────────────────────
   function updateStats() {
     const msgs = store.state.messages;
@@ -573,8 +633,9 @@ export function mountUI(store, agent) {
   }
   $('#export-btn').addEventListener('click', () => {
     if (!store.state.messages.length) return toast('暂无可导出的对话');
+    const active = store.state.sessions.find((s) => s.id === store.state.activeSessionId) || {};
     const data = {
-      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model,
+      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model, title: active.title || '',
       checkpoints: store.state.checkpoints,
       messages: store.state.messages.map((m) => ({
         role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
@@ -588,7 +649,27 @@ export function mountUI(store, agent) {
     a.download = `teamo-agent-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    toast('已导出对话 JSON', 'ok');
+    toast('已导出会话 JSON', 'ok');
+  });
+
+  // ── 导入会话（兼容本应用导出的 JSON）────────────────────────────────
+  $('#import-btn').addEventListener('click', () => $('#import-input').click());
+  $('#import-input').addEventListener('change', async () => {
+    const input = $('#import-input');
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    try {
+      const data = JSON.parse(await file.text());
+      const s = store.importSession(data);
+      if (!s) return toast('导入失败：文件里没有有效的 messages 数组', 'err');
+      if (getBusy()) return toast('请等待当前回合结束', 'warn');
+      agent.loadFiles(store.state.files);
+      rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
+      toast(`已导入会话「${s.title}」（${s.messages.length} 条消息）`, 'ok');
+    } catch (err) {
+      toast('导入失败：' + err.message, 'err');
+    }
   });
 
   // ── 附件（按钮 / 拖拽 / 粘贴）────────────────────────────────────────
@@ -695,6 +776,8 @@ export function mountUI(store, agent) {
   setStatus('idle');
   updateTransportBadge();
   updateStats();
+  renderTimeStats();
+  refreshBalance();
   if (!store.state.apiKey) setTimeout(openKeyModal, 600);
 
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
@@ -718,8 +801,18 @@ export function mountUI(store, agent) {
       streamingId = null;
       scrollToBottom();
       renderSessions(); // 刷新会话记录的轮数/时间
+      refreshActionVisibility();
       updateTransportBadge();
     },
+    onTurnTiming(ms) {
+      if (!(ms > 0)) return;
+      const st = store.state.stats || (store.state.stats = { lastMs: 0, totalMs: 0 });
+      st.lastMs = ms;
+      st.totalMs += ms;
+      store.notify();
+      renderTimeStats();
+    },
+    refreshBalance,
     onToolStart(call) {
       const node = el('div', 'exec-card running');
       node.innerHTML = `<div class="exec-head"><span class="exec-ico">⚙</span><span class="mono">${esc(call.name)}</span><span class="exec-time"></span></div>
