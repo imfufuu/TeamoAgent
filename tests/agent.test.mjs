@@ -246,25 +246,89 @@ test('token 估算：CJK ≈ 1/字，ASCII ≈ 1/4 字符', () => {
   assert.ok(cjk >= 100 && cjk < 130, `cjk=${cjk}`);
   assert.ok(ascii >= 100 && ascii < 130, `ascii=${ascii}`);
 });
-test('compactMessages 整轮丢弃，不产生孤儿 tool 消息', () => {
-  const msgs = [];
-  for (let i = 0; i < 30; i++) {
-    msgs.push({ role: 'user', text: `问题${i} ${'x'.repeat(2000)}` });
-    msgs.push({ role: 'assistant', text: '', toolCalls: [{ id: `c${i}`, name: 'f', args: {} }] });
-    msgs.push({ role: 'tool', toolCallId: `c${i}`, content: `结果${i} ${'y'.repeat(3000)}` });
-    msgs.push({ role: 'assistant', text: `回答${i}`, done: true });
-  }
-  const { messages, droppedCount } = compactMessages(msgs, 20000);
-  assert.ok(droppedCount > 0, '应有丢弃');
-  assert.ok(estimateTokens(messages) <= 20000, `压缩后 ${estimateTokens(messages)}`);
-  // 关键不变量：每个 tool 消息前面必须存在携带对应 toolCall 的 assistant
+// 关键不变量：每个 tool 消息前面必须存在携带对应 toolCall 的 assistant
+const assertNoOrphan = (messages) => {
   for (let i = 0; i < messages.length; i++) {
     if (messages[i].role !== 'tool') continue;
     const owner = messages.slice(0, i).reverse().find((m) => m.role === 'assistant' && (m.toolCalls || []).some((t) => t.id === messages[i].toolCallId));
     assert.ok(owner, `孤儿 tool 消息: ${messages[i].toolCallId}`);
   }
-  // 最新消息必须保留
-  assert.equal(messages[messages.length - 1].text, '回答29');
+};
+const buildRounds = (n) => {
+  const msgs = [];
+  for (let i = 0; i < n; i++) {
+    msgs.push({ role: 'user', text: `问题${i} ${'x'.repeat(2000)}` });
+    msgs.push({ role: 'assistant', text: '', toolCalls: [{ id: `c${i}`, name: 'f', args: {} }] });
+    msgs.push({ role: 'tool', toolCallId: `c${i}`, content: `结果${i} ${'y'.repeat(3000)}` });
+    msgs.push({ role: 'assistant', text: `回答${i}`, done: true });
+  }
+  return msgs;
+};
+
+// P0-1 回归：预算充足时，工具结果必须原样送达模型（此前被无条件砍到 1500 字符）
+test('compactMessages：预算充足时零截断、零丢弃', () => {
+  const tool = '结果行\n'.repeat(1500); // 6000 字符
+  const msgs = [
+    { role: 'user', text: '跑一下这段代码' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c1', name: 'execute_python', args: { code: 'x' } }] },
+    { role: 'tool', toolCallId: 'c1', content: tool },
+  ];
+  for (const budget of [150000, 90000, 55000]) {
+    const { messages, droppedCount } = compactMessages(msgs, budget);
+    assert.equal(droppedCount, 0, `budget=${budget} 不应丢弃`);
+    assert.equal(messages.length, 3);
+    assert.equal(messages[2].content.length, tool.length, `budget=${budget} 工具结果被无谓截断`);
+  }
+});
+test('compactMessages：子智能体报告（4000 字符）在预算充足时完整送达', () => {
+  const report = '报告内容\n'.repeat(1200).slice(0, 4000);
+  const msgs = [
+    { role: 'user', text: '委派任务' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c2', name: 'dispatch_subagent', args: {} }] },
+    { role: 'tool', toolCallId: 'c2', content: report },
+  ];
+  const { messages } = compactMessages(msgs, 150000);
+  assert.equal(messages[2].content.length, report.length);
+});
+
+test('compactMessages：预算收紧时优先截断历史工具结果，保住全部轮次与本轮结果', () => {
+  const msgs = buildRounds(30);
+  const { messages, droppedCount } = compactMessages(msgs, 20000);
+  assert.ok(estimateTokens(messages) <= 20000, `压缩后 ${estimateTokens(messages)}`);
+  assert.equal(droppedCount, 0, '截断即可满足预算时不应丢轮次');
+  assert.equal(messages.length, 120, '全部 30 轮都应保留');
+  assertNoOrphan(messages);
+  assert.equal(messages[messages.length - 1].text, '回答29', '最新消息必须保留');
+  // 本轮（最后一条 user 之后）的工具结果必须完整
+  assert.equal(messages[messages.length - 2].content, msgs[msgs.length - 2].content, '本轮工具结果必须完整');
+});
+
+test('compactMessages：极端预算下整轮丢弃，不产生孤儿 tool 消息', () => {
+  const msgs = buildRounds(30);
+  const { messages, droppedCount } = compactMessages(msgs, 3000);
+  assert.ok(droppedCount > 0, '极端预算应触发整轮丢弃');
+  assert.ok(estimateTokens(messages) <= 3000, `压缩后 ${estimateTokens(messages)}`);
+  assertNoOrphan(messages);
+  assert.equal(messages[messages.length - 1].text, '回答29', '最新消息必须保留');
+});
+
+// P1-1 回归：单条巨型 user 消息（如粘贴 400KB 文件）不得绕过压缩
+test('compactMessages：单条巨型 user 消息不再绕过压缩', () => {
+  for (const [size, budget] of [[400000, 20000], [200000, 20000], [512000, 90000]]) {
+    const { messages } = compactMessages([{ role: 'user', text: 'z'.repeat(size) }], budget);
+    assert.ok(estimateTokens(messages) <= budget, `size=${size} 压缩后 ${estimateTokens(messages)} > ${budget}`);
+    assert.ok(messages[0].text.length < size, '应已截断');
+  }
+});
+test('compactMessages：单轮超长工具结果（无轮次边界）也能落入预算', () => {
+  const msgs = [
+    { role: 'user', text: 'Q' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c0', name: 'f', args: {} }] },
+    { role: 'tool', toolCallId: 'c0', content: 'y'.repeat(500000) },
+  ];
+  const { messages } = compactMessages(msgs, 20000);
+  assert.ok(estimateTokens(messages) <= 20000, `压缩后 ${estimateTokens(messages)}`);
+  assertNoOrphan(messages);
 });
 test('truncateToolContent 保头尾、报省略量', () => {
   const s = 'A'.repeat(5000) + 'MID' + 'B'.repeat(5000);
@@ -447,6 +511,41 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.ok(OUTPUT_SPEC.includes('Markdown') && OUTPUT_SPEC.includes('KaTeX'), '规范含 Markdown/KaTeX');
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
+});
+
+group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
+test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
+  const realLS = globalThis.localStorage;
+  const mem = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+  try {
+    // 全新模块实例，确保读到上面这个 localStorage 桩
+    const { createStore } = await import('../js/state.js?imm=' + Date.now());
+    const store = createStore();
+    store.pushMessage({ role: 'user', text: '最后一轮对话' });
+    const key = 'teamo-agent-state-v1-v2';
+
+    // 防抖版：定时器未触发前不应写入
+    store.save();
+    assert.equal(mem.get(key), undefined, '防抖版 save() 不应立即写入');
+
+    // 同步版（beforeunload / visibilitychange 走这条）：必须立刻写入
+    store.save(true);
+    const raw = mem.get(key);
+    assert.ok(raw, 'save(true) 必须立即落盘');
+    const saved = JSON.parse(raw);
+    assert.ok(
+      saved.sessions.some((s) => (s.messages || []).some((m) => m.text === '最后一轮对话')),
+      '最后一轮对话必须已持久化',
+    );
+  } finally {
+    if (realLS === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realLS;
+  }
 });
 
 // ── 顺序执行（async 测试逐个 await）──

@@ -56,18 +56,22 @@ export function createStore(onChange) {
       } : m),
     })),
   });
-  const save = () => {
+  const writeNow = () => {
+    try {
+      commit();
+      let json = JSON.stringify(state);
+      if (json.length > 4000000) json = JSON.stringify(slimState());
+      localStorage.setItem(STORAGE_KEY + '-v2', json);
+    } catch {
+      try { localStorage.setItem(STORAGE_KEY + '-v2', JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
+    }
+  };
+  // immediate=true 立即同步落盘：beforeunload / 页面隐藏时不能用防抖，
+  // 否则定时器还没触发页面就被卸载，最后一轮对话会丢失。
+  const save = (immediate = false) => {
     clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => {
-      try {
-        commit();
-        let json = JSON.stringify(state);
-        if (json.length > 4000000) json = JSON.stringify(slimState());
-        localStorage.setItem(STORAGE_KEY + '-v2', json);
-      } catch {
-        try { localStorage.setItem(STORAGE_KEY + '-v2', JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
-      }
-    }, 300);
+    if (immediate) { writeNow(); return; }
+    saveTimer = setTimeout(writeNow, 300);
   };
   const notify = () => { commit(); save(); onChange && onChange(state); };
 
