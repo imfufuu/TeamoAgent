@@ -212,15 +212,24 @@ export function mountUI(store, agent) {
   }
   const openMenu = () => {
     renderModelMenu();
-    // fixed 定位（脱离侧栏 overflow:hidden 裁剪），按按钮实际位置摆放
-    const r = ddBtn.getBoundingClientRect();
-    ddMenu.style.left = `${r.left}px`;
-    ddMenu.style.top = `${r.bottom + 6}px`;
-    ddMenu.style.width = `${Math.max(r.width + 60, 260)}px`;
+    if (window.innerWidth <= 760) {
+      // 窄屏：屏幕顶部全宽浮层（按按钮定位的 fixed 菜单在窄屏会溢出视口）
+      ddMenu.style.left = '10px';
+      ddMenu.style.top = '10px';
+      ddMenu.style.width = `${Math.max(window.innerWidth - 20, 240)}px`;
+      ddMenu.classList.add('mobile-sheet');
+    } else {
+      // fixed 定位（脱离侧栏 overflow:hidden 裁剪），按按钮实际位置摆放
+      const r = ddBtn.getBoundingClientRect();
+      ddMenu.style.left = `${r.left}px`;
+      ddMenu.style.top = `${r.bottom + 6}px`;
+      ddMenu.style.width = `${Math.max(r.width + 60, 260)}px`;
+      ddMenu.classList.remove('mobile-sheet');
+    }
     ddMenu.classList.add('open');
     setTimeout(() => ddSearch.focus(), 50);
   };
-  const closeMenu = () => ddMenu.classList.remove('open');
+  const closeMenu = () => ddMenu.classList.remove('open', 'mobile-sheet');
   ddBtn.addEventListener('click', () => ddMenu.classList.contains('open') ? closeMenu() : openMenu());
   ddSearch.addEventListener('input', renderModelMenu);
   document.addEventListener('click', (e) => { if (!$('#model-picker').contains(e.target)) closeMenu(); });
@@ -405,6 +414,9 @@ export function mountUI(store, agent) {
     updateBackdrop();
   }
   $('#panel-toggle').addEventListener('click', () => setPanelCollapsed(!panel.classList.contains('collapsed')));
+  // 窄屏浮层的关闭栏（顶栏 ◧ 开关被遮罩挡住时，触屏只能靠它收起面板）
+  const panelClose = $('#panel-close');
+  if (panelClose) panelClose.addEventListener('click', () => setPanelCollapsed(true));
   $('#sidebar-toggle').addEventListener('click', () => {
     if (mqSidebar.matches) setSidebarOpen(false);
     else sidebar.classList.add('collapsed');

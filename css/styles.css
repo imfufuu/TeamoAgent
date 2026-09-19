@@ -77,6 +77,10 @@ a { color: var(--fg); }
 /* 窄屏：侧栏抽屉化 */
 @media (max-width: 860px) {
   .app { --sbw: 0px; }
+  /* 侧栏变 fixed 浮层后不再是 grid item，显式指定列位：
+     否则 .main 会被自动排进第 1 列（0px 轨道）而整体塌缩成一条缝 */
+  .main { grid-column: 2; }
+  #sandbox-panel { grid-column: 3; }
   .sidebar {
     position: fixed; left: 0; top: 0; bottom: 0; width: 268px; z-index: 48;
     transform: translateX(-100%); transition: transform .35s var(--ease);
@@ -587,4 +591,100 @@ a { color: var(--fg); }
   .msg.enter, .empty-state, .dd-menu.open, .toast, .chip.expanded .chip-detail,
   .file-viewer.open { animation-duration: .01ms; animation-iteration-count: 1; }
   * { scroll-behavior: auto; }
+}
+
+/* ─── 移动端优化：防止元素挤成一团，保证触屏可操作性 ───────────────────
+   设计原则：
+   · 顶栏允许换行成两行，绝不把功能胶囊挤到一起 / 溢出视口；
+   · hover 才显示的控件（复制 / 回滚 / 删除会话 / 代码复制）在触屏上常显；
+   · 输入框 16px 字号（iOS Safari 对 <16px 的输入框聚焦时自动缩放页面）；
+   · 底部输入区 / 悬浮按钮 / Toast 统一避让安全区（Home 指示条）；
+   · 模型下拉窄屏变全宽浮层；沙箱面板浮层补关闭栏；面板展开时隐藏 FAB 防误触。 */
+
+/* 消除双击缩放延迟与系统点击高亮 */
+button, a, input, textarea { touch-action: manipulation; }
+body { -webkit-tap-highlight-color: transparent; }
+
+/* 窄屏（≤860）：侧栏抽屉化、FAB 常驻左上角 —— 顶栏必须为 FAB 让位 */
+@media (max-width: 860px) {
+  .topbar { padding-left: 56px; }
+  .sidebar { width: min(268px, 86vw); }
+  /* iOS 防聚焦缩放：输入框字号提到 16px */
+  .dd-search, .key-input { font-size: 16px; }
+}
+
+/* 面板移动端关闭栏（宽屏隐藏；须置于下方媒体查询之前，同特异性时后者才生效） */
+.panel-mobile-head {
+  display: none; align-items: center; justify-content: space-between;
+  padding: 10px 14px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.panel-mobile-title {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+
+/* 手机（≤760）：顶栏可换行、消息区加宽、输入区避让安全区 */
+@media (max-width: 760px) {
+  .topbar { padding: 10px 12px; row-gap: 8px; flex-wrap: wrap; }
+  .status { min-width: 0; }
+  .time-stats { display: none; } /* 次要信息，让位给功能胶囊 */
+  .topbar-right { gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+  .pill { padding: 4px 10px; font-size: 11.5px; }
+  .pill .pill-ico { width: 12px; height: 12px; }
+
+  .messages { padding: 18px 0 8px; }
+  .msg { margin-bottom: 18px; padding: 0 14px; }
+  .msg-head { flex-wrap: wrap; row-gap: 4px; }
+  .msg-user .bubble { max-width: 88%; padding: 9px 13px; }
+  .empty-state { margin-top: 4vh; padding: 0 16px; }
+  .suggest { padding: 10px 14px; font-size: 12.5px; }
+  .md-body pre { padding: 12px 14px; }
+
+  .composer-wrap { padding: 6px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); }
+  .composer { border-radius: 14px; padding: 8px; gap: 8px; }
+  #composer-input { font-size: 16px; }
+  .attach-chips { margin-bottom: 6px; }
+  .composer-hint { margin-top: 6px; }
+
+  /* 悬浮按钮 / Toast 避让 Home 指示条 */
+  #jump-bottom { bottom: calc(140px + env(safe-area-inset-bottom)); }
+  #undo-pill { bottom: calc(192px + env(safe-area-inset-bottom)); }
+  .toasts { bottom: max(20px, calc(env(safe-area-inset-bottom) + 10px)); }
+
+  /* 沙箱面板浮层：显示关闭栏；面板展开时隐藏 FAB（其 z-index 高于面板，防误触） */
+  .panel-mobile-head { display: flex; }
+  #sandbox-panel { width: min(340px, 92vw); }
+  .app:has(#sandbox-panel:not(.collapsed)) ~ #sidebar-fab { display: none; }
+}
+/* 模型下拉：窄屏全宽浮层样式（左/上/宽由 JS 按视口内联设置） */
+.dd-menu.mobile-sheet { border-radius: 14px; max-height: calc(100dvh - 20px); }
+
+/* 超窄（≤560）：隐藏协议说明行，省下纵向空间 */
+@media (max-width: 560px) {
+  .composer-hint { display: none; }
+  .att-img img { max-width: 120px; max-height: 110px; }
+}
+
+/* 矮横屏（手机横置）：压缩纵向留白 */
+@media (max-height: 460px) and (orientation: landscape) {
+  .topbar { padding-top: 8px; padding-bottom: 8px; }
+  .messages { padding-top: 12px; }
+  .msg { margin-bottom: 14px; }
+  .empty-state { margin-top: 3vh; }
+  .empty-cards { margin-top: 14px; }
+}
+
+/* 触屏设备：没有 hover —— 原本「悬停显示」的控件必须常显，命中区加大到可点击 */
+@media (hover: none) {
+  .msg-actions { opacity: 1; transform: none; }
+  .sess-del { opacity: 1; }
+  .copy-code { opacity: 1; }
+  .act { padding: 6px 10px; font-size: 12px; }
+  .icon-btn { padding: 5px 9px; }
+  .mini-btn { padding: 5px 11px; }
+  .model-btn { padding: 12px 14px; }
+  .dd-item { padding: 10px 14px; }
+  .sess-item { padding: 10px; }
+  #attach-btn, #send-btn { width: 38px; height: 38px; }
+  .pill { min-height: 32px; }
 }

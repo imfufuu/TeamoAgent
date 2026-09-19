@@ -102,6 +102,11 @@
 
   <!-- ═══ 沙箱面板（默认收起；宽屏并入网格不遮挡，窄屏为浮层 + 遮罩）═══ -->
   <aside id="sandbox-panel" class="panel collapsed">
+    <!-- 窄屏浮层专属关闭栏（触屏够不到顶栏的 ◧ 开关） -->
+    <div class="panel-mobile-head">
+      <span class="panel-mobile-title">沙箱面板</span>
+      <button id="panel-close" class="icon-btn" type="button" title="收起面板" aria-label="收起面板">✕</button>
+    </div>
     <div id="panel-tabs" class="panel-tabs">
       <button class="active" data-tab="files" type="button">文件</button>
       <button data-tab="agents" type="button">子智能体</button>
