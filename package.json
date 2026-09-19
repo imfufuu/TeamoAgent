@@ -1,0 +1,10 @@
+{
+  "name": "teamo-agent",
+  "private": true,
+  "type": "module",
+  "description": "Web Agent built on TeamoRouter LLM gateway",
+  "scripts": {
+    "test": "node tests/agent.test.mjs",
+    "start": "python3 server.py"
+  }
+}

@@ -1,0 +1,634 @@
+// ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, BASE_URL } from './config.js';
+import { fetchModels, getTransport } from './api.js';
+import { estimateTokens, contextBudgetFor } from './context.js';
+
+const $ = (sel, el = document) => el.querySelector(sel);
+const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtSize = (n) => (n == null ? '' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`);
+
+const contextBudgetLabel = (model) => {
+  const b = contextBudgetFor(model);
+  return b >= 1000 ? `${Math.round(b / 1000)}k` : String(b);
+};
+
+// 附件展示（用户气泡内）
+function renderAttachments(atts) {
+  if (!atts || !atts.length) return '';
+  const items = atts.map((a) => {
+    if (a.kind === 'image') {
+      return a.dataUrl
+        ? `<a class="att-img" href="${a.dataUrl}" target="_blank" rel="noopener" title="${esc(a.name)}"><img src="${a.dataUrl}" alt="${esc(a.name)}"></a>`
+        : `<span class="att-file mono" title="内容未持久化">🖼 ${esc(a.name)}（已省略）</span>`;
+    }
+    return `<span class="att-file mono" title="${esc(a.name)}">📄 ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
+  }).join('');
+  return `<div class="att-row">${items}</div>`;
+}
+
+// ── 极简 Markdown 渲染（先转义再解析，无 XSS 面）─────────────────────
+export function renderMarkdown(src) {
+  const codeBlocks = [];
+  let t = String(src || '').replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    codeBlocks.push({ lang, code });
+    return `\u0000CB${codeBlocks.length - 1}\u0000`;
+  });
+  t = esc(t);
+  t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  t = t.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>')
+    .replace(/^#### (.*)$/gm, '<h4>$1</h4>').replace(/^### (.*)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.*)$/gm, '<h2>$1</h2>').replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  t = t.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
+  t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
+  t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 列表（连续行聚合）
+  t = t.replace(/(?:^|\n)((?:[-*] .+(?:\n|$))+)/g, (m) => '\n<ul>' + m.trim().split('\n').map((l) => `<li>${l.replace(/^[-*] /, '')}</li>`).join('') + '</ul>');
+  t = t.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, (m) => '\n<ol>' + m.trim().split('\n').map((l) => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('') + '</ol>');
+  t = t.replace(/\n{2,}/g, '</p><p>').replace(/^(?!<[a-z])/, '<p>').replace(/(?!>)$/, '</p>');
+  t = t.replace(/<p>\s*(<(?:h\d|ul|ol|blockquote|pre))/g, '$1').replace(/(<\/(?:h\d|ul|ol|blockquote|pre)>)\s*<\/p>/g, '$1');
+  t = t.replace(/\u0000CB(\d+)\u0000/g, (_, i) => {
+    const { lang, code } = codeBlocks[+i];
+    return `<pre data-lang="${esc(lang || 'text')}"><button class="copy-code" type="button">复制</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
+  });
+  return t;
+}
+
+// ── Toast ───────────────────────────────────────────────────────────────
+export function toast(msg, type = 'info', ms = 2600) {
+  const wrap = $('#toasts');
+  const t = el('div', `toast ${type}`, `<span>${esc(msg)}</span>`);
+  wrap.appendChild(t);
+  requestAnimationFrame(() => t.classList.add('in'));
+  setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 400); }, ms);
+}
+
+// ── 主 UI ───────────────────────────────────────────────────────────────
+export function mountUI(store, agent) {
+  const msgList = $('#messages');
+  const composer = $('#composer-input');
+  const sendBtn = $('#send-btn');
+  const statusDot = $('#status-dot');
+  const statusText = $('#status-text');
+  const msgNodes = new Map();
+  const execCards = [];
+  let streamingId = null;
+  let rafPending = false;
+
+  // ── 主题 ──
+  const applyTheme = () => document.documentElement.dataset.theme = store.state.settings.theme;
+  applyTheme();
+  $('#theme-toggle').addEventListener('click', () => {
+    store.state.settings.theme = store.state.settings.theme === 'light' ? 'dark' : 'light';
+    applyTheme(); store.notify();
+  });
+
+  // ── 模型下拉 ──
+  const ddBtn = $('#model-btn');
+  const ddMenu = $('#model-menu');
+  const ddSearch = $('#model-search');
+  function mergedModels() {
+    const map = new Map();
+    for (const m of FALLBACK_MODELS) map.set(m.id, { ...m });
+    for (const id of store.state.models || []) {
+      if (!map.has(id)) map.set(id, { id, provider: providerOf(id) });
+    }
+    return [...map.values()];
+  }
+  function renderModelMenu() {
+    const q = ddSearch.value.trim().toLowerCase();
+    const list = mergedModels().filter((m) => !q || m.id.toLowerCase().includes(q));
+    const groups = new Map();
+    for (const m of list) {
+      if (!groups.has(m.provider)) groups.set(m.provider, []);
+      groups.get(m.provider).push(m);
+    }
+    const order = [...PROVIDER_ORDER.filter((p) => groups.has(p)), ...[...groups.keys()].filter((p) => !PROVIDER_ORDER.includes(p))];
+    ddMenu.querySelectorAll('.dd-group').forEach((n) => n.remove());
+    for (const p of order) {
+      const g = el('div', 'dd-group');
+      g.appendChild(el('div', 'dd-group-title', esc(p)));
+      for (const m of groups.get(p)) {
+        const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
+        item.type = 'button';
+        item.innerHTML = `<span class="dd-item-id mono">${esc(m.id)}</span>
+          <span class="dd-item-badges">
+            ${isFreeModel(m.id) ? '<span class="badge">FREE</span>' : ''}
+            ${protocolOf(m.id) === 'anthropic' ? '<span class="badge ghost">原生</span>' : ''}
+          </span>`;
+        item.addEventListener('click', () => {
+          store.state.model = m.id; store.notify();
+          updateModelBtn(); closeMenu();
+          $('#fast-toggle').disabled = !supportsFastMode(m.id);
+          if (store.state.settings.fastMode && !supportsFastMode(m.id)) {
+            store.state.settings.fastMode = false; $('#fast-toggle').classList.remove('on');
+          }
+        });
+        g.appendChild(item);
+      }
+      ddMenu.appendChild(g);
+    }
+    if (!order.length) ddMenu.appendChild(el('div', 'dd-empty', '无匹配模型'));
+  }
+  function updateModelBtn() {
+    $('#model-btn-name').textContent = store.state.model;
+    $('#model-btn-provider').textContent = providerOf(store.state.model);
+  }
+  const openMenu = () => { renderModelMenu(); ddMenu.classList.add('open'); setTimeout(() => ddSearch.focus(), 50); };
+  const closeMenu = () => ddMenu.classList.remove('open');
+  ddBtn.addEventListener('click', () => ddMenu.classList.contains('open') ? closeMenu() : openMenu());
+  ddSearch.addEventListener('input', renderModelMenu);
+  document.addEventListener('click', (e) => { if (!$('#model-picker').contains(e.target)) closeMenu(); });
+  updateModelBtn();
+
+  $('#refresh-models').addEventListener('click', async () => {
+    if (!store.state.apiKey) return openKeyModal();
+    $('#refresh-models').classList.add('spin');
+    try {
+      const list = await fetchModels(store.state.apiKey);
+      store.state.models = list; store.notify();
+      renderModelMenu();
+      toast(`已获取 ${list.length} 个模型（GET /v1/models）`, 'ok');
+    } catch (err) { toast('模型列表获取失败：' + err.message, 'err'); }
+    finally { $('#refresh-models').classList.remove('spin'); }
+  });
+
+  // ── 开关 ──
+  const sandboxToggle = $('#sandbox-toggle');
+  const syncSandbox = () => sandboxToggle.classList.toggle('on', store.state.settings.sandboxEnabled);
+  sandboxToggle.addEventListener('click', () => {
+    store.state.settings.sandboxEnabled = !store.state.settings.sandboxEnabled;
+    syncSandbox(); store.notify();
+    toast(store.state.settings.sandboxEnabled ? '沙箱已开启：Agent 可执行代码与读写文件' : '沙箱已关闭：纯对话模式');
+  });
+  syncSandbox();
+
+  const fastToggle = $('#fast-toggle');
+  const syncFast = () => {
+    fastToggle.classList.toggle('on', store.state.settings.fastMode);
+    fastToggle.disabled = !supportsFastMode(store.state.model);
+  };
+  fastToggle.addEventListener('click', () => {
+    store.state.settings.fastMode = !store.state.settings.fastMode;
+    syncFast(); store.notify();
+    toast(store.state.settings.fastMode ? 'Fast mode 开启（service_tier=fast，2x 计费，仅 GPT 系列）' : 'Fast mode 关闭');
+  });
+  syncFast();
+
+  // ── API Key 弹窗 ──
+  const keyModal = $('#key-modal');
+  const keyInput = $('#key-input');
+  window.openKeyModal = openKeyModal;
+  function openKeyModal() { keyInput.value = store.state.apiKey; keyModal.classList.add('open'); setTimeout(() => keyInput.focus(), 100); }
+  $('#key-btn').addEventListener('click', openKeyModal);
+  $('#key-close').addEventListener('click', () => keyModal.classList.remove('open'));
+  $('#key-save').addEventListener('click', () => {
+    store.state.apiKey = keyInput.value.trim(); store.notify();
+    keyModal.classList.remove('open');
+    toast(store.state.apiKey ? 'API Key 已保存（仅存于浏览器 localStorage）' : 'API Key 已清除', 'ok');
+    updateTransportBadge();
+  });
+  keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
+
+  // ── 新对话 ──
+  $('#new-chat').addEventListener('click', () => {
+    if (!store.state.messages.length) return;
+    if (!confirm('开始新对话？当前消息与检查点将被清空（文件保留）。')) return;
+    store.clearChat(); msgNodes.clear(); msgList.innerHTML = ''; renderEmpty(); renderCheckpoints();
+    toast('已开启新对话');
+  });
+
+  // ── 沙箱面板（宽屏并入网格 / 窄屏浮层 + 遮罩，绝不遮挡内容区）──
+  const panel = $('#sandbox-panel');
+  const backdrop = $('#panel-backdrop');
+  const NARROW = 1180;
+  function setPanelCollapsed(v) {
+    panel.classList.toggle('collapsed', v);
+    $('#panel-toggle').textContent = v ? '◧' : '◨';
+    backdrop.classList.toggle('show', !v && window.innerWidth < NARROW);
+  }
+  $('#panel-toggle').addEventListener('click', () => setPanelCollapsed(!panel.classList.contains('collapsed')));
+  backdrop.addEventListener('click', () => setPanelCollapsed(true));
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      if (window.innerWidth >= NARROW) backdrop.classList.remove('show');
+      else if (!panel.classList.contains('collapsed')) backdrop.classList.add('show');
+    }, 120);
+  });
+  // 初始状态：始终默认收起，由用户显式打开
+  setPanelCollapsed(true);
+  $$('#panel-tabs button').forEach((b) => b.addEventListener('click', () => {
+    $$('#panel-tabs button').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    $('#tab-console').style.display = b.dataset.tab === 'console' ? '' : 'none';
+    $('#tab-files').style.display = b.dataset.tab === 'files' ? '' : 'none';
+  }));
+  $('#clear-files').addEventListener('click', () => { agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空'); });
+
+  function renderFiles() {
+    const box = $('#file-list'); box.innerHTML = '';
+    const list = agent.fs.list();
+    if (!list.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建。')); return; }
+    for (const f of list) {
+      const item = el('div', 'file-item');
+      item.innerHTML = `<span class="mono file-path">${esc(f.path)}</span><span class="file-size">${f.size} B</span>`;
+      item.addEventListener('click', () => {
+        const viewer = $('#file-viewer');
+        viewer.innerHTML = `<div class="file-viewer-head mono">${esc(f.path)}<button id="fv-close">✕</button></div><pre>${esc(agent.fs.read(f.path))}</pre>`;
+        viewer.classList.add('open');
+        $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
+      });
+      box.appendChild(item);
+    }
+  }
+  renderFiles();
+
+  // ── 检查点时间线（回滚）──────────────────────────────────────────────
+  function renderCheckpoints() {
+    const box = $('#checkpoint-list'); box.innerHTML = '';
+    const cps = store.state.checkpoints;
+    if (!cps.length) { box.appendChild(el('div', 'empty-hint', '发送消息后自动生成检查点')); return; }
+    for (const cp of [...cps].reverse()) {
+      const node = el('button', 'cp-item');
+      node.type = 'button';
+      node.innerHTML = `<span class="cp-dot"></span><span class="cp-label">${esc(cp.label || '(空消息)')}</span><span class="cp-time">${new Date(cp.ts).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}</span>`;
+      node.addEventListener('click', () => {
+        if (!confirm(`回滚到「${cp.label || '检查点'}」？该点之后的消息将被移除（可一步撤销）。`)) return;
+        store.rollbackTo(cp.id);
+        rebuildMessages(); renderCheckpoints();
+        toast('已回滚，可点击「撤销回滚」恢复', 'ok', 4000);
+      });
+      box.appendChild(node);
+    }
+    const undoBtn = $('#undo-rollback');
+    undoBtn.style.display = store.state.undoBranch ? '' : 'none';
+  }
+  $('#undo-rollback').addEventListener('click', () => {
+    if (store.undoRollback()) { rebuildMessages(); renderCheckpoints(); toast('已撤销回滚'); }
+  });
+  renderCheckpoints();
+
+  // ── 消息渲染 ──────────────────────────────────────────────────────────
+  function renderEmpty() {
+    if (store.state.messages.length) return;
+    msgList.appendChild(el('div', 'empty-state', `
+      <div class="empty-logo">◐</div>
+      <h2>TeamoAgent</h2>
+      <p>基于 <span class="mono">api.teamorouter.com</span> 的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
+      <div class="empty-cards">
+        <button class="suggest" type="button">用沙箱计算：前 100 个斐波那契数中有多少个质数？</button>
+        <button class="suggest" type="button">写一段 JS 在沙箱里模拟蒙特卡洛估算 π，并验证结果</button>
+        <button class="suggest" type="button">把《静夜思》写入 files/poem.txt，然后读出来翻译成英文</button>
+      </div>`));
+    $$('.suggest', msgList).forEach((b) => b.addEventListener('click', () => { composer.value = b.textContent; composer.focus(); autoGrow(); }));
+  }
+  function clearEmpty() { const e = $('.empty-state', msgList); if (e) e.remove(); }
+
+  function messageNode(m) {
+    const wrap = el('div', `msg msg-${m.role} enter`);
+    wrap.dataset.id = m.id;
+    if (m.role === 'user') {
+      wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>`;
+    } else {
+      wrap.innerHTML = `
+        <div class="msg-head"><span class="avatar">◐</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>
+        <div class="md-body"></div>
+        <div class="tool-chips"></div>
+        <div class="msg-actions">
+          <button class="act" data-act="copy" title="复制">复制</button>
+          <button class="act" data-act="rollback" title="回滚到本轮之前">⤺ 回滚</button>
+          <button class="act act-regen" data-act="regen" title="重新生成" style="display:none">↻ 重新生成</button>
+        </div>`;
+      $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
+        const act = b.dataset.act;
+        if (act === 'copy') { navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200)); }
+        if (act === 'rollback') {
+          if (getBusy()) return toast('请等待当前回合结束');
+          if (!confirm('回滚到本轮对话之前？')) return;
+          store.rollbackBeforeMessage(m.id);
+          rebuildMessages(); renderCheckpoints();
+          toast('已回滚', 'ok');
+        }
+        if (act === 'regen') {
+          if (getBusy()) return;
+          agent.regenerate();
+        }
+      }));
+    }
+    wrap.addEventListener('copy-code-click', () => {});
+    return wrap;
+  }
+
+  function paintAssistant(wrap, m) {
+    const body = $('.md-body', wrap);
+    let html = '';
+    // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
+    if (m.done && m.reasoning) {
+      html += `<details class="reasoning"><summary>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
+    } else if (!m.done && m.reasoning && !m.text) {
+      html += '<div class="thinking-line">深度思考中<span class="dots">…</span></div>';
+    }
+    html += renderMarkdown(m.text || '');
+    if (!m.done) html += '<span class="cursor"></span>';
+    if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
+    body.innerHTML = html;
+    if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
+    // 工具芯片
+    const chips = $('.tool-chips', wrap);
+    if (m.toolCalls && m.toolCalls.length) {
+      if (chips.children.length !== m.toolCalls.length) {
+        chips.innerHTML = '';
+        for (const t of m.toolCalls) {
+          const chip = el('div', 'chip');
+          chip.dataset.callId = t.id;
+          chip.innerHTML = `<span class="chip-ico">⚙</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-state">…</span>`;
+          chip.addEventListener('click', () => chip.classList.toggle('expanded'));
+          const detail = el('div', 'chip-detail mono');
+          chip.appendChild(detail);
+          chip._detail = detail;
+          chip._args = t.args;
+          chips.appendChild(chip);
+        }
+      }
+      for (const [i, chip] of $$('.chip', chips).entries()) {
+        if (m.toolCalls[i]) chip._args = m.toolCalls[i].args;
+        // 流式期间参数仍在增长，持续刷新；完成后定格
+        if (!chip._renderedArgs || !m.done) {
+          chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
+          chip._renderedArgs = !!m.done;
+        }
+      }
+    }
+    // meta
+    const meta = $('.msg-meta', wrap);
+    const parts = [];
+    if (m.usage) parts.push(`↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok`);
+    if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
+    meta.textContent = parts.join(' · ');
+    // 仅最后一条 assistant 显示重新生成
+    const lastAssistant = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
+    const regen = $('.act-regen', wrap);
+    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done) ? '' : 'none';
+  }
+
+  function appendMessage(m) {
+    clearEmpty();
+    const wrap = messageNode(m);
+    msgNodes.set(m.id, wrap);
+    if (m.role === 'assistant') paintAssistant(wrap, m);
+    msgList.appendChild(wrap);
+    scrollToBottom();
+  }
+
+  function rebuildMessages() {
+    msgNodes.clear(); msgList.innerHTML = '';
+    renderEmpty();
+    for (const m of store.state.messages) {
+      if (m.role === 'tool') continue;
+      appendMessage(m);
+      $$('.msg', msgList).forEach((n) => n.classList.remove('enter'));
+    }
+    // 把 tool 结果回填到芯片
+    for (const m of store.state.messages) if (m.role === 'tool') attachToolResult(m);
+  }
+
+  function attachToolResult(toolMsg) {
+    const chip = $(`.chip[data-call-id="${CSS.escape(toolMsg.toolCallId)}"]`, msgList);
+    if (!chip) return;
+    const ok = !toolMsg.content.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(toolMsg.content);
+    $('.chip-state', chip).textContent = ok ? '✓' : '✕';
+    $('.chip-state', chip).classList.toggle('bad', !ok);
+    chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(String(toolMsg.content).slice(0, 3000))}</pre>`;
+    chip._renderedArgs = true;
+  }
+
+  function scrollToBottom(force) {
+    const near = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight < 160;
+    if (near || force) msgList.scrollTo({ top: msgList.scrollHeight, behavior: 'smooth' });
+  }
+
+  // ── 控制台（沙箱执行卡片）────────────────────────────────────────────
+  function renderConsole() {
+    const box = $('#exec-list'); box.innerHTML = '';
+    if (!execCards.length) { box.appendChild(el('div', 'empty-hint', 'Agent 执行代码时会显示在这里')); return; }
+    for (const c of [...execCards].reverse()) box.appendChild(c.node);
+  }
+  renderConsole();
+
+  // ── 状态栏 ────────────────────────────────────────────────────────────
+  const STATUS = {
+    idle: ['就绪', 'ok'], thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
+    executing: ['沙箱执行中', 'busy'], done: ['就绪', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
+  };
+  function setStatus(s) {
+    const [label, cls] = STATUS[s] || STATUS.idle;
+    statusText.textContent = label;
+    statusDot.className = 'dot ' + cls;
+    const busy = ['thinking', 'streaming', 'executing'].includes(s);
+    sendBtn.classList.toggle('stop-mode', busy);
+    $('#send-ico').textContent = busy ? '■' : '↑';
+    sendBtn.title = busy ? '停止' : '发送 (Enter)';
+  }
+  function getBusy() { return ['thinking', 'streaming', 'executing'].includes(agent.getStatus()); }
+
+  function updateTransportBadge() {
+    const b = $('#transport-badge');
+    b.textContent = getTransport() === 'proxy' ? '中继模式' : '直连模式';
+    b.title = getTransport() === 'proxy' ? '浏览器直连失败，已通过本地服务器代理转发' : '浏览器直连 api.teamorouter.com（CORS 已放行）';
+  }
+
+  // ── 会话统计 & 导出 ───────────────────────────────────────────────────
+  function updateStats() {
+    const msgs = store.state.messages;
+    const n = msgs.filter((m) => m.role !== 'tool').length;
+    const stats = $('#conv-stats');
+    if (!n) { stats.textContent = ''; return; }
+    const tk = estimateTokens(msgs);
+    const budget = contextBudgetLabel(store.state.model);
+    stats.textContent = `${n} 条 · ~${tk >= 1000 ? (tk / 1000).toFixed(1) + 'k' : tk} tok / ${budget}`;
+    stats.title = '估算上下文占用（含系统提示词外的消息体）';
+  }
+  $('#export-btn').addEventListener('click', () => {
+    if (!store.state.messages.length) return toast('暂无可导出的对话');
+    const data = {
+      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model,
+      checkpoints: store.state.checkpoints,
+      messages: store.state.messages.map((m) => ({
+        role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
+        toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+        attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
+      })),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `teamo-agent-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    toast('已导出对话 JSON', 'ok');
+  });
+
+  // ── 附件（按钮 / 拖拽 / 粘贴）────────────────────────────────────────
+  const IMG_RE = /^image\/(png|jpeg|jpg|gif|webp)$/;
+  const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|py|json|jsonl|csv|tsv|log|html?|css|scss|xml|ya?ml|sh|bash|zsh|sql|ini|toml|env|conf|cfg|c|h|cpp|hpp|java|go|rs|rb|php|swift|kt|vue|svelte)$/i;
+  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_FILES = 6;
+  let pending = [];
+  const attachChips = $('#attach-chips');
+  const fileInput = $('#attach-input');
+
+  const readAs = (mode, file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error(`读取 ${file.name} 失败`));
+    mode === 'text' ? r.readAsText(file) : r.readAsDataURL(file);
+  });
+
+  async function addFiles(fileList) {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
+    for (const f of files) {
+      if (pending.length >= MAX_FILES) { toast(`单次最多 ${MAX_FILES} 个附件`, 'warn'); break; }
+      try {
+        if (IMG_RE.test(f.type)) {
+          if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
+          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: f.type, size: f.size, dataUrl: await readAs('dataURL', f) });
+        } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
+          if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
+          pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
+        } else {
+          toast(`不支持的文件类型：${f.name}（支持图片与文本/代码文件）`, 'err');
+        }
+      } catch (err) { toast(err.message, 'err'); }
+    }
+    renderAttachChips();
+  }
+
+  function renderAttachChips() {
+    attachChips.innerHTML = '';
+    attachChips.style.display = pending.length ? '' : 'none';
+    for (const a of pending) {
+      const chip = el('div', 'attach-chip enter');
+      chip.innerHTML = (a.kind === 'image'
+        ? `<img src="${a.dataUrl}" alt="">`
+        : `<span class="attach-chip-ico">📄</span>`)
+        + `<span class="attach-chip-name mono">${esc(a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button">✕</button>`;
+      $('.attach-chip-x', chip).addEventListener('click', () => {
+        pending = pending.filter((x) => x.id !== a.id);
+        renderAttachChips();
+      });
+      attachChips.appendChild(chip);
+    }
+  }
+
+  $('#attach-btn').addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+
+  const mainEl = $('.main');
+  ['dragenter', 'dragover'].forEach((ev) => mainEl.addEventListener(ev, (e) => { e.preventDefault(); mainEl.classList.add('drag-over'); }));
+  ['dragleave', 'drop'].forEach((ev) => mainEl.addEventListener(ev, (e) => {
+    e.preventDefault();
+    if (ev === 'dragleave' && e.relatedTarget && mainEl.contains(e.relatedTarget)) return;
+    mainEl.classList.remove('drag-over');
+  }));
+  mainEl.addEventListener('drop', (e) => addFiles(e.dataTransfer && e.dataTransfer.files));
+  composer.addEventListener('paste', (e) => {
+    const files = [...((e.clipboardData && e.clipboardData.files) || [])];
+    if (files.length) { e.preventDefault(); addFiles(files); }
+  });
+
+  // ── 输入区 ────────────────────────────────────────────────────────────
+  function autoGrow() {
+    composer.style.height = 'auto';
+    composer.style.height = Math.min(composer.scrollHeight, 200) + 'px';
+  }
+  composer.addEventListener('input', autoGrow);
+  composer.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); doSend(); }
+  });
+  sendBtn.addEventListener('click', () => {
+    if (getBusy()) { agent.abort(); return; }
+    doSend();
+  });
+  function doSend() {
+    const text = composer.value.trim();
+    if (!text && !pending.length) return;
+    if (!store.state.apiKey) { openKeyModal(); toast('请先配置 TeamoRouter API Key', 'warn'); return; }
+    if (getBusy()) return;
+    composer.value = ''; autoGrow();
+    const atts = pending; pending = []; renderAttachChips();
+    agent.send(text, atts);
+  }
+
+  // 复制代码块按钮（事件委托）
+  msgList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.copy-code');
+    if (!btn) return;
+    const code = btn.parentElement.querySelector('code');
+    navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = '已复制'; setTimeout(() => (btn.textContent = '复制'), 1500); });
+  });
+
+  // ── 初次渲染 ──
+  rebuildMessages();
+  setStatus('idle');
+  updateTransportBadge();
+  updateStats();
+  if (!store.state.apiKey) setTimeout(openKeyModal, 600);
+
+  // ── 暴露给 agent hooks ───────────────────────────────────────────────
+  return {
+    setStatus,
+    updateTransportBadge,
+    updateStats,
+    renderCheckpoints,
+    renderFiles,
+    onAssistantStart(m) { appendMessage(m); streamingId = m.id; },
+    onDelta(m, text) {
+      const wrap = msgNodes.get(m.id);
+      if (!wrap) return;
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => { rafPending = false; paintAssistant(wrap, m); scrollToBottom(); });
+    },
+    onAssistantDone(m) {
+      const wrap = msgNodes.get(m.id);
+      if (wrap) paintAssistant(wrap, m);
+      streamingId = null;
+      scrollToBottom();
+      renderCheckpoints();
+      updateTransportBadge();
+    },
+    onToolStart(call) {
+      const node = el('div', 'exec-card running');
+      node.innerHTML = `<div class="exec-head"><span class="exec-ico">⚙</span><span class="mono">${esc(call.name)}</span><span class="exec-time"></span></div>
+        <pre class="exec-code">${esc(JSON.stringify(call.args.code || call.args, null, 2).slice(0, 2000))}</pre>
+        <div class="exec-out"></div>`;
+      execCards.push({ id: call.id, node });
+      renderConsole();
+      scrollToBottom();
+    },
+    onToolResult(call, result) {
+      const card = execCards.find((c) => c.id === call.id);
+      if (!card) return;
+      const ok = !result.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(result);
+      card.node.classList.remove('running');
+      card.node.classList.add(ok ? 'ok' : 'err');
+      $('.exec-out', card.node).innerHTML = `<pre>${esc(String(result).slice(0, 4000))}</pre>`;
+      renderConsole();
+      renderFiles();
+      updateStats();
+      // 同步回填对话流中的工具芯片（状态 ✓/✕ + 展开详情）
+      attachToolResult({ toolCallId: call.id, content: result });
+    },
+    onToolEvent(call, patch) {
+      const card = execCards.find((c) => c.id === call.id);
+      if (!card) return;
+      if (patch.durationMs != null) $('.exec-time', card.node).textContent = `${patch.durationMs}ms`;
+    },
+    attachToolResult,
+    scrollToBottom: () => scrollToBottom(true),
+  };
+}

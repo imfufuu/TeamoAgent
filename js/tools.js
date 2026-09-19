@@ -1,0 +1,130 @@
+// ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
+import { runJavaScript, runPython, pythonAvailable } from './sandbox.js';
+
+export const TOOL_DEFS = [
+  {
+    name: 'execute_javascript',
+    description: '在隔离的 Web Worker 沙箱中执行 JavaScript 代码（支持顶层 await）。沙箱提供 console（输出被捕获）和 files 对象（虚拟文件系统的键值快照，读写字典即可增改文件）。代码的 return 值或最后一个表达式作为结果返回。适合数学计算、数据处理、算法验证。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '要执行的 JavaScript 代码' },
+      },
+      required: ['code'],
+    },
+  },
+  {
+    name: 'execute_python',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。首次调用需下载运行时（约 10-30 秒）。注意：无网络、无本地磁盘。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: '要执行的 Python 代码' },
+      },
+      required: ['code'],
+    },
+  },
+  {
+    name: 'write_file',
+    description: '向会话虚拟文件系统写入/覆盖一个文本文件。文件对沙箱代码可见。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '文件路径，如 data/notes.md' },
+        content: { type: 'string', description: '文件完整内容' },
+      },
+      required: ['path', 'content'],
+    },
+  },
+  {
+    name: 'read_file',
+    description: '读取会话虚拟文件系统中的文本文件内容。',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string', description: '文件路径' } },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'list_files',
+    description: '列出会话虚拟文件系统中的所有文件及其大小。',
+    parameters: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_current_time',
+    description: '获取当前日期时间（默认 Asia/Shanghai 时区）。',
+    parameters: {
+      type: 'object',
+      properties: { timezone: { type: 'string', description: 'IANA 时区名，如 Asia/Tokyo，缺省为 Asia/Shanghai' } },
+    },
+  },
+];
+
+// 执行工具并返回字符串结果（会回填进对话）；onUi 用于驱动沙箱面板
+export async function executeTool(name, args, ctx) {
+  const { fs, onUi } = ctx;
+  const emit = (patch) => onUi && onUi({ name, args, ...patch });
+
+  try {
+    switch (name) {
+      case 'execute_javascript': {
+        emit({ status: 'running', lang: 'javascript' });
+        const out = await runJavaScript(args.code || '', fs);
+        emit({ status: out.ok ? 'ok' : 'error', lang: 'javascript', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
+        return formatExecResult('JavaScript', out);
+      }
+      case 'execute_python': {
+        if (!pythonAvailable()) {
+          const msg = 'Python 沙箱不可用（Pyodide CDN 加载失败），请改用 execute_javascript。';
+          emit({ status: 'error', lang: 'python', error: { message: msg } });
+          return msg;
+        }
+        emit({ status: 'running', lang: 'python' });
+        const out = await runPython(args.code || '', fs);
+        emit({ status: out.ok ? 'ok' : 'error', lang: 'python', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
+        return formatExecResult('Python', out);
+      }
+      case 'write_file': {
+        fs.write(args.path, args.content ?? '');
+        const msg = `已写入 ${args.path}（${String(args.content ?? '').length} 字符）`;
+        emit({ status: 'ok', fsChange: true, note: msg });
+        return msg;
+      }
+      case 'read_file': {
+        const content = fs.read(args.path);
+        emit({ status: 'ok', fsChange: false, note: `读取 ${args.path}` });
+        return `── ${args.path} ──\n${content}`;
+      }
+      case 'list_files': {
+        const list = fs.list();
+        const msg = list.length ? list.map((f) => `${f.path} (${f.size} B)`).join('\n') : '（文件系统为空）';
+        emit({ status: 'ok', fsChange: false, note: '列出文件' });
+        return msg;
+      }
+      case 'get_current_time': {
+        const tz = args.timezone || 'Asia/Shanghai';
+        const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
+        emit({ status: 'ok', note: msg });
+        return msg;
+      }
+      default:
+        return `未知工具: ${name}`;
+    }
+  } catch (err) {
+    const msg = `工具执行失败: ${err.message}`;
+    emit({ status: 'error', error: { message: msg } });
+    return msg;
+  }
+}
+
+function formatExecResult(lang, out) {
+  const parts = [];
+  if (out.logs && out.logs.length) {
+    parts.push('── 控制台输出 ──\n' + out.logs.map((l) => `[${l.level}] ${l.text}`).join('\n'));
+  }
+  if (out.result !== undefined) parts.push(`── 返回值 ──\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2)}`);
+  if (!out.ok) parts.push(`── 错误 ──\n${out.error.message}${out.error.stack ? '\n' + String(out.error.stack).split('\n').slice(1, 4).join('\n') : ''}`);
+  if (!parts.length) parts.push('（执行完成，无输出）');
+  parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
+  return `[${lang} 沙箱]\n${parts.join('\n')}`;
+}

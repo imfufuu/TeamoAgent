@@ -1,0 +1,199 @@
+// ─── Agent 核心：工具调用循环（ReAct 式状态机）────────────────────────
+// idle → thinking → streaming → tool_executing → (loop) → done / error / cancelled
+//
+// 架构要点：
+//   · 上下文管理：按模型预算压缩历史（整轮丢弃，绝不产生孤儿 tool 消息）
+//   · 健壮性：HTTP 层与流层双重重试；工具参数 JSON 解析失败自动反馈纠错
+//   · 可观测：usage 归一、传输通道标记、工具结果截断保护上下文
+//   · 附件：文本附件自动注入沙箱 uploads/，图片走多模态协议块
+
+import { streamChat, createToolCallAccumulator, getTransport } from './api.js';
+import { TOOL_DEFS, executeTool } from './tools.js';
+import { createFS } from './sandbox.js';
+import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
+import { TOOL_LOOP_MAX, systemPrompt } from './config.js';
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+export function createAgent(store, hooks = {}) {
+  const fs = createFS(store.state.files);
+  let abortController = null;
+  let status = 'idle'; // idle | thinking | streaming | executing | done | error | cancelled
+
+  const setStatus = (s) => { status = s; hooks.onStatus && hooks.onStatus(s); };
+  const syncFS = () => { store.state.files = fs.export(); };
+
+  function buildMessages() {
+    const { messages, model } = store.state;
+    const budget = contextBudgetFor(model);
+    const { messages: compacted, droppedCount } = compactMessages(messages, budget);
+    const sys = [{ role: 'system', text: systemPrompt() + fsNote() }];
+    if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
+    return [...sys, ...compacted];
+  }
+
+  function fsNote() {
+    const list = fs.list();
+    if (!list.length) return '';
+    return `\n\n## 当前沙箱文件\n${list.slice(0, 40).map((f) => `- ${f.path} (${f.size}B)`).join('\n')}${list.length > 40 ? `\n…等共 ${list.length} 个` : ''}`;
+  }
+
+  async function runLoop({ regenerate = false } = {}) {
+    const { apiKey, model, settings } = store.state;
+    if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
+    if (status === 'streaming' || status === 'thinking' || status === 'executing') return;
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
+    const tools = settings.sandboxEnabled ? TOOL_DEFS : null;
+    let iterations = 0;
+
+    try {
+      while (iterations < TOOL_LOOP_MAX) {
+        iterations++;
+        setStatus('thinking');
+
+        // ── 一次 LLM 流式调用（流层早期失败自动重试一次）──
+        const acc = createToolCallAccumulator();
+        let text = '', reasoning = '';
+        let sawToolDelta = false, lastChipPaint = 0;
+        const usage = {};
+        let finishReason = null;
+
+        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', usage: null });
+        hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
+        setStatus('streaming');
+
+        let attempt = 0;
+        while (true) {
+          try {
+            await streamChat({
+              model, apiKey, tools, signal,
+              fastMode: settings.fastMode,
+              messages: buildMessages(),
+              onEvent: (ev) => {
+                switch (ev.type) {
+                  case 'text':
+                    text += ev.text;
+                    store.updateMessage(assistantMsg.id, { text });
+                    hooks.onDelta && hooks.onDelta(assistantMsg, text);
+                    break;
+                  case 'reasoning':
+                    reasoning += ev.text;
+                    store.updateMessage(assistantMsg.id, { reasoning });
+                    hooks.onReasoning && hooks.onReasoning(assistantMsg, reasoning);
+                    break;
+                  case 'tool_delta': {
+                    acc.push(ev);
+                    sawToolDelta = true;
+                    // 流式期间增量刷新工具芯片（节流 300ms）
+                    const now = performance.now();
+                    if (now - lastChipPaint > 300) {
+                      lastChipPaint = now;
+                      store.updateMessage(assistantMsg.id, { toolCalls: acc.result() });
+                    }
+                    break;
+                  }
+                  case 'usage':
+                    // Anthropic 分两段上报（message_start: input；message_delta: output 累计值），取最新即可
+                    if (ev.usage.input != null) usage.input = ev.usage.input;
+                    if (ev.usage.output != null) usage.output = ev.usage.output;
+                    break;
+                  case 'finish':
+                    finishReason = ev.reason;
+                    break;
+                  case 'error':
+                    throw new Error(ev.message);
+                  default: break;
+                }
+              },
+            });
+            break; // 流正常结束
+          } catch (err) {
+            const transient = err.status === undefined || err.status >= 500 || err.status === 429;
+            if (attempt === 0 && !text && !sawToolDelta && transient && !signal.aborted && err.name !== 'AbortError') {
+              attempt++;
+              await sleep(1200);
+              continue; // 尚未收到任何内容 → 安全重放整次调用
+            }
+            throw err;
+          }
+        }
+
+        const toolCalls = acc.result();
+        store.updateMessage(assistantMsg.id, {
+          text, reasoning: reasoning || undefined, toolCalls: toolCalls.length ? toolCalls : undefined,
+          usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
+          finishReason, done: true, transport: getTransport(),
+        });
+        hooks.onAssistantDone && hooks.onAssistantDone(assistantMsg);
+
+        // ── 无工具调用 → 回合结束 ──
+        if (!toolCalls.length) { setStatus('done'); hooks.onTurnEnd && hooks.onTurnEnd(); return; }
+
+        // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
+        setStatus('executing');
+        for (const call of toolCalls) {
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+          hooks.onToolStart && hooks.onToolStart(call);
+          let result;
+          if (call.args && typeof call.args === 'object' && '__raw' in call.args) {
+            // 参数 JSON 解析失败 → 不执行，反馈模型自行纠错（成熟的工具循环必备）
+            result = `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
+            hooks.onToolEvent && hooks.onToolEvent(call, { status: 'error', note: '参数解析失败' });
+          } else {
+            result = await executeTool(call.name, call.args, {
+              fs,
+              onUi: (patch) => hooks.onToolEvent && hooks.onToolEvent(call, patch),
+            });
+          }
+          syncFS();
+          store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: truncateToolContent(result, 8000) });
+          hooks.onToolResult && hooks.onToolResult(call, result);
+        }
+      }
+      // 达到迭代上限
+      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, done: true });
+      setStatus('done');
+      hooks.onTurnEnd && hooks.onTurnEnd();
+    } catch (err) {
+      if (err.name === 'AbortError' || signal.aborted) {
+        setStatus('cancelled');
+        const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
+        if (last) store.updateMessage(last.id, { cancelled: true, done: true });
+        hooks.onCancelled && hooks.onCancelled();
+      } else {
+        setStatus('error');
+        hooks.onError && hooks.onError(err);
+      }
+    } finally {
+      abortController = null;
+      syncFS();
+      store.notify();
+    }
+  }
+
+  return {
+    getStatus: () => status,
+    abort: () => { abortController && abortController.abort(); },
+
+    async send(userText, attachments = []) {
+      // 文本附件自动注入沙箱 uploads/，让工具循环可直接读取
+      for (const a of attachments) {
+        if (a.kind === 'text' && a.text != null) fs.write(`uploads/${a.name}`, a.text);
+      }
+      if (attachments.some((a) => a.kind === 'text')) syncFS();
+      store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
+      store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
+      hooks.onUserMessage && hooks.onUserMessage(userText);
+      await runLoop();
+    },
+
+    async regenerate() {
+      store.dropLastAssistantTurn();
+      await runLoop({ regenerate: true });
+    },
+
+    fs,
+  };
+}

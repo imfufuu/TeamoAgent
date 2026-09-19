@@ -1,0 +1,279 @@
+// ─── 核心解析逻辑单测（node tests/agent.test.mjs）─────────────────────
+import assert from 'node:assert/strict';
+import {
+  createSSEParser, createOpenAIStream, createAnthropicStream,
+  createToolCallAccumulator, buildOpenAIMessages, buildAnthropicPayload,
+  authHeaders, toOpenAITools, toAnthropicTools,
+} from '../js/api.js';
+import { protocolOf, providerOf, supportsFastMode } from '../js/config.js';
+import { renderMarkdown } from '../js/ui.js';
+import { createFS } from '../js/sandbox.js';
+import { createStore } from '../js/state.js';
+import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor } from '../js/context.js';
+
+let passed = 0;
+const test = (name, fn) => { fn(); passed++; console.log(`  ✓ ${name}`); };
+
+console.log('协议路由');
+test('Claude → anthropic 原生协议', () => {
+  assert.equal(protocolOf('claude-sonnet-5'), 'anthropic');
+  assert.equal(protocolOf('claude-fable-5-1'), 'anthropic');
+  assert.equal(providerOf('claude-opus-5'), 'Anthropic');
+});
+test('其余模型 → openai 兼容协议', () => {
+  assert.equal(protocolOf('gpt-5.6-sol'), 'openai');
+  assert.equal(protocolOf('gemini-3.5-flash'), 'openai');
+  assert.equal(protocolOf('deepseek-v4-pro'), 'openai');
+  assert.equal(protocolOf('glm-5.3'), 'openai');
+  assert.equal(protocolOf('grok-4.6'), 'openai');
+});
+test('Fast mode 仅 OpenAI 系', () => {
+  assert.equal(supportsFastMode('gpt-6-astra'), true);
+  assert.equal(supportsFastMode('claude-sonnet-5'), false);
+});
+test('认证头映射（调研结论）', () => {
+  const a = authHeaders('anthropic', 'sk-teamo-x');
+  assert.equal(a['x-api-key'], 'sk-teamo-x');
+  assert.equal(a['anthropic-version'], '2023-06-01');
+  const o = authHeaders('openai', 'sk-teamo-x');
+  assert.equal(o['Authorization'], 'Bearer sk-teamo-x');
+});
+
+console.log('SSE 解析器');
+test('跨 chunk 切分的行能被正确拼接', () => {
+  const out = [];
+  const feed = createSSEParser((j) => out.push(j));
+  feed('data: {"a":');
+  feed('1}\n\ndata: {"a":2}\r\n');
+  feed('data: [DONE]\n');
+  assert.deepEqual(out, [{ a: 1 }, { a: 2 }, null]);
+});
+test('忽略非 data 行与坏 JSON', () => {
+  const out = [];
+  const feed = createSSEParser((j) => out.push(j));
+  feed('event: ping\n: comment\ndata: {bad json}\ndata: {"ok":true}\n\n');
+  assert.deepEqual(out, [{ ok: true }]);
+});
+
+console.log('OpenAI 流归一化');
+test('文本增量 + usage + finish', () => {
+  const evs = [];
+  const h = createOpenAIStream((e) => evs.push(e));
+  h({ choices: [{ delta: { content: '你' } }] });
+  h({ choices: [{ delta: { content: '好' } }] });
+  h({ usage: { prompt_tokens: 21, completion_tokens: 7 }, choices: [] });
+  h({ choices: [{ delta: {}, finish_reason: 'stop' }] });
+  assert.deepEqual(evs.filter((e) => e.type === 'text').map((e) => e.text), ['你', '好']);
+  assert.deepEqual(evs.find((e) => e.type === 'usage').usage, { input: 21, output: 7 });
+  assert.equal(evs.find((e) => e.type === 'finish').reason, 'stop');
+});
+test('tool_calls 分片累积（index 对齐 + 参数拼接）', () => {
+  const evs = [];
+  const h = createOpenAIStream((e) => evs.push(e));
+  h({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_a', function: { name: 'execute_javascript', arguments: '' } }] } }] });
+  h({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"code":' } }] } }] });
+  h({ choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '"1+1"}' } }] } }] });
+  h({ choices: [{ delta: { tool_calls: [{ index: 1, id: 'call_b', function: { name: 'get_current_time', arguments: '{}' } }] } }] });
+  const acc = createToolCallAccumulator();
+  evs.filter((e) => e.type === 'tool_delta').forEach((e) => acc.push(e));
+  const calls = acc.result();
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].id, 'call_a');
+  assert.equal(calls[0].name, 'execute_javascript');
+  assert.deepEqual(calls[0].args, { code: '1+1' });
+  assert.equal(calls[1].name, 'get_current_time');
+});
+
+console.log('Anthropic 流归一化');
+test('事件序列 message_start → delta → message_delta', () => {
+  const evs = [];
+  const h = createAnthropicStream((e) => evs.push(e));
+  h({ type: 'message_start', message: { usage: { input_tokens: 159, output_tokens: 1 } } });
+  h({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hello' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '!' } });
+  h({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 34 } });
+  h({ type: 'message_stop' });
+  assert.deepEqual(evs.find((e) => e.type === 'usage').usage, { input: 159, output: 1 });
+  assert.equal(evs.filter((e) => e.type === 'text').map((e) => e.text).join(''), 'Hello!');
+  assert.equal(evs.filter((e) => e.type === 'usage').pop().usage.output, 34);
+  assert.equal(evs.find((e) => e.type === 'finish').reason, 'tool_use');
+});
+test('tool_use 块 + input_json_delta 拼接', () => {
+  const evs = [];
+  const h = createAnthropicStream((e) => evs.push(e));
+  h({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_01', name: 'execute_python' } });
+  h({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"code": "pri' } });
+  h({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'nt(1)"}' } });
+  const acc = createToolCallAccumulator();
+  evs.filter((e) => e.type === 'tool_delta').forEach((e) => acc.push(e));
+  const calls = acc.result();
+  assert.equal(calls[0].id, 'toolu_01');
+  assert.equal(calls[0].name, 'execute_python');
+  assert.deepEqual(calls[0].args, { code: 'print(1)' });
+});
+test('坏 JSON 参数降级为 __raw', () => {
+  const acc = createToolCallAccumulator();
+  acc.push({ index: 0, id: 'x', name: 'f', argsText: '{broken' });
+  assert.deepEqual(acc.result()[0].args, { __raw: '{broken' });
+});
+
+console.log('请求体构建');
+test('OpenAI 消息转换（tool_calls / tool 结果）', () => {
+  const msgs = buildOpenAIMessages([
+    { role: 'system', text: 'S' },
+    { role: 'user', text: 'U' },
+    { role: 'assistant', text: 'T', toolCalls: [{ id: 'c1', name: 'execute_javascript', args: { code: '1' } }] },
+    { role: 'tool', toolCallId: 'c1', content: 'ok' },
+  ]);
+  assert.equal(msgs[0].role, 'system');
+  assert.equal(msgs[2].tool_calls[0].function.arguments, '{"code":"1"}');
+  assert.deepEqual(msgs[3], { role: 'tool', tool_call_id: 'c1', content: 'ok' });
+});
+test('Anthropic payload（system 提取 / tool_result 合并 / max_tokens 必填）', () => {
+  const p = buildAnthropicPayload([
+    { role: 'system', text: 'S1' },
+    { role: 'user', text: 'U' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 't1', name: 'f', args: { a: 1 } }, { id: 't2', name: 'g', args: {} }] },
+    { role: 'tool', toolCallId: 't1', content: 'r1' },
+    { role: 'tool', toolCallId: 't2', content: 'r2' },
+  ]);
+  assert.equal(p.system, 'S1');
+  assert.equal(p.max_tokens, 8192);
+  const asst = p.messages[1];
+  assert.equal(asst.content.length, 2);
+  assert.equal(asst.content[0].type, 'tool_use');
+  // 两条 tool 结果必须合并进同一条 user 消息
+  const user = p.messages[2];
+  assert.equal(user.role, 'user');
+  assert.equal(user.content.length, 2);
+  assert.deepEqual(user.content.map((b) => b.tool_use_id), ['t1', 't2']);
+});
+test('工具 schema 双格式转换', () => {
+  const defs = [{ name: 'f', description: 'd', parameters: { type: 'object', properties: {} } }];
+  assert.equal(toOpenAITools(defs)[0].function.name, 'f');
+  assert.equal(toAnthropicTools(defs)[0].input_schema.type, 'object');
+});
+
+console.log('Markdown 渲染（UI）');
+test('HTML 转义防 XSS', () => {
+  const html = renderMarkdown('<script>alert(1)</script> 与 <img onerror=x>');
+  assert.ok(!html.includes('<script>'));
+  assert.ok(html.includes('&lt;script&gt;'));
+});
+test('代码块 / 行内代码 / 加粗', () => {
+  const html = renderMarkdown('用 `pip install` 安装：\n```python\nprint("hi")\n```');
+  assert.ok(html.includes('<pre data-lang="python">'));
+  assert.ok(html.includes('print(&quot;hi&quot;)'));
+  assert.ok(html.includes('<code>pip install</code>'));
+  assert.ok(renderMarkdown('**粗体**').includes('<strong>粗体</strong>'));
+});
+
+console.log('虚拟文件系统 / 回滚（state）');
+test('FS 读写列举', () => {
+  const fs = createFS();
+  fs.write('a.txt', 'hello');
+  fs.write('dir/b.md', '# t');
+  assert.equal(fs.read('a.txt'), 'hello');
+  assert.equal(fs.list().length, 2);
+  assert.throws(() => fs.read('nope.txt'));
+});
+test('检查点回滚 + 一步撤销', () => {
+  const store = createStore();
+  // 真实时序：createCheckpoint（记录当前消息数）→ pushMessage
+  store.createCheckpoint('第一问');
+  store.pushMessage({ role: 'user', text: '第一问' });
+  store.pushMessage({ role: 'assistant', text: '第一答', done: true });
+  store.createCheckpoint('第二问');
+  store.pushMessage({ role: 'user', text: '第二问' });
+  store.pushMessage({ role: 'assistant', text: '第二答', done: true });
+  assert.equal(store.state.messages.length, 4);
+  const cp2 = store.state.checkpoints.find((c) => c.label === '第二问');
+  assert.equal(cp2.messageCount, 2);
+  assert.ok(store.rollbackTo(cp2.id));
+  assert.equal(store.state.messages.length, 2);
+  assert.equal(store.state.messages[1].text, '第一答');
+  assert.ok(store.undoRollback());
+  assert.equal(store.state.messages.length, 4);
+  assert.equal(store.state.messages[3].text, '第二答');
+});
+test('dropLastAssistantTurn 保留 user 消息（重新生成）', () => {
+  const store = createStore();
+  store.createCheckpoint('Q');
+  store.pushMessage({ role: 'user', text: 'Q' });
+  store.pushMessage({ role: 'assistant', text: 'A1', toolCalls: [{ id: 'c', name: 'f', args: {} }] });
+  store.pushMessage({ role: 'tool', toolCallId: 'c', content: 'r' });
+  store.pushMessage({ role: 'assistant', text: 'A2', done: true });
+  assert.equal(store.dropLastAssistantTurn(), 3);
+  assert.equal(store.state.messages.length, 1);
+  assert.equal(store.state.messages[0].role, 'user');
+});
+
+console.log('附件（多模态双协议）');
+const IMG_ATT = { kind: 'image', name: 'p.png', mime: 'image/png', size: 10, dataUrl: 'data:image/png;base64,AAA' };
+const TXT_ATT = { kind: 'text', name: 'n.csv', mime: 'text/csv', size: 5, text: 'a,b' };
+test('OpenAI：图片 → image_url(data URL)，文本 → text part', () => {
+  const [m] = buildOpenAIMessages([{ role: 'user', text: '看图', attachments: [IMG_ATT, TXT_ATT] }]);
+  assert.equal(m.content[0].text, '看图');
+  assert.equal(m.content[1].type, 'image_url');
+  assert.equal(m.content[1].image_url.url, 'data:image/png;base64,AAA');
+  assert.ok(m.content[2].text.includes('【附件：n.csv】'));
+});
+test('Anthropic：图片 → source.base64 块，stripped 附件 → 省略说明', () => {
+  const p = buildAnthropicPayload([{ role: 'user', text: '看图', attachments: [IMG_ATT, { kind: 'text', name: 'x.txt', stripped: true }] }]);
+  const content = p.messages[0].content;
+  assert.equal(content[1].type, 'image');
+  assert.equal(content[1].source.media_type, 'image/png');
+  assert.equal(content[1].source.data, 'AAA');
+  assert.ok(content[2].text.includes('已省略'));
+});
+test('无附件消息保持原格式（缓存友好）', () => {
+  const [m] = buildOpenAIMessages([{ role: 'user', text: 'hi' }]);
+  assert.equal(m.content, 'hi');
+  const p = buildAnthropicPayload([{ role: 'user', text: 'hi' }]);
+  assert.equal(p.messages[0].content, 'hi');
+});
+
+console.log('上下文管理');
+test('token 估算：CJK ≈ 1/字，ASCII ≈ 1/4 字符', () => {
+  const cjk = estimateTokens([{ role: 'user', text: '中'.repeat(100) }]);
+  const ascii = estimateTokens([{ role: 'user', text: 'a'.repeat(400) }]);
+  assert.ok(cjk >= 100 && cjk < 130, `cjk=${cjk}`);
+  assert.ok(ascii >= 100 && ascii < 130, `ascii=${ascii}`);
+});
+test('compactMessages 整轮丢弃，不产生孤儿 tool 消息', () => {
+  const msgs = [];
+  for (let i = 0; i < 30; i++) {
+    msgs.push({ role: 'user', text: `问题${i} ${'x'.repeat(2000)}` });
+    msgs.push({ role: 'assistant', text: '', toolCalls: [{ id: `c${i}`, name: 'f', args: {} }] });
+    msgs.push({ role: 'tool', toolCallId: `c${i}`, content: `结果${i} ${'y'.repeat(3000)}` });
+    msgs.push({ role: 'assistant', text: `回答${i}`, done: true });
+  }
+  const { messages, droppedCount } = compactMessages(msgs, 20000);
+  assert.ok(droppedCount > 0, '应有丢弃');
+  assert.ok(estimateTokens(messages) <= 20000, `压缩后 ${estimateTokens(messages)}`);
+  // 关键不变量：每个 tool 消息前面必须存在携带对应 toolCall 的 assistant
+  for (let i = 0; i < messages.length; i++) {
+    if (messages[i].role !== 'tool') continue;
+    const owner = messages.slice(0, i).reverse().find((m) => m.role === 'assistant' && (m.toolCalls || []).some((t) => t.id === messages[i].toolCallId));
+    assert.ok(owner, `孤儿 tool 消息: ${messages[i].toolCallId}`);
+  }
+  // 最新消息必须保留
+  assert.equal(messages[messages.length - 1].text, '回答29');
+});
+test('truncateToolContent 保头尾、报省略量', () => {
+  const s = 'A'.repeat(5000) + 'MID' + 'B'.repeat(5000);
+  const t = truncateToolContent(s, 1000);
+  assert.ok(t.length < 1200);
+  assert.ok(t.startsWith('AAAA'));
+  assert.ok(t.endsWith('BBBB'));
+  assert.ok(t.includes('省略'));
+  assert.equal(truncateToolContent('short'), 'short');
+});
+test('上下文预算按模型家族', () => {
+  assert.equal(contextBudgetFor('claude-sonnet-5'), 150000);
+  assert.equal(contextBudgetFor('gemini-3.5-flash'), 400000);
+  assert.equal(contextBudgetFor('unknown-model'), 90000);
+});
+
+console.log(`\n${passed} 项测试全部通过 ✅`);

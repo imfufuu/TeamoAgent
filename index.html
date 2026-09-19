@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TeamoAgent — 网页端智能体</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◐</text></svg>" />
+<link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- ═══ 侧栏 ═══ -->
+  <aside class="sidebar">
+    <div class="logo">
+      <span class="logo-mark">◐</span>
+      <span class="logo-text">TEAMO<i>AGENT</i></span>
+    </div>
+
+    <!-- 模型选择 -->
+    <div class="side-section">
+      <div class="side-label">模型 <button id="refresh-models" class="icon-btn" title="从 GET /v1/models 刷新">⟳</button></div>
+      <div class="picker" id="model-picker">
+        <button id="model-btn" class="model-btn" type="button">
+          <span class="model-btn-main">
+            <span id="model-btn-name" class="mono">claude-sonnet-5</span>
+            <span id="model-btn-provider" class="model-btn-provider">Anthropic</span>
+          </span>
+          <span class="model-btn-caret">▾</span>
+        </button>
+        <div id="model-menu" class="dd-menu">
+          <div class="dd-search-wrap"><input id="model-search" class="dd-search mono" placeholder="搜索模型…" /></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 检查点 / 回滚 -->
+    <div class="side-section grow">
+      <div class="side-label">检查点 · 回滚
+        <button id="undo-rollback" class="mini-btn" style="display:none">撤销回滚</button>
+      </div>
+      <div id="checkpoint-list" class="cp-list"></div>
+    </div>
+
+    <div class="side-footer">
+      <span id="transport-badge" class="transport" title="">直连模式</span>
+      <span id="conv-stats" class="conv-stats"></span>
+      <div class="side-footer-btns">
+        <button id="key-btn" class="mini-btn" type="button">API Key</button>
+        <button id="export-btn" class="mini-btn" type="button" title="导出对话 JSON">导出</button>
+        <button id="new-chat" class="mini-btn" type="button">新对话</button>
+        <button id="theme-toggle" class="mini-btn" type="button" title="切换主题">◑</button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══ 主区 ═══ -->
+  <main class="main">
+    <header class="topbar">
+      <div class="status"><span id="status-dot" class="dot ok"></span><span id="status-text">就绪</span></div>
+      <div class="topbar-right">
+        <button id="sandbox-toggle" class="pill on" type="button" title="沙箱：Agent 可执行 JS/Python 代码并读写虚拟文件">⌗ 沙箱</button>
+        <button id="fast-toggle" class="pill" type="button" title="TeamoRouter Fast mode（service_tier=fast，2x 计费，仅 GPT 系列）">⚡ Fast</button>
+        <button id="panel-toggle" class="pill" type="button" title="沙箱面板">◧</button>
+      </div>
+    </header>
+
+    <div id="messages" class="messages"></div>
+
+    <div class="composer-wrap">
+      <div id="attach-chips" class="attach-chips" style="display:none"></div>
+      <div class="composer">
+        <button id="attach-btn" type="button" title="添加附件（图片 / 文本 / 代码，可拖拽或粘贴）">📎</button>
+        <input id="attach-input" type="file" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.js,.ts,.py,.json,.csv,.log,.html,.css,.xml,.yaml,.yml,.sh,.sql,.vue,.go,.rs,.java,.c,.cpp,.h,.rb,.php,.toml,.ini,.env,.conf" />
+        <textarea id="composer-input" rows="1" placeholder="输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…"></textarea>
+        <button id="send-btn" type="button" title="发送 (Enter)"><span id="send-ico">↑</span></button>
+      </div>
+      <div class="composer-hint">
+        由 <a href="https://api.teamorouter.com" target="_blank" rel="noopener" class="mono">api.teamorouter.com</a> 提供路由 ·
+        Claude 走 <span class="mono">/v1/messages</span> 原生协议 · 其余模型走 <span class="mono">/v1/chat/completions</span>
+      </div>
+    </div>
+  </main>
+
+  <!-- ═══ 沙箱面板（默认收起，避免遮挡内容区；窄屏下为浮层 + 遮罩）═══ -->
+  <div id="panel-backdrop" class="panel-backdrop"></div>
+  <aside id="sandbox-panel" class="panel collapsed">
+    <div id="panel-tabs" class="panel-tabs">
+      <button class="active" data-tab="console" type="button">控制台</button>
+      <button data-tab="files" type="button">文件</button>
+    </div>
+    <div id="tab-console" class="panel-body">
+      <div id="exec-list" class="exec-list"></div>
+    </div>
+    <div id="tab-files" class="panel-body" style="display:none">
+      <div class="files-toolbar"><span class="side-label" style="border:0;padding:0">虚拟文件系统</span><button id="clear-files" class="mini-btn" type="button">清空</button></div>
+      <div id="file-list" class="file-list"></div>
+      <div id="file-viewer" class="file-viewer"></div>
+    </div>
+  </aside>
+</div>
+
+<!-- ═══ API Key 弹窗 ═══ -->
+<div id="key-modal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head"><h3>TeamoRouter API Key</h3><button id="key-close" class="icon-btn" type="button">✕</button></div>
+    <p class="modal-desc">Key 以 <span class="mono">sk-teamo-</span> 开头，在 <a href="https://teamorouter.com/dashboard?tab=api-keys" target="_blank" rel="noopener">TeamoRouter 控制台</a> 创建。仅保存在本机浏览器 localStorage，随请求头直发网关，不经过任何第三方。</p>
+    <input id="key-input" class="key-input mono" type="password" placeholder="sk-teamo-xxxxxxxx…" spellcheck="false" autocomplete="off" />
+    <div class="modal-actions">
+      <button id="key-save" class="primary-btn" type="button">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts"></div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
