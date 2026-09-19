@@ -84,6 +84,14 @@ export function isFreeModel(modelId) {
   return !!(hit && hit.free) || /-free$/.test(modelId || '');
 }
 
+// 多模态（图片输入）支持判断：Claude 全系 / GPT-4o·4.1·5·6 / Gemini 全系 /
+// 带 vision·vl·4v·4.5v 字样的型号；其余（如 deepseek-v4、glm-5.x 文本系）不标记
+export function supportsVision(modelId) {
+  const id = String(modelId || '').toLowerCase();
+  return /^claude-/.test(id) || /^gpt-(4o|4\.1|5|6)/.test(id) || /^gemini-/.test(id)
+    || /vision|(^|-)vl(-|$)|4v\b|4\.5v/.test(id);
+}
+
 // GPT 系列支持 Fast mode（service_tier: "fast"，2x 计费）
 export function supportsFastMode(modelId) {
   return providerOf(modelId) === 'OpenAI';

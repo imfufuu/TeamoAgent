@@ -376,4 +376,15 @@ test('importSession：非法数据返回 null 且不改变状态', () => {
   assert.equal(store.state.sessions.length, before);
 });
 
+console.log('多模态标识');
+test('supportsVision：按型号家族判定图片输入支持', async () => {
+  const { supportsVision } = await import('../js/config.js');
+  assert.ok(supportsVision('claude-sonnet-5'), 'Claude 全系');
+  assert.ok(supportsVision('gpt-5.6-sol') && supportsVision('gpt-4o'), 'GPT 4o/5/6');
+  assert.ok(supportsVision('gemini-3.8-flash'), 'Gemini 全系');
+  assert.ok(supportsVision('deepseek-vision') && supportsVision('glm-4.5v'), 'vision/v 字样');
+  assert.ok(!supportsVision('deepseek-v4-pro'), 'deepseek-v4 是版本号非视觉');
+  assert.ok(!supportsVision('glm-5.3-flash') && !supportsVision(''), '文本模型/空值');
+});
+
 console.log(`\n${passed} 项测试全部通过 ✅`);

@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, BASE_URL } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, BASE_URL } from './config.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO } from './icons.js';
@@ -93,7 +93,7 @@ export function mountUI(store, agent) {
   const statusDot = $('#status-dot');
   const statusText = $('#status-text');
   const msgNodes = new Map();
-  const execCards = [];
+
   let streamingId = null;
   let rafPending = false;
 
@@ -126,7 +126,7 @@ export function mountUI(store, agent) {
       groups.get(m.provider).push(m);
     }
     const order = [...PROVIDER_ORDER.filter((p) => groups.has(p)), ...[...groups.keys()].filter((p) => !PROVIDER_ORDER.includes(p))];
-    ddMenu.querySelectorAll('.dd-group').forEach((n) => n.remove());
+    ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
     for (const p of order) {
       const g = el('div', 'dd-group');
       g.appendChild(el('div', 'dd-group-title', `${providerIcon(p)}<span>${esc(p)}</span>`));
@@ -136,6 +136,7 @@ export function mountUI(store, agent) {
         item.innerHTML = `<span class="dd-item-id mono">${esc(m.id)}</span>
           <span class="dd-item-badges">
             ${isFreeModel(m.id) ? '<span class="badge">FREE</span>' : ''}
+            ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
             ${protocolOf(m.id) === 'anthropic' ? '<span class="badge ghost">原生</span>' : ''}
           </span>`;
         item.addEventListener('click', () => {
@@ -352,7 +353,7 @@ export function mountUI(store, agent) {
   $$('#panel-tabs button').forEach((b) => b.addEventListener('click', () => {
     $$('#panel-tabs button').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
-    for (const tab of ['console', 'files', 'agents']) {
+    for (const tab of ['files', 'agents']) {
       $(`#tab-${tab}`).style.display = b.dataset.tab === tab ? '' : 'none';
     }
   }));
@@ -562,14 +563,6 @@ export function mountUI(store, agent) {
     jumpBtn.classList.remove('show');
     scrollToBottom(true);
   });
-
-  // ── 控制台（沙箱执行卡片）────────────────────────────────────────────
-  function renderConsole() {
-    const box = $('#exec-list'); box.innerHTML = '';
-    if (!execCards.length) { box.appendChild(el('div', 'empty-hint', 'Agent 执行代码时会显示在这里')); return; }
-    for (const c of [...execCards].reverse()) box.appendChild(c.node);
-  }
-  renderConsole();
 
   // ── 状态栏 ────────────────────────────────────────────────────────────
   const STATUS = {
@@ -813,35 +806,14 @@ export function mountUI(store, agent) {
       renderTimeStats();
     },
     refreshBalance,
-    onToolStart(call) {
-      const node = el('div', 'exec-card running');
-      node.innerHTML = `<div class="exec-head"><span class="exec-ico">⚙</span><span class="mono">${esc(call.name)}</span><span class="exec-time"></span></div>
-        <pre class="exec-code">${esc(JSON.stringify(call.args.code || call.args, null, 2).slice(0, 2000))}</pre>
-        <div class="exec-out"></div>`;
-      execCards.push({ id: call.id, node });
-      renderConsole();
-      scrollToBottom();
-    },
+    onToolStart() { scrollToBottom(); },
     onToolResult(call, result) {
-      const card = execCards.find((c) => c.id === call.id);
-      if (!card) return;
-      const ok = !result.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(result);
-      card.node.classList.remove('running');
-      card.node.classList.add(ok ? 'ok' : 'err');
-      $('.exec-out', card.node).innerHTML = `<pre>${esc(String(result).slice(0, 4000))}</pre>`;
-      renderConsole();
       renderFiles();
       updateStats();
       // 同步回填对话流中的工具芯片（状态 ✓/✕ + 展开详情）
       attachToolResult({ toolCallId: call.id, content: result });
     },
-    onToolEvent(call, patch) {
-      const card = execCards.find((c) => c.id === call.id);
-      if (!card) return;
-      const timeEl = $('.exec-time', card.node);
-      if (patch.durationMs != null) timeEl.textContent = `${patch.durationMs}ms`;
-      else if (patch.note) timeEl.textContent = patch.note.length > 26 ? patch.note.slice(0, 24) + '…' : patch.note;
-    },
+    onToolEvent() { /* 控制台已移除；执行进度在消息内工具芯片展示 */ },
     attachToolResult,
     scrollToBottom: () => scrollToBottom(true),
   };
