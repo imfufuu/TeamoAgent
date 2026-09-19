@@ -81,6 +81,38 @@ server.py         静态服务 + 流式 API 代理（兜底通道）
 tests/            node tests/agent.test.mjs（19 项，覆盖双协议解析与回滚）
 ```
 
+## 部署
+
+### 在线版（GitHub Pages）
+
+**https://imfufuu.github.io/TeamoAgent/** —— 纯静态部署，浏览器直连 `api.teamorouter.com`（网关已放行 CORS）。
+Python 沙箱首次使用需从 CDN 加载 Pyodide 运行时；本地代理（server.py）在 Pages 上不存在，但不影响直连模式。
+
+### 发布到 GitHub Pages 的步骤
+
+本项目是零构建静态站点，用「Deploy from a branch」最简单：
+
+1. 推送代码到仓库（`index.html` 位于仓库根目录）
+2. 打开仓库 **Settings → Pages**
+3. **Source** 选 `Deploy from a branch`；**Branch** 选 `main`，目录选 `/ (root)`，保存
+4. 1~2 分钟后站点上线于 `https://<用户名>.github.io/<仓库名>/`
+
+也可用 API 一步开启：
+
+```bash
+curl -X POST -H "Authorization: Bearer <你的token>" \
+  https://api.github.com/repos/<用户名>/<仓库名>/pages \
+  -d '{"source":{"branch":"main","path":"/"},"build_type":"legacy"}'
+```
+
+注意：应用内全部使用相对路径（css/js/worker），因此部署在子路径（`/<仓库名>/`）下无需任何改动。
+
+### 本地运行
+
+```bash
+python3 server.py    # http://localhost:8787，含 API 代理兜底通道
+```
+
 ## 说明
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
