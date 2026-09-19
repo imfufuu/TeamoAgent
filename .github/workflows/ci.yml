@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 单元测试 + 语法检查
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 运行单测
+        run: node tests/agent.test.mjs
+      - name: 服务端语法检查
+        run: python3 -m py_compile server.py
+      - name: 前端模块语法检查
+        run: |
+          for f in js/*.js; do node --check "$f" || exit 1; done
+          echo "全部 JS 模块语法通过"
