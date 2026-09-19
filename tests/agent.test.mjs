@@ -724,12 +724,40 @@ test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）
     assert.ok(store.state.messages[2].content.includes('a.txt'), '工具结果应回填');
     assert.equal(store.state.messages[3].text, '已写入');
     assert.equal(store.state.messages[3].usage.output, 3, 'usage 归一');
+    assert.equal(store.state.messages[1].model, 'gpt-5.6-sol', 'assistant 消息记录当时使用的模型');
+    assert.equal(store.state.messages[3].model, 'gpt-5.6-sol', '同回合续消息记录同一模型');
     assert.equal(agent.fs.read('a.txt'), 'hi', '工具副作用对虚拟 FS 可见');
     assert.equal(calls.length, 2);
     assert.ok(calls[0].url.includes('/v1/chat/completions'));
     // 第二次请求必须携带 tool 结果
     assert.ok(calls[1].body.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'call_1'));
     assert.equal(agent.getStatus(), 'done');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('切换模型后：每条 assistant 消息保留当时使用的模型（历史消息不再显示为当前模型）', async () => {
+  const calls = [];
+  mockFetch([
+    openaiTextTurn('第一轮回答'),
+    openaiTextTurn('第二轮回答'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('第一问');
+    // 中途切换模型，继续对话
+    store.state.model = 'gpt-5.5';
+    await agent.send('第二问');
+    const asst = store.state.messages.filter((m) => m.role === 'assistant');
+    assert.equal(asst.length, 2);
+    assert.equal(asst[0].model, 'gpt-5.6-sol', '第一条消息应记录当时使用的模型');
+    assert.equal(asst[1].model, 'gpt-5.5', '第二条消息应记录切换后的模型');
+    assert.equal(store.state.model, 'gpt-5.5', '当前模型不受消息记录影响');
+    // 实际发出的请求体与消息记录一致
+    assert.equal(calls[0].body.model, 'gpt-5.6-sol');
+    assert.equal(calls[1].body.model, 'gpt-5.5');
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -746,6 +774,7 @@ test('工具循环：迭代上限（TOOL_LOOP_MAX）后停止并告知用户', a
     assert.equal(n, TOOL_LOOP_MAX, '应按上限停止请求');
     const last = store.state.messages[store.state.messages.length - 1];
     assert.ok(last.text.includes('上限'), '上限提示落盘');
+    assert.equal(last.model, 'gpt-5.6-sol', '上限提示消息同样记录当时使用的模型');
     assert.equal(agent.getStatus(), 'done');
   } finally { globalThis.fetch = realFetch; }
 });

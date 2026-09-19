@@ -24,7 +24,7 @@ const hooks = {
     console.error(err);
     const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
     if (last) store.updateMessage(last.id, { error: err.message, done: true });
-    else store.pushMessage({ role: 'assistant', text: '', error: err.message, done: true });
+    else store.pushMessage({ role: 'assistant', text: '', error: err.message, model: store.state.model, done: true });
     toast(err.message.slice(0, 120), 'err', 5000);
     ui && ui.onAssistantDone(last || store.state.messages[store.state.messages.length - 1]);
     ui && ui.updateStats();

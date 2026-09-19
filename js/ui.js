@@ -506,8 +506,11 @@ export function mountUI(store, agent) {
       const idx = store.state.messages.findIndex((x) => x.id === m.id);
       const prev = idx > 0 ? store.state.messages[idx - 1] : null;
       const showHead = !prev || prev.role === 'user';
+      // 显示该消息生成时实际使用的模型（m.model，创建时记录）：
+      // 切换模型后历史消息不再跟着变成当前模型；旧会话/导入数据没有 m.model 时回退到当前模型
+      const model = m.model || store.state.model;
       wrap.innerHTML = `
-        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(store.state.model))}</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>` : ''}
+        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(model))}</span><span class="msg-model mono">${esc(model)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-actions">
@@ -711,7 +714,7 @@ export function mountUI(store, agent) {
       checkpoints: store.state.checkpoints,
       messages: store.state.messages.map((m) => ({
         role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
-        toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+        toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
         attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
       })),
     };

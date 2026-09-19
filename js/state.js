@@ -234,7 +234,7 @@ export function createStore(onChange) {
           return {
             id: uid(), role: m.role, text: m.text || '',
             content: typeof m.content === 'string' ? m.content : (m.content || ''),
-            toolCalls: m.toolCalls, toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+            toolCalls: m.toolCalls, toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
             ...(atts.length ? { attachments: atts } : {}),
           };
         });

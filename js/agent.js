@@ -105,7 +105,8 @@ export function createAgent(store, hooks = {}) {
         const usage = {};
         let finishReason = null;
 
-        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', usage: null });
+        // 记录本回合实际使用的模型：用户之后切换模型，历史消息仍应显示当时的模型
+        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', usage: null, model });
         hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
         setStatus('streaming');
 
@@ -227,7 +228,7 @@ export function createAgent(store, hooks = {}) {
         }
       }
       // 达到迭代上限
-      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, done: true });
+      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, model, done: true });
       setStatus('done');
       hooks.onTurnEnd && hooks.onTurnEnd();
     } catch (err) {
