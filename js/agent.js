@@ -7,7 +7,7 @@
 //   · 可观测：usage 归一、传输通道标记、工具结果截断保护上下文
 //   · 附件：文本附件自动注入沙箱 uploads/，图片走多模态协议块
 
-import { streamChat, createToolCallAccumulator, getTransport } from './api.js';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
@@ -16,7 +16,7 @@ import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC } from './c
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
 // （导出以供 tests/live-smoke.mjs 对真实 API 验证）
-export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal, onThinkingFallback }) {
   const subTools = sandboxEnabled && def.tools.length
     ? TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent')
     : null;
@@ -28,12 +28,17 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
   for (let i = 0; i < SUBAGENT_LOOP_MAX; i++) {
     if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
     const acc = createToolCallAccumulator();
+    const tb = createThinkingTracker(); // 思考块需随 tool_use 回合回传，否则下一轮 400
     let text = '';
     await streamChat({
       model, apiKey, thinking, signal, tools: subTools,
+      onThinkingFallback,
       messages,
       onEvent: (ev) => {
         if (ev.type === 'text') text += ev.text;
+        else if (ev.type === 'reasoning') tb.delta(ev.index, ev.text);
+        else if (ev.type === 'block_start' && ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
+        else if (ev.type === 'signature_delta') tb.signature(ev.index, ev.signature);
         else if (ev.type === 'tool_delta') acc.push(ev);
         else if (ev.type === 'error') throw new Error(ev.message);
       },
@@ -41,7 +46,8 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     finalText = text;
     const calls = acc.result();
     if (!calls.length) break;
-    messages.push({ role: 'assistant', text, toolCalls: calls });
+    const blocks = tb.blocks();
+    messages.push({ role: 'assistant', text, toolCalls: calls, ...(blocks.length ? { thinkingBlocks: blocks } : {}) });
     for (const c of calls) {
       const res = await executeTool(c.name, c.args, { fs, onUi: () => {} });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
@@ -93,6 +99,7 @@ export function createAgent(store, hooks = {}) {
 
         // ── 一次 LLM 流式调用（流层早期失败自动重试一次）──
         const acc = createToolCallAccumulator();
+        let tb = createThinkingTracker(); // Anthropic 思考块（含 signature），随消息持久化并在下一轮回传
         let text = '', reasoning = '';
         let sawToolDelta = false, lastChipPaint = 0;
         const usage = {};
@@ -109,6 +116,7 @@ export function createAgent(store, hooks = {}) {
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
               thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
+              onThinkingFallback: hooks.onThinkingFallback, // 思考参数 400 降级 → 提示用户（不再静默）
               messages: buildMessages(),
               onEvent: (ev) => {
                 switch (ev.type) {
@@ -119,8 +127,15 @@ export function createAgent(store, hooks = {}) {
                     break;
                   case 'reasoning':
                     reasoning += ev.text;
+                    tb.delta(ev.index, ev.text);
                     store.updateMessage(assistantMsg.id, { reasoning });
                     hooks.onReasoning && hooks.onReasoning(assistantMsg, reasoning);
+                    break;
+                  case 'block_start':
+                    if (ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
+                    break;
+                  case 'signature_delta':
+                    tb.signature(ev.index, ev.signature);
                     break;
                   case 'tool_delta': {
                     acc.push(ev);
@@ -152,6 +167,9 @@ export function createAgent(store, hooks = {}) {
             const transient = err.status === undefined || err.status >= 500 || err.status === 429;
             if (attempt === 0 && !text && !sawToolDelta && transient && !signal.aborted && err.name !== 'AbortError') {
               attempt++;
+              tb = createThinkingTracker(); // 重放前清空可能收到的半个思考块
+              reasoning = ''; // 思考流先于正文到达，重放时同样不能叠加
+              store.updateMessage(assistantMsg.id, { reasoning: undefined });
               await sleep(1200);
               continue; // 尚未收到任何内容 → 安全重放整次调用
             }
@@ -160,8 +178,11 @@ export function createAgent(store, hooks = {}) {
         }
 
         const toolCalls = acc.result();
+        const thinkingBlocks = tb.blocks();
         store.updateMessage(assistantMsg.id, {
           text, reasoning: reasoning || undefined, toolCalls: toolCalls.length ? toolCalls : undefined,
+          // 思考块（含 signature）随消息持久化：下一轮请求需原样回传（P0-2）
+          thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
           usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
           finishReason, done: true, transport: getTransport(),
         });
@@ -193,6 +214,7 @@ export function createAgent(store, hooks = {}) {
                   model: store.state.model,
                   thinking: store.state.settings.thinking !== false,
                   sandboxEnabled: store.state.settings.sandboxEnabled,
+                  onThinkingFallback: hooks.onThinkingFallback,
                   fs, signal,
                 });
                 return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;

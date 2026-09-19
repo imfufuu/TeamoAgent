@@ -17,6 +17,7 @@ const hooks = {
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
   onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); ui && ui.refreshBalance(); },
+  onThinkingFallback: (model) => toast(`${model} 不支持思考参数，本次会话已为其自动关闭思考模式`, 'warn', 5200),
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onError: (err) => {

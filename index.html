@@ -3,6 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<!-- CSP（P1-4）：
+     · 渲染层无内联脚本（全部外部文件），script 仅放行 self 与 Pyodide CDN
+     · style 'unsafe-inline' 为 KaTeX 输出与少量 style 属性所需
+     · worker 放行 self 与 blob:（sandbox.js 的 blob Worker 兜底通道）
+     · connect 仅放行网关 / C++ 远程执行 / Pyodide CDN / 本站代理
+     · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.teamorouter.com https://godbolt.org https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'" />
 <title>TeamoAgent — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2032%2032%27%3E%3Ccircle%20cx%3D%2716%27%20cy%3D%2716%27%20r%3D%2715%27%20fill%3D%27%230a0a0a%27%2F%3E%3Cpath%20d%3D%27M16%201a15%2015%200%200%201%200%2030z%27%20fill%3D%27%23fff%27%2F%3E%3Ccircle%20cx%3D%2716%27%20cy%3D%2716%27%20r%3D%273.4%27%20fill%3D%27%230a0a0a%27%2F%3E%3C%2Fsvg%3E" />
 <link rel="stylesheet" href="css/styles.css" />
@@ -19,12 +26,12 @@
     <div class="logo">
       <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="11.4" stroke="currentColor" stroke-width="2.4"/><path d="M16 4.6a11.4 11.4 0 0 1 0 22.8z" fill="currentColor"/><circle cx="16" cy="4.6" r="2.7" fill="currentColor"/><circle cx="6.1" cy="21.7" r="2.7" fill="currentColor"/><circle cx="25.9" cy="21.7" r="2.7" fill="currentColor"/></svg></span>
       <span class="logo-text">TEAMO<i>AGENT</i></span>
-      <button id="sidebar-toggle" class="icon-btn" type="button" title="收起侧栏">⟨</button>
+      <button id="sidebar-toggle" class="icon-btn" type="button" title="收起侧栏" aria-label="收起侧栏">⟨</button>
     </div>
 
     <!-- 模型选择 -->
     <div class="side-section">
-      <div class="side-label">模型 <button id="refresh-models" class="icon-btn" title="从 GET /v1/models 刷新">⟳</button></div>
+      <div class="side-label">模型 <button id="refresh-models" class="icon-btn" title="从 GET /v1/models 刷新" aria-label="刷新模型列表">⟳</button></div>
       <div class="picker" id="model-picker">
         <button id="model-btn" class="model-btn" type="button">
           <span class="model-btn-main">
@@ -34,7 +41,7 @@
           <span class="model-btn-caret">▾</span>
         </button>
         <div id="model-menu" class="dd-menu">
-          <div class="dd-search-wrap"><input id="model-search" class="dd-search mono" placeholder="搜索模型…" /></div>
+          <div class="dd-search-wrap"><input id="model-search" class="dd-search mono" placeholder="搜索模型…" aria-label="搜索模型" /></div>
         </div>
       </div>
     </div>
@@ -56,7 +63,7 @@
         <button id="export-btn" class="mini-btn" type="button" title="导出会话 JSON">导出</button>
         <button id="import-btn" class="mini-btn" type="button" title="从 JSON 导入会话">导入</button>
         <input id="import-input" type="file" accept="application/json,.json" hidden />
-        <button id="theme-toggle" class="mini-btn" type="button" title="切换主题">◑</button>
+        <button id="theme-toggle" class="mini-btn" type="button" title="切换主题" aria-label="切换明暗主题">◑</button>
       </div>
     </div>
   </aside>
@@ -69,7 +76,7 @@
         <button id="thinking-toggle" class="pill on" type="button" title="思考模式：Claude→thinking.budget_tokens / GPT·Gemini·Grok→reasoning_effort / DeepSeek→reasoning / GLM→thinking；不支持的模型自动降级"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>思考</button>
         <button id="sandbox-toggle" class="pill on" type="button" title="沙箱：Agent 可执行 JS/Python/C++ 代码、读写虚拟文件并委派子智能体"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/></svg>沙箱</button>
         <button id="fast-toggle" class="pill" type="button" title="TeamoRouter Fast mode（service_tier=fast，2x 计费，仅 GPT 系列）">⚡ Fast</button>
-        <button id="panel-toggle" class="pill" type="button" title="沙箱面板">◧</button>
+        <button id="panel-toggle" class="pill" type="button" title="沙箱面板" aria-label="展开或收起沙箱面板">◧</button>
       </div>
     </header>
 
@@ -81,10 +88,10 @@
     <div class="composer-wrap">
       <div id="attach-chips" class="attach-chips" style="display:none"></div>
       <div class="composer">
-        <button id="attach-btn" type="button" title="添加附件（图片 / 文本 / 代码，可拖拽或粘贴）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
+        <button id="attach-btn" type="button" title="添加附件（图片 / 文本 / 代码，可拖拽或粘贴）" aria-label="添加附件"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg></button>
         <input id="attach-input" type="file" multiple hidden accept="image/png,image/jpeg,image/gif,image/webp,.txt,.md,.js,.ts,.py,.json,.csv,.log,.html,.css,.xml,.yaml,.yml,.sh,.sql,.vue,.go,.rs,.java,.c,.cpp,.h,.rb,.php,.toml,.ini,.env,.conf" />
-        <textarea id="composer-input" rows="1" placeholder="输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…"></textarea>
-        <button id="send-btn" type="button" title="发送 (Enter)"><span id="send-ico">↑</span></button>
+        <textarea id="composer-input" rows="1" aria-label="消息输入框" placeholder="输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…"></textarea>
+        <button id="send-btn" type="button" title="发送 (Enter)" aria-label="发送"><span id="send-ico">↑</span></button>
       </div>
       <div class="composer-hint">
         由 <a href="https://api.teamorouter.com" target="_blank" rel="noopener" class="mono">api.teamorouter.com</a> 提供路由 ·
@@ -112,13 +119,13 @@
 </div>
 
 <!-- 侧栏展开把手（侧栏收起时浮现）+ 窄屏浮层遮罩 -->
-<button id="sidebar-fab" type="button" title="展开侧栏">☰</button>
+<button id="sidebar-fab" type="button" title="展开侧栏" aria-label="展开侧栏">☰</button>
 <div id="overlay-backdrop" class="overlay-backdrop"></div>
 
 <!-- ═══ API Key 弹窗 ═══ -->
-<div id="key-modal" class="modal">
+<div id="key-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="key-modal-title">
   <div class="modal-card">
-    <div class="modal-head"><h3>TeamoRouter API Key</h3><button id="key-close" class="icon-btn" type="button">✕</button></div>
+    <div class="modal-head"><h3 id="key-modal-title">TeamoRouter API Key</h3><button id="key-close" class="icon-btn" type="button" aria-label="关闭">✕</button></div>
     <p class="modal-desc">Key 以 <span class="mono">sk-teamo-</span> 开头，在 <a href="https://teamorouter.com/dashboard?tab=api-keys" target="_blank" rel="noopener">TeamoRouter 控制台</a> 创建。仅保存在本机浏览器 localStorage，随请求头直发网关，不经过任何第三方。</p>
     <input id="key-input" class="key-input mono" type="password" placeholder="sk-teamo-xxxxxxxx…" spellcheck="false" autocomplete="off" />
     <div class="modal-actions">

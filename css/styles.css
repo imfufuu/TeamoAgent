@@ -574,3 +574,17 @@ a { color: var(--fg); }
 .toast.err { background: var(--bg); color: var(--fg); border: 1.5px solid var(--fg); }
 .toast.warn { background: var(--bg); color: var(--fg); border: 1.5px dashed var(--fg-3); }
 .toast.ok { background: var(--fg); color: var(--bg); }
+
+/* ─── 可访问性（P2-3）────────────────────────────────────────────── */
+/* 键盘焦点可见（鼠标点击不显示轮廓） */
+:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
+.dd-search:focus-visible, .key-input:focus-visible, #composer-input:focus-visible { outline-offset: 0; }
+
+/* 尊重系统「减少动态效果」：停掉无限循环动画，淡入改为直出 */
+@media (prefers-reduced-motion: reduce) {
+  .empty-logo svg, .logo-mark, .icon-btn.spin, .chip-ico, #jump-bottom .jump-ico,
+  .dot.busy, .thinking-line .dots, .cursor { animation: none; }
+  .msg.enter, .empty-state, .dd-menu.open, .toast, .chip.expanded .chip-detail,
+  .file-viewer.open { animation-duration: .01ms; animation-iteration-count: 1; }
+  * { scroll-behavior: auto; }
+}

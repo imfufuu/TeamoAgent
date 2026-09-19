@@ -46,20 +46,39 @@ export function createStore(onChange) {
 
   // ── 持久化（v2 结构；自动迁移 v1 单会话数据）──
   let saveTimer = null;
-  const slimState = () => ({
-    ...state,
-    sessions: state.sessions.map((s) => ({
-      ...s,
-      messages: s.messages.map((m) => m.attachments ? {
-        ...m,
-        attachments: m.attachments.map((a) => ({ ...a, dataUrl: undefined, text: a.text != null ? String(a.text).slice(0, 1000) : undefined, stripped: true })),
-      } : m),
-    })),
-  });
+  // 瘦身版快照：剥离附件 dataUrl、截断附件文本。
+  // 注意根级 messages 是活动会话消息数组的镜像引用，必须一并替换为瘦身版，
+  // 否则瘦身 JSON 里仍会带上完整的大附件（4MB 限制形同虚设）
+  const slimMsgs = (msgs) => (msgs || []).map((m) => m.attachments ? {
+    ...m,
+    attachments: m.attachments.map((a) => ({ ...a, dataUrl: undefined, text: a.text != null ? String(a.text).slice(0, 1000) : undefined, stripped: true })),
+  } : m);
+  const slimState = () => {
+    const sessions = state.sessions.map((s) => ({ ...s, messages: slimMsgs(s.messages) }));
+    const active = sessions.find((s) => s.id === state.activeSessionId) || sessions[0] || { messages: [] };
+    return { ...state, sessions, messages: active.messages };
+  };
+  // 廉价的序列化体积预估（只数字符，不做 JSON 编码）：
+  // 避免「先全量 stringify 带 base64 图片的巨型 state、超限后再扔掉重来」的双重序列化
+  // （单张 5MB 图片 ≈ 6.7MB dataURL，旧逻辑每次落盘都白序列化一遍）
+  const estimateStateChars = () => {
+    let c = 1024;
+    for (const s of state.sessions) {
+      for (const m of s.messages || []) {
+        c += (m.text ? m.text.length : 0) + (m.content ? m.content.length : 0) + (m.reasoning ? m.reasoning.length : 0) + 96;
+        if (m.toolCalls) c += JSON.stringify(m.toolCalls).length;
+        if (m.thinkingBlocks) c += JSON.stringify(m.thinkingBlocks).length;
+        for (const a of m.attachments || []) c += (a.dataUrl ? a.dataUrl.length : 0) + (a.text ? a.text.length : 0) + 128;
+      }
+      c += JSON.stringify(s.files || {}).length + 256;
+    }
+    return c;
+  };
   const writeNow = () => {
     try {
       commit();
-      let json = JSON.stringify(state);
+      // 先预估再决定序列化目标；预估偏低时仍有全量兜底检查
+      let json = estimateStateChars() > 4000000 ? JSON.stringify(slimState()) : JSON.stringify(state);
       if (json.length > 4000000) json = JSON.stringify(slimState());
       localStorage.setItem(STORAGE_KEY + '-v2', json);
     } catch {
@@ -83,6 +102,10 @@ export function createStore(onChange) {
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
       if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
     } else {
+      // 首次运行跟随系统明暗偏好（a11y P2-3），之后以用户手动切换为准
+      if (typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches) {
+        state.settings.theme = 'dark';
+      }
       const v1 = localStorage.getItem(STORAGE_KEY);
       if (v1) { // v1 单会话 → 迁移为一个会话
         const old = JSON.parse(v1);

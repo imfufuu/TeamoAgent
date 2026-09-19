@@ -273,16 +273,43 @@ export function mountUI(store, agent) {
   });
   syncFast();
 
-  // ── API Key 弹窗 ──
+  // ── API Key 弹窗（role=dialog + Esc 关闭 + 焦点圈定，a11y P2-3）──
   const keyModal = $('#key-modal');
   const keyInput = $('#key-input');
+  let modalReturnFocus = null;
   window.openKeyModal = openKeyModal;
-  function openKeyModal() { keyInput.value = store.state.apiKey; keyModal.classList.add('open'); setTimeout(() => keyInput.focus(), 100); }
+  function openKeyModal() {
+    modalReturnFocus = document.activeElement;
+    keyInput.value = store.state.apiKey;
+    keyModal.classList.add('open');
+    setTimeout(() => keyInput.focus(), 100);
+  }
+  function closeKeyModal() {
+    if (!keyModal.classList.contains('open')) return;
+    keyModal.classList.remove('open');
+    // 归还焦点，键盘用户不迷失
+    if (modalReturnFocus && modalReturnFocus.focus) modalReturnFocus.focus();
+    modalReturnFocus = null;
+  }
   $('#key-btn').addEventListener('click', openKeyModal);
-  $('#key-close').addEventListener('click', () => keyModal.classList.remove('open'));
+  $('#key-close').addEventListener('click', closeKeyModal);
+  // 点击遮罩区域关闭
+  keyModal.addEventListener('click', (e) => { if (e.target === keyModal) closeKeyModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (!keyModal.classList.contains('open')) return;
+    if (e.key === 'Escape') { closeKeyModal(); return; }
+    // 焦点圈定：Tab 只在弹窗内循环
+    if (e.key === 'Tab') {
+      const focusables = [$('#key-close'), keyInput, $('#key-save')];
+      const idx = focusables.indexOf(document.activeElement);
+      if (idx < 0) return;
+      if (e.shiftKey && idx === 0) { e.preventDefault(); focusables[focusables.length - 1].focus(); }
+      else if (!e.shiftKey && idx === focusables.length - 1) { e.preventDefault(); focusables[0].focus(); }
+    }
+  });
   $('#key-save').addEventListener('click', () => {
     store.state.apiKey = keyInput.value.trim(); store.notify();
-    keyModal.classList.remove('open');
+    closeKeyModal();
     toast(store.state.apiKey ? 'API Key 已保存（仅存于浏览器 localStorage）' : 'API Key 已清除', 'ok');
     updateTransportBadge();
     refreshBalance();
@@ -302,7 +329,7 @@ export function mountUI(store, agent) {
     const box = $('#session-list'); box.innerHTML = '';
     for (const s of store.sortedSessions()) {
       const node = el('div', 'sess-item' + (s.id === store.state.activeSessionId ? ' active' : ''));
-      node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span><button class="sess-del" type="button" title="删除会话">✕</button>`;
+      node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span><button class="sess-del" type="button" title="删除会话" aria-label="删除会话「${esc(s.title || '新对话')}」">✕</button>`;
       node.addEventListener('click', () => switchToSession(s.id));
       $('.sess-del', node).addEventListener('click', (e) => {
         e.stopPropagation();

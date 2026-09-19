@@ -13,7 +13,8 @@ export const PROVIDER_ICON = {
 
 // ─── TeamoAgent 应用标识 ───────────────────────────────────────────────
 // 设计语义：半填充圆（路由的二分与选择）+ 环上三个节点（网关分发到多模型），
-// 单色 currentColor 随主题；favicon 用静态双色版（黑底白半圆，深浅标签页均可见）。
+// 单色 currentColor 随主题；favicon 为 index.html 内联的静态双色版
+// （黑底白半圆，深浅标签页均可见）。
 export const APP_LOGO = `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
   <circle cx="16" cy="16" r="11.4" stroke="currentColor" stroke-width="2.4"/>
   <path d="M16 4.6a11.4 11.4 0 0 1 0 22.8z" fill="currentColor"/>
@@ -21,10 +22,6 @@ export const APP_LOGO = `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.
   <circle cx="6.1" cy="21.7" r="2.7" fill="currentColor"/>
   <circle cx="25.9" cy="21.7" r="2.7" fill="currentColor"/>
 </svg>`;
-
-export const APP_FAVICON = "data:image/svg+xml," + encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><circle cx="16" cy="16" r="15" fill="#0a0a0a"/><path d="M16 1a15 15 0 0 1 0 30z" fill="#fff"/><circle cx="16" cy="16" r="3.4" fill="#0a0a0a"/></svg>`
-);
 
 export function providerIcon(provider) {
   const def = PROVIDER_ICON[provider];
