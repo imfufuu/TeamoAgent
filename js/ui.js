@@ -865,7 +865,27 @@ export function mountUI(store, agent) {
       // 同步回填对话流中的工具芯片（状态 ✓/✕ + 展开详情）
       attachToolResult({ toolCallId: call.id, content: result });
     },
-    onToolEvent() { /* 控制台已移除；执行进度在消息内工具芯片展示 */ },
+    // 沙箱执行进度 → 回写到对应工具芯片的状态位（Pyodide 首次加载 10~30s、
+    // C++ 远程编译、子智能体委派都需要可见的进度，否则界面看起来像卡死）
+    onToolEvent(call, patch) {
+      const chip = $(`.chip[data-call-id="${CSS.escape(call.id)}"]`, msgList);
+      if (!chip) return;
+      const state = $('.chip-state', chip);
+      if (!state) return;
+      if (patch.status === 'running') {
+        chip.classList.add('running');
+        state.textContent = patch.note || '执行中…';
+        state.title = patch.note || '';
+        state.classList.remove('bad');
+      } else if (patch.status === 'error') {
+        chip.classList.remove('running');
+        state.textContent = patch.note || '✕';
+        state.classList.add('bad');
+      } else if (patch.status === 'ok') {
+        chip.classList.remove('running');
+      }
+      if (patch.status === 'running') scrollToBottom();
+    },
     attachToolResult,
     scrollToBottom: () => scrollToBottom(true),
   };

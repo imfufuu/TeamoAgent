@@ -37,5 +37,9 @@ ui = mountUI(store, agent);
 // 沙箱内 files 与 store 双向同步：state.files 作为持久化源
 agent.fs.import(store.state.files);
 
-window.addEventListener('beforeunload', () => store.save());
+// 关闭/隐藏页面时同步落盘（防抖版 save 的定时器在卸载时不会触发，会丢最后一轮对话）
+window.addEventListener('beforeunload', () => store.save(true));
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') store.save(true);
+});
 console.log('%c◐ TeamoAgent', 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');

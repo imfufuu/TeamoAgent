@@ -7,7 +7,7 @@
 ## 快速开始
 
 ```bash
-cd teamo-agent
+cd TeamoAgent
 python3 server.py            # 默认 http://localhost:8787
 ```
 
@@ -108,7 +108,7 @@ js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道）
-tests/            node tests/agent.test.mjs（19 项，覆盖双协议解析与回滚）
+tests/            node tests/agent.test.mjs（46 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / Markdown·KaTeX 渲染）
 ```
 
 ## 部署
@@ -120,7 +120,9 @@ Python 沙箱首次使用需从 CDN 加载 Pyodide 运行时；本地代理（se
 
 ### 发布到 GitHub Pages 的步骤
 
-本项目是零构建静态站点，用「Deploy from a branch」最简单：
+本项目是零构建静态站点。仓库已内置 `.github/workflows/pages.yml`（Actions 部署），
+推送到 `main` 或工作分支即自动发布，无需手动配置，也不必等合并。
+若想改用「Deploy from a branch」：
 
 1. 推送代码到仓库（`index.html` 位于仓库根目录）
 2. 打开仓库 **Settings → Pages**
