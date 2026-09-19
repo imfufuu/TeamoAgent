@@ -2,8 +2,9 @@
 import assert from 'node:assert/strict';
 import {
   createSSEParser, createOpenAIStream, createAnthropicStream,
-  createToolCallAccumulator, buildOpenAIMessages, buildAnthropicPayload,
+  createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
+  thinkingDisabledFor, __resetThinkingFallbackForTests,
 } from '../js/api.js';
 import { protocolOf, providerOf, supportsFastMode } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
@@ -13,6 +14,7 @@ import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor 
 import { thinkingParamsFor } from '../js/config.js';
 import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
 import { TOOL_DEFS } from '../js/tools.js';
+import { createAgent } from '../js/agent.js';
 
 let passed = 0;
 const queue = [];
@@ -121,6 +123,67 @@ test('坏 JSON 参数降级为 __raw', () => {
   const acc = createToolCallAccumulator();
   acc.push({ index: 0, id: 'x', name: 'f', argsText: '{broken' });
   assert.deepEqual(acc.result()[0].args, { __raw: '{broken' });
+});
+
+group('Anthropic 思考块捕获与回传（P0-2）');
+test('thinking / redacted_thinking / signature_delta 事件被归一化', () => {
+  const evs = [];
+  const h = createAnthropicStream((e) => evs.push(e));
+  h({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '先算' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '再答' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-123' } });
+  h({ type: 'content_block_start', index: 1, content_block: { type: 'redacted_thinking', data: 'ENC==' } });
+  h({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_9', name: 'write_file' } });
+  const starts = evs.filter((e) => e.type === 'block_start');
+  assert.deepEqual(starts.map((e) => e.block.type), ['thinking', 'redacted_thinking']);
+  const sig = evs.find((e) => e.type === 'signature_delta');
+  assert.equal(sig.index, 0);
+  assert.equal(sig.signature, 'sig-123');
+  const reasonings = evs.filter((e) => e.type === 'reasoning');
+  assert.equal(reasonings.length, 2);
+  assert.equal(reasonings[0].index, 0, 'reasoning 事件需携带块 index 以便归属');
+});
+test('createThinkingTracker：按流内顺序拼装，仅保留可回传的块', () => {
+  const tb = createThinkingTracker();
+  tb.start(0, { type: 'thinking' });
+  tb.delta(0, '让我');
+  tb.delta(0, '想想');
+  tb.signature(0, 'sig-A');
+  tb.start(1, { type: 'redacted_thinking', data: 'ENC==' });
+  tb.start(2, { type: 'thinking' });
+  tb.delta(2, '第二段思考');
+  // index 2 没有 signature → 不可回传，必须丢弃（API 拒收无签名块）
+  const blocks = tb.blocks();
+  assert.equal(blocks.length, 2);
+  assert.deepEqual(blocks[0], { type: 'thinking', thinking: '让我想想', signature: 'sig-A' });
+  assert.deepEqual(blocks[1], { type: 'redacted_thinking', data: 'ENC==' });
+});
+test('buildAnthropicPayload：思考块置于 assistant content 最前（先于 tool_use）', () => {
+  const p = buildAnthropicPayload([
+    { role: 'user', text: 'Q' },
+    {
+      role: 'assistant', text: '中间文本',
+      thinkingBlocks: [
+        { type: 'thinking', thinking: '推理过程', signature: 'sig-A' },
+        { type: 'redacted_thinking', data: 'ENC==' },
+        { type: 'thinking', thinking: '无签名，应被丢弃' },
+      ],
+      toolCalls: [{ id: 't1', name: 'write_file', args: { path: 'a', content: 'x' } }],
+    },
+    { role: 'tool', toolCallId: 't1', content: 'ok' },
+  ]);
+  const asst = p.messages[1];
+  assert.deepEqual(asst.content.map((b) => b.type), ['thinking', 'redacted_thinking', 'text', 'tool_use']);
+  assert.equal(asst.content[0].signature, 'sig-A');
+  assert.equal(asst.content[0].thinking, '推理过程');
+});
+test('buildAnthropicPayload：includeThinking=false 时省略思考块（降级路径）', () => {
+  const p = buildAnthropicPayload([
+    { role: 'user', text: 'Q' },
+    { role: 'assistant', text: '', thinkingBlocks: [{ type: 'thinking', thinking: 'x', signature: 's' }], toolCalls: [{ id: 't1', name: 'f', args: {} }] },
+  ], { includeThinking: false });
+  assert.deepEqual(p.messages[1].content.map((b) => b.type), ['tool_use']);
 });
 
 group('请求体构建');
@@ -546,6 +609,249 @@ test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
     if (realLS === undefined) delete globalThis.localStorage;
     else globalThis.localStorage = realLS;
   }
+});
+
+group('持久化体积（P1-3：先预估再序列化，超限自动瘦身）');
+test('小体积状态：图片 dataUrl 原样持久化', async () => {
+  const mem = new Map();
+  const realLS = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+  try {
+    const { createStore } = await import('../js/state.js?small=' + Date.now());
+    const store = createStore();
+    store.pushMessage({ role: 'user', text: '看图', attachments: [{ kind: 'image', name: 'p.png', size: 10, dataUrl: 'data:image/png;base64,AAA' }] });
+    store.save(true);
+    const saved = JSON.parse(mem.get('teamo-agent-state-v1-v2'));
+    const att = saved.sessions[0].messages.find((m) => m.role === 'user').attachments[0];
+    assert.equal(att.dataUrl, 'data:image/png;base64,AAA', '小体积不应剥离图片');
+  } finally {
+    if (realLS === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realLS;
+  }
+});
+test('超大状态（含 5MB 图片）：走瘦身路径，剥离 dataUrl 且不破坏结构', async () => {
+  const mem = new Map();
+  const realLS = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+  try {
+    const { createStore } = await import('../js/state.js?big=' + Date.now());
+    const store = createStore();
+    store.pushMessage({
+      role: 'user', text: '大图',
+      attachments: [{ kind: 'image', name: 'big.png', size: 5 * 1024 * 1024, dataUrl: 'data:image/png;base64,' + 'A'.repeat(5 * 1024 * 1024) }],
+    });
+    store.save(true);
+    const raw = mem.get('teamo-agent-state-v1-v2');
+    assert.ok(raw && raw.length < 100000, `瘦身后应远小于原图体积（实际 ${raw.length}）`);
+    const saved = JSON.parse(raw);
+    const att = saved.sessions[0].messages.find((m) => m.role === 'user').attachments[0];
+    assert.equal(att.dataUrl, undefined, '超限必须剥离 dataUrl');
+    assert.equal(att.stripped, true, '标记已省略（后续请求发送省略说明）');
+  } finally {
+    if (realLS === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realLS;
+  }
+});
+
+group('Agent 工具循环（mock SSE 端到端）');
+// ── mock fetch 工具：把协议事件序列封装成 SSE 响应 ──
+const sseEv = (o) => 'data: ' + JSON.stringify(o) + '\n\n';
+const sseDone = 'data: [DONE]\n\n';
+const sseResponse = (text, status = 200) => new Response(
+  new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(text)); c.close(); } }),
+  { status, headers: { 'content-type': 'text/event-stream' } },
+);
+const openaiToolTurn = (id, name, argsJson) => sseResponse(
+  sseEv({ choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: argsJson } }] } }] })
+  + sseEv({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }) + sseDone);
+const openaiTextTurn = (text) => sseResponse(
+  sseEv({ choices: [{ delta: { content: text } }] })
+  + sseEv({ usage: { prompt_tokens: 7, completion_tokens: 3 }, choices: [] })
+  + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone);
+const anthropicTextTurn = (text) => sseResponse(
+  sseEv({ type: 'message_start', message: { usage: { input_tokens: 20, output_tokens: 1 } } })
+  + sseEv({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+  + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } })
+  + sseEv({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 8 } })
+  + sseEv({ type: 'message_stop' }) + sseDone);
+// Claude 回合：思考块（含 signature）+ tool_use —— P0-2 的核心场景
+const anthropicThinkingToolTurn = () => sseResponse(
+  sseEv({ type: 'message_start', message: { usage: { input_tokens: 10, output_tokens: 1 } } })
+  + sseEv({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } })
+  + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '需要写入文件' } })
+  + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-replay' } })
+  + sseEv({ type: 'content_block_stop', index: 0 })
+  + sseEv({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'toolu_r1', name: 'write_file' } })
+  + sseEv({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"path":"r.txt",' } })
+  + sseEv({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '"content":"replay"}' } })
+  + sseEv({ type: 'content_block_stop', index: 1 })
+  + sseEv({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 60 } })
+  + sseEv({ type: 'message_stop' }) + sseDone);
+
+const realFetch = globalThis.fetch;
+const mockFetch = (responses, calls) => {
+  globalThis.fetch = async (url, opts) => {
+    const call = { url: String(url), opts };
+    try { call.body = JSON.parse(opts && opts.body); } catch { /* GET 无 body */ }
+    calls.push(call);
+    return responses.shift();
+  };
+};
+
+test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_1', 'write_file', JSON.stringify({ path: 'a.txt', content: 'hi' })),
+    openaiTextTurn('已写入'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('创建文件 a.txt 内容 hi');
+    const roles = store.state.messages.map((m) => m.role);
+    assert.deepEqual(roles, ['user', 'assistant', 'tool', 'assistant']);
+    assert.equal(store.state.messages[1].toolCalls[0].name, 'write_file');
+    assert.ok(store.state.messages[2].content.includes('a.txt'), '工具结果应回填');
+    assert.equal(store.state.messages[3].text, '已写入');
+    assert.equal(store.state.messages[3].usage.output, 3, 'usage 归一');
+    assert.equal(agent.fs.read('a.txt'), 'hi', '工具副作用对虚拟 FS 可见');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.includes('/v1/chat/completions'));
+    // 第二次请求必须携带 tool 结果
+    assert.ok(calls[1].body.messages.some((m) => m.role === 'tool' && m.tool_call_id === 'call_1'));
+    assert.equal(agent.getStatus(), 'done');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('工具循环：迭代上限（TOOL_LOOP_MAX）后停止并告知用户', async () => {
+  const { TOOL_LOOP_MAX } = await import('../js/config.js');
+  let n = 0;
+  globalThis.fetch = async () => { n++; return openaiToolTurn(`call_${n}`, 'write_file', JSON.stringify({ path: `f${n}.txt`, content: 'x' })); };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('一直写文件');
+    assert.equal(n, TOOL_LOOP_MAX, '应按上限停止请求');
+    const last = store.state.messages[store.state.messages.length - 1];
+    assert.ok(last.text.includes('上限'), '上限提示落盘');
+    assert.equal(agent.getStatus(), 'done');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('工具循环：坏 JSON 参数不执行，反馈模型纠错', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_bad', 'write_file', '{broken json'),
+    openaiTextTurn('已修正'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('写文件');
+    const toolMsg = store.state.messages.find((m) => m.role === 'tool');
+    assert.ok(toolMsg.content.includes('不是合法 JSON'), '反馈而非执行');
+    assert.equal(agent.fs.list().length, 0, '坏参数不应产生副作用');
+    assert.ok(calls[1].body.messages.some((m) => m.role === 'tool' && m.content.includes('不是合法 JSON')), '反馈送回模型');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('P0-2 端到端：Claude 思考+工具调用，第二次请求回传思考块（含 signature）', async () => {
+  const calls = [];
+  mockFetch([anthropicThinkingToolTurn(), anthropicTextTurn('完成')], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'claude-replay-test';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, {});
+    await agent.send('写个文件');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith('/v1/messages'), 'Claude 走原生协议');
+    assert.deepEqual(calls[0].body.thinking, { type: 'enabled', budget_tokens: 4096 });
+    assert.equal(calls[0].body.max_tokens, 16384, '思考模式 max_tokens 自动抬升');
+    // 关键断言：第二次请求的 assistant 消息以思考块开头并携带 signature
+    const asst = calls[1].body.messages.find((m) => m.role === 'assistant');
+    assert.equal(asst.content[0].type, 'thinking');
+    assert.equal(asst.content[0].thinking, '需要写入文件');
+    assert.equal(asst.content[0].signature, 'sig-replay');
+    assert.equal(asst.content[1].type, 'tool_use');
+    // 后续是合并的 tool_result
+    const next = calls[1].body.messages[calls[1].body.messages.indexOf(asst) + 1];
+    assert.equal(next.role, 'user');
+    assert.equal(next.content[0].type, 'tool_result');
+    // 思考块随消息持久化；且没有触发降级
+    const asstMsg = store.state.messages.find((m) => m.role === 'assistant' && m.toolCalls);
+    assert.equal(asstMsg.thinkingBlocks[0].signature, 'sig-replay');
+    assert.equal(thinkingDisabledFor('claude-replay-test'), false, '不得再静默关闭思考');
+    assert.equal(store.state.messages[store.state.messages.length - 1].text, '完成');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('思考参数 400：去掉参数重试、记录模型并通知上层（不再静默）', async () => {
+  __resetThinkingFallbackForTests();
+  const calls = [];
+  let notified = null;
+  mockFetch([
+    sseResponse(JSON.stringify({ error: { message: 'thinking is not supported for this model' } }), 400),
+    anthropicTextTurn('好的'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'claude-fallback-test';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, { onThinkingFallback: (m) => { notified = m; } });
+    await agent.send('你好');
+    assert.equal(notified, 'claude-fallback-test', '降级必须可感知');
+    assert.ok(thinkingDisabledFor('claude-fallback-test'));
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].body.thinking, '首次尝试带思考参数');
+    assert.equal(calls[1].body.thinking, undefined, '重试去掉思考参数');
+    assert.equal(store.state.messages[store.state.messages.length - 1].text, '好的');
+  } finally {
+    globalThis.fetch = realFetch;
+    __resetThinkingFallbackForTests();
+  }
+});
+
+test('中断：流式中途 abort() → 状态 cancelled、消息标记 cancelled', async () => {
+  globalThis.fetch = (url, opts) => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(sseEv({ choices: [{ delta: { content: '正在写…' } }] })));
+        opts.signal.addEventListener('abort', () => controller.error(new DOMException('Aborted', 'AbortError')));
+      },
+    });
+    return Promise.resolve(new Response(stream, { status: 200 }));
+  };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    const p = agent.send('长任务');
+    await new Promise((r) => setTimeout(r, 80));
+    agent.abort();
+    await p;
+    assert.equal(agent.getStatus(), 'cancelled');
+    const last = store.state.messages[store.state.messages.length - 1];
+    assert.equal(last.cancelled, true);
+    assert.equal(last.done, true);
+  } finally { globalThis.fetch = realFetch; }
 });
 
 // ── 顺序执行（async 测试逐个 await）──

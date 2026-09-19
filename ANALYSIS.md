@@ -6,6 +6,32 @@
 
 ---
 
+## 修复进度（2026-09-19 复核，持续更新）
+
+本报告最初基于 `5bce4ed` 单提交。其后两轮改进的落地状态如下：
+
+| 条目 | 问题 | 状态 | 落地方式 |
+|---|---|---|---|
+| P0-1 | 工具结果无条件截断 1.5k | ✅ 第一轮已修 | `compactMessages` 重写为预算驱动分级压缩（含回归测试） |
+| P0-2 | Claude 思考+工具调用 400 → 静默永久关闭思考 | ✅ 第二轮已修 | 流内捕获 `thinking`/`redacted_thinking` 块与 `signature_delta`，随消息持久化并在下一轮 payload 原序重放；400 降级时 toast 提示不再静默；端到端回归测试（mock SSE） |
+| P0-3 | `beforeunload` 走防抖保存 | ✅ 第一轮已修 | `save(true)` 同步落盘 + `visibilitychange` 兜底（含回归测试） |
+| P1-1 | 超大单条 user 消息绕过压缩 | ✅ 第一轮已修 | 分级截断 + `fitBudget` 二分收缩（含回归测试） |
+| P1-2 | 执行进度被吞 / 死 CSS | ✅ 第一轮已修 | 进度回写工具芯片 `.chip-state`；死 CSS 已删 |
+| P1-3 | 持久化先全量序列化再判断 | ✅ 第二轮已修 | 落盘前字符级预估，超限直接走瘦身路径；顺带修复 `slimState` 根级 `messages` 镜像未瘦身的漏洞（含测试） |
+| P1-4 | 无 CSP、无 SRI | ✅ 第二轮已修（CSP）/ 已记录（SRI） | `index.html` 加 CSP meta（含 `wasm-unsafe-eval`、worker-src blob:）；Pyodide `importScripts` 无法 SRI，以版本固定 + 隔离说明记录于 THIRD-PARTY-NOTICES |
+| P1-5 | server.py 默认 0.0.0.0 开放中继 | ✅ 第二轮已修 | 默认 `127.0.0.1`，`--host 0.0.0.0` 显式开放 |
+| P1-6 | 无 LICENSE | ✅ 第二轮已修 | 新增 `LICENSE`（MIT）与 `THIRD-PARTY-NOTICES.md` |
+| P2-1 | ui.js 巨型函数 | ⏳ 未动 | 拆分风险高收益低，暂缓（本文件 892 行） |
+| P2-2 | 死代码 / 文档漂移 | ✅ 第二轮已修 | 删除 `resetTransport` / `APP_FAVICON` 死导出；CI 已建（第一轮）；README 数字与路径已更正 |
+| P2-3 | 可访问性 | ✅ 第二轮部分修 | 弹窗 role/aria-modal + Esc 关闭 + 焦点圈定与归还；`:focus-visible`；`prefers-reduced-motion`；图标按钮补 aria-label；首启跟随 `prefers-color-scheme` |
+| P2-4 | Agent 循环零测试 | ✅ 第二轮已修 | mock SSE 端到端 6 项：工具循环 / 迭代上限 / 坏 JSON 纠错 / 思考块回传 / 400 降级 / 中断 |
+
+测试规模：40 项（初评）→ 46 项（第一轮）→ **58 项**（第二轮）。
+
+---
+
+---
+
 ## 一、摘要（TL;DR）
 
 TeamoAgent 是一个**零构建、零运行时依赖**的浏览器端 LLM 智能体：约 4,100 行代码（JS 2,400 + CSS 588 + Python 116），

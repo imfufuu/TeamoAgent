@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """TeamoAgent 本地服务器：静态文件 + TeamoRouter API 流式代理（CORS 兜底通道）。
 
-用法:  python3 server.py [port]      (默认 8787, 绑定 0.0.0.0)
+用法:  python3 server.py [port] [--port N] [--host ADDR]
+       默认端口 8787，默认仅绑定 127.0.0.1（本机可用）。
+       代理通道没有鉴权与限流，如需局域网访问请显式 --host 0.0.0.0，
+       否则等于在共享网络里开一个免费中继。
 代理:  ANY /api/proxy?path=/v1/chat/completions  →  https://api.teamorouter.com/v1/chat/completions
 """
 import http.client
@@ -110,7 +113,18 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 
 
 if __name__ == "__main__":
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8787
-    with Server(("0.0.0.0", port), Handler) as httpd:
-        print(f"◐ TeamoAgent serving on http://0.0.0.0:{port}  (proxy → https://{UPSTREAM_HOST})")
+    import argparse
+
+    parser = argparse.ArgumentParser(description="TeamoAgent 本地服务器（静态文件 + TeamoRouter API 流式代理）")
+    parser.add_argument("pos_port", nargs="?", type=int, default=None, help="端口（默认 8787）")
+    parser.add_argument("--port", type=int, default=None, help="端口（优先于位置参数）")
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="监听地址（默认 127.0.0.1 仅本机；代理无鉴权，暴露到局域网请显式 --host 0.0.0.0）",
+    )
+    args = parser.parse_args()
+    port = args.port or args.pos_port or 8787
+    with Server((args.host, port), Handler) as httpd:
+        print(f"◐ TeamoAgent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})")
         httpd.serve_forever()

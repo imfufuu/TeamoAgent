@@ -8,7 +8,8 @@
 
 ```bash
 cd TeamoAgent
-python3 server.py            # 默认 http://localhost:8787
+python3 server.py                  # 默认 http://localhost:8787（仅绑定 127.0.0.1）
+python3 server.py --host 0.0.0.0   # 需要局域网访问时才显式放开（代理通道无鉴权）
 ```
 
 打开页面 → 填入 TeamoRouter API Key（`sk-teamo-` 开头，[控制台创建](https://teamorouter.com/dashboard?tab=api-keys)）→ 选择模型 → 开始对话。
@@ -89,6 +90,8 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 思考流（Anthropic `thinking_delta` / OpenAI 兼容 `reasoning_content`）渲染为可折叠「思考过程」。
 
+**思考 × 工具调用共存**：Anthropic 协议要求开启思考时，含 `tool_use` 的 assistant 回合在后续请求中必须回传 `thinking`/`redacted_thinking` 块（连同 `signature`）。本项目在流内捕获这些块（`signature_delta`），随消息持久化，并在下一轮 payload 中原序重放——思考模式与工具循环可同时开启；若某模型确实不支持思考参数（400），去掉参数重试一次并 toast 提示（不再静默关闭）。
+
 ## 图标来源与版权
 
 供应商 Logo 为各公司商标，SVG 下载自 Wikimedia（仅用于识别对应服务）：`Anthropic`=Claude AI symbol.svg · `OpenAI`=OpenAI logo 2025 (symbol).svg · `Google`=Google Gemini icon 2025.svg · `DeepSeek`=DeepSeek-icon.svg · `GLM`=Z.ai (company logo).svg · `Grok`=Grok-icon.svg（白色图标，亮色主题自动反色）。纯黑 Logo 在暗色主题下 CSS 反色；加载失败自动降级为首字母徽章。
@@ -107,8 +110,9 @@ js/tools.js       工具定义与执行调度
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
-server.py         静态服务 + 流式 API 代理（兜底通道）
-tests/            node tests/agent.test.mjs（46 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / Markdown·KaTeX 渲染）
+server.py         静态服务 + 流式 API 代理（兜底通道；默认仅绑定 127.0.0.1）
+tests/            node tests/agent.test.mjs（58 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
+                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端——含思考块回传回归）
 ```
 
 ## 部署
@@ -149,3 +153,9 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
 - JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
+- 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证（详见 `ANALYSIS.md`）。
+- 本地服务器默认仅监听 `127.0.0.1`（代理通道无鉴权，`--host 0.0.0.0` 显式开放需自担风险）。
+
+## 许可
+
+MIT（见 [LICENSE](./LICENSE)）；打包与运行时第三方组件的许可见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。

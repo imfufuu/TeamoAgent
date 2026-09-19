@@ -7,10 +7,11 @@ import { BASE_URL, ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEO
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
 const thinkingUnsupported = new Set();
 export function thinkingDisabledFor(model) { return thinkingUnsupported.has(model); }
+// 仅测试用：清空降级记录，保证用例互相独立
+export function __resetThinkingFallbackForTests() { thinkingUnsupported.clear(); }
 
 let transport = 'direct'; // 'direct' | 'proxy'
 export function getTransport() { return transport; }
-export function resetTransport() { transport = 'direct'; }
 
 function proxyAvailable() {
   return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
@@ -98,13 +99,18 @@ export function createAnthropicStream(onEv) {
         const b = json.content_block || {};
         if (b.type === 'tool_use') onEv({ type: 'tool_delta', index: json.index, id: b.id, name: b.name, argsText: '' });
         else if (b.type === 'text' && b.text) onEv({ type: 'text', text: b.text });
+        // thinking / redacted_thinking 块必须在后续回合原样回传（含 signature），
+        // 这里把块的起止与签名暴露给上层累积（见 createThinkingTracker）
+        else if (b.type === 'thinking') onEv({ type: 'block_start', index: json.index, block: { type: 'thinking' } });
+        else if (b.type === 'redacted_thinking') onEv({ type: 'block_start', index: json.index, block: { type: 'redacted_thinking', data: b.data || '' } });
         break;
       }
       case 'content_block_delta': {
         const d = json.delta || {};
         if (d.type === 'text_delta' && d.text) onEv({ type: 'text', text: d.text });
         else if (d.type === 'input_json_delta') onEv({ type: 'tool_delta', index: json.index, argsText: d.partial_json || '' });
-        else if (d.type === 'thinking_delta' && d.thinking) onEv({ type: 'reasoning', text: d.thinking });
+        else if (d.type === 'thinking_delta' && d.thinking) onEv({ type: 'reasoning', text: d.thinking, index: json.index });
+        else if (d.type === 'signature_delta' && d.signature) onEv({ type: 'signature_delta', index: json.index, signature: d.signature });
         break;
       }
       case 'message_delta': {
@@ -136,6 +142,41 @@ export function createToolCallAccumulator() {
         try { args = t.argsText ? JSON.parse(t.argsText) : {}; } catch { args = { __raw: t.argsText }; }
         return { id: t.id || `call_${Math.random().toString(36).slice(2, 10)}`, name: t.name, args };
       });
+    },
+  };
+}
+
+// ── Anthropic 思考块累积器（P0-2）────────────────────────────────────
+// 开启 extended thinking 时，协议要求：含 tool_use 的 assistant 回合在后续请求中
+// 必须把收到的 thinking / redacted_thinking 块（连同 signature）按原顺序回传，
+// 否则第二次请求直接 400（"Expected `thinking` or `redacted_thinking`..."），
+// 表现为「第一次工具调用后思考模式被静默废掉」。本累积器按流内顺序收集块，
+// 由 buildAnthropicPayload 在 assistant content 最前面重放。
+export function createThinkingTracker() {
+  const byIndex = new Map();
+  const order = [];
+  return {
+    start(index, block) {
+      const b = block && block.type === 'redacted_thinking'
+        ? { type: 'redacted_thinking', data: block.data || '' }
+        : { type: 'thinking', thinking: '' };
+      byIndex.set(index, b);
+      order.push(b);
+    },
+    delta(index, text) {
+      const b = byIndex.get(index);
+      if (b && b.type === 'thinking') b.thinking += text || '';
+    },
+    signature(index, signature) {
+      const b = byIndex.get(index);
+      if (b && b.type === 'thinking' && signature) b.signature = signature;
+    },
+    // 只保留可回传的块：thinking 需非空内容 + signature（缺签名的块会被 API 拒收），
+    // redacted_thinking 需 data
+    blocks() {
+      return order
+        .filter((b) => (b.type === 'thinking' ? b.thinking && b.signature : b.data))
+        .map((b) => ({ ...b }));
     },
   };
 }
@@ -182,7 +223,10 @@ export function buildOpenAIMessages(messages) {
   });
 }
 
-export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS } = {}) {
+// includeThinking：是否把历史 assistant 消息里的 thinking 块重放进 payload。
+// 仅当本次请求开启思考时为 true —— 关闭思考时必须整体省略（API 不接受无思考参数
+// 请求里夹带 thinking 块），降级重试路径即依赖这一点。
+export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includeThinking = true } = {}) {
   const system = messages.filter((m) => m.role === 'system').map((m) => m.text).join('\n\n');
   const out = [];
   for (const m of messages) {
@@ -209,8 +253,17 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS } = {})
       }
     } else if (m.role === 'assistant') {
       const content = [];
+      // 思考块回传（P0-2）：API 要求它们位于消息最前面、先于 text / tool_use，
+      // 且按流内接收顺序排列（非 interleaved 模式下思考块总在回合开头）
+      if (includeThinking) {
+        for (const b of m.thinkingBlocks || []) {
+          if (b.type === 'thinking' && b.thinking && b.signature) content.push({ type: 'thinking', thinking: b.thinking, signature: b.signature });
+          else if (b.type === 'redacted_thinking' && b.data) content.push({ type: 'redacted_thinking', data: b.data });
+        }
+      }
       if (m.text) content.push({ type: 'text', text: m.text });
       for (const t of m.toolCalls || []) content.push({ type: 'tool_use', id: t.id, name: t.name, input: t.args });
+      if (!content.length) content.push({ type: 'text', text: '' }); // 空 content 数组会被 API 拒收
       out.push({ role: 'assistant', content });
     } else if (m.role === 'tool') {
       // 连续的 tool 结果合并进同一条 user 消息（Anthropic 协议要求）
@@ -227,14 +280,16 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS } = {})
 }
 
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
-export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent }) {
+// onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
+export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent, onThinkingFallback }) {
   const protocol = protocolOf(model);
   const wantThinking = thinking && !thinkingUnsupported.has(model);
 
   const buildBody = (withThinking) => {
     let body;
     if (protocol === 'anthropic') {
-      const p = buildAnthropicPayload(messages);
+      // 思考关闭的请求不能夹带历史 thinking 块（API 会拒收）
+      const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
       // 思考模式要求 max_tokens > budget_tokens
       const maxTokens = withThinking ? Math.max(p.max_tokens, THINKING_BUDGET * 4) : p.max_tokens;
       body = { model, stream: true, system: p.system, messages: p.messages, max_tokens: maxTokens };
@@ -265,9 +320,11 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     }
     if (!r.ok) {
       const text = await r.text().catch(() => '');
-      // 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）
+      // 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）。
+      // 通过 onThinkingFallback 告知上层，避免「思考被静默关闭」用户无感知
       if (r.status === 400 && bodyThinking && /thinking|reasoning|extended/i.test(text)) {
         thinkingUnsupported.add(model);
+        try { onThinkingFallback && onThinkingFallback(model); } catch { /* noop */ }
         body = buildBody(false);
         bodyThinking = false;
         const err = new Error(httpErrorMessage(r.status, text));
@@ -286,7 +343,9 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  const timeout = setTimeout(() => { try { reader.cancel(); } catch { /* noop */ } }, REQUEST_TIMEOUT_MS);
+  // cancel() 在流已出错时返回 rejected promise，必须显式吞掉，否则产生未处理拒绝
+  const cancelQuiet = () => { try { Promise.resolve(reader.cancel()).catch(() => {}); } catch { /* noop */ } };
+  const timeout = setTimeout(cancelQuiet, REQUEST_TIMEOUT_MS);
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -295,7 +354,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     }
     feed(decoder.decode());
   } catch (err) {
-    try { reader.cancel(); } catch { /* noop */ }
+    cancelQuiet();
     throw err;
   } finally {
     clearTimeout(timeout);
