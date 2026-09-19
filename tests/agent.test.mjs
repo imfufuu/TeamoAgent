@@ -15,9 +15,11 @@ import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
 import { TOOL_DEFS } from '../js/tools.js';
 
 let passed = 0;
-const test = (name, fn) => { fn(); passed++; console.log(`  ✓ ${name}`); };
+const queue = [];
+const group = (name) => queue.push({ group: name });
+const test = (name, fn) => queue.push({ name, fn }); // 支持 async：末尾统一顺序 await
 
-console.log('协议路由');
+group('协议路由');
 test('Claude → anthropic 原生协议', () => {
   assert.equal(protocolOf('claude-sonnet-5'), 'anthropic');
   assert.equal(protocolOf('claude-fable-5-1'), 'anthropic');
@@ -42,7 +44,7 @@ test('认证头映射（调研结论）', () => {
   assert.equal(o['Authorization'], 'Bearer sk-teamo-x');
 });
 
-console.log('SSE 解析器');
+group('SSE 解析器');
 test('跨 chunk 切分的行能被正确拼接', () => {
   const out = [];
   const feed = createSSEParser((j) => out.push(j));
@@ -58,7 +60,7 @@ test('忽略非 data 行与坏 JSON', () => {
   assert.deepEqual(out, [{ ok: true }]);
 });
 
-console.log('OpenAI 流归一化');
+group('OpenAI 流归一化');
 test('文本增量 + usage + finish', () => {
   const evs = [];
   const h = createOpenAIStream((e) => evs.push(e));
@@ -87,7 +89,7 @@ test('tool_calls 分片累积（index 对齐 + 参数拼接）', () => {
   assert.equal(calls[1].name, 'get_current_time');
 });
 
-console.log('Anthropic 流归一化');
+group('Anthropic 流归一化');
 test('事件序列 message_start → delta → message_delta', () => {
   const evs = [];
   const h = createAnthropicStream((e) => evs.push(e));
@@ -121,7 +123,7 @@ test('坏 JSON 参数降级为 __raw', () => {
   assert.deepEqual(acc.result()[0].args, { __raw: '{broken' });
 });
 
-console.log('请求体构建');
+group('请求体构建');
 test('OpenAI 消息转换（tool_calls / tool 结果）', () => {
   const msgs = buildOpenAIMessages([
     { role: 'system', text: 'S' },
@@ -158,7 +160,7 @@ test('工具 schema 双格式转换', () => {
   assert.equal(toAnthropicTools(defs)[0].input_schema.type, 'object');
 });
 
-console.log('Markdown 渲染（UI）');
+group('Markdown 渲染（UI）');
 test('HTML 转义防 XSS', () => {
   const html = renderMarkdown('<script>alert(1)</script> 与 <img onerror=x>');
   assert.ok(!html.includes('<script>'));
@@ -172,7 +174,7 @@ test('代码块 / 行内代码 / 加粗', () => {
   assert.ok(renderMarkdown('**粗体**').includes('<strong>粗体</strong>'));
 });
 
-console.log('虚拟文件系统 / 回滚（state）');
+group('虚拟文件系统 / 回滚（state）');
 test('FS 读写列举', () => {
   const fs = createFS();
   fs.write('a.txt', 'hello');
@@ -212,7 +214,7 @@ test('dropLastAssistantTurn 保留 user 消息（重新生成）', () => {
   assert.equal(store.state.messages[0].role, 'user');
 });
 
-console.log('附件（多模态双协议）');
+group('附件（多模态双协议）');
 const IMG_ATT = { kind: 'image', name: 'p.png', mime: 'image/png', size: 10, dataUrl: 'data:image/png;base64,AAA' };
 const TXT_ATT = { kind: 'text', name: 'n.csv', mime: 'text/csv', size: 5, text: 'a,b' };
 test('OpenAI：图片 → image_url(data URL)，文本 → text part', () => {
@@ -237,7 +239,7 @@ test('无附件消息保持原格式（缓存友好）', () => {
   assert.equal(p.messages[0].content, 'hi');
 });
 
-console.log('上下文管理');
+group('上下文管理');
 test('token 估算：CJK ≈ 1/字，ASCII ≈ 1/4 字符', () => {
   const cjk = estimateTokens([{ role: 'user', text: '中'.repeat(100) }]);
   const ascii = estimateTokens([{ role: 'user', text: 'a'.repeat(400) }]);
@@ -279,7 +281,7 @@ test('上下文预算按模型家族', () => {
   assert.equal(contextBudgetFor('unknown-model'), 90000);
 });
 
-console.log('思考模式参数路由');
+group('思考模式参数路由');
 test('Claude → thinking.budget_tokens', () => {
   const p = thinkingParamsFor('claude-sonnet-5');
   assert.equal(p.thinking.type, 'enabled');
@@ -295,7 +297,7 @@ test('DeepSeek → reasoning；GLM → thinking.type', () => {
   assert.equal(thinkingParamsFor('glm-5.3').thinking.type, 'enabled');
 });
 
-console.log('子智能体注册表');
+group('子智能体注册表');
 test('≥16 个子智能体且 ID 唯一', () => {
   assert.ok(SUBAGENTS.length >= 16, `实际 ${SUBAGENTS.length}`);
   assert.equal(new Set(SUBAGENTS.map((a) => a.id)).size, SUBAGENTS.length);
@@ -319,7 +321,7 @@ test('dispatch_subagent 工具已注册且 enum 覆盖全部子智能体', () =>
   assert.ok(subagentGuide().includes('dispatch_subagent'));
 });
 
-console.log('多会话');
+group('多会话');
 test('创建/切换/删除会话，活动会话引用正确同步', () => {
   const store = createStore();
   store.createCheckpoint('A');
@@ -344,7 +346,7 @@ test('删除最后一个会话时自动补新会话', () => {
   assert.notEqual(store.state.activeSessionId, id);
 });
 
-console.log('导入会话');
+group('导入会话');
 test('importSession：导入导出 JSON 会新建并激活会话', () => {
   const store = createStore();
   const before = store.state.sessions.length;
@@ -376,7 +378,7 @@ test('importSession：非法数据返回 null 且不改变状态', () => {
   assert.equal(store.state.sessions.length, before);
 });
 
-console.log('多模态标识');
+group('多模态标识');
 test('supportsVision：按型号家族判定图片输入支持', async () => {
   const { supportsVision } = await import('../js/config.js');
   assert.ok(supportsVision('claude-sonnet-5'), 'Claude 全系');
@@ -387,4 +389,71 @@ test('supportsVision：按型号家族判定图片输入支持', async () => {
   assert.ok(!supportsVision('glm-5.3-flash') && !supportsVision(''), '文本模型/空值');
 });
 
+group('Markdown 渲染');
+test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { fileURLToPath } = await import('node:url');
+  const vm = await import('node:vm');
+  const loadUmd = (rel) => {
+    const p = fileURLToPath(new URL(rel, import.meta.url));
+    const sandbox = {};
+    sandbox.self = sandbox; sandbox.window = sandbox; sandbox.globalThis = sandbox;
+    vm.runInNewContext(readFileSync(p, 'utf8'), sandbox, { filename: rel });
+    return sandbox;
+  };
+  globalThis.markdownit = loadUmd('../assets/md/markdown-it.min.js').markdownit;
+  globalThis.katex = loadUmd('../assets/katex/katex.min.js').katex;
+  assert.equal(typeof globalThis.markdownit, 'function', 'markdown-it UMD 加载失败');
+  assert.equal(typeof globalThis.katex, 'object', 'katex UMD 加载失败');
+  // 全新模块实例（顶部静态 import 的实例已在无全局环境下把引擎缓存为 null）
+  const { renderMarkdown } = await import('../js/ui.js?md=' + Date.now());
+  // 表格
+  const table = renderMarkdown('| 模型 | 价格 |\n|---|---|\n| A | $0 |');
+  assert.ok(table.includes('<table>') && table.includes('<th>模型</th>'), '表格渲染');
+  // 任务列表 / 删除线 / 分割线 / 嵌套列表 / 引用
+  const task = renderMarkdown('- [x] 完成\n- [ ] 待办');
+  assert.ok(task.includes('type="checkbox"') && task.includes('checked'), '任务列表');
+  assert.ok(renderMarkdown('~~旧~~').includes('<s>'), '删除线');
+  assert.ok(renderMarkdown('---').includes('<hr'), '分割线');
+  const nested = renderMarkdown('- a\n  - b');
+  assert.equal((nested.match(/<ul>/g) || []).length, 2, '嵌套列表');
+  assert.ok(renderMarkdown('> 引用').includes('<blockquote>'), '引用块');
+  // 自动链接（新窗口 + noopener）
+  const link = renderMarkdown('见 https://example.com');
+  assert.ok(link.includes('href="https://example.com"') && link.includes('target="_blank"') && link.includes('noopener'), '自动链接');
+  // XSS：原始 HTML 必须被转义
+  assert.ok(!renderMarkdown('<script>alert(1)</script>').includes('<script>'), '原始 HTML 转义');
+  // 代码块：语言标注 + 复制按钮 + 不套 <p>
+  const pre = renderMarkdown('```python\nprint(1)\n```');
+  assert.ok(pre.includes('data-lang="python"') && pre.includes('copy-code'), '围栏代码块');
+  assert.ok(!/<p><pre/.test(pre), '代码块不包 p');
+  // 公式：行内 + 块级
+  assert.ok(renderMarkdown('行内 $a^2$ 结束').includes('class="katex"'), '行内公式');
+  assert.ok(renderMarkdown('$$\\frac{a}{b}$$').includes('katex-display'), '块级公式');
+});
+test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => {
+  const savedMd = globalThis.markdownit;
+  globalThis.markdownit = undefined;
+  // 重新载入模块以获得未初始化状态的渲染器
+  const { renderMarkdown } = await import('../js/ui.js?fallback=' + Date.now());
+  const out = renderMarkdown('**粗** 和 `code` 与 $x^2$');
+  assert.ok(out.includes('<strong>粗</strong>'), '回退渲染加粗');
+  assert.ok(out.includes('<code>code</code>'), '回退渲染行内代码');
+  assert.ok(!out.includes('<script>'), '回退渲染安全');
+  globalThis.markdownit = savedMd;
+});
+test('systemPrompt / 子智能体：注入输出规范', async () => {
+  const { systemPrompt, OUTPUT_SPEC } = await import('../js/config.js');
+  assert.ok(OUTPUT_SPEC.includes('Markdown') && OUTPUT_SPEC.includes('KaTeX'), '规范含 Markdown/KaTeX');
+  assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
+  assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
+});
+
+// ── 顺序执行（async 测试逐个 await）──
+for (const item of queue) {
+  if (item.group) { console.log(item.group); continue; }
+  await item.fn();
+  passed++;
+  console.log(`  ✓ ${item.name}`);
+}
 console.log(`\n${passed} 项测试全部通过 ✅`);

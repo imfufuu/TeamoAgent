@@ -30,21 +30,61 @@ function renderAttachments(atts) {
   return `<div class="att-row">${items}</div>`;
 }
 
-// ── 极简 Markdown 渲染（先转义再解析，无 XSS 面）+ LaTeX（KaTeX）──────
+// ── Markdown 渲染：markdown-it（本地打包 assets/md/，完整 CommonMark + GFM 表格）
+//    + KaTeX 公式；两者任一未加载时回退到内置精简渲染器（先转义再解析，无 XSS 面）──
+let mdEngine; // undefined=未初始化 null=不可用
+function getMd() {
+  if (mdEngine === undefined) {
+    if (typeof markdownit === 'undefined') { mdEngine = null; }
+    else {
+      const md = markdownit({ html: false, linkify: true, breaks: false, typographer: false });
+      md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
+        tokens[idx].attrSet('target', '_blank');
+        tokens[idx].attrSet('rel', 'noopener noreferrer');
+        return self.renderToken(tokens, idx, options);
+      };
+      md.renderer.rules.fence = (tokens, idx) => {
+        const tk = tokens[idx];
+        const lang = (tk.info || '').trim().split(/\s+/)[0] || 'text';
+        return `<pre data-lang="${md.utils.escapeHtml(lang)}"><button class="copy-code" type="button">复制</button><code>${md.utils.escapeHtml(tk.content.replace(/\n$/, ''))}</code></pre>\n`;
+      };
+      // GFM 任务列表（markdown-it 核心不含）：[ ] / [x] 开头的列表项 → checkbox
+      md.core.ruler.after('inline', 'task-lists', (state) => {
+        let inList = 0;
+        for (const tok of state.tokens) {
+          if (tok.type === 'bullet_list_open' || tok.type === 'ordered_list_open') inList++;
+          else if (tok.type === 'bullet_list_close' || tok.type === 'ordered_list_close') inList--;
+          if (tok.type !== 'inline' || !inList || !tok.children || !tok.children.length) continue;
+          const first = tok.children[0];
+          if (first.type !== 'text') continue;
+          const m = /^\[([ xX])\]\s+/.exec(first.content);
+          if (!m) continue;
+          first.content = first.content.slice(m[0].length);
+          const cb = new state.Token('html_inline', '', 0);
+          cb.content = m[1] === ' ' ? '<input type="checkbox" disabled> ' : '<input type="checkbox" checked disabled> ';
+          tok.children.unshift(cb);
+        }
+      });
+      mdEngine = md;
+    }
+  }
+  return mdEngine;
+}
+
 export function renderMarkdown(src) {
   const codeBlocks = [];
   let t = String(src || '').replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     codeBlocks.push({ lang, code });
-    return `\u0000CB${codeBlocks.length - 1}\u0000`;
+    return `\uE000CB${codeBlocks.length - 1}\uE000`;
   });
-  // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在转义前提取，占位保护
+  // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在渲染前提取，占位保护
   const maths = [];
   const hasKatex = typeof katex !== 'undefined';
   const pushMath = (tex, display) => {
     if (hasKatex) {
       try {
         maths.push(katex.renderToString(tex, { displayMode: display, throwOnError: false }));
-        return `\u0000M${maths.length - 1}\u0000`;
+        return `\uE000M${maths.length - 1}\uE000`;
       } catch { /* 渲染失败按原文处理 */ }
     }
     return display ? `\n\`\`\`tex\n${tex}\n\`\`\`\n` : `\`${tex}\``; // 降级：代码形式展示
@@ -54,6 +94,23 @@ export function renderMarkdown(src) {
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => pushMath(x, true))
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false))
     .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => pushMath(x, false));
+
+  const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
+    const { lang, code } = codeBlocks[+i];
+    return `<pre data-lang="${esc(lang || 'text')}"><button class="copy-code" type="button">复制</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
+  });
+  const restoreMath = (html) => html.replace(/\uE000M(\d+)\uE000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
+
+  const md = getMd();
+  if (md) {
+    let html = md.render(t);
+    html = restoreCb(html);
+    html = restoreMath(html);
+    // 独占一段的代码块去掉外层 <p>，避免 <p><pre> 嵌套
+    return html.replace(/<p>(<pre[\s\S]*?<\/pre>)<\/p>/g, '$1');
+  }
+
+  // ── 内置精简回退（markdown-it 未加载时）──
   t = esc(t);
   t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   t = t.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>')
@@ -68,12 +125,7 @@ export function renderMarkdown(src) {
   t = t.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, (m) => '\n<ol>' + m.trim().split('\n').map((l) => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('') + '</ol>');
   t = t.replace(/\n{2,}/g, '</p><p>').replace(/^(?!<[a-z])/, '<p>').replace(/(?!>)$/, '</p>');
   t = t.replace(/<p>\s*(<(?:h\d|ul|ol|blockquote|pre))/g, '$1').replace(/(<\/(?:h\d|ul|ol|blockquote|pre)>)\s*<\/p>/g, '$1');
-  t = t.replace(/\u0000CB(\d+)\u0000/g, (_, i) => {
-    const { lang, code } = codeBlocks[+i];
-    return `<pre data-lang="${esc(lang || 'text')}"><button class="copy-code" type="button">复制</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
-  });
-  t = t.replace(/\u0000M(\d+)\u0000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
-  return t;
+  return restoreMath(restoreCb(t));
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────

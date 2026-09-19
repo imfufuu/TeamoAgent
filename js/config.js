@@ -110,6 +110,16 @@ export function thinkingParamsFor(modelId) {
   return { reasoning_effort: 'medium' }; // 未知模型尽力尝试，失败自动降级
 }
 
+// 输出规范：主 Agent 与全部子智能体共用（客户端支持完整 Markdown + KaTeX）
+export const OUTPUT_SPEC = [
+  '## 输出规范（客户端支持完整 Markdown + KaTeX 渲染，请严格遵守）',
+  '- 结构：用 ##/### 标题分节；要点用列表；对比或多字段数据用 Markdown 表格；避免大段无分隔的文字墙。',
+  '- 代码：一律用围栏代码块并标注语言（```js / ```python / ```cpp 等）；行内代码用单反引号。',
+  '- 数学公式：行内用 $...$，独立公式用 $$...$$（LaTeX 语法，由 KaTeX 渲染），不要用纯文本拼公式。',
+  '- 强调：**加粗**标注关键结论，术语/文件名/参数用 `代码样式`；不输出原始 HTML 标签。',
+  '- 用与用户相同的语言回复（用户用中文就用中文）；简洁优先，不复述用户问题。',
+].join('\n');
+
 export function systemPrompt(now = new Date()) {
   return [
     '你是 TeamoAgent，一个运行在浏览器中的智能体（Agent），由 TeamoRouter 网关提供模型能力。',
@@ -129,8 +139,8 @@ export function systemPrompt(now = new Date()) {
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',
     '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。',
-    '- 用与用户相同的语言回复（用户用中文就用中文）。',
-    '- 回答简洁、结构化；代码块注明语言。',
+    '',
+    OUTPUT_SPEC,
     '',
     `当前时间：${now.toISOString()}`,
   ].join('\n');
