@@ -132,6 +132,12 @@ tests/            node tests/agent.test.mjs（74 项：双协议解析 / 上下�
                   生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽）
 ```
 
+可选的 DOM 冒烟测试（真实挂载 UI，需 `npm i -D jsdom`；未安装时自动跳过，CI 不依赖）：
+
+```bash
+node tests/dom-smoke.mjs
+```
+
 ## 部署
 
 ### 在线版（GitHub Pages）
