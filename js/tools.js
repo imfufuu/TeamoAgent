@@ -1,8 +1,8 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl } from './api.js';
+import { generateImage, editImage, bytesToDataUrl, sniffImage } from './api.js';
 import { SUBAGENTS } from './subagents.js';
-import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS } from './config.js';
+import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
 
 export const TOOL_DEFS = [
   {
@@ -75,10 +75,10 @@ export const TOOL_DEFS = [
   {
     name: 'generate_image',
     description:
-      '调用文生图模型生成图片（GPT Image 2 / 2.5 Sunburst / 2.5 Flare，走 POST /v1/images/generations）。' +
+      '调用文生图模型生成图片（POST /v1/images/generations）。' +
       '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则自动切换为「图片编辑」模式（POST /v1/images/edits），按 prompt 指令修改原图。' +
       '结果以 data URL 写入沙箱 outputs/ 目录（可下载/打包/继续编辑），并在对话中直接展示。' +
-      '生图耗时较长（最长约 300 秒）。需要出图时请调用本工具，不要只用文字描述画面。',
+      '生图耗时较长（实测 30–65 秒，超时上限 300 秒）。需要出图时请调用本工具，不要只用文字描述画面。',
     parameters: {
       type: 'object',
       properties: {
@@ -87,7 +87,13 @@ export const TOOL_DEFS = [
         size: { type: 'string', enum: IMAGE_SIZES, description: `输出尺寸（宽x高像素），默认 ${'auto'} 由模型决定` },
         quality: { type: 'string', enum: IMAGE_QUALITIES, description: '质量档位，默认 auto' },
         output_format: { type: 'string', enum: IMAGE_FORMATS, description: '输出格式，默认 png' },
-        model: { type: 'string', description: `可选：本次使用的生图模型；缺省沿用用户在模型菜单选定的生图模型（默认 ${DEFAULT_IMAGE_MODEL}）` },
+        background: { type: 'string', enum: IMAGE_BACKGROUNDS, description: '背景：transparent 为透明底（png/webp 有效），默认 auto 由模型决定' },
+        n: { type: 'integer', enum: [1, 2, 3, 4], description: '一次生成几张候选图（默认 1）；多张会全部写入沙箱 outputs/' },
+        model: {
+          type: 'string',
+          enum: IMAGE_MODEL_IDS,
+          description: `可选：本次使用的生图模型 ID，只能是 ${IMAGE_MODEL_IDS.join(' / ')} 之一（只传 ID，不要传「2.5 Sunburst」这类显示名）；缺省沿用用户在模型菜单选定的生图模型（默认 ${DEFAULT_IMAGE_MODEL}）`,
+        },
       },
       required: ['prompt'],
     },
@@ -176,40 +182,80 @@ export async function executeTool(name, args, ctx) {
         }
         const prompt = String(args.prompt || '').trim();
         if (!prompt) return 'generate_image 缺少 prompt 参数。';
-        const model = String(args.model || ctx.imageModel || DEFAULT_IMAGE_MODEL);
+        // 模型名归一：对话模型常把显示名（"2.5 Sunburst"）当 ID 传入，网关会直接 400
+        const wantModel = String(args.model || ctx.imageModel || DEFAULT_IMAGE_MODEL);
+        const picked = resolveImageModel(wantModel, ctx.imageModel || DEFAULT_IMAGE_MODEL);
+        const model = picked.id;
         const format = IMAGE_FORMATS.includes(args.output_format) ? args.output_format : 'png';
         const size = IMAGE_SIZES.includes(args.size) ? args.size : 'auto';
         const quality = IMAGE_QUALITIES.includes(args.quality) ? args.quality : 'auto';
+        const background = IMAGE_BACKGROUNDS.includes(args.background) ? args.background : 'auto';
+        const count = [1, 2, 3, 4].includes(Number(args.n)) ? Number(args.n) : 1;
         const refs = (Array.isArray(args.reference_paths) ? args.reference_paths : [])
           .map((p) => String(p || '').trim()).filter(Boolean);
+        // 缺失的原图先在本地拦下来：否则网关 400 之后用户只看到一句「调用失败」
+        const readSafe = (p) => { try { return fs.read(p); } catch { return ''; } };
+        const missing = refs.filter((p) => !readSafe(p));
+        if (missing.length) {
+          const msg = `沙箱中找不到参考图：${missing.join('、')}（现有图片：${fs.list().filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f.path)).map((f) => f.path).join('、') || '无'}）`;
+          emit({ status: 'error', error: { message: msg } });
+          return `图像调用在发起前失败：${msg}`;
+        }
+        const note = picked.unknown
+          ? `注意：模型名「${picked.input}」不是合法的生图模型 ID，已改用会话选定的 ${model}。下次请直接传 ${IMAGE_MODEL_IDS.join(' / ')} 之一。`
+          : (picked.corrected && picked.input ? `已把模型名「${picked.input}」解析为 ${model}。` : '');
+        const onRetry = (_err, attempt) => emit({ status: 'running', note: `图像接口抖动，第 ${attempt} 次重试中…` });
         try {
           let out;
           if (refs.length) {
-            // 编辑模式：沙箱内图片（data URL）还原为上传文件
-            const images = refs.map((p) => ({ name: p.split('/').pop(), dataUrl: fs.read(p) }));
+            const images = refs.map((p) => ({ name: p.split('/').pop(), dataUrl: readSafe(p) }));
             emit({ status: 'running', note: `图像编辑中（${model} · ${images.length} 张原图）…` });
-            out = await editImage({ model, apiKey: ctx.apiKey, prompt, images, size, quality, format, signal: ctx.signal });
+            out = await editImage({ model, apiKey: ctx.apiKey, prompt, images, size, quality, format, n: count, signal: ctx.signal, onRetry });
           } else {
-            emit({ status: 'running', note: `图像生成中（${model}${size !== 'auto' ? ` · ${size}` : ''}）…` });
-            out = await generateImage({ model, apiKey: ctx.apiKey, prompt, size, quality, background: args.background, format, signal: ctx.signal });
+            emit({ status: 'running', note: `图像生成中（${model}${size !== 'auto' ? ` · ${size}` : ''}${count > 1 ? ` · ${count} 张` : ''}）…` });
+            out = await generateImage({ model, apiKey: ctx.apiKey, prompt, size, quality, background, format, n: count, signal: ctx.signal, onRetry });
           }
           // 网关也可能只给远程 URL：落地成 data URL，保证沙箱内可再编辑、可打包下载
-          let dataUrl = out.dataUrl;
-          if (!/^data:/.test(dataUrl)) {
-            try {
-              const blob = await (await fetch(dataUrl)).blob();
-              dataUrl = bytesToDataUrl(new Uint8Array(await blob.arrayBuffer()), out.mime);
-            } catch { /* 取不到字节就保留远程 URL（仅用于展示） */ }
+          const list = (out.images && out.images.length ? out.images : [{ dataUrl: out.dataUrl, mime: out.mime, ext: out.ext, width: out.width, height: out.height }]);
+          const written = [];
+          for (const img of list) {
+            let dataUrl = img.dataUrl;
+            let mime = img.mime;
+            let ext = img.ext;
+            let { width, height } = img;
+            if (!/^data:/.test(dataUrl)) {
+              try {
+                const blob = await (await fetch(dataUrl)).blob();
+                const bytes = new Uint8Array(await blob.arrayBuffer());
+                dataUrl = bytesToDataUrl(bytes, mime);
+                const sniff = sniffImage(bytes);
+                if (sniff.mime) { mime = sniff.mime; ext = sniff.ext; }
+                if (sniff.width) { width = sniff.width; height = sniff.height; }
+              } catch { /* 取不到字节就保留远程 URL（仅用于展示） */ }
+            }
+            const seq = fs.list().filter((f) => f.path.startsWith('outputs/')).length + 1;
+            const path = `outputs/image-${seq.toString().padStart(3, '0')}.${ext}`;
+            fs.write(path, dataUrl);
+            written.push({ path, dataUrl, mime, ext, width: width || 0, height: height || 0 });
+            emit({ status: 'ok', image: dataUrl, imagePath: path, width, height, fsChange: true, note: `已生成 ${path}${width && height ? `（${width}x${height}）` : ''}` });
           }
-          const seq = fs.list().filter((f) => f.path.startsWith('outputs/')).length + 1;
-          const path = `outputs/image-${seq.toString().padStart(3, '0')}.${out.ext}`;
-          fs.write(path, dataUrl);
-          emit({ status: 'ok', image: dataUrl, imagePath: path, fsChange: true, note: `已生成 ${path}` });
-          return `[图像${refs.length ? '编辑' : '生成'}完成]\n- 模型：${model}\n- 尺寸：${size}\n- 输出：${path}（已写入沙箱，可在文件面板下载或打包 ZIP）\n- 继续修改：以 reference_paths=["${path}"] 再次调用本工具`;
+          const dims = written.filter((w) => w.width && w.height).map((w) => `${w.width}x${w.height}`).join(' / ');
+          const billed = out.usage && out.usage.total_tokens ? `，计费 ${out.usage.input_tokens || 0} 输入 / ${out.usage.output_tokens || 0} 输出 tokens` : '';
+          const paths = written.map((w) => w.path).join('、');
+          const summary = [
+            `[图像${refs.length ? '编辑' : '生成'}完成]`,
+            `- 模型：${model}`,
+            `- 尺寸：${dims || size}${count > 1 ? `（共 ${written.length} 张）` : ''}`,
+            `- 输出：${paths}（已写入沙箱，可在文件面板下载或打包 ZIP）${billed}`,
+            `- 继续修改：以 reference_paths=["${written[written.length - 1].path}"] 再次调用本工具`,
+          ];
+          if (note) summary.push(`- ${note}`);
+          return summary.join('\n');
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });
-          return `图像模型调用失败（${model}）：${err.message}`;
+          const hint = picked.unknown ? `（模型名「${picked.input}」无法识别）` : '';
+          return `图像模型调用失败（${model}）${hint}：${err.message}${note ? `\n${note}` : ''}`;
         }
       }
       default:

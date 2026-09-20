@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, BASE_URL } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
@@ -225,10 +225,17 @@ export function mountUI(store, agent) {
         const o = document.createElement('option');
         o.value = m.id;
         o.textContent = `${m.label}（${m.note}）`;
+        o.title = `模型 ID：${m.id}`;
         sel.appendChild(o);
       }
     }
-    if (sel.value !== store.state.imageModel) sel.value = store.state.imageModel;
+    // 会话里存的值可能来自旧版本/导入：不在目录内就退回默认，避免 select 显示空值
+    let want = store.state.imageModel;
+    if (!IMAGE_MODELS.some((m) => m.id === want)) {
+      want = DEFAULT_IMAGE_MODEL;
+      store.state.imageModel = want;
+    }
+    if (sel.value !== want) sel.value = want;
   }
   $('#image-model')?.addEventListener('change', (e) => {
     store.state.imageModel = e.target.value;
@@ -609,7 +616,7 @@ export function mountUI(store, agent) {
     const comma = shot.dataUrl.indexOf(',');
     const bytes = comma > 0 ? Math.max(0, Math.round((shot.dataUrl.length - comma - 1) * 0.75)) : shot.dataUrl.length;
     fig.innerHTML = `<img src="${shot.dataUrl}" alt="${esc(name)}">`
-      + `<figcaption class="chip-img-cap mono">${esc(shot.path || name)} · ${fmtSize(bytes)}`
+      + `<figcaption class="chip-img-cap mono">${esc(shot.path || name)} · ${fmtSize(bytes)}${shot.width && shot.height ? ` · ${shot.width}x${shot.height}` : ''}`
       + `<a href="${shot.dataUrl}" download="${esc(name)}">下载</a></figcaption>`;
     fig.addEventListener('click', (e) => e.stopPropagation()); // 点图片不要触发芯片折叠
     chip.classList.add('has-image');
@@ -1036,7 +1043,7 @@ export function mountUI(store, agent) {
         if (patch.image) { state.textContent = patch.note || '✓'; state.classList.remove('bad'); }
       }
       if (patch.image) {
-        chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath });
+        chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath, width: patch.width, height: patch.height });
         paintChipImage(chip, chipImages.get(call.id));
       }
       if (patch.status === 'running' || patch.image) scrollToBottom();

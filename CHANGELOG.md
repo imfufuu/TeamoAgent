@@ -2,6 +2,25 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-20（修复）生图模型 400 与不可读的失败原因
+
+线上反馈三类报错：`图像模型调用失败（gpt-image-2）：图像接口响应异常：缺少 data[0]`、
+`（2.5 Sunburst）/（2.5 Flare）：HTTP 400: 模型 '…' 暂不可用`。带 key 实测网关后定位：
+
+- **根因 1（2.5 系列全灭）**：`generate_image` 的 `model` 是自由字符串，对话模型把
+  「显示名」当 ID 传了进来（`2.5 Sunburst`），网关无模糊匹配 → 秒级 400。
+  修复：Schema 改 `enum` + 系统提示词列明 ID + `resolveImageModel()` 别名归一
+  （`2.5 Sunburst`/`GPT Image 2.5 Flare`/`flare` → 真实 ID），无法识别时退回会话模型
+  并把纠正说明回灌给模型。**不再把垃圾字符串发给网关**。
+- **根因 2（`缺少 data[0]`）**：任何异常都被折叠成这一句。现在区分 200+`error`、
+  200+空 `data`、非 JSON 响应体（含 HTTP 码/Content-Type/字节数/原文片段）、缺 `data` 字段，
+  并对上游类瞬时错误自动重试一次。
+- 附带：`n>1` 多张全部落盘；`sniffImage()` 按字节头纠正扩展名并给出真实宽高（网关有时
+  无视 `output_format`，且不总返回 `width/height`）；`background`/`n` 进入工具参数；
+  沙箱缺参考图时在发请求前报错；`<select>` 选项 title 展示真实 ID，非法存储值自动回落默认。
+- 模型目录：补入网关已上线的 `kimi-k3`、`kimi-k3[1M]`（实测 200，`reasoning_content` 走思考面板）。
+- 测试：单测 74 → 88；新增可选真实网关脚本 `tests/live-check.mjs`（需 `TEAMO_API_KEY`，
+  10/10 通过，含一次真实 Agent 工具循环）。
 ## [Unreleased] — 图像能力 + 体验修复（2026-09-20）
 
 ### 新增

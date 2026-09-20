@@ -55,6 +55,9 @@ export const FALLBACK_MODELS = [
   { id: 'deepseek-v4-flash',   provider: 'DeepSeek' },
   { id: 'deepseek-v4-flash-vision-exp', provider: 'DeepSeek' },  // 多模态（vision）
   { id: 'deepseek-v4-flash-free', provider: 'DeepSeek', free: true },
+  // Kimi（月之暗面）——网关 GET /v1/models 已上线 kimi-k3（含 1M 上下文变体）
+  { id: 'kimi-k3',             provider: 'Kimi' },
+  { id: 'kimi-k3[1M]',         provider: 'Kimi' },
   // GLM（智谱）
   { id: 'glm-5.3-flash',       provider: 'GLM' },
   { id: 'glm-5.3-flash-free',  provider: 'GLM', free: true },
@@ -80,11 +83,56 @@ export const DEFAULT_CHAT_MODEL = 'claude-sonnet-5';
 export const IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536', '2048x2048'];
 export const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'];
 export const IMAGE_FORMATS = ['png', 'jpeg', 'webp'];
+export const IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'];
 export function isImageGenModel(id) { return IMAGE_MODELS.some((m) => m.id === id); }
 export function imageModelLabel(id) {
   const hit = IMAGE_MODELS.find((m) => m.id === id);
   return hit ? hit.label : String(id || '');
 }
+
+// ── 生图模型 ID 归一（实测修复）─────────────────────────────────────────
+// 网关对无法识别的 model 一律返回 400「模型 'X' 暂不可用」（type=model_not_available），
+// 而对话模型很常把「显示名」当 ID 传进 generate_image（如 model="2.5 Sunburst"），
+// 结果整次调用在网关侧秒失败。这里本地先把别名解析成真实模型 ID：
+//   "2.5 Sunburst" / "GPT Image 2.5 Sunburst" / "sunburst" → gpt-image-2.5-sunburst
+// 解析不出来的（形状像 ID 的）透传给网关，便于使用 /v1/models 里的其它生图模型；
+// 完全不像 ID 的退回会话选定的生图模型，并在工具结果里告知，避免 LLM 反复犯错。
+export function imageModelAliasKey(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+}
+const IMAGE_MODEL_ALIASES = (() => {
+  const map = new Map();
+  const put = (k, id) => { if (k && !map.has(k)) map.set(k, id); };
+  for (const m of IMAGE_MODELS) {
+    const idKey = imageModelAliasKey(m.id);        // gpt image 2.5 sunburst
+    const labelKey = imageModelAliasKey(m.label);   // gpt image 2.5 sunburst
+    put(String(m.id).toLowerCase(), m.id);          // 精确 ID（含连字符）
+    put(idKey, m.id);
+    put(labelKey, m.id);
+    put(labelKey.replace(/^gpt image /, ''), m.id); // 2.5 sunburst（去掉品牌前缀）
+    put(idKey.replace(/^gpt image /, ''), m.id);
+    const tail = idKey.split(' ').filter(Boolean).pop();
+    if (tail && !/^[\d.]+$/.test(tail)) put(tail, m.id); // sunburst / flare（避免 2 撞车）
+  }
+  return map;
+})();
+
+// 返回 { id, input, corrected, unknown, passthrough }
+export function resolveImageModel(raw, fallback = DEFAULT_IMAGE_MODEL) {
+  const input = String(raw == null ? '' : raw).trim();
+  const fb = isImageGenModel(fallback) ? fallback : DEFAULT_IMAGE_MODEL;
+  if (!input) return { id: fb, input, corrected: false, unknown: false };
+  const key = imageModelAliasKey(input);
+  const hit = IMAGE_MODEL_ALIASES.get(key);
+  if (hit) return { id: hit, input, corrected: hit !== input, unknown: false };
+  // 形状像网关模型 ID（无空格、含字母）：透传，交给网关判定
+  if (/[a-z]/i.test(input) && !/\s/.test(input) && /^[a-z0-9][a-z0-9._[\]-]{1,63}$/i.test(input)) {
+    return { id: input, input, corrected: false, unknown: false, passthrough: true };
+  }
+  return { id: fb, input, corrected: true, unknown: true };
+}
+// 供工具描述/提示词使用：明确「只能传 ID，不要传显示名」
+export const IMAGE_MODEL_IDS = IMAGE_MODELS.map((m) => m.id);
 
 // 根据模型 ID 推断供应商
 export function providerOf(modelId) {
@@ -163,7 +211,7 @@ export function systemPrompt(now = new Date()) {
     '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典（虚拟文件系统），将结果赋给全局变量 result 可被捕获。运行时常驻，仅会话首次调用需下载（10-30 秒）。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files：操作会话级虚拟文件系统。',
-    '- generate_image：调用文生图模型（GPT Image 2 / 2.5 Sunburst / 2.5 Flare）生成图片；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
+    '- generate_image：调用文生图模型生成图片（模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare，走 POST /v1/images/generations）；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '',
     '## 附件',

@@ -28,7 +28,7 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 | Responses API | `POST /v1/responses`，仅 GPT 系列（Claude/Gemini 返回 400） |
 | Gemini 原生 | `POST /v1beta/models/{model}:generateContent`（流式加 `:streamGenerateContent?alt=sse`） |
 | 模型列表 | `GET /v1/models`（需鉴权，401 时本项目回退内置列表） |
-| 文生图 | `POST /v1/images/generations`（`Authorization: Bearer`）；body `{model, prompt, size, quality, output_format…}`；结果在 `data[0].b64_json`；官方建议超时 300s |
+| 文生图 | `POST /v1/images/generations`（`Authorization: Bearer`）；body `{model, prompt, size, quality, output_format, background, n…}`；结果在 `data[i].b64_json`（`n>1` 时数组多于一项）；官方建议超时 300s（实测 30–90s） |
 | 图片编辑 | `POST /v1/images/edits`（`multipart/form-data`：`model` + `image`（多张用 `image[]`）+ `prompt`，可选 `mask`/`size`/`quality`/`input_fidelity`） |
 | Fast mode | 请求体加 `"service_tier": "fast"`，仅 GPT 系列，2x 计费（旧值 `priority` 仍兼容） |
 | 流式事件 | Anthropic：`message_start → content_block_start → content_block_delta → content_block_stop → message_delta → message_stop` |
@@ -103,6 +103,9 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
   - 无参考图 → `POST /v1/images/generations`；带 `reference_paths`（如 `uploads/cat.png`）→ `POST /v1/images/edits`（multipart）。
   - 出图写回沙箱 `outputs/image-00N.png`，对话中的工具芯片直接显示图片并可下载；`size`/`quality`/`output_format` 与「本次用哪个生图模型」都由工具参数控制。
   - 生图默认模型在模型菜单底部的「生图模型 · Agent 调用」行选择，**按会话记忆**。
+- **模型 ID 归一（线上 400 的修复）**：对话模型常把显示名当 ID 传参（如 `model="2.5 Sunburst"`），网关会直接 `400 模型 '2.5 Sunburst' 暂不可用`。现在工具 Schema 用 `enum` 限定为真实 ID，`resolveImageModel()` 兼容 `2.5 Sunburst` / `GPT Image 2.5 Flare` / `flare` 等别名并自动纠正，纠正结果回灌给模型避免重复犯错；完全无法识别的名字退回会话选定的模型，绝不把垃圾字符串发给网关。
+- **失败可读**：不再把任何异常都写成「缺少 data[0]」。区分「HTTP 200 + `error`/`message`」「200 但 `data` 为空数组」「非 JSON 响应体（带 HTTP 码、Content-Type、字节数与原文片段）」「`data` 字段缺失」；上游类错误自动补一次重试（3s），4xx 参数/模型类错误不重放。
+- **输出真实化**：`sniffImage()` 直接解析 PNG/JPEG/GIF/WebP 头部拿到真实宽高与格式——网关偶尔无视 `output_format` 返回 PNG，此时扩展名会自动纠正；`n>1` 的多张候选全部写入沙箱，不再只取第一张。
 - **连接反馈**：请求发出到首字返回之间为「连接模型中」状态——状态点脉冲+光环、三点跳动、实时秒数、顶栏不确定进度条，气泡内显示「正在连接 <模型>，等待首个响应…」，收到首个 token 自动切到「生成中」。
 - **沙箱导出**：文件面板「⬇ ZIP」打包整个虚拟文件系统（图片按原始二进制还原 + 自动补扩展名，单文件行内 ⬇ 可单独下载）；ZIP 由 `js/zip.js` 手写 STORE 容器生成，零依赖。
 - **会话级模型**：模型与生图模型都属于会话属性，切换会话自动恢复各自的选择；每条 assistant 消息记录当轮实际使用的模型，回看时头部按消息显示，不会被当前选择覆盖。
@@ -131,6 +134,17 @@ tests/            node tests/agent.test.mjs（74 项：双协议解析 / 上下�
                   Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传回归）/
                   生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽）
 ```
+
+真实网关系统测试（会实际调用 `/v1/images/*` 并产生费用，默认跳过）：
+
+```bash
+TEAMO_API_KEY=sk-teamo-xxx node tests/live-check.mjs
+```
+
+覆盖：三个生图模型逐个出图、显示名 `2.5 Sunburst` 纠正后成功、非法名退回会话模型、
+`reference_paths` 图片编辑、`n=2` 多张落盘、webp/透明底魔数校验、错误文案含上游原文、
+以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
+`report.json` 输出到 `/tmp/teamo-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
 
 可选的 DOM 冒烟测试（真实挂载 UI，需 `npm i -D jsdom`；未安装时自动跳过，CI 不依赖）：
 

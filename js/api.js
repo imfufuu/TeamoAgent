@@ -427,11 +427,14 @@ export async function fetchModels(apiKey, signal) {
   return [...new Set(list)];
 }
 
+const IMAGE_MIME = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp' };
+const IMAGE_EXT = { png: 'png', jpeg: 'jpg', webp: 'webp' };
+
 // ── 图像模型（GPT Image 2 / 2.5 Sunburst / 2.5 Flare）───────────────────
 // 文档：生成 POST /v1/images/generations（JSON）、编辑 POST /v1/images/edits
 //       （multipart/form-data：model + prompt + image[/image[]] [+ mask]）
-// 鉴权 Authorization: Bearer；响应 data[0].b64_json（Base64）
-// 官方建议超时 300s（生图耗时长，超时过短会直接失败）
+// 鉴权 Authorization: Bearer；响应 data[i].b64_json（Base64）
+// 官方建议超时 300s（实测单张 30–65s，2048x2048/high 也只需约 45s）
 export const IMAGE_TIMEOUT_MS = 300000;
 
 function withTimeout(signal, timeoutMs) {
@@ -473,15 +476,105 @@ export function bytesToDataUrl(bytes, mime = 'image/png') {
   return `data:${mime};base64,${btoa(bin)}`;
 }
 
+// 从图片字节头解析真实尺寸与格式（网关有时不返回 width/height，或返回与请求不符的格式）
+// 支持 PNG / JPEG / GIF / WebP（VP8 | VP8L | VP8X）
+export function sniffImage(bytes) {
+  const u = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
+  if (!u || u.length < 20) return {};
+  const dv = new DataView(u.buffer, u.byteOffset, u.byteLength);
+  const fourcc = (o) => String.fromCharCode(u[o], u[o + 1], u[o + 2], u[o + 3]);
+  if (u[0] === 0x89 && u[1] === 0x50 && u[2] === 0x4e && u[3] === 0x47) { // \x89PNG\r\n\x1a\n
+    if (u.length < 24 || fourcc(12) !== 'IHDR') return { mime: 'image/png', ext: 'png' };
+    const pw = dv.getUint32(16); const ph = dv.getUint32(20);
+    if (!(pw > 0 && ph > 0 && pw < 100000 && ph < 100000)) return { mime: 'image/png', ext: 'png' };
+    return { mime: 'image/png', ext: 'png', width: pw, height: ph };
+  }
+  if (u[0] === 0xff && u[1] === 0xd8) {
+    const out = { mime: 'image/jpeg', ext: 'jpg' };
+    for (let i = 2; i + 9 < u.length && u[i] === 0xff; ) {
+      const marker = u[i + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        out.height = dv.getUint16(i + 5);
+        out.width = dv.getUint16(i + 7);
+        break;
+      }
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0xd8 || marker === 0xd9) { i += 2; continue; }
+      i += 2 + dv.getUint16(i + 2);
+    }
+    return out;
+  }
+  if (fourcc(0) === 'GIF8') return { mime: 'image/gif', ext: 'gif', width: dv.getUint16(6, true), height: dv.getUint16(8, true) };
+  if (fourcc(0) === 'RIFF' && fourcc(8) === 'WEBP') {
+    const tag = fourcc(12);
+    if (tag === 'VP8 ') {
+      return { mime: 'image/webp', ext: 'webp', width: dv.getUint16(26, true) & 0x3fff, height: dv.getUint16(28, true) & 0x3fff };
+    }
+    if (tag === 'VP8L') {
+      const bits = dv.getUint32(21, true);
+      return { mime: 'image/webp', ext: 'webp', width: (bits & 0x3fff) + 1, height: ((bits >> 14) & 0x3fff) + 1 };
+    }
+    if (tag === 'VP8X') {
+      return {
+        mime: 'image/webp', ext: 'webp',
+        width: (u[24] | (u[25] << 8) | (u[26] << 16)) + 1,
+        height: (u[27] | (u[28] << 8) | (u[29] << 16)) + 1,
+      };
+    }
+    return { mime: 'image/webp', ext: 'webp' };
+  }
+  return {};
+}
+
 // 统一解析图像响应：b64_json 优先，退回 url；网关也可能返回 image/jpeg|webp
-export function parseImageResponse(json, format = 'png') {
-  const item = json && Array.isArray(json.data) ? json.data[0] : null;
-  if (!item) throw new Error('图像接口响应异常：缺少 data[0]');
-  const ext = format === 'jpeg' ? 'jpg' : (format || 'png');
-  const mime = format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
-  if (item.b64_json) return { dataUrl: `data:${mime};base64,${item.b64_json}`, mime, ext };
-  if (item.url) return { dataUrl: item.url, mime, ext };
-  throw new Error('图像接口未返回图片数据（data[0].b64_json / url 均为空）');
+// 返回 { images:[{dataUrl,mime,ext,width,height,revisedPrompt}], dataUrl/mime/ext（首张，向后兼容）, usage }
+export function parseImageResponse(json, format = 'png', meta = {}) {
+  const tag = meta.status ? `（HTTP ${meta.status}）` : '';
+  if (!json || typeof json !== 'object') {
+    const raw = String(meta.raw || '').slice(0, 200).replace(/\s+/g, ' ').trim();
+    throw new Error(`图像接口未返回 JSON${tag}：${raw || '空响应体'}`);
+  }
+  const items = Array.isArray(json.data) ? json.data : null;
+  // 网关也会用 200 + error/message 表达上游失败，必须显式暴露而不是「缺少 data[0]」
+  const soft = json.error || (json.message && !items ? { message: json.message } : null);
+  if (soft && !items) {
+    const m = typeof soft === 'object' ? (soft.message || JSON.stringify(soft)) : String(soft);
+    const err = new Error(`图像接口报错：${String(m).slice(0, 300)}`);
+    err.retryable = true; // 上游类错误多为瞬时（网关常提示「请稍后重试」）
+    err.code = typeof soft === 'object' ? soft.type || soft.code : undefined;
+    throw err;
+  }
+  if (!items) throw new Error(`图像接口响应异常：缺少 data 数组${tag}（响应字段：${Object.keys(json).join(', ') || '无'}）`);
+  if (!items.length) {
+    const err = new Error(`网关接受请求但未返回任何图片（data 为空数组${tag}）`);
+    err.retryable = true;
+    throw err;
+  }
+  const want = IMAGE_MIME[format] || IMAGE_MIME.png;
+  const images = [];
+  for (const item of items) {
+    const entry = item && typeof item === 'object' ? item : {};
+    let mime = want;
+    let ext = IMAGE_EXT[format] || 'png';
+    let dataUrl = '';
+    if (entry.b64_json) {
+      dataUrl = `data:${mime};base64,${entry.b64_json}`;
+      // 以字节头为准：网关偶尔无视 output_format 返回 png（扩展名/展示都会跟着修正）
+      try {
+        const sniffed = sniffImage(dataUrlToBytes(dataUrl).bytes);
+        if (sniffed.mime && sniffed.mime !== mime) { mime = sniffed.mime; ext = sniffed.ext; dataUrl = `data:${mime};base64,${entry.b64_json}`; }
+        if (sniffed.width && sniffed.height) {
+          entry.width = sniffed.width; entry.height = sniffed.height;
+        }
+      } catch { /* 非法 base64 时退回按请求格式处理 */ }
+    } else if (entry.url) {
+      dataUrl = entry.url;
+    } else {
+      continue;
+    }
+    images.push({ dataUrl, mime, ext, width: entry.width || 0, height: entry.height || 0, revisedPrompt: entry.revised_prompt || '' });
+  }
+  if (!images.length) throw new Error('图像接口未返回图片数据（data[*].b64_json / url 均为空）');
+  return { images, ...images[0], created: json.created || 0, usage: json.usage || null };
 }
 
 async function postImage(path, { apiKey, body, isForm, signal, timeoutMs }) {
@@ -489,25 +582,77 @@ async function postImage(path, { apiKey, body, isForm, signal, timeoutMs }) {
   try {
     const headers = isForm ? authHeaders('openai', apiKey) : { 'Content-Type': 'application/json', ...authHeaders('openai', apiKey) };
     const r = await request(path, { method: 'POST', headers, body, signal: t.signal });
-    if (!r.ok) throw new Error(httpErrorMessage(r.status, await r.text().catch(() => '')));
-    return await r.json().catch(() => ({}));
+    const text = await r.text().catch(() => '');
+    if (!r.ok) {
+      const err = new Error(httpErrorMessage(r.status, text));
+      err.status = r.status;
+      err.retryable = r.status === 429 || r.status >= 500;
+      throw err;
+    }
+    let json = null;
+    try { json = JSON.parse(text); } catch { /* 下面按非 JSON 处理 */ }
+    if (!json) {
+      const err = new Error(`图像接口返回了非 JSON 响应（HTTP ${r.status}，${r.headers.get('content-type') || '未知类型'}，${text.length} 字节）：${text.slice(0, 160).replace(/\s+/g, ' ').trim() || '空响应体'}`);
+      err.retryable = true; // 典型为网关/代理抖动，重放一次通常即可
+      throw err;
+    }
+    return json;
   } finally {
     t.release();
   }
 }
 
+// 生图单次 30–65s，抖动重放代价高但远小于整轮失败，故只补一次、间隔 3s
+export const IMAGE_RETRY_DELAY_MS = 3000;
+export async function postImageWithRetry(path, opts, { parse, retries = 1, retryDelayMs = IMAGE_RETRY_DELAY_MS, onRetry, signal } = {}) {
+  let lastErr;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const json = await postImage(path, opts);
+      try {
+        return parse ? parse(json) : parseImageResponse(json, opts.format);
+      } catch (err) {
+        err.payloadAttempt = attempt;
+        throw err;
+      }
+    } catch (err) {
+      lastErr = err;
+      const abortLike = err && (err.name === 'AbortError' || (signal && signal.aborted));
+      if (abortLike || attempt >= retries || !err.retryable) throw err;
+      if (onRetry) onRetry(err, attempt + 1);
+      await sleepRetry(retryDelayMs, signal);
+    }
+  }
+  throw lastErr;
+}
+
+function sleepRetry(ms, signal) {
+  return new Promise((resolve) => {
+    const done = () => { if (signal) signal.removeEventListener('abort', done); resolve(); };
+    const timer = setTimeout(done, ms);
+    if (signal) {
+      if (signal.aborted) { clearTimeout(timer); done(); return; }
+      signal.addEventListener('abort', () => { clearTimeout(timer); done(); }, { once: true });
+    }
+  });
+}
+
 // 文生图：size 为像素尺寸（16 的倍数、最大边 ≤3840、长宽比 ≤3:1），auto/缺省交给模型
-export async function generateImage({ model, apiKey, prompt, size, quality, background, format = 'png', signal, timeoutMs = IMAGE_TIMEOUT_MS } = {}) {
+// n>1 时网关在 data[] 内返回多张，全部落地（不要只取第一张而丢掉其余）
+export async function generateImage({ model, apiKey, prompt, size, quality, background, format = 'png', n, signal, timeoutMs = IMAGE_TIMEOUT_MS, onRetry } = {}) {
   const body = { model, prompt, output_format: format };
   if (size && size !== 'auto') body.size = size;
   if (quality && quality !== 'auto') body.quality = quality;
   if (background && background !== 'auto') body.background = background;
-  const json = await postImage('/v1/images/generations', { apiKey, body: JSON.stringify(body), signal, timeoutMs });
-  return parseImageResponse(json, format);
+  const count = Number(n);
+  if (Number.isFinite(count) && count > 1) body.n = Math.min(4, Math.max(2, Math.floor(count)));
+  const json = await postImageWithRetry('/v1/images/generations', { apiKey, body: JSON.stringify(body), signal, timeoutMs, format },
+    { signal, onRetry, parse: (j) => parseImageResponse(j, format, { status: 200 }) });
+  return json;
 }
 
 // 图片编辑：images = [{ name?, dataUrl }]（沙箱内图片读出即为 data URL）；mask 可选
-export async function editImage({ model, apiKey, prompt, images = [], mask, size, quality, inputFidelity, format = 'png', signal, timeoutMs = IMAGE_TIMEOUT_MS } = {}) {
+export async function editImage({ model, apiKey, prompt, images = [], mask, size, quality, inputFidelity, format = 'png', n, signal, timeoutMs = IMAGE_TIMEOUT_MS, onRetry } = {}) {
   if (!images.length) throw new Error('图片编辑需要至少一张原图（reference_paths）');
   const fd = new FormData();
   fd.append('model', model);
@@ -516,6 +661,8 @@ export async function editImage({ model, apiKey, prompt, images = [], mask, size
   if (size && size !== 'auto') fd.append('size', size);
   if (quality && quality !== 'auto') fd.append('quality', quality);
   if (inputFidelity && inputFidelity !== 'auto') fd.append('input_fidelity', inputFidelity);
+  const count = Number(n);
+  if (Number.isFinite(count) && count > 1) fd.append('n', String(Math.min(4, Math.max(2, Math.floor(count)))));
   const field = images.length > 1 ? 'image[]' : 'image'; // OpenAI Images 兼容：多张参考图用 image[]
   for (const img of images) {
     const { bytes, mime } = dataUrlToBytes(img && img.dataUrl);
@@ -526,6 +673,7 @@ export async function editImage({ model, apiKey, prompt, images = [], mask, size
     fd.append('mask', new File([bytes], mask.name || 'mask.png', { type: mime }));
   }
   // 不手动设置 Content-Type：boundary 需由 FormData 生成
-  const json = await postImage('/v1/images/edits', { apiKey, body: fd, isForm: true, signal, timeoutMs });
-  return parseImageResponse(json, format);
+  const json = await postImageWithRetry('/v1/images/edits', { apiKey, body: fd, isForm: true, signal, timeoutMs, format },
+    { signal, onRetry, parse: (j) => parseImageResponse(j, format, { status: 200 }) });
+  return json;
 }

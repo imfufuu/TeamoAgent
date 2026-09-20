@@ -909,7 +909,8 @@ test('parseImageResponse：b64_json 优先，退回 url，缺数据时报错', (
   assert.ok(j.dataUrl.startsWith('data:image/jpeg;base64,') && j.ext === 'jpg', 'jpeg 走 image/jpeg + .jpg');
   const u = parseImageResponse({ data: [{ url: 'https://cdn/x.png' }] });
   assert.equal(u.dataUrl, 'https://cdn/x.png');
-  assert.throws(() => parseImageResponse({ data: [] }), /data\[0\]/);
+  assert.throws(() => parseImageResponse({ data: [] }), /data 为空数组/);
+  assert.throws(() => parseImageResponse({}), /缺少 data 数组/);
 });
 test('dataUrlToBytes / bytesToDataUrl：base64 与字节往返一致', () => {
   const { dataUrlToBytes, bytesToDataUrl } = api;
@@ -1131,6 +1132,195 @@ test('createZip：本地头/中心目录/EOCD 结构与 CRC 自洽', async () =>
   assert.equal(crcField, zip.crc32(firstBody), '头里的 CRC32 与正文一致');
   assert.equal(zip.crc32(new Uint8Array(0)), 0, '空内容 CRC32 = 0');
   assert.equal(zip.crc32(new TextEncoder().encode('123456789')), 0xCBF43926, 'CRC32 标准向量');
+});
+
+
+group('生图模型名归一（实测 400「模型 \'2.5 Sunburst\' 暂不可用」的修复）');
+test('显示名 / 大小写 / 代号简写都解析为网关真实 ID', () => {
+  const r = (x, fb) => cfg.resolveImageModel(x, fb);
+  assert.equal(r('2.5 Sunburst').id, 'gpt-image-2.5-sunburst', '纯显示名（复现场景）');
+  assert.equal(r('GPT Image 2.5 Flare').id, 'gpt-image-2.5-flare');
+  assert.equal(r('gpt-image-2.5-flare').id, 'gpt-image-2.5-flare', '已经是 ID 时保持不变');
+  assert.equal(r('GPT-Image-2').id, 'gpt-image-2');
+  assert.equal(r('flare').id, 'gpt-image-2.5-flare', '只给代号也能定位');
+  assert.equal(r('  2.5-SUNBURST  ').id, 'gpt-image-2.5-sunburst', '前后空格与大小写容错');
+  assert.equal(r('gpt-image-2.5-flare').corrected, false, '规范输入不算“被纠正”');
+  assert.equal(r('2.5 Sunburst').corrected, true, '别名输入要标记为已纠正，便于告知模型');
+});
+test('缺省沿用会话选定模型；非法名退回默认而不是把垃圾发给网关', () => {
+  assert.equal(cfg.resolveImageModel('', 'gpt-image-2.5-flare').id, 'gpt-image-2.5-flare');
+  assert.equal(cfg.resolveImageModel(undefined, 'gpt-image-2.5-flare').id, 'gpt-image-2.5-flare');
+  const bad = cfg.resolveImageModel('最新的图片模型', 'gpt-image-2');
+  assert.equal(bad.id, 'gpt-image-2', '中文描述串不应透传');
+  assert.equal(bad.unknown, true, '要标记 unknown，工具层据此提示模型改用 ID');
+  const foreign = cfg.resolveImageModel('gemini-3.1-flash-image', 'gpt-image-2');
+  assert.equal(foreign.id, 'gemini-3.1-flash-image', '形状像网关 ID 的透传，便于使用 /v1/models 里的其它生图模型');
+  assert.equal(foreign.passthrough, true);
+  assert.equal(cfg.resolveImageModel('2.5', 'nope').id, cfg.DEFAULT_IMAGE_MODEL, '兜底值非法时用默认');
+  assert.ok(cfg.IMAGE_MODEL_IDS.every((id) => cfg.isImageGenModel(id)));
+});
+test('工具 Schema 用 enum 限定模型 ID，提示词给出可选值', () => {
+  const def = TOOL_DEFS.find((t) => t.name === 'generate_image');
+  const m = def.parameters.properties.model;
+  assert.deepEqual(m.enum, cfg.IMAGE_MODEL_IDS, 'enum 约束比自由文本更难被模型写错');
+  assert.ok(/不要传/.test(m.description), '描述里要明确“不要传显示名”');
+  const sys = cfg.systemPrompt();
+  assert.ok(/gpt-image-2\.5-sunburst/.test(sys), '系统提示词列出真实 ID');
+  assert.ok(/不要传「2.5 Sunburst」/.test(sys), '系统提示词包含反例');
+  assert.ok(sys.indexOf('gpt-image-2.5-sunburst') < sys.indexOf('## 规则'), 'ID 说明位于工具清单内');
+  assert.notEqual(sys, cfg.systemPrompt.toString(), '断言的是提示词正文而非函数源码（防止自证）');
+});
+
+group('图像响应解析：不再把任何异常都说成「缺少 data[0]」');
+test('PNG/JPEG/WebP 头部解析真实尺寸与格式', () => {
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(png.buffer).setUint32(16, 1024); new DataView(png.buffer).setUint32(20, 1536);
+  assert.deepEqual({ ...api.sniffImage(png) }, { mime: 'image/png', ext: 'png', width: 1024, height: 1536 });
+  // JPEG SOF0：FF C0 <len:2> <precision:1> <height:2> <width:2>
+  const jpg = new Uint8Array(32);
+  jpg.set([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08], 0);
+  new DataView(jpg.buffer).setUint16(7, 480); new DataView(jpg.buffer).setUint16(9, 640);
+  const j = api.sniffImage(jpg);
+  assert.equal(j.mime, 'image/jpeg'); assert.equal(j.width, 640); assert.equal(j.height, 480);
+  const webp = new Uint8Array(40);
+  webp.set([0x52, 0x49, 0x46, 0x46, 32, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58], 0);
+  webp[24] = 0xff; webp[25] = 0x03; webp[26] = 0; // canvas width - 1 = 1023（24bit LE）
+  webp[27] = 0xff; webp[28] = 0x07; webp[29] = 0; // canvas height - 1 = 2047
+  const w = api.sniffImage(webp);
+  assert.equal(w.ext, 'webp'); assert.equal(w.mime, 'image/webp');
+  assert.equal(w.width, 1024); assert.equal(w.height, 2048);
+  assert.deepEqual(api.sniffImage(new Uint8Array([1, 2, 3])), {}, '非图片字节返回空对象而不是抛错');
+});
+test('网关无视 output_format 时按字节头纠正扩展名', () => {
+  const png = new Uint8Array(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(png.buffer).setUint32(16, 1024); new DataView(png.buffer).setUint32(20, 1024);
+  const b64 = Buffer.from(png).toString('base64');
+  const out = api.parseImageResponse({ data: [{ b64_json: b64 }] }, 'webp');
+  assert.equal(out.ext, 'png', '实际是 PNG 就不该写成 .webp');
+  assert.ok(out.dataUrl.startsWith('data:image/png;base64,'));
+  assert.equal(out.width, 1024, '用头部尺寸补全 width/height');
+});
+test('多张结果全部返回（n>1 时不丢图）', () => {
+  const b64 = Buffer.from('x').toString('base64');
+  const out = api.parseImageResponse({ data: [{ b64_json: b64 }, { b64_json: b64 + 'y' }, { b64_json: b64 + 'z' }] }, 'png');
+  assert.equal(out.images.length, 3);
+  assert.equal(out.dataUrl, out.images[0].dataUrl, '首张仍是 .dataUrl，兼容老调用方');
+});
+test('HTTP 200 + error：直接暴露网关文案并标记可重试', () => {
+  assert.throws(
+    () => api.parseImageResponse({ error: { message: '上游繁忙，请稍后重试', type: 'overloaded' }, data: undefined }, 'png'),
+    (e) => /上游繁忙/.test(e.message) && e.retryable === true,
+  );
+  assert.throws(
+    () => api.parseImageResponse({ message: 'quota exceeded' }, 'png'),
+    (e) => /quota exceeded/.test(e.message),
+  );
+});
+test('非 JSON 响应体不再伪装成「缺少 data」', () => {
+  assert.throws(() => api.parseImageResponse('<html>502 Bad Gateway</html>', 'png', { status: 200, raw: '<html>502 Bad Gateway</html>' }),
+    (e) => /未返回 JSON/.test(e.message) && /HTTP 200/.test(e.message));
+});
+
+group('图像请求重试策略');
+test('瞬时失败重放一次即成功；确定性错误不重放', async () => {
+  const b64 = Buffer.from('img').toString('base64');
+  let calls = 0;
+  const realFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => {
+      calls++;
+      if (calls === 1) return new Response('<html>bad gateway</html>', { status: 200, headers: { 'content-type': 'text/html' } });
+      return new Response(JSON.stringify({ data: [{ b64_json: b64 }] }), { status: 200 });
+    };
+    const out = await api.postImageWithRetry('/v1/images/generations',
+      { apiKey: 'sk-teamo-test', body: '{}', format: 'png', timeoutMs: 5000 },
+      { retryDelayMs: 1, retries: 1, parse: (j) => api.parseImageResponse(j, 'png') });
+    assert.equal(out.dataUrl, `data:image/png;base64,${b64}`, '第二次成功即返回');
+    assert.equal(calls, 2, '只补一次');
+    calls = 0;
+    globalThis.fetch = async () => { calls++; return new Response(JSON.stringify({ error: { message: '模型不存在' } }), { status: 404 }); };
+    await assert.rejects(() => api.postImageWithRetry('/v1/images/generations',
+      { apiKey: 'sk-teamo-test', body: '{}', format: 'png', timeoutMs: 5000 },
+      { retryDelayMs: 1, retries: 1, parse: (j) => api.parseImageResponse(j, 'png') }), /HTTP 404/);
+    assert.equal(calls, 1, '4xx 参数/模型类错误重试无意义，不应重放');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+test('空 data 触发重试（网关偶发吞掉上游结果）', async () => {
+  const b64 = Buffer.from('img2').toString('base64');
+  let calls = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    calls++;
+    const body = calls === 1 ? { data: [] } : { data: [{ b64_json: b64 }] };
+    return new Response(JSON.stringify(body), { status: 200 });
+  };
+  try {
+    const out = await api.postImageWithRetry('/v1/images/generations',
+      { apiKey: 'k', body: '{}', format: 'png', timeoutMs: 5000 },
+      { retryDelayMs: 1, retries: 1, parse: (j) => api.parseImageResponse(j, 'png') });
+    assert.equal(calls, 2);
+    assert.ok(out.dataUrl.includes(b64));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+group('generate_image 端到端（真实代码路径 + 桩网关）');
+test('model 传显示名时被纠正，且请求体里是真实 ID', async () => {
+  const realFetch = globalThis.fetch;
+  let sent = null;
+  const b64 = Buffer.from('cube').toString('base64');
+  globalThis.fetch = async (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return new Response(JSON.stringify({ data: [{ b64_json: b64 }] }), { status: 200 });
+  };
+  try {
+    const fs = createFS();
+    const res = await executeTool('generate_image',
+      { prompt: 'a red cube', model: '2.5 Sunburst' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2' });
+    assert.equal(sent.model, 'gpt-image-2.5-sunburst', '不再把 "2.5 Sunburst" 发给网关（实测会 400）');
+    assert.match(res, /已把模型名「2.5 Sunburst」解析为 gpt-image-2.5-sunburst/, '文案里说明纠正，便于模型学习');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('n>1 时多张图全部写入沙箱', async () => {
+  const realFetch = globalThis.fetch;
+  const one = Buffer.from('a').toString('base64');
+  const two = Buffer.from('b').toString('base64');
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [{ b64_json: one }, { b64_json: two }] }), { status: 200 });
+  try {
+    const fs = createFS();
+    const res = await executeTool('generate_image', { prompt: 'two cubes', n: 2 }, { fs, apiKey: 'k', imageModel: 'gpt-image-2' });
+    assert.ok(fs.read('outputs/image-001.png') && fs.read('outputs/image-002.png'), '两张都落盘');
+    assert.match(res, /共 2 张/);
+    assert.match(res, /image-001\.png、outputs\/image-002\.png/);
+  } finally { globalThis.fetch = realFetch; }
+});
+test('参考图缺失时在发请求前就报错（不浪费 40 秒生图）', async () => {
+  const realFetch = globalThis.fetch;
+  let hit = false;
+  globalThis.fetch = async () => { hit = true; return new Response('{}', { status: 200 }); };
+  try {
+    const fs = createFS({ 'uploads/real.png': 'data:image/png;base64,AA==' });
+    const res = await executeTool('generate_image',
+      { prompt: 'edit it', reference_paths: ['uploads/ghost.png'] },
+      { fs, apiKey: 'k', imageModel: 'gpt-image-2' });
+    assert.equal(hit, false, '不应发起网络请求');
+    assert.match(res, /沙箱中找不到参考图/);
+    assert.match(res, /uploads\/real\.png/, '列出现有图片，方便模型改用正确路径');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('网关 400 时错误文案保留上游消息与 trace 提示', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: "模型 'gpt-image-9' 暂不可用，请稍后重试。", type: 'model_not_available' }, trace_id: 't1' }), { status: 400 });
+  try {
+    const fs = createFS();
+    const res = await executeTool('generate_image', { prompt: 'x', model: 'gpt-image-9' }, { fs, apiKey: 'k', imageModel: 'gpt-image-2' });
+    assert.match(res, /暂不可用/);
+    assert.match(res, /HTTP 400/);
+  } finally { globalThis.fetch = realFetch; }
 });
 
 
