@@ -426,3 +426,32 @@ export async function fetchModels(apiKey, signal) {
   const list = (json.data || json.models || []).map((m) => m.id || m).filter(Boolean);
   return [...new Set(list)];
 }
+
+// ── 文生图（POST /v1/images/generations；Bearer 鉴权）──────────────────
+// 文档：模型 gpt-image-2；请求体 {model, prompt, response_format}；
+// 响应 data[].b64_json。图片生成较慢（可达数分钟），默认 300s 超时。
+export async function generateImage({ model, apiKey, prompt, signal, timeoutMs = 300000 } = {}) {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), timeoutMs);
+  const onAbort = () => ac.abort();
+  if (signal) {
+    if (signal.aborted) ac.abort();
+    signal.addEventListener('abort', onAbort, { once: true });
+  }
+  const headers = { 'Content-Type': 'application/json', ...authHeaders('openai', apiKey) };
+  const body = JSON.stringify({ model, prompt, response_format: 'b64_json' });
+  try {
+    const r = await request('/v1/images/generations', { method: 'POST', headers, body, signal: ac.signal });
+    if (!r.ok) {
+      const text = await r.text().catch(() => '');
+      throw new Error(httpErrorMessage(r.status, text));
+    }
+    const json = await r.json().catch(() => ({}));
+    const b64 = json.data && json.data[0] && json.data[0].b64_json;
+    if (!b64) throw new Error('图片生成失败：响应中未包含图像数据（data[0].b64_json 为空）');
+    return `data:image/png;base64,${b64}`;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+}

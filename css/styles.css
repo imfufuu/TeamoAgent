@@ -184,6 +184,8 @@ a { color: var(--fg); }
 .badge.ghost { color: var(--fg-3); }
 .badge.vision { display: inline-flex; align-items: center; padding: 1px 4px; }
 .badge.vision svg { width: 11px; height: 11px; }
+.badge.img { display: inline-flex; align-items: center; padding: 1px 4px; color: var(--fg-2); }
+.badge.img svg { width: 11px; height: 11px; }
 .dd-empty { padding: 20px; text-align: center; color: var(--fg-3); }
 
 /* 会话记录列表 */
@@ -290,6 +292,9 @@ a { color: var(--fg); }
 .md-body tbody tr:nth-child(even) { background: var(--bg-soft); }
 .md-body hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
 .md-body img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+.gen-image { margin: .4em 0 .2em; max-width: min(420px, 100%); }
+.gen-image img { width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); display: block; background: var(--bg-soft); }
+.gen-image-cap { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
 .md-body a { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px; }
 .md-body a:hover { text-decoration-thickness: 2px; }
 .md-body del { color: var(--fg-3); }

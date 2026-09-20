@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, BASE_URL } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, BASE_URL } from './config.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO } from './icons.js';
@@ -189,6 +189,7 @@ export function mountUI(store, agent) {
           <span class="dd-item-badges">
             ${isFreeModel(m.id) ? '<span class="badge">FREE</span>' : ''}
             ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
+            ${isImageModel(m.id) ? '<span class="badge img" title="文生图：文本生成图片（POST /v1/images/generations）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5 5-4-4"/></svg></span>' : ''}
             ${protocolOf(m.id) === 'anthropic' ? '<span class="badge ghost">原生</span>' : ''}
           </span>`;
         item.addEventListener('click', () => {
@@ -531,11 +532,19 @@ export function mountUI(store, agent) {
   function paintAssistant(wrap, m) {
     const body = $('.md-body', wrap);
     let html = '';
+    // 图片生成中（文生图模型）：等待 b64 返回前给出提示
+    if (m.image === null && !m.done) {
+      html += '<div class="thinking-line">🎨 正在生成图片<span class="dots">…</span></div>';
+    }
     // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
     if (m.done && m.reasoning) {
       html += `<details class="reasoning"><summary>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (!m.done && m.reasoning && !m.text) {
+    } else if (!m.done && m.reasoning && !m.text && m.image == null) {
       html += '<div class="thinking-line">深度思考中<span class="dots">…</span></div>';
+    }
+    // 文生图结果：直接在气泡内渲染生成的图片
+    if (m.image) {
+      html += `<figure class="gen-image"><img src="${m.image}" alt="${(esc(m.text) || 'AI 生成图片').slice(0, 60)}"><figcaption class="gen-image-cap">${esc(m.text || 'AI 生成图片')}</figcaption></figure>`;
     }
     html += renderMarkdown(m.text || '');
     if (!m.done) html += '<span class="cursor"></span>';
@@ -576,10 +585,10 @@ export function mountUI(store, agent) {
       if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
       meta.textContent = parts.join(' · ');
     }
-    // 仅最后一条 assistant 显示重新生成
+    // 仅最后一条 assistant 显示重新生成（文生图消息不显示，避免误触发对话循环）
     const lastAssistant = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
     const regen = $('.act-regen', wrap);
-    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done) ? '' : 'none';
+    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done && !m.image) ? '' : 'none';
   }
 
   // 复制/回滚/重新生成按钮每轮只出现一次：仅回合末尾的 assistant 消息显示

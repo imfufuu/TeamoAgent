@@ -1,8 +1,10 @@
 // ─── TeamoRouter 接入配置 ──────────────────────────────────────────────
-// 调研自 https://teamorouter.com/docs/api-integration
+// 调研自 https://teamorouter.cn/zh/docs/api-integration（2026-09 版）
 //   · Base URL: https://api.teamorouter.com
 //   · Anthropic 原生协议: POST /v1/messages   (x-api-key + anthropic-version)
 //   · OpenAI 兼容协议:    POST /v1/chat/completions (Authorization: Bearer)
+//   · 文生图（GPT Image 2）: POST /v1/images/generations (Bearer)，响应 data[].b64_json
+//   · 图生文（多模态 / vision）: 各协议原生 content 块（见 api.js 构建逻辑）
 //   · 模型列表:           GET  /v1/models
 //   · 官方建议: Claude 模型务必走 Anthropic 原生协议，其余模型走 OpenAI 兼容协议
 
@@ -37,6 +39,7 @@ export const FALLBACK_MODELS = [
   { id: 'gpt-5.5',             provider: 'OpenAI' },
   { id: 'gpt-5.4',             provider: 'OpenAI' },
   { id: 'gpt-5.4-mini',        provider: 'OpenAI' },
+  { id: 'gpt-image-2',          provider: 'OpenAI', image: true },  // 文生图（POST /v1/images/generations）
   // Google
   { id: 'gemini-3.8-flash',    provider: 'Google' },
   { id: 'gemini-3.7-flash',    provider: 'Google' },
@@ -44,12 +47,12 @@ export const FALLBACK_MODELS = [
   { id: 'gemini-3.5-flash',    provider: 'Google' },
   { id: 'gemini-3.5-flash-lite', provider: 'Google' },
   { id: 'gemini-3.1-pro-preview', provider: 'Google' },
-  { id: 'gemini-3.1-flash-lite-preview', provider: 'Google' },
   // DeepSeek
   { id: 'deepseek-flash',      provider: 'DeepSeek' },
   { id: 'deepseek-flash-free', provider: 'DeepSeek', free: true },
   { id: 'deepseek-v4-pro',     provider: 'DeepSeek' },
   { id: 'deepseek-v4-flash',   provider: 'DeepSeek' },
+  { id: 'deepseek-v4-flash-vision-exp', provider: 'DeepSeek' },  // 多模态（vision）
   { id: 'deepseek-v4-flash-free', provider: 'DeepSeek', free: true },
   // GLM（智谱）
   { id: 'glm-5.3-flash',       provider: 'GLM' },
@@ -90,6 +93,14 @@ export function supportsVision(modelId) {
   const id = String(modelId || '').toLowerCase();
   return /^claude-/.test(id) || /^gpt-(4o|4\.1|5|6)/.test(id) || /^gemini-/.test(id)
     || /vision|(^|-)vl(-|$)|4v\b|4\.5v/.test(id);
+}
+
+// 文生图模型判断（GPT Image 2 等）：兜底列表标记 image:true，或按 id 模式兜底
+export function isImageModel(modelId) {
+  const m = String(modelId || '').toLowerCase();
+  if (/(^|-)image(-|$)/.test(m)) return true;
+  const hit = FALLBACK_MODELS.find((x) => x.id === modelId);
+  return !!(hit && hit.image);
 }
 
 // GPT 系列支持 Fast mode（service_tier: "fast"，2x 计费）

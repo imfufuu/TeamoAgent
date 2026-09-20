@@ -7,12 +7,12 @@
 //   · 可观测：usage 归一、传输通道标记、工具结果截断保护上下文
 //   · 附件：文本附件自动注入沙箱 uploads/，图片走多模态协议块
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
+import { streamChat, generateImage, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC } from './config.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, isImageModel } from './config.js';
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
 // （导出以供 tests/live-smoke.mjs 对真实 API 验证）
@@ -248,6 +248,42 @@ export function createAgent(store, hooks = {}) {
     }
   }
 
+  // ── 文生图分支：选中文生图模型（gpt-image-2）时，直接调用 /v1/images ──
+  async function runImageGen(prompt) {
+    const { apiKey, model } = store.state;
+    if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
+    if (status === 'streaming' || status === 'thinking' || status === 'executing') return;
+
+    abortController = new AbortController();
+    const signal = abortController.signal;
+    const t0 = performance.now();
+    try {
+      setStatus('streaming');
+      const assistantMsg = store.pushMessage({ role: 'assistant', text: '', image: null, usage: null });
+      hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
+      const dataUrl = await generateImage({ model, apiKey, prompt, signal });
+      store.updateMessage(assistantMsg.id, { image: dataUrl, done: true, transport: getTransport() });
+      hooks.onAssistantDone && hooks.onAssistantDone(assistantMsg);
+      setStatus('done');
+      hooks.onTurnEnd && hooks.onTurnEnd();
+    } catch (err) {
+      if (err.name === 'AbortError' || signal.aborted) {
+        setStatus('cancelled');
+        const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
+        if (last) store.updateMessage(last.id, { cancelled: true, done: true });
+        hooks.onCancelled && hooks.onCancelled();
+      } else {
+        setStatus('error');
+        hooks.onError && hooks.onError(err);
+      }
+    } finally {
+      abortController = null;
+      syncFS();
+      store.notify();
+      try { hooks.onTurnTiming && hooks.onTurnTiming(Math.round(performance.now() - t0)); } catch { /* noop */ }
+    }
+  }
+
   return {
     getStatus: () => status,
     abort: () => { abortController && abortController.abort(); },
@@ -261,6 +297,8 @@ export function createAgent(store, hooks = {}) {
       store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
       store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
       hooks.onUserMessage && hooks.onUserMessage(userText);
+      // 文生图模型（gpt-image-2）走 /v1/images，而非对话工具循环
+      if (isImageModel(store.state.model)) { await runImageGen(userText); return; }
       await runLoop();
     },
 
