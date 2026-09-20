@@ -427,10 +427,14 @@ export async function fetchModels(apiKey, signal) {
   return [...new Set(list)];
 }
 
-// ── 文生图（POST /v1/images/generations；Bearer 鉴权）──────────────────
-// 文档：模型 gpt-image-2；请求体 {model, prompt, response_format}；
-// 响应 data[].b64_json。图片生成较慢（可达数分钟），默认 300s 超时。
-export async function generateImage({ model, apiKey, prompt, signal, timeoutMs = 300000 } = {}) {
+// ── 图像模型（GPT Image 2 / 2.5 Sunburst / 2.5 Flare）───────────────────
+// 文档：生成 POST /v1/images/generations（JSON）、编辑 POST /v1/images/edits
+//       （multipart/form-data：model + prompt + image[/image[]] [+ mask]）
+// 鉴权 Authorization: Bearer；响应 data[0].b64_json（Base64）
+// 官方建议超时 300s（生图耗时长，超时过短会直接失败）
+export const IMAGE_TIMEOUT_MS = 300000;
+
+function withTimeout(signal, timeoutMs) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   const onAbort = () => ac.abort();
@@ -438,20 +442,90 @@ export async function generateImage({ model, apiKey, prompt, signal, timeoutMs =
     if (signal.aborted) ac.abort();
     signal.addEventListener('abort', onAbort, { once: true });
   }
-  const headers = { 'Content-Type': 'application/json', ...authHeaders('openai', apiKey) };
-  const body = JSON.stringify({ model, prompt, response_format: 'b64_json' });
-  try {
-    const r = await request('/v1/images/generations', { method: 'POST', headers, body, signal: ac.signal });
-    if (!r.ok) {
-      const text = await r.text().catch(() => '');
-      throw new Error(httpErrorMessage(r.status, text));
-    }
-    const json = await r.json().catch(() => ({}));
-    const b64 = json.data && json.data[0] && json.data[0].b64_json;
-    if (!b64) throw new Error('图片生成失败：响应中未包含图像数据（data[0].b64_json 为空）');
-    return `data:image/png;base64,${b64}`;
-  } finally {
-    clearTimeout(timer);
-    if (signal) signal.removeEventListener('abort', onAbort);
+  return {
+    signal: ac.signal,
+    release() {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    },
+  };
+}
+
+// data URL ↔ 字节（图片编辑要把沙箱内的 data URL 还原成上传文件）
+export function dataUrlToBytes(dataUrl) {
+  const m = /^data:([^;,]+)?(;base64)?,([\s\S]*)$/.exec(String(dataUrl || ''));
+  if (!m) throw new Error('不是合法的 data URL，无法作为图片上传');
+  const mime = m[1] || 'application/octet-stream';
+  const payload = m[3];
+  if (m[2]) {
+    const bin = atob(payload);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, mime };
   }
+  return { bytes: new TextEncoder().encode(decodeURIComponent(payload)), mime };
+}
+
+export function bytesToDataUrl(bytes, mime = 'image/png') {
+  let bin = '';
+  const u8 = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000));
+  return `data:${mime};base64,${btoa(bin)}`;
+}
+
+// 统一解析图像响应：b64_json 优先，退回 url；网关也可能返回 image/jpeg|webp
+export function parseImageResponse(json, format = 'png') {
+  const item = json && Array.isArray(json.data) ? json.data[0] : null;
+  if (!item) throw new Error('图像接口响应异常：缺少 data[0]');
+  const ext = format === 'jpeg' ? 'jpg' : (format || 'png');
+  const mime = format === 'jpeg' ? 'image/jpeg' : format === 'webp' ? 'image/webp' : 'image/png';
+  if (item.b64_json) return { dataUrl: `data:${mime};base64,${item.b64_json}`, mime, ext };
+  if (item.url) return { dataUrl: item.url, mime, ext };
+  throw new Error('图像接口未返回图片数据（data[0].b64_json / url 均为空）');
+}
+
+async function postImage(path, { apiKey, body, isForm, signal, timeoutMs }) {
+  const t = withTimeout(signal, timeoutMs);
+  try {
+    const headers = isForm ? authHeaders('openai', apiKey) : { 'Content-Type': 'application/json', ...authHeaders('openai', apiKey) };
+    const r = await request(path, { method: 'POST', headers, body, signal: t.signal });
+    if (!r.ok) throw new Error(httpErrorMessage(r.status, await r.text().catch(() => '')));
+    return await r.json().catch(() => ({}));
+  } finally {
+    t.release();
+  }
+}
+
+// 文生图：size 为像素尺寸（16 的倍数、最大边 ≤3840、长宽比 ≤3:1），auto/缺省交给模型
+export async function generateImage({ model, apiKey, prompt, size, quality, background, format = 'png', signal, timeoutMs = IMAGE_TIMEOUT_MS } = {}) {
+  const body = { model, prompt, output_format: format };
+  if (size && size !== 'auto') body.size = size;
+  if (quality && quality !== 'auto') body.quality = quality;
+  if (background && background !== 'auto') body.background = background;
+  const json = await postImage('/v1/images/generations', { apiKey, body: JSON.stringify(body), signal, timeoutMs });
+  return parseImageResponse(json, format);
+}
+
+// 图片编辑：images = [{ name?, dataUrl }]（沙箱内图片读出即为 data URL）；mask 可选
+export async function editImage({ model, apiKey, prompt, images = [], mask, size, quality, inputFidelity, format = 'png', signal, timeoutMs = IMAGE_TIMEOUT_MS } = {}) {
+  if (!images.length) throw new Error('图片编辑需要至少一张原图（reference_paths）');
+  const fd = new FormData();
+  fd.append('model', model);
+  fd.append('prompt', String(prompt || ''));
+  fd.append('output_format', format);
+  if (size && size !== 'auto') fd.append('size', size);
+  if (quality && quality !== 'auto') fd.append('quality', quality);
+  if (inputFidelity && inputFidelity !== 'auto') fd.append('input_fidelity', inputFidelity);
+  const field = images.length > 1 ? 'image[]' : 'image'; // OpenAI Images 兼容：多张参考图用 image[]
+  for (const img of images) {
+    const { bytes, mime } = dataUrlToBytes(img && img.dataUrl);
+    fd.append(field, new File([bytes], img.name || `input.${format === 'jpeg' ? 'jpg' : format}`, { type: mime }));
+  }
+  if (mask && mask.dataUrl) {
+    const { bytes, mime } = dataUrlToBytes(mask.dataUrl);
+    fd.append('mask', new File([bytes], mask.name || 'mask.png', { type: mime }));
+  }
+  // 不手动设置 Content-Type：boundary 需由 FormData 生成
+  const json = await postImage('/v1/images/edits', { apiKey, body: fd, isForm: true, signal, timeoutMs });
+  return parseImageResponse(json, format);
 }

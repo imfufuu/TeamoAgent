@@ -1,17 +1,25 @@
 // ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
 // 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
-import { STORAGE_KEY } from './config.js';
+import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
-function newSession(title = '') {
-  return { id: uid(), title, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {}, stats: { lastMs: 0, totalMs: 0 } };
+function newSession(title = '', model = '', imageModel = '') {
+  return { id: uid(), title, model, imageModel, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {}, stats: { lastMs: 0, totalMs: 0 } };
+}
+
+// 会话未记录模型时（历史数据），回退到最后一条 assistant 消息所用的模型
+function sessionModel(s) {
+  if (s && s.model) return s.model;
+  const last = [...((s && s.messages) || [])].reverse().find((m) => m.role === 'assistant' && m.model);
+  return last ? last.model : '';
 }
 
 export function createStore(onChange) {
   const state = {
     apiKey: '',
-    model: 'claude-sonnet-5',
+    model: DEFAULT_CHAT_MODEL,
+    imageModel: DEFAULT_IMAGE_MODEL, // 生图模型（由 generate_image 工具使用，与会话绑定）
     models: [],
     settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true },
     sessions: [newSession()],
@@ -29,6 +37,15 @@ export function createStore(onChange) {
     state.files = s.files;
     state.undoBranch = s.undoBranch;
     state.stats = s.stats || (s.stats = { lastMs: 0, totalMs: 0 });
+    // 模型属于会话属性：切换会话时恢复该会话自己的模型，而不是沿用全局当前选择
+    state.model = sessionModel(s) || state.model;
+    // 生图模型只能由 generate_image 工具调用：历史数据若存着它，回落到默认对话模型
+    if (isImageModel(state.model)) state.model = DEFAULT_CHAT_MODEL;
+    s.model = state.model;
+    // 生图模型同样按会话记忆；缺失或非法值回落到默认
+    const wantImage = s.imageModel || state.imageModel;
+    state.imageModel = isImageGenModel(wantImage) ? wantImage : DEFAULT_IMAGE_MODEL;
+    s.imageModel = state.imageModel;
   };
   const commit = () => {
     const s = sess();
@@ -37,6 +54,8 @@ export function createStore(onChange) {
     s.files = state.files;
     s.undoBranch = state.undoBranch;
     s.stats = state.stats;
+    s.model = state.model;           // 会话级模型（修复：切换会话后模型名被当前选择覆盖）
+    s.imageModel = state.imageModel; // 会话级生图模型
     s.updatedAt = Date.now();
     if (!s.title) {
       const firstUser = s.messages.find((m) => m.role === 'user');
@@ -53,10 +72,23 @@ export function createStore(onChange) {
     ...m,
     attachments: m.attachments.map((a) => ({ ...a, dataUrl: undefined, text: a.text != null ? String(a.text).slice(0, 1000) : undefined, stripped: true })),
   } : m);
+  // 沙箱里的图片（data URL，可达数 MB）不落盘：附件与生成图本身已在消息/下载通道处理，
+  // 持久化它们会瞬间顶穿 localStorage 4MB 上限并拖慢每次防抖写入
+  const BIG_DATA_URL = /^data:[^;,]+;base64,/;
+  const slimFiles = (files) => {
+    if (!files) return files;
+    let changed = false;
+    const out = {};
+    for (const [k, v] of Object.entries(files)) {
+      if (typeof v === 'string' && v.length > 64 * 1024 && BIG_DATA_URL.test(v)) { changed = true; continue; }
+      out[k] = v;
+    }
+    return changed ? out : files;
+  };
   const slimState = () => {
-    const sessions = state.sessions.map((s) => ({ ...s, messages: slimMsgs(s.messages) }));
+    const sessions = state.sessions.map((s) => ({ ...s, messages: slimMsgs(s.messages), files: slimFiles(s.files) }));
     const active = sessions.find((s) => s.id === state.activeSessionId) || sessions[0] || { messages: [] };
-    return { ...state, sessions, messages: active.messages };
+    return { ...state, sessions, messages: active.messages, files: active.files };
   };
   // 廉价的序列化体积预估（只数字符，不做 JSON 编码）：
   // 避免「先全量 stringify 带 base64 图片的巨型 state、超限后再扔掉重来」的双重序列化
@@ -131,7 +163,8 @@ export function createStore(onChange) {
 
     // ── 多会话 ──
     createSession() {
-      const s = newSession();
+      // 新会话继承当前模型选择，之后各会话独立记忆自己的模型
+      const s = newSession('', state.model, state.imageModel);
       state.sessions.unshift(s);
       state.activeSessionId = s.id;
       hydrate();
@@ -234,6 +267,7 @@ export function createStore(onChange) {
           return {
             id: uid(), role: m.role, text: m.text || '',
             content: typeof m.content === 'string' ? m.content : (m.content || ''),
+            model: m.model, // 保留每条消息实际使用的模型（会话头展示用）
             toolCalls: m.toolCalls, toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
             ...(atts.length ? { attachments: atts } : {}),
           };
@@ -241,6 +275,8 @@ export function createStore(onChange) {
       if (!s.messages.length) return null;
       const firstUser = s.messages.find((m) => m.role === 'user');
       s.title = String(data.title || (firstUser && firstUser.text) || '导入会话').slice(0, 40);
+      if (data.model) s.model = String(data.model);
+      if (data.imageModel) s.imageModel = String(data.imageModel);
       s.createdAt = Date.now();
       s.updatedAt = Date.now();
       state.sessions.unshift(s);

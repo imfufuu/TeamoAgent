@@ -2,6 +2,40 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## [Unreleased] — 图像能力 + 体验修复（2026-09-20）
+
+### 新增
+
+- **GPT Image 2.5 系列**：`gpt-image-2.5-sunburst` / `gpt-image-2.5-flare` / `gpt-image-2` 收录进生图模型目录（`IMAGE_MODELS`），
+  参数按官方文档实现：`size`（像素，16 倍数 / 最大边 ≤3840 / 长宽比 ≤3:1）、`quality`、`output_format`（png/jpeg/webp）。
+- **`generate_image` Agent 工具**：无参考图走 `POST /v1/images/generations`；带 `reference_paths` 自动切到
+  `POST /v1/images/edits`（multipart：`model` + `image`/`image[]` + `prompt`，字节从沙箱内 data URL 还原）。
+  出图写回 `outputs/image-00N.png`，工具芯片内直接展示并给下载链接；超时 300s、可中断。
+- **沙箱图片编辑闭环**：用户附件（含图片）统一复制到 `uploads/`，Agent 读得出、改得回、打包得走。
+- **下载沙箱**：文件面板「⬇ ZIP」用零依赖的 `js/zip.js`（手写 STORE 容器 + CRC32，UTF-8 文件名）打包整个虚拟文件系统；
+  单个文件也可下载，图片解码为原始二进制并自动补扩展名。
+- **连接动画**：新增 `connecting` 状态（请求已发出、首字未到）——状态点脉冲+光环、三点跳动、实时秒数、
+  顶栏不确定进度条、气泡内「正在连接 <模型>，等待首个响应…」；首字节到达即切「生成中」。
+- **Kimi 品牌图标**：`assets/icons/kimi.svg`（用户提供 Logo 精简版），`kimi-*`/`moonshot-*` 模型自动归入 Kimi 分组。
+- 模型目录对齐文档：补 `deepseek-v4-flash-vision-exp`（多模态），移除已下线的 `gemini-3.1-flash-lite-preview`。
+
+### 修复
+
+- **切换会话后模型名被当前选择覆盖**：`model` / `imageModel` 改为**会话级属性**（`newSession` 记录、`hydrate/commit` 双向同步），
+  新会话继承当前选择、来回切换互不污染；每条 assistant 消息额外记录当轮实际使用的模型，
+  消息头部按消息本身显示（历史回看不再张冠李戴）；导出/导入 JSON 一并携带模型。
+- **生图模型不能作为对话模型使用的问题**：上一轮直接在下拉里放 `gpt-image-2` 会走 `/v1/chat/completions` 而报错；
+  现从对话列表中隐藏（含网关 `/v1/models` 返回的图像模型），统一由工具循环调用。
+- **localStorage 体积**：沙箱内 >64KB 的 data URL 文件在超限时随附件一起剥离持久化（内存与下载通道不受影响）。
+- **测试时序**：持久化用例先排空上一用例遗留的 300ms 防抖定时器，消除「桩被串写」导致的偶发误判。
+- 模型菜单层级：搜索框 `z-index` 显式高于分组标题，滚动时系列图标不再压到搜索框之上；生图模型行吸附菜单底部。
+
+### 测试
+
+- `tests/agent.test.mjs` 由 58 项增至 **74 项**：生图目录/工具注册、生成与编辑两条链路（含 multipart 字节还原校验）、
+  data URL 与字节往返、附件落 `uploads/`（同名冲突与路径穿越防护）、会话级模型、ZIP 结构与 CRC 标准向量、持久化瘦身。
+- ZIP 产物用 Python `zipfile` 交叉验证：`testzip()` 全通过，PNG 魔数与中文/空格文件名均正确。
+
 ## [Unreleased] — 第二轮改进（2026-09-19）
 
 ### 修复

@@ -1,6 +1,8 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
+import { generateImage, editImage, bytesToDataUrl } from './api.js';
 import { SUBAGENTS } from './subagents.js';
+import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS } from './config.js';
 
 export const TOOL_DEFS = [
   {
@@ -68,6 +70,26 @@ export const TOOL_DEFS = [
     parameters: {
       type: 'object',
       properties: { timezone: { type: 'string', description: 'IANA 时区名，如 Asia/Tokyo，缺省为 Asia/Shanghai' } },
+    },
+  },
+  {
+    name: 'generate_image',
+    description:
+      '调用文生图模型生成图片（GPT Image 2 / 2.5 Sunburst / 2.5 Flare，走 POST /v1/images/generations）。' +
+      '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则自动切换为「图片编辑」模式（POST /v1/images/edits），按 prompt 指令修改原图。' +
+      '结果以 data URL 写入沙箱 outputs/ 目录（可下载/打包/继续编辑），并在对话中直接展示。' +
+      '生图耗时较长（最长约 300 秒）。需要出图时请调用本工具，不要只用文字描述画面。',
+    parameters: {
+      type: 'object',
+      properties: {
+        prompt: { type: 'string', description: '画面描述（生成模式）或修改指令（编辑模式），如「一只在键盘上打字的橘猫，插画风格」' },
+        reference_paths: { type: 'array', items: { type: 'string' }, description: '可选：沙箱内参考图路径数组（如 ["uploads/cat.png"]）；提供即进入编辑模式' },
+        size: { type: 'string', enum: IMAGE_SIZES, description: `输出尺寸（宽x高像素），默认 ${'auto'} 由模型决定` },
+        quality: { type: 'string', enum: IMAGE_QUALITIES, description: '质量档位，默认 auto' },
+        output_format: { type: 'string', enum: IMAGE_FORMATS, description: '输出格式，默认 png' },
+        model: { type: 'string', description: `可选：本次使用的生图模型；缺省沿用用户在模型菜单选定的生图模型（默认 ${DEFAULT_IMAGE_MODEL}）` },
+      },
+      required: ['prompt'],
     },
   },
   {
@@ -146,6 +168,49 @@ export async function executeTool(name, args, ctx) {
         const report = await ctx.dispatch(args.agent, args.task || '', (note) => emit({ status: 'running', note }));
         emit({ status: 'ok', note: '报告已返回' });
         return report;
+      }
+      case 'generate_image': {
+        if (!ctx.apiKey) {
+          emit({ status: 'error', error: { message: '未配置 API Key' } });
+          return '未配置 TeamoRouter API Key，无法调用图像模型。';
+        }
+        const prompt = String(args.prompt || '').trim();
+        if (!prompt) return 'generate_image 缺少 prompt 参数。';
+        const model = String(args.model || ctx.imageModel || DEFAULT_IMAGE_MODEL);
+        const format = IMAGE_FORMATS.includes(args.output_format) ? args.output_format : 'png';
+        const size = IMAGE_SIZES.includes(args.size) ? args.size : 'auto';
+        const quality = IMAGE_QUALITIES.includes(args.quality) ? args.quality : 'auto';
+        const refs = (Array.isArray(args.reference_paths) ? args.reference_paths : [])
+          .map((p) => String(p || '').trim()).filter(Boolean);
+        try {
+          let out;
+          if (refs.length) {
+            // 编辑模式：沙箱内图片（data URL）还原为上传文件
+            const images = refs.map((p) => ({ name: p.split('/').pop(), dataUrl: fs.read(p) }));
+            emit({ status: 'running', note: `图像编辑中（${model} · ${images.length} 张原图）…` });
+            out = await editImage({ model, apiKey: ctx.apiKey, prompt, images, size, quality, format, signal: ctx.signal });
+          } else {
+            emit({ status: 'running', note: `图像生成中（${model}${size !== 'auto' ? ` · ${size}` : ''}）…` });
+            out = await generateImage({ model, apiKey: ctx.apiKey, prompt, size, quality, background: args.background, format, signal: ctx.signal });
+          }
+          // 网关也可能只给远程 URL：落地成 data URL，保证沙箱内可再编辑、可打包下载
+          let dataUrl = out.dataUrl;
+          if (!/^data:/.test(dataUrl)) {
+            try {
+              const blob = await (await fetch(dataUrl)).blob();
+              dataUrl = bytesToDataUrl(new Uint8Array(await blob.arrayBuffer()), out.mime);
+            } catch { /* 取不到字节就保留远程 URL（仅用于展示） */ }
+          }
+          const seq = fs.list().filter((f) => f.path.startsWith('outputs/')).length + 1;
+          const path = `outputs/image-${seq.toString().padStart(3, '0')}.${out.ext}`;
+          fs.write(path, dataUrl);
+          emit({ status: 'ok', image: dataUrl, imagePath: path, fsChange: true, note: `已生成 ${path}` });
+          return `[图像${refs.length ? '编辑' : '生成'}完成]\n- 模型：${model}\n- 尺寸：${size}\n- 输出：${path}（已写入沙箱，可在文件面板下载或打包 ZIP）\n- 继续修改：以 reference_paths=["${path}"] 再次调用本工具`;
+        } catch (err) {
+          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
+          emit({ status: 'error', error: { message: err.message } });
+          return `图像模型调用失败（${model}）：${err.message}`;
+        }
       }
       default:
         return `未知工具: ${name}`;

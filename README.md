@@ -28,6 +28,8 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 | Responses API | `POST /v1/responses`，仅 GPT 系列（Claude/Gemini 返回 400） |
 | Gemini 原生 | `POST /v1beta/models/{model}:generateContent`（流式加 `:streamGenerateContent?alt=sse`） |
 | 模型列表 | `GET /v1/models`（需鉴权，401 时本项目回退内置列表） |
+| 文生图 | `POST /v1/images/generations`（`Authorization: Bearer`）；body `{model, prompt, size, quality, output_format…}`；结果在 `data[0].b64_json`；官方建议超时 300s |
+| 图片编辑 | `POST /v1/images/edits`（`multipart/form-data`：`model` + `image`（多张用 `image[]`）+ `prompt`，可选 `mask`/`size`/`quality`/`input_fidelity`） |
 | Fast mode | 请求体加 `"service_tier": "fast"`，仅 GPT 系列，2x 计费（旧值 `priority` 仍兼容） |
 | 流式事件 | Anthropic：`message_start → content_block_start → content_block_delta → content_block_stop → message_delta → message_stop` |
 | CORS | **实测返回 `Access-Control-Allow-Origin: *`** → 浏览器可直连；本项目仍内置服务端代理兜底 |
@@ -39,6 +41,8 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 - **入口**：输入框 📎 按钮 / 拖拽到聊天区 / 直接粘贴（截图可用）
 - **图片**（png/jpg/gif/webp ≤5MB）：多模态直传 —— OpenAI 协议走 `image_url`(data URL)，Anthropic 协议走 `image.source.base64` 原生块；需所选模型支持视觉（Claude/GPT/Gemini/deepseek-vision 等），气泡内缩略图可点开
 - **文本/代码文件**（≤512KB，30+ 扩展名）：正文随消息注入，同时**自动写入沙箱 `uploads/` 目录**，Agent 可用 read_file 或沙箱代码处理全文
+- **全部附件（图片 + 文本）都会自动复制到沙箱 `uploads/`**：图片以 data URL 存放，Agent 可把它作为 `generate_image` 的 `reference_paths` 直接改图；文件面板可逐个下载或整包导出 ZIP
+- 同名再传：内容相同复用原路径，内容不同自动追加 `-2`/`-3` 序号，不覆盖上一轮
 - 单条最多 6 个附件；localStorage 超 4MB 自动剥离图片数据并标记「已省略」（后续请求发送省略说明，不破坏协议）
 
 ## Agent 架构
@@ -92,9 +96,20 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **思考 × 工具调用共存**：Anthropic 协议要求开启思考时，含 `tool_use` 的 assistant 回合在后续请求中必须回传 `thinking`/`redacted_thinking` 块（连同 `signature`）。本项目在流内捕获这些块（`signature_delta`），随消息持久化，并在下一轮 payload 中原序重放——思考模式与工具循环可同时开启；若某模型确实不支持思考参数（400），去掉参数重试一次并 toast 提示（不再静默关闭）。
 
+## 图像能力（文生图 / 图片编辑 / 图生文）
+
+- **图生文（识图）**：所选模型支持视觉时，附件图片按各协议原生多模态块发送（OpenAI `image_url`、Anthropic `image.source.base64`）；模型菜单里带「眼睛」徽标的即支持。
+- **文生图 / 图片编辑不作为对话模型直接调用**：`gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` 不出现在模型下拉里（直接选中会绕过工具循环、破坏 Agent 特性）。改由主智能体通过 **`generate_image` 工具**发起：
+  - 无参考图 → `POST /v1/images/generations`；带 `reference_paths`（如 `uploads/cat.png`）→ `POST /v1/images/edits`（multipart）。
+  - 出图写回沙箱 `outputs/image-00N.png`，对话中的工具芯片直接显示图片并可下载；`size`/`quality`/`output_format` 与「本次用哪个生图模型」都由工具参数控制。
+  - 生图默认模型在模型菜单底部的「生图模型 · Agent 调用」行选择，**按会话记忆**。
+- **连接反馈**：请求发出到首字返回之间为「连接模型中」状态——状态点脉冲+光环、三点跳动、实时秒数、顶栏不确定进度条，气泡内显示「正在连接 <模型>，等待首个响应…」，收到首个 token 自动切到「生成中」。
+- **沙箱导出**：文件面板「⬇ ZIP」打包整个虚拟文件系统（图片按原始二进制还原 + 自动补扩展名，单文件行内 ⬇ 可单独下载）；ZIP 由 `js/zip.js` 手写 STORE 容器生成，零依赖。
+- **会话级模型**：模型与生图模型都属于会话属性，切换会话自动恢复各自的选择；每条 assistant 消息记录当轮实际使用的模型，回看时头部按消息显示，不会被当前选择覆盖。
+
 ## 图标来源与版权
 
-供应商 Logo 为各公司商标，SVG 下载自 Wikimedia（仅用于识别对应服务）：`Anthropic`=Claude AI symbol.svg · `OpenAI`=OpenAI logo 2025 (symbol).svg · `Google`=Google Gemini icon 2025.svg · `DeepSeek`=DeepSeek-icon.svg · `GLM`=Z.ai (company logo).svg · `Grok`=Grok-icon.svg（白色图标，亮色主题自动反色）。纯黑 Logo 在暗色主题下 CSS 反色；加载失败自动降级为首字母徽章。
+供应商 Logo 为各公司商标，SVG 下载自 Wikimedia（仅用于识别对应服务）：`Anthropic`=Claude AI symbol.svg · `OpenAI`=OpenAI logo 2025 (symbol).svg · `Google`=Google Gemini icon 2025.svg · `DeepSeek`=DeepSeek-icon.svg · `GLM`=Z.ai (company logo).svg · `Kimi`=kimi.svg（由用户提供的官方 Logo 精简：保留黑底 + 白色 K 字形 + 品牌蓝 `#1783FF` 折角，剔除 2691 条在黑色底上不可见的矢量描摹噪声路径，1.0MB → 1.7KB） · `Grok`=Grok-icon.svg（白色图标，亮色主题自动反色）。纯黑 Logo 在暗色主题下 CSS 反色；加载失败自动降级为首字母徽章。
 
 **容错**：429/5xx 指数退避重试一次；HTTP 错误映射中文提示（401 查 Key / 402 充值 / 404 模型名）；直连失败自动切换 `/api/proxy` 中继并回放请求；中断按钮随时终止流。
 
@@ -106,13 +121,15 @@ css/styles.css    黑白设计系统（明暗双主题，CSS 变量 + 平滑过�
 js/config.js      端点 / 协议路由 / 兜底模型表 / 系统提示词
 js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代理兜底）
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
-js/tools.js       工具定义与执行调度
+js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
+js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包下载
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道；默认仅绑定 127.0.0.1）
-tests/            node tests/agent.test.mjs（58 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
-                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端——含思考块回传回归）
+tests/            node tests/agent.test.mjs（74 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
+                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传回归）/
+                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽）
 ```
 
 ## 部署

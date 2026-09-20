@@ -1,5 +1,6 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, BASE_URL } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, BASE_URL } from './config.js';
+import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO } from './icons.js';
@@ -161,11 +162,13 @@ export function mountUI(store, agent) {
   const ddBtn = $('#model-btn');
   const ddMenu = $('#model-menu');
   const ddSearch = $('#model-search');
+  // 对话模型列表：过滤掉生图模型（只能由主智能体通过 generate_image 工具调用，
+  // 直接选中会绕过工具循环、破坏 Agent 特性；网关 /v1/models 里带它们时也照样隐藏）
   function mergedModels() {
     const map = new Map();
-    for (const m of FALLBACK_MODELS) map.set(m.id, { ...m });
+    for (const m of FALLBACK_MODELS) if (!isImageModel(m.id)) map.set(m.id, { ...m });
     for (const id of store.state.models || []) {
-      if (!map.has(id)) map.set(id, { id, provider: providerOf(id) });
+      if (!map.has(id) && !isImageModel(id)) map.set(id, { id, provider: providerOf(id) });
     }
     return [...map.values()];
   }
@@ -189,7 +192,6 @@ export function mountUI(store, agent) {
           <span class="dd-item-badges">
             ${isFreeModel(m.id) ? '<span class="badge">FREE</span>' : ''}
             ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
-            ${isImageModel(m.id) ? '<span class="badge img" title="文生图：文本生成图片（POST /v1/images/generations）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5 5-4-4"/></svg></span>' : ''}
             ${protocolOf(m.id) === 'anthropic' ? '<span class="badge ghost">原生</span>' : ''}
           </span>`;
         item.addEventListener('click', () => {
@@ -205,12 +207,34 @@ export function mountUI(store, agent) {
       ddMenu.appendChild(g);
     }
     if (!order.length) ddMenu.appendChild(el('div', 'dd-empty', '无匹配模型'));
+    const foot = $('.dd-foot', ddMenu);
+    if (foot) ddMenu.appendChild(foot); // 生图模型行始终排在分组之后（sticky bottom 生效）
   }
   function updateModelBtn() {
     $('#model-btn-icon').innerHTML = providerIcon(providerOf(store.state.model));
     $('#model-btn-name').textContent = store.state.model;
     $('#model-btn-provider').textContent = providerOf(store.state.model);
+    syncImageModelSelect();
   }
+  // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定，切会话时同步显示
+  function syncImageModelSelect() {
+    const sel = $('#image-model');
+    if (!sel) return;
+    if (!sel.options.length) {
+      for (const m of IMAGE_MODELS) {
+        const o = document.createElement('option');
+        o.value = m.id;
+        o.textContent = `${m.label}（${m.note}）`;
+        sel.appendChild(o);
+      }
+    }
+    if (sel.value !== store.state.imageModel) sel.value = store.state.imageModel;
+  }
+  $('#image-model')?.addEventListener('change', (e) => {
+    store.state.imageModel = e.target.value;
+    store.notify();
+    toast(`生图模型已切换为 ${imageModelLabel(e.target.value)}（由 Agent 的 generate_image 工具调用）`, 'ok');
+  });
   const openMenu = () => {
     renderModelMenu();
     // fixed 定位（脱离侧栏 overflow:hidden 裁剪），按按钮实际位置摆放
@@ -339,7 +363,7 @@ export function mountUI(store, agent) {
         const wasActive = s.id === store.state.activeSessionId;
         store.deleteSession(s.id);
         if (wasActive) agent.loadFiles(store.state.files);
-        rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+        rebuildMessages(); renderSessions(); renderFiles(); updateStats(); updateModelBtn();
         toast('会话已删除');
       });
       box.appendChild(node);
@@ -350,13 +374,14 @@ export function mountUI(store, agent) {
     if (getBusy()) return toast('请等待当前回合结束再切换会话', 'warn');
     store.switchSession(id);
     agent.loadFiles(store.state.files);
-    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
+    // 模型随会话恢复：切回来后模型按钮显示该会话自己的模型，而不是上一次的全局选择
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
   }
   $('#new-session').addEventListener('click', () => {
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
     store.createSession();
     agent.loadFiles({});
-    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
     composer.focus();
   });
   renderSessions();
@@ -458,20 +483,56 @@ export function mountUI(store, agent) {
       t.replaceWith(span);
     }
   }, true);
+  // ── 沙箱下载：整包 ZIP / 单个文件（图片按原始二进制还原，可直接打开）──
+  const stampName = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+  function saveBlob(name, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  }
+  const zipName = (path, mime) => withExtension(path.split('/').pop() || 'file', mime && mime.startsWith('image/') ? mime : '');
+  function downloadFile(path) {
+    let raw;
+    try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
+    const { bytes, mime } = fileBytesFromValue(raw);
+    const name = zipName(path, mime);
+    saveBlob(name, new Blob([bytes], { type: mime }));
+    toast(`已下载 ${name}（${fmtSize(bytes.length)}）`, 'ok');
+  }
+  $('#download-zip').addEventListener('click', () => {
+    const files = agent.fs.export();
+    const paths = Object.keys(files);
+    if (!paths.length) return toast('沙箱为空，没有可打包的文件', 'warn');
+    const entries = paths.map((p) => {
+      const { bytes, mime } = fileBytesFromValue(files[p]);
+      return { name: withExtension(p, mime && mime.startsWith('image/') ? mime : ''), bytes };
+    });
+    const blob = createZip(entries);
+    saveBlob(`teamo-sandbox-${stampName()}.zip`, blob);
+    toast(`已打包 ${paths.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
+  });
   $('#clear-files').addEventListener('click', () => { agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空'); });
 
   function renderFiles() {
     const box = $('#file-list'); box.innerHTML = '';
     const list = agent.fs.list();
-    if (!list.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建。')); return; }
+    if (!list.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
     for (const f of list) {
       const item = el('div', 'file-item');
-      item.innerHTML = `<span class="mono file-path">${esc(f.path)}</span><span class="file-size">${f.size} B</span>`;
+      item.innerHTML = `<span class="mono file-path">${esc(f.path)}</span><span class="file-size">${fmtSize(f.size)}</span><button class="mini-btn file-dl" type="button" title="下载此文件">⬇</button>`;
+      $('.file-dl', item).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(f.path); });
       item.addEventListener('click', () => {
         const viewer = $('#file-viewer');
-        viewer.innerHTML = `<div class="file-viewer-head mono">${esc(f.path)}<button id="fv-close">✕</button></div><pre>${esc(agent.fs.read(f.path))}</pre>`;
+        const raw = agent.fs.read(f.path);
+        const isImg = /^data:image\//.test(raw);
+        viewer.innerHTML = `<div class="file-viewer-head mono">${esc(f.path)}<span class="fv-actions"><button id="fv-dl" title="下载此文件">⬇ 下载</button><button id="fv-close">✕</button></span></div>`
+          + (isImg ? `<div class="fv-img"><img src="${raw}" alt="${esc(f.path)}"></div>` : `<pre>${esc(raw)}</pre>`);
         viewer.classList.add('open');
         $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
+        $('#fv-dl').addEventListener('click', () => downloadFile(f.path));
       });
       box.appendChild(item);
     }
@@ -507,8 +568,10 @@ export function mountUI(store, agent) {
       const idx = store.state.messages.findIndex((x) => x.id === m.id);
       const prev = idx > 0 ? store.state.messages[idx - 1] : null;
       const showHead = !prev || prev.role === 'user';
+      // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
+      const headModel = m.model || store.state.model;
       wrap.innerHTML = `
-        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(store.state.model))}</span><span class="msg-model mono">${esc(store.state.model)}</span><span class="msg-meta"></span></div>` : ''}
+        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headModel)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-actions">
@@ -529,25 +592,44 @@ export function mountUI(store, agent) {
     return wrap;
   }
 
+  // ── 工具芯片里的图片输出（generate_image 的结果）─────────────────────
+  // 会话内按 callId 缓存：重绘/切换会话回来时仍能直接看到图（刷新页面后与
+  // 附件同策略不落盘，避免数 MB data URL 顶穿 localStorage）
+  const chipImages = new Map();
+  function paintChipImage(chip, shot) {
+    if (!chip || !shot || !shot.dataUrl) return;
+    const detail = $('.chip-detail', chip);
+    let fig = $('.chip-img', chip);
+    if (!fig) {
+      fig = el('figure', 'chip-img');
+      chip.insertBefore(fig, detail || null);
+    }
+    const name = String(shot.path || 'image.png').split('/').pop();
+    // data URL 体积按 base64 反推真实字节（×3/4），标签展示更准确
+    const comma = shot.dataUrl.indexOf(',');
+    const bytes = comma > 0 ? Math.max(0, Math.round((shot.dataUrl.length - comma - 1) * 0.75)) : shot.dataUrl.length;
+    fig.innerHTML = `<img src="${shot.dataUrl}" alt="${esc(name)}">`
+      + `<figcaption class="chip-img-cap mono">${esc(shot.path || name)} · ${fmtSize(bytes)}`
+      + `<a href="${shot.dataUrl}" download="${esc(name)}">下载</a></figcaption>`;
+    fig.addEventListener('click', (e) => e.stopPropagation()); // 点图片不要触发芯片折叠
+    chip.classList.add('has-image');
+  }
+
   function paintAssistant(wrap, m) {
     const body = $('.md-body', wrap);
     let html = '';
-    // 图片生成中（文生图模型）：等待 b64 返回前给出提示
-    if (m.image === null && !m.done) {
-      html += '<div class="thinking-line">🎨 正在生成图片<span class="dots">…</span></div>';
-    }
+    const noOutputYet = !m.text && !m.reasoning && !(m.toolCalls && m.toolCalls.length);
     // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
     if (m.done && m.reasoning) {
       html += `<details class="reasoning"><summary>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (!m.done && m.reasoning && !m.text && m.image == null) {
+    } else if (!m.done && m.reasoning && !m.text) {
       html += '<div class="thinking-line">深度思考中<span class="dots">…</span></div>';
-    }
-    // 文生图结果：直接在气泡内渲染生成的图片
-    if (m.image) {
-      html += `<figure class="gen-image"><img src="${m.image}" alt="${(esc(m.text) || 'AI 生成图片').slice(0, 60)}"><figcaption class="gen-image-cap">${esc(m.text || 'AI 生成图片')}</figcaption></figure>`;
+    } else if (!m.done && noOutputYet) {
+      // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
+      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
     html += renderMarkdown(m.text || '');
-    if (!m.done) html += '<span class="cursor"></span>';
+    if (!m.done && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
@@ -575,6 +657,8 @@ export function mountUI(store, agent) {
           chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
           chip._renderedArgs = !!m.done;
         }
+        const shot = m.toolCalls[i] && chipImages.get(m.toolCalls[i].id);
+        if (shot) paintChipImage(chip, shot);
       }
     }
     // meta（无 msg-head 的续消息没有该节点）
@@ -585,10 +669,10 @@ export function mountUI(store, agent) {
       if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
       meta.textContent = parts.join(' · ');
     }
-    // 仅最后一条 assistant 显示重新生成（文生图消息不显示，避免误触发对话循环）
+    // 仅最后一条 assistant 显示重新生成
     const lastAssistant = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
     const regen = $('.act-regen', wrap);
-    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done && !m.image) ? '' : 'none';
+    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done) ? '' : 'none';
   }
 
   // 复制/回滚/重新生成按钮每轮只出现一次：仅回合末尾的 assistant 消息显示
@@ -652,21 +736,50 @@ export function mountUI(store, agent) {
     scrollToBottom(true);
   });
 
-  // ── 状态栏 ────────────────────────────────────────────────────────────
+  // ── 状态栏（连接/生成过程可见化：脉冲状态点 + 跳动点 + 实时耗时）──────
   const STATUS = {
-    idle: ['', 'ok'], thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
-    executing: ['沙箱执行中', 'busy'], done: ['', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
+    idle: ['', 'ok'],
+    connecting: ['连接模型中', 'busy'],
+    thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
+    executing: ['沙箱执行中', 'busy'], done: ['完成', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
   };
+  const DOTS = '<span class="sdots" aria-hidden="true"><i></i><i></i><i></i></span>';
+  let busySince = 0;
+  let busyTimer = null;
+  const stopBusyTicker = () => { if (busyTimer) { clearInterval(busyTimer); busyTimer = null; } };
+  function paintStatus(s) {
+    const [label] = STATUS[s] || STATUS.idle;
+    const secs = (performance.now() - busySince) / 1000;
+    statusText.innerHTML = `${esc(label)}${DOTS}<span class="selapsed mono">${secs >= 0.8 ? `${secs.toFixed(1)}s` : ''}</span>`;
+  }
   function setStatus(s) {
     const [label, cls] = STATUS[s] || STATUS.idle;
-    statusText.textContent = label;
-    statusDot.className = 'dot ' + cls;
-    const busy = ['thinking', 'streaming', 'executing'].includes(s);
+    const busy = ['connecting', 'thinking', 'streaming', 'executing'].includes(s);
+    if (busy) {
+      if (!busySince) busySince = performance.now();
+      statusDot.className = `dot busy${s === 'connecting' ? ' connecting' : ''}`;
+      if (!busyTimer) busyTimer = setInterval(() => paintStatus(s), 200);
+      paintStatus(s);
+    } else {
+      busySince = 0; stopBusyTicker();
+      statusDot.className = 'dot ' + cls;
+      // 完成态短暂回显后清空，避免状态栏留白显得突兀
+      if (s === 'done') {
+        statusText.textContent = label;
+        setTimeout(() => { if (agent.getStatus() === 'done') statusText.textContent = ''; }, 1600);
+      } else {
+        statusText.textContent = label;
+      }
+    }
     sendBtn.classList.toggle('stop-mode', busy);
     $('#send-ico').textContent = busy ? '■' : '↑';
     sendBtn.title = busy ? '停止' : '发送 (Enter)';
+    // 顶栏不确定进度条：连接阶段更快，让用户一眼看出「正在等模型响应」
+    const bar = $('#turn-bar');
+    if (bar) bar.classList.toggle('on', busy);
+    if (bar) bar.classList.toggle('connecting', s === 'connecting');
   }
-  function getBusy() { return ['thinking', 'streaming', 'executing'].includes(agent.getStatus()); }
+  function getBusy() { return ['connecting', 'thinking', 'streaming', 'executing'].includes(agent.getStatus()); }
 
   function updateTransportBadge() {
     const b = $('#transport-badge');
@@ -716,11 +829,12 @@ export function mountUI(store, agent) {
     if (!store.state.messages.length) return toast('暂无可导出的对话');
     const active = store.state.sessions.find((s) => s.id === store.state.activeSessionId) || {};
     const data = {
-      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model, title: active.title || '',
+      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model,
+      imageModel: store.state.imageModel, title: active.title || '',
       checkpoints: store.state.checkpoints,
       messages: store.state.messages.map((m) => ({
         role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
-        toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+        toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
         attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
       })),
     };
@@ -919,10 +1033,20 @@ export function mountUI(store, agent) {
         state.classList.add('bad');
       } else if (patch.status === 'ok') {
         chip.classList.remove('running');
+        if (patch.image) { state.textContent = patch.note || '✓'; state.classList.remove('bad'); }
       }
-      if (patch.status === 'running') scrollToBottom();
+      if (patch.image) {
+        chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath });
+        paintChipImage(chip, chipImages.get(call.id));
+      }
+      if (patch.status === 'running' || patch.image) scrollToBottom();
     },
     attachToolResult,
+    // 用户附件已自动复制到沙箱 uploads/ → 刷新文件面板并提示（可在面板内单个下载或整包 ZIP）
+    onFsChange(paths) {
+      renderFiles();
+      if (paths && paths.length) toast(`附件已复制到沙箱：${paths.join('、')}`, 'ok', 4200);
+    },
     scrollToBottom: () => scrollToBottom(true),
   };
 }

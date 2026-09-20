@@ -5,14 +5,41 @@
 //   · 上下文管理：按模型预算压缩历史（整轮丢弃，绝不产生孤儿 tool 消息）
 //   · 健壮性：HTTP 层与流层双重重试；工具参数 JSON 解析失败自动反馈纠错
 //   · 可观测：usage 归一、传输通道标记、工具结果截断保护上下文
-//   · 附件：文本附件自动注入沙箱 uploads/，图片走多模态协议块
+//   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
+//   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, generateImage, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, isImageModel } from './config.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
+
+// 附件落盘文件名：去掉路径分隔与控制字符，避免越权写到 uploads/ 之外
+const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'file';
+
+// 用户附件 → 沙箱 uploads/（文本写原文，图片写 data URL 以便编辑/打包下载）
+// 同名且内容相同则复用路径；内容不同则追加序号，避免覆盖上一轮上传
+export function copyAttachmentsToFS(fs, attachments = []) {
+  const written = [];
+  const taken = new Set(fs.list().map((f) => f.path));
+  for (const a of attachments || []) {
+    const content = a.kind === 'image' ? a.dataUrl : a.text;
+    if (content == null || content === '') continue;
+    const base = `uploads/${safeName(a.name)}`;
+    let path = base;
+    if (taken.has(path) && fs.read(path) !== content) {
+      const dot = base.lastIndexOf('.');
+      for (let n = 2; taken.has(path); n++) {
+        path = dot > 0 ? `${base.slice(0, dot)}-${n}${base.slice(dot)}` : `${base}-${n}`;
+      }
+    }
+    fs.write(path, content);
+    taken.add(path);
+    written.push(path);
+  }
+  return written;
+}
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
 // （导出以供 tests/live-smoke.mjs 对真实 API 验证）
@@ -49,7 +76,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     const blocks = tb.blocks();
     messages.push({ role: 'assistant', text, toolCalls: calls, ...(blocks.length ? { thinkingBlocks: blocks } : {}) });
     for (const c of calls) {
-      const res = await executeTool(c.name, c.args, { fs, onUi: () => {} });
+      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: null, signal });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
     }
   }
@@ -84,7 +111,7 @@ export function createAgent(store, hooks = {}) {
   async function runLoop({ regenerate = false } = {}) {
     const { apiKey, model, settings } = store.state;
     if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
-    if (status === 'streaming' || status === 'thinking' || status === 'executing') return;
+    if (status === 'connecting' || status === 'streaming' || status === 'thinking' || status === 'executing') return;
 
     const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
     abortController = new AbortController();
@@ -105,9 +132,10 @@ export function createAgent(store, hooks = {}) {
         const usage = {};
         let finishReason = null;
 
-        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', usage: null });
+        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', model, usage: null });
         hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
-        setStatus('streaming');
+        setStatus('connecting'); // 已发出请求、尚未收到首个 token：UI 显示连接动画
+        let streamed = false;
 
         let attempt = 0;
         while (true) {
@@ -119,6 +147,7 @@ export function createAgent(store, hooks = {}) {
               onThinkingFallback: hooks.onThinkingFallback, // 思考参数 400 降级 → 提示用户（不再静默）
               messages: buildMessages(),
               onEvent: (ev) => {
+                if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {
                   case 'text':
                     text += ev.text;
@@ -204,6 +233,9 @@ export function createAgent(store, hooks = {}) {
           } else {
             result = await executeTool(call.name, call.args, {
               fs,
+              apiKey: store.state.apiKey,
+              imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
+              signal,
               onUi: (patch) => hooks.onToolEvent && hooks.onToolEvent(call, patch),
               dispatch: async (agentId, subTask, onNote) => {
                 const def = findSubagent(agentId);
@@ -227,43 +259,7 @@ export function createAgent(store, hooks = {}) {
         }
       }
       // 达到迭代上限
-      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, done: true });
-      setStatus('done');
-      hooks.onTurnEnd && hooks.onTurnEnd();
-    } catch (err) {
-      if (err.name === 'AbortError' || signal.aborted) {
-        setStatus('cancelled');
-        const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
-        if (last) store.updateMessage(last.id, { cancelled: true, done: true });
-        hooks.onCancelled && hooks.onCancelled();
-      } else {
-        setStatus('error');
-        hooks.onError && hooks.onError(err);
-      }
-    } finally {
-      abortController = null;
-      syncFS();
-      store.notify();
-      try { hooks.onTurnTiming && hooks.onTurnTiming(Math.round(performance.now() - t0)); } catch { /* noop */ }
-    }
-  }
-
-  // ── 文生图分支：选中文生图模型（gpt-image-2）时，直接调用 /v1/images ──
-  async function runImageGen(prompt) {
-    const { apiKey, model } = store.state;
-    if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
-    if (status === 'streaming' || status === 'thinking' || status === 'executing') return;
-
-    abortController = new AbortController();
-    const signal = abortController.signal;
-    const t0 = performance.now();
-    try {
-      setStatus('streaming');
-      const assistantMsg = store.pushMessage({ role: 'assistant', text: '', image: null, usage: null });
-      hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
-      const dataUrl = await generateImage({ model, apiKey, prompt, signal });
-      store.updateMessage(assistantMsg.id, { image: dataUrl, done: true, transport: getTransport() });
-      hooks.onAssistantDone && hooks.onAssistantDone(assistantMsg);
+      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, model, done: true });
       setStatus('done');
       hooks.onTurnEnd && hooks.onTurnEnd();
     } catch (err) {
@@ -289,16 +285,13 @@ export function createAgent(store, hooks = {}) {
     abort: () => { abortController && abortController.abort(); },
 
     async send(userText, attachments = []) {
-      // 文本附件自动注入沙箱 uploads/，让工具循环可直接读取
-      for (const a of attachments) {
-        if (a.kind === 'text' && a.text != null) fs.write(`uploads/${a.name}`, a.text);
-      }
-      if (attachments.some((a) => a.kind === 'text')) syncFS();
+      // 所有附件（文本 + 图片）自动复制到沙箱 uploads/：文本存原文、图片存 data URL，
+      // 工具循环可直接 read_file 读取，图片也能作为 generate_image 的 reference_paths 编辑
+      const copied = copyAttachmentsToFS(fs, attachments);
+      if (copied.length) { syncFS(); store.notify(); hooks.onFsChange && hooks.onFsChange(copied); }
       store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
       store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
       hooks.onUserMessage && hooks.onUserMessage(userText);
-      // 文生图模型（gpt-image-2）走 /v1/images，而非对话工具循环
-      if (isImageModel(store.state.model)) { await runImageGen(userText); return; }
       await runLoop();
     },
 

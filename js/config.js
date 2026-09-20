@@ -3,8 +3,10 @@
 //   · Base URL: https://api.teamorouter.com
 //   · Anthropic 原生协议: POST /v1/messages   (x-api-key + anthropic-version)
 //   · OpenAI 兼容协议:    POST /v1/chat/completions (Authorization: Bearer)
-//   · 文生图（GPT Image 2）: POST /v1/images/generations (Bearer)，响应 data[].b64_json
+//   · 文生图（GPT Image 2 / 2.5）: POST /v1/images/generations (Bearer)，响应 data[].b64_json
+//   · 图片编辑（GPT Image）:       POST /v1/images/edits  (multipart/form-data: image + prompt)
 //   · 图生文（多模态 / vision）: 各协议原生 content 块（见 api.js 构建逻辑）
+//   · 生图模型不作为对话模型直接选择，统一由主智能体通过 generate_image 工具调用
 //   · 模型列表:           GET  /v1/models
 //   · 官方建议: Claude 模型务必走 Anthropic 原生协议，其余模型走 OpenAI 兼容协议
 
@@ -39,7 +41,6 @@ export const FALLBACK_MODELS = [
   { id: 'gpt-5.5',             provider: 'OpenAI' },
   { id: 'gpt-5.4',             provider: 'OpenAI' },
   { id: 'gpt-5.4-mini',        provider: 'OpenAI' },
-  { id: 'gpt-image-2',          provider: 'OpenAI', image: true },  // 文生图（POST /v1/images/generations）
   // Google
   { id: 'gemini-3.8-flash',    provider: 'Google' },
   { id: 'gemini-3.7-flash',    provider: 'Google' },
@@ -63,7 +64,27 @@ export const FALLBACK_MODELS = [
   { id: 'grok-4.6',            provider: 'Grok' },
 ];
 
-export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Grok', '其他'];
+export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Kimi', 'Grok', '其他'];
+
+// ── 生图模型（GPT Image 系列）────────────────────────────────────────────
+// 不可作为对话模型直接选择：统一由主智能体通过 generate_image 工具调用，
+// 保留 Agent 的工具循环特性（生成→写沙箱→可继续编辑/下载）。
+export const IMAGE_MODELS = [
+  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', note: '高质感写实' },
+  { id: 'gpt-image-2.5-flare',    label: 'GPT Image 2.5 Flare',    note: '风格化/插画' },
+  { id: 'gpt-image-2',            label: 'GPT Image 2',            note: '均衡·默认' },
+];
+export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+export const DEFAULT_CHAT_MODEL = 'claude-sonnet-5';
+// 尺寸（宽x高，像素）：最大边 ≤3840、宽高均为 16 的倍数、长宽比 ≤3:1、总像素 655,360–8,294,400
+export const IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536', '2048x2048'];
+export const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'];
+export const IMAGE_FORMATS = ['png', 'jpeg', 'webp'];
+export function isImageGenModel(id) { return IMAGE_MODELS.some((m) => m.id === id); }
+export function imageModelLabel(id) {
+  const hit = IMAGE_MODELS.find((m) => m.id === id);
+  return hit ? hit.label : String(id || '');
+}
 
 // 根据模型 ID 推断供应商
 export function providerOf(modelId) {
@@ -73,6 +94,7 @@ export function providerOf(modelId) {
   if (m.startsWith('gemini')) return 'Google';
   if (m.startsWith('deepseek')) return 'DeepSeek';
   if (m.startsWith('glm')) return 'GLM';
+  if (m.startsWith('kimi') || m.startsWith('moonshot')) return 'Kimi';
   if (m.startsWith('grok')) return 'Grok';
   return '其他';
 }
@@ -95,12 +117,12 @@ export function supportsVision(modelId) {
     || /vision|(^|-)vl(-|$)|4v\b|4\.5v/.test(id);
 }
 
-// 文生图模型判断（GPT Image 2 等）：兜底列表标记 image:true，或按 id 模式兜底
+// 文生图模型判断（GPT Image 2 / 2.5 系列）：按 IMAGE_MODELS 目录或 id 模式识别
+// 这类模型不支持对话/工具调用，不能作为聊天模型直接选中（由 generate_image 工具调用）
 export function isImageModel(modelId) {
+  if (isImageGenModel(modelId)) return true;
   const m = String(modelId || '').toLowerCase();
-  if (/(^|-)image(-|$)/.test(m)) return true;
-  const hit = FALLBACK_MODELS.find((x) => x.id === modelId);
-  return !!(hit && hit.image);
+  return /(^|-)image(-|$)/.test(m);
 }
 
 // GPT 系列支持 Fast mode（service_tier: "fast"，2x 计费）
@@ -141,11 +163,12 @@ export function systemPrompt(now = new Date()) {
     '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典（虚拟文件系统），将结果赋给全局变量 result 可被捕获。运行时常驻，仅会话首次调用需下载（10-30 秒）。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files：操作会话级虚拟文件系统。',
+    '- generate_image：调用文生图模型（GPT Image 2 / 2.5 Sunburst / 2.5 Flare）生成图片；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '',
     '## 附件',
     '- 用户消息可能附带图片（多模态模型可直接识图；若模型不支持视觉，请说明并建议切换模型）。',
-    '- 文本附件已自动写入沙箱 uploads/ 目录，可用 read_file 或沙箱代码读取全文。',
+    '- 所有附件（文本与图片）都会自动复制到沙箱 uploads/ 目录：文本可 read_file 读取全文；图片以 data URL 形式存放，可作为 generate_image 的 reference_paths 传入以编辑原图。',
     '',
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',

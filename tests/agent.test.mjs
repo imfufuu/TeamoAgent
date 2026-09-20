@@ -13,8 +13,15 @@ import { createStore } from '../js/state.js';
 import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor } from '../js/context.js';
 import { thinkingParamsFor } from '../js/config.js';
 import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
-import { TOOL_DEFS } from '../js/tools.js';
-import { createAgent } from '../js/agent.js';
+import { TOOL_DEFS, executeTool } from '../js/tools.js';
+import { createAgent, copyAttachmentsToFS } from '../js/agent.js';
+
+// 排空上一用例遗留的持久化防抖定时器（state.save 用 300ms setTimeout），
+// 避免它的写入串进下一个用例的 localStorage 桩
+const drainSaves = () => new Promise((r) => setTimeout(r, 350));
+// 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
+const cfg = await import('../js/config.js');
+const api = await import('../js/api.js');
 
 let passed = 0;
 const queue = [];
@@ -578,6 +585,9 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
 test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
+  // 先排空前序用例遗留的 300ms 防抖定时器：否则它的写入会落进本用例的 localStorage 桩，
+  // 使「防抖未触发前不写入」的断言变成时序竞速（偶发误判）
+  await drainSaves();
   const realLS = globalThis.localStorage;
   const mem = new Map();
   globalThis.localStorage = {
@@ -613,6 +623,7 @@ test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
 
 group('持久化体积（P1-3：先预估再序列化，超限自动瘦身）');
 test('小体积状态：图片 dataUrl 原样持久化', async () => {
+  await drainSaves();
   const mem = new Map();
   const realLS = globalThis.localStorage;
   globalThis.localStorage = {
@@ -634,6 +645,7 @@ test('小体积状态：图片 dataUrl 原样持久化', async () => {
   }
 });
 test('超大状态（含 5MB 图片）：走瘦身路径，剥离 dataUrl 且不破坏结构', async () => {
+  await drainSaves();
   const mem = new Map();
   const realLS = globalThis.localStorage;
   globalThis.localStorage = {
@@ -853,6 +865,274 @@ test('中断：流式中途 abort() → 状态 cancelled、消息标记 cancelle
     assert.equal(last.done, true);
   } finally { globalThis.fetch = realFetch; }
 });
+
+group('生图模型目录（GPT Image 2 / 2.5 系列）');
+test('生图模型可被识别，且不出现在对话模型兜底列表中', () => {
+  const { IMAGE_MODELS, isImageModel, isImageGenModel, FALLBACK_MODELS, DEFAULT_IMAGE_MODEL } = cfg;
+  const ids = IMAGE_MODELS.map((m) => m.id);
+  for (const want of ['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']) {
+    assert.ok(ids.includes(want), `目录应包含 ${want}`);
+  }
+  for (const id of ids) {
+    assert.ok(!FALLBACK_MODELS.some((m) => m.id === id), `${id} 不应作为可选对话模型`);
+  }
+  assert.ok(isImageModel('gpt-image-2.5-flare') && isImageGenModel('gpt-image-2'), '识别函数命中');
+  assert.ok(!isImageModel('gpt-5.5') && !isImageModel('claude-sonnet-5'), '对话模型不被误判为生图模型');
+  assert.equal(DEFAULT_IMAGE_MODEL, 'gpt-image-2');
+});
+test('模型目录对齐文档：移除已下线模型、补齐多模态模型', () => {
+  const ids = cfg.FALLBACK_MODELS.map((m) => m.id);
+  assert.ok(!ids.includes('gemini-3.1-flash-lite-preview'), 'gemini-3.1-flash-lite-preview 已不可用，应移除');
+  assert.ok(ids.includes('deepseek-v4-flash-vision-exp'), '缺少的多模态模型应补入');
+  assert.ok(cfg.supportsVision('deepseek-v4-flash-vision-exp'), '该模型应标记支持图片输入');
+});
+test('Kimi 供应商识别与品牌图标映射', async () => {
+  assert.equal(providerOf('kimi-k2-0905'), 'Kimi');
+  assert.equal(providerOf('moonshot-v1-8k'), 'Kimi');
+  assert.ok(cfg.PROVIDER_ORDER.includes('Kimi'), '分组顺序中应包含 Kimi');
+  const { PROVIDER_ICON } = await import('../js/icons.js');
+  assert.equal(PROVIDER_ICON.Kimi.file, 'kimi.svg');
+  const fs = await import('node:fs');
+  const svg = fs.readFileSync(new URL('../assets/icons/kimi.svg', import.meta.url), 'utf8');
+  assert.ok(svg.includes('#1783FF') && svg.includes('#FFFFFF'), '图标含品牌蓝折角与白色 K 字形');
+  assert.ok(svg.length < 4096, '图标已精简（原始 1.0MB 描摹文件 → <4KB）');
+});
+
+group('图生文 / 文生图 API 层');
+test('parseImageResponse：b64_json 优先，退回 url，缺数据时报错', () => {
+  const { parseImageResponse } = api;
+  const b64 = Buffer.from('fake').toString('base64');
+  const a = parseImageResponse({ data: [{ b64_json: b64 }] }, 'png');
+  assert.equal(a.dataUrl, `data:image/png;base64,${b64}`);
+  assert.equal(a.ext, 'png');
+  const j = parseImageResponse({ data: [{ b64_json: b64 }] }, 'jpeg');
+  assert.ok(j.dataUrl.startsWith('data:image/jpeg;base64,') && j.ext === 'jpg', 'jpeg 走 image/jpeg + .jpg');
+  const u = parseImageResponse({ data: [{ url: 'https://cdn/x.png' }] });
+  assert.equal(u.dataUrl, 'https://cdn/x.png');
+  assert.throws(() => parseImageResponse({ data: [] }), /data\[0\]/);
+});
+test('dataUrlToBytes / bytesToDataUrl：base64 与字节往返一致', () => {
+  const { dataUrlToBytes, bytesToDataUrl } = api;
+  const src = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 1, 2, 250, 255]);
+  const url = bytesToDataUrl(src, 'image/png');
+  assert.ok(url.startsWith('data:image/png;base64,'));
+  const back = dataUrlToBytes(url);
+  assert.equal(back.mime, 'image/png');
+  assert.deepEqual(Array.from(back.bytes), Array.from(src));
+  assert.throws(() => dataUrlToBytes('not-a-data-url'), /data URL/);
+});
+
+group('generate_image 工具（Agent 调用生图，而非直接选模型）');
+test('工具已注册且参数齐全', () => {
+  const def = TOOL_DEFS.find((t) => t.name === 'generate_image');
+  assert.ok(def, 'TOOL_DEFS 应包含 generate_image');
+  assert.ok(def.description.includes('/v1/images/edits'), '描述应说明编辑模式');
+  const props = def.parameters.properties;
+  for (const k of ['prompt', 'reference_paths', 'size', 'quality', 'output_format', 'model']) {
+    assert.ok(props[k], `参数 ${k} 缺失`);
+  }
+  assert.deepEqual(def.parameters.required, ['prompt']);
+});
+test('生成模式：POST /v1/images/generations + 图片落沙箱 outputs/', async () => {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  const b64 = Buffer.from('fake-png-bytes').toString('base64');
+  globalThis.fetch = async (url, opts) => {
+    captured = { url, headers: opts.headers, body: JSON.parse(opts.body) };
+    return new Response(JSON.stringify({ created: 1, data: [{ b64_json: b64 }] }), { status: 200 });
+  };
+  try {
+    const fs = createFS();
+    const events = [];
+    const res = await executeTool('generate_image',
+      { prompt: '一只在键盘上打字的橘猫，插画风格', size: '1024x1024', quality: 'high' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2.5-sunburst', onUi: (p) => events.push(p) });
+    assert.ok(captured.url.endsWith('/v1/images/generations'), '应走生图端点');
+    assert.equal(captured.headers.Authorization, 'Bearer sk-teamo-test', '生图用 Bearer 鉴权');
+    assert.equal(captured.headers['Content-Type'], 'application/json');
+    assert.equal(captured.body.model, 'gpt-image-2.5-sunburst', '使用会话选定的生图模型');
+    assert.equal(captured.body.size, '1024x1024');
+    assert.equal(captured.body.quality, 'high');
+    assert.equal(captured.body.output_format, 'png');
+    assert.ok(/outputs\/image-001\.png/.test(res), '返回文案包含沙箱输出路径');
+    assert.equal(fs.read('outputs/image-001.png'), `data:image/png;base64,${b64}`, '图片写入沙箱可复用');
+    const ok = events.find((e) => e.status === 'ok' && e.image);
+    assert.ok(ok, 'onUi 应回传 ok + 图片，供芯片渲染');
+    assert.equal(ok.imagePath, 'outputs/image-001.png');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('编辑模式：reference_paths 走 /v1/images/edits（multipart，原图字节还原）', async () => {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  const b64 = Buffer.from('edited-bytes').toString('base64');
+  globalThis.fetch = async (url, opts) => {
+    captured = { url, headers: opts.headers, body: opts.body };
+    return new Response(JSON.stringify({ data: [{ b64_json: b64 }] }), { status: 200 });
+  };
+  try {
+    const origin = Buffer.from('origin-png-bytes').toString('base64');
+    const fs = createFS({ 'uploads/cat.png': `data:image/png;base64,${origin}` });
+    const res = await executeTool('generate_image',
+      { prompt: '把背景换成雪山', reference_paths: ['uploads/cat.png'], size: '1024x1024' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2', onUi: () => {} });
+    assert.ok(captured.url.endsWith('/v1/images/edits'), '应走编辑端点');
+    assert.ok(!captured.headers['Content-Type'], '不能手动设 Content-Type（boundary 由 FormData 生成）');
+    assert.ok(captured.body instanceof FormData, '请求体应为 multipart FormData');
+    assert.equal(captured.body.get('model'), 'gpt-image-2');
+    assert.equal(captured.body.get('prompt'), '把背景换成雪山');
+    assert.equal(captured.body.get('size'), '1024x1024');
+    const file = captured.body.get('image');
+    assert.equal(file.name, 'cat.png');
+    assert.equal(file.type, 'image/png');
+    assert.equal(Buffer.from(await file.arrayBuffer()).toString('base64'), origin, '上传字节 = 沙箱内原图字节');
+    assert.ok(/outputs\/image-001\.png/.test(res), '编辑结果同样落沙箱');
+    assert.ok(res.includes('reference_paths=["outputs/image-001.png"]'), '文案应提示继续编辑的方式');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('未配置 Key / 缺 prompt：不发请求并返回可读错误', async () => {
+  const realFetch = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => { called++; return new Response('{}', { status: 200 }); };
+  try {
+    const fs = createFS();
+    const noKey = await executeTool('generate_image', { prompt: 'x' }, { fs, apiKey: '', onUi: () => {} });
+    assert.ok(noKey.includes('API Key'), '无 Key 应提示配置');
+    const noPrompt = await executeTool('generate_image', {}, { fs, apiKey: 'k', onUi: () => {} });
+    assert.ok(noPrompt.includes('prompt'), '缺 prompt 应提示参数');
+    assert.equal(called, 0, '两种情况都不应发起网络请求');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+group('用户附件自动复制到沙箱 uploads/');
+test('文本与图片都落 uploads/，同名同内容复用、不同内容加序号', () => {
+  const fs = createFS();
+  const a = copyAttachmentsToFS(fs, [
+    { kind: 'text', name: 'note.md', text: '# 会议纪要\n第一条' },
+    { kind: 'image', name: 'cat.png', dataUrl: 'data:image/png;base64,AAA' },
+  ]);
+  assert.deepEqual(a, ['uploads/note.md', 'uploads/cat.png']);
+  assert.equal(fs.read('uploads/note.md'), '# 会议纪要\n第一条');
+  assert.equal(fs.read('uploads/cat.png'), 'data:image/png;base64,AAA');
+  assert.deepEqual(copyAttachmentsToFS(fs, [{ kind: 'image', name: 'cat.png', dataUrl: 'data:image/png;base64,AAA' }]),
+    ['uploads/cat.png'], '内容相同不应重复占位');
+  assert.deepEqual(copyAttachmentsToFS(fs, [{ kind: 'image', name: 'cat.png', dataUrl: 'data:image/png;base64,BBB' }]),
+    ['uploads/cat-2.png'], '同名不同内容应加序号，不覆盖上一轮');
+  assert.equal(fs.read('uploads/cat.png'), 'data:image/png;base64,AAA', '原文件保持不变');
+});
+test('文件名安全化：路径分隔与控制字符不越出 uploads/', () => {
+  const fs = createFS();
+  const out = copyAttachmentsToFS(fs, [{ kind: 'text', name: '../../etc/passwd', text: 'x' }]);
+  assert.deepEqual(out, ['uploads/.._.._etc_passwd']);
+  assert.ok(!out[0].includes('\\') && out[0].startsWith('uploads/'));
+  const empty = copyAttachmentsToFS(fs, [{ kind: 'text', name: 'a.txt', text: '' }, { kind: 'image', name: 'b.png' }]);
+  assert.deepEqual(empty, [], '空内容/无数据不应写入');
+});
+
+group('会话级模型（修复：切会话后模型名被当前选择覆盖）');
+test('每个会话记住自己的模型与生图模型', async () => {
+  await drainSaves();
+  const { createStore: makeStore } = await import('../js/state.js?sessmodel=' + Date.now());
+  const store = makeStore();
+  store.state.model = 'gpt-5.5';
+  store.state.imageModel = 'gpt-image-2.5-flare';
+  store.notify();
+  const firstId = store.state.activeSessionId;
+  store.createSession();
+  store.state.model = 'claude-opus-5';
+  store.state.imageModel = 'gpt-image-2';
+  store.notify();
+  const secondId = store.state.activeSessionId;
+  assert.equal(store.state.sessions.find((s) => s.id === secondId).model, 'claude-opus-5');
+  store.switchSession(firstId);
+  assert.equal(store.state.model, 'gpt-5.5', '切回旧会话应恢复它自己的对话模型');
+  assert.equal(store.state.imageModel, 'gpt-image-2.5-flare', '生图模型同样按会话恢复');
+  store.switchSession(secondId);
+  assert.equal(store.state.model, 'claude-opus-5', '来回切换互不污染');
+});
+test('assistant 消息记录生成时所用模型；连接阶段状态可见', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(sseResponse(
+    sseEv({ choices: [{ delta: { content: '好的' } }] }) + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone,
+  ));
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.4-mini';
+    const seen = [];
+    const agent = createAgent(store, { onStatus: (s) => seen.push(s) });
+    await agent.send('在吗');
+    const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(last.model, 'gpt-5.4-mini', '消息应带上当轮实际使用的模型');
+    assert.ok(seen.includes('connecting'), '应上报「连接模型中」阶段');
+    assert.ok(seen.indexOf('connecting') < seen.indexOf('streaming'), '收到首字后切到生成中');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('大图片不写入 localStorage（沙箱 data URL 瘦身）', async () => {
+  await drainSaves();
+  const mem = new Map();
+  const realLS = globalThis.localStorage;
+  globalThis.localStorage = {
+    getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+    setItem: (k, v) => mem.set(k, String(v)),
+    removeItem: (k) => mem.delete(k),
+  };
+  try {
+    const { createStore: makeStore } = await import('../js/state.js?slim=' + Date.now());
+    const store = makeStore();
+    store.state.files = {
+      'notes/small.txt': '短文本要保留',
+      'uploads/big.png': 'data:image/png;base64,' + 'A'.repeat(5 * 1024 * 1024),
+    };
+    store.save(true);
+    const saved = JSON.parse(mem.get('teamo-agent-state-v1-v2'));
+    const files = saved.sessions[0].files;
+    assert.equal(files['notes/small.txt'], '短文本要保留', '小文本文件照常持久化');
+    assert.ok(!('uploads/big.png' in files), '超限时剥离沙箱内的大图片（避免顶穿 4MB 配额）');  } finally {
+    if (realLS === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = realLS;
+  }
+});
+
+group('沙箱打包下载（ZIP）');
+test('fileBytesFromValue / withExtension：图片还原字节、补扩展名', async () => {
+  const zip = await import('../js/zip.js');
+  const raw = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 255, 128]);
+  const url = 'data:image/png;base64,' + Buffer.from(raw).toString('base64');
+  const got = zip.fileBytesFromValue(url);
+  assert.equal(got.mime, 'image/png');
+  assert.deepEqual(Array.from(got.bytes), Array.from(raw));
+  assert.deepEqual(Array.from(zip.fileBytesFromValue('纯文本').bytes), Array.from(new TextEncoder().encode('纯文本')));
+  assert.deepEqual(Array.from(zip.fileBytesFromValue(null).bytes), []);
+  assert.equal(zip.withExtension('uploads/cat', 'image/png'), 'uploads/cat.png');
+  assert.equal(zip.withExtension('uploads/cat.png', 'image/png'), 'uploads/cat.png', '已有扩展名不重复追加');
+  assert.equal(zip.withExtension('a/b.txt', 'text/plain'), 'a/b.txt');
+});
+test('createZip：本地头/中心目录/EOCD 结构与 CRC 自洽', async () => {
+  const zip = await import('../js/zip.js');
+  const noteTxt = '# 标题\nhello zip';
+  const pngBytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7, 250]);
+  const blob = zip.createZip([
+    { name: 'uploads/note.md', bytes: new TextEncoder().encode(noteTxt) },
+    { name: 'outputs/image-001.png', bytes: pngBytes },
+  ]);
+  const buf = Buffer.from(await blob.arrayBuffer());
+  const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  assert.equal(buf.length > 22, true);
+  assert.equal(view.getUint32(0, true), 0x04034b50, '首条目为 Local File Header');
+  assert.equal(view.getUint32(buf.length - 22, true), 0x06054b50, 'EOCD 签名位于末尾');
+  assert.equal(view.getUint16(buf.length - 12, true), 2, 'EOCD 条目数');
+  // 第二个条目：名称长度以 UTF-8 字节计（中文 3 字节/字，不能按字符数切）
+  const firstBody = new TextEncoder().encode(noteTxt);
+  const nameLen = view.getUint16(26, true);
+  const firstData = buf.subarray(30 + nameLen, 30 + nameLen + firstBody.length).toString();
+  assert.equal(firstData, noteTxt, '正文按 STORE 原样存放');
+  assert.equal(view.getUint32(18, true), firstBody.length, '压缩后大小 = UTF-8 字节数');
+  const crcField = view.getUint32(14, true);
+  assert.equal(crcField, zip.crc32(firstBody), '头里的 CRC32 与正文一致');
+  assert.equal(zip.crc32(new Uint8Array(0)), 0, '空内容 CRC32 = 0');
+  assert.equal(zip.crc32(new TextEncoder().encode('123456789')), 0xCBF43926, 'CRC32 标准向量');
+});
+
 
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {

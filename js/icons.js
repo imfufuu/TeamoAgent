@@ -8,6 +8,7 @@ export const PROVIDER_ICON = {
   Google:    { file: 'gemini.svg',    mono: false, word: false }, // Gemini 图标 2025
   DeepSeek:  { file: 'deepseek.svg',  mono: false, word: false }, // DeepSeek 鲸图标（品牌蓝）
   GLM:       { file: 'zhipu.svg',     mono: false, word: false }, // Z.ai（智谱）
+  Kimi:      { file: 'kimi.svg',      mono: false, word: false }, // Kimi（月之暗面）：黑底白 K + 品牌蓝 #1783FF 折角
   Grok:      { file: 'grok.svg',      mono: false, word: false, white: true }, // 白色图标 → 亮色主题反色
 };
 

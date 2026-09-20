@@ -10,6 +10,7 @@ let ui = null;
 const hooks = {
   onStatus: (s) => ui && ui.setStatus(s),
   onUserMessage: () => { ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
+  onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),

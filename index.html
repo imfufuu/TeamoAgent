@@ -42,6 +42,10 @@
         </button>
         <div id="model-menu" class="dd-menu">
           <div class="dd-search-wrap"><input id="model-search" class="dd-search mono" placeholder="搜索模型…" aria-label="搜索模型" /></div>
+          <div class="dd-foot">
+            <label for="image-model" title="文生图 / 图片编辑模型：不作为对话模型直接选择，由主智能体通过 generate_image 工具调用（POST /v1/images/generations · /v1/images/edits）">生图模型 · Agent 调用</label>
+            <select id="image-model" class="dd-select mono" aria-label="生图模型"></select>
+          </div>
         </div>
       </div>
     </div>
@@ -70,6 +74,7 @@
 
   <!-- ═══ 主区 ═══ -->
   <main class="main">
+    <div id="turn-bar" class="turn-bar" aria-hidden="true"></div>
     <header class="topbar">
       <div class="status"><span id="status-dot" class="dot ok"></span><span id="status-text"></span><span id="time-stats" class="time-stats mono"></span></div>
       <div class="topbar-right">
@@ -107,7 +112,13 @@
       <button data-tab="agents" type="button">子智能体</button>
     </div>
     <div id="tab-files" class="panel-body">
-      <div class="files-toolbar"><span class="side-label" style="border:0;padding:0">虚拟文件系统</span><button id="clear-files" class="mini-btn" type="button">清空</button></div>
+      <div class="files-toolbar">
+        <span class="side-label" style="border:0;padding:0">虚拟文件系统</span>
+        <span class="files-actions">
+          <button id="download-zip" class="mini-btn" type="button" title="把沙箱内全部文件打包下载（.zip，图片还原为原始二进制）">⬇ ZIP</button>
+          <button id="clear-files" class="mini-btn" type="button">清空</button>
+        </span>
+      </div>
       <div id="file-list" class="file-list"></div>
       <div id="file-viewer" class="file-viewer"></div>
     </div>
