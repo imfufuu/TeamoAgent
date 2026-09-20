@@ -12,15 +12,18 @@ export const PROVIDER_ICON = {
 };
 
 // ─── TeamoAgent 应用标识 ───────────────────────────────────────────────
-// 设计语义：半填充圆（路由的二分与选择）+ 环上三个节点（网关分发到多模型），
-// 单色 currentColor 随主题；favicon 为 index.html 内联的静态双色版
-// （黑底白半圆，深浅标签页均可见）。
+// 几何化「轨道枢纽」：中心核心 + 三条 120° 对称平滑轨道弧 + 三个卫星节点
+// （多智能体围绕路由枢纽协作）；单色 currentColor 随主题；favicon 为
+// index.html 内联的静态双色版（黑底白图标，深浅标签页均可见）。
 export const APP_LOGO = `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-  <circle cx="16" cy="16" r="11.4" stroke="currentColor" stroke-width="2.4"/>
-  <path d="M16 4.6a11.4 11.4 0 0 1 0 22.8z" fill="currentColor"/>
-  <circle cx="16" cy="4.6" r="2.7" fill="currentColor"/>
-  <circle cx="6.1" cy="21.7" r="2.7" fill="currentColor"/>
-  <circle cx="25.9" cy="21.7" r="2.7" fill="currentColor"/>
+  <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/>
+  <path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="16" cy="16" r="2.7" fill="currentColor"/>
+  <circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/>
+  <circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/>
+  <circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/>
 </svg>`;
 
 export function providerIcon(provider) {
