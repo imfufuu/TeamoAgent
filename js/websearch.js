@@ -1,0 +1,197 @@
+// ─── 联网：只用模型 API 自带的「网页请求格式」───────────────────────────────
+// 用户要求：联网不再接任何第三方搜索 API（Brave / Tavily / Serper / DDG 全部删除），
+// 而是把「要联网」这件事写成各家协议自己的请求字段，由模型服务端去搜、去取页、去给引用。
+//
+//   Claude   POST /v1/messages        tools: [{ type: "web_search_20250305", name: "web_search", max_uses }]
+//   GPT      POST /v1/responses       tools: [{ type: "web_search", search_context_size }]（网关文档 4.4：Responses 仅 GPT 系列）
+//   Kimi     POST /v1/chat/completions tools: [{ type: "builtin_function", function: { name: "$web_search" } }]
+//   GLM      POST /v1/chat/completions tools: [{ type: "web_search" }]
+//   Grok     POST /v1/chat/completions search_parameters: { mode: "live", return_citations: true }
+//   其余（DeepSeek 等）：没有原生格式 → 不联网（不假装能联网）
+//
+// 之所以是独立模块：本文件被 api.js 引用，而「给既有模块新增具名导出再被别的既有模块 import」
+// 在 Pages 子资源缓存下会出现「新调用方 + 旧被调用方」的混版 → ESM link 期直接白屏。
+// 新文件没有旧缓存可比对，安全；api.js 只在内部用它，不对外新增导出。
+
+/** 各家协议的原生联网规格 */
+export const WEB_CAPS = [
+  {
+    id: 'anthropic-web-search',
+    label: 'Anthropic 服务器工具 web_search_20250305',
+    match: (m) => /^claude-/i.test(m),
+    endpoint: 'messages',
+    // 服务器工具由 Anthropic 侧执行：结果以 server_tool_use / web_search_tool_result 块回流，
+    // 后续回合必须把这些块原样重放（含 encrypted_content），否则模型看不到自己查到的内容
+    searchTool: () => [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+    serverBlockTypes: ['server_tool_use', 'web_search_tool_result', 'web_search_result'],
+  },
+  {
+    id: 'openai-responses-web-search',
+    label: 'OpenAI Responses API tools:[{type:"web_search"}]',
+    match: (m) => /^gpt-/i.test(m),
+    endpoint: 'responses',
+    searchTool: () => [{ type: 'web_search', search_context_size: 'medium' }],
+    // 让响应里带上来源，前端才能显示引用与出处
+    include: () => ['web_search_call.action.sources'],
+  },
+  {
+    id: 'kimi-builtin-web-search',
+    label: 'Kimi 内置工具 $web_search',
+    match: (m) => /^kimi-/i.test(m),
+    endpoint: 'chat',
+    searchTool: () => [{ type: 'builtin_function', function: { name: '$web_search' } }],
+  },
+  {
+    id: 'glm-web-search',
+    label: 'GLM tools:[{type:"web_search"}]',
+    match: (m) => /^glm-/i.test(m),
+    endpoint: 'chat',
+    searchTool: () => [{ type: 'web_search' }],
+  },
+  {
+    id: 'grok-live-search',
+    label: 'Grok search_parameters.mode=live',
+    match: (m) => /^grok-/i.test(m),
+    endpoint: 'chat',
+    // Grok 走的是请求级字段而不是 tools 项
+    patch: (body) => { body.search_parameters = { mode: 'live', return_citations: true }; },
+  },
+];
+
+/** 当前模型有没有原生联网格式（没有就返回 null，让上层明确告知用户） */
+export function webCapFor(model) {
+  const m = String(model || '');
+  return WEB_CAPS.find((c) => c.match(m)) || null;
+}
+
+/** 把原生联网字段注入请求体（就地修改并返回 body；cap 为 null 时原样返回） */
+export function injectWeb(body, cap) {
+  if (!cap) return body;
+  const extra = cap.searchTool ? cap.searchTool() : [];
+  if (extra.length) body.tools = [...(body.tools || []), ...extra];
+  if (cap.include) body.include = [...new Set([...(body.include || []), ...cap.include()])];
+  if (cap.patch) cap.patch(body);
+  return body;
+}
+
+// ── OpenAI Responses API：请求体 input 构造 ───────────────────────────────
+// 我们的会话消息（{role,text,attachments,toolCalls,toolCallId,content}）→ Responses 的 input items。
+// 说明：不依赖 previous_response_id / store，每轮把 input 完整重放，行为与 Chat Completions 一致，
+// 也避免把会话数据存在网关侧。
+export function buildResponsesInput(messages) {
+  const instructions = messages.filter((m) => m.role === 'system').map((m) => m.text).join('\n\n');
+  const input = [];
+  for (const m of messages) {
+    if (m.role === 'system') continue;
+    if (m.role === 'tool') {
+      input.push({ type: 'function_call_output', call_id: m.toolCallId, output: String(m.content ?? '') });
+      continue;
+    }
+    if (m.role === 'assistant') {
+      const text = m.text || '';
+      if (text) input.push({ type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] });
+      for (const t of m.toolCalls || []) {
+        input.push({ type: 'function_call', call_id: t.id, name: t.name, arguments: JSON.stringify(t.args || {}) });
+      }
+      continue;
+    }
+    const parts = [];
+    if (m.text) parts.push({ type: 'input_text', text: m.text });
+    for (const a of m.attachments || []) {
+      if (a.kind === 'image' && a.dataUrl) parts.push({ type: 'input_image', image_url: a.dataUrl });
+      else if (a.kind === 'text' && a.text != null) parts.push({ type: 'input_text', text: `【附件：${a.name}】\n${a.text}` });
+      else parts.push({ type: 'input_text', text: `【附件：${a.name || a.kind}，本模型未内联读取】` });
+    }
+    if (!parts.length) parts.push({ type: 'input_text', text: '' });
+    input.push({ type: 'message', role: 'user', content: parts });
+  }
+  return { instructions, input };
+}
+
+// ── OpenAI Responses API：流式事件归一化 ──────────────────────────────────
+// 归一到与 createOpenAIStream / createAnthropicStream 相同的事件词汇表，
+// 上层（agent.js 的工具循环与 UI）不需要知道下面换了协议。
+export function createResponsesStream(onEv) {
+  let sawText = false;
+  // 同一个工具调用在流里必须始终落在同一个 index 上：多个并行 function_call 若都塌成 0，
+  // 参数会被拼成一坨坏 JSON。优先用协议的 output_index，缺失时按 call_id 自行编号。
+  const itemIdx = new Map();
+  let idxSeq = 0;
+  const toolIndex = (json, item) => {
+    if (typeof json.output_index === 'number') return json.output_index;
+    const key = String((item && (item.call_id || item.id)) || json.item_id || json.call_id || '');
+    if (!key) return idxSeq;
+    if (!itemIdx.has(key)) itemIdx.set(key, idxSeq++);
+    return itemIdx.get(key);
+  };
+  return function handle(json) {
+    const t = json.type || '';
+    const err = json.error || (json.response && json.response.error);
+    if (err) { onEv({ type: 'error', message: err.message || JSON.stringify(err) }); return; }
+    switch (t) {
+      case 'response.output_text.delta':
+        if (json.delta) { sawText = true; onEv({ type: 'text', text: json.delta }); }
+        break;
+      case 'response.reasoning_summary_text.delta':
+      case 'response.output_reasoning.delta':
+        if (json.delta) onEv({ type: 'reasoning', text: json.delta });
+        break;
+      // 联网：模型侧发起的搜索（原生格式的核心可见性：查询词 + 来源数）
+      case 'response.output_item.added': {
+        const item = json.item || {};
+        if (item.type === 'web_search_call') onEv({ type: 'web_search', status: 'searching' });
+        else if (item.type === 'function_call') {
+          onEv({ type: 'tool_delta', index: toolIndex(json, item), id: item.call_id || item.id || '', name: item.name || '', argsText: item.arguments || '' });
+        } else if (item.type === 'file_search_call' || item.type === 'url_call') {
+          onEv({ type: 'web_search', status: 'searching', kind: item.type });
+        }
+        break;
+      }
+      case 'response.output_item.done': {
+        const item = json.item || {};
+        if (item.type === 'web_search_call') {
+          const sources = (item.action && item.action.sources) || item.sources || [];
+          onEv({ type: 'web_search', status: 'done', results: sources.length, queries: item.action && item.action.query ? [item.action.query] : [], sources });
+        } else if (item.type === 'function_call') {
+          // done 事件带完整 arguments，兜住 delta 丢失的情况
+          onEv({ type: 'tool_delta', index: toolIndex(json, item), id: item.call_id || item.id || '', name: item.name || '', argsText: item.arguments || '', replace: true });
+        }
+        break;
+      }
+      case 'response.function_call_arguments.delta':
+        onEv({ type: 'tool_delta', index: toolIndex(json, json.item || {}), argsText: json.delta || '' });
+        break;
+      case 'response.completed': {
+        const r = json.response || {};
+        const u = r.usage || {};
+        if (u.input_tokens != null || u.output_tokens != null) {
+          onEv({ type: 'usage', usage: { input: u.input_tokens, output: u.output_tokens } });
+        }
+        if (!sawText) for (const item of r.output || []) {
+          if (item.type === 'message') for (const b of item.content || []) if (b.type === 'output_text' && b.text) onEv({ type: 'text', text: b.text });
+        }
+        // 联网来源汇总（有些实现只在 response.output 的 web_search_call 项里给 sources）
+        for (const item of r.output || []) {
+          if (item.type === 'web_search_call') {
+            const sources = (item.action && item.action.sources) || item.sources || [];
+            if (sources.length) onEv({ type: 'web_search', status: 'sources', sources });
+          }
+        }
+        onEv({ type: 'finish', reason: r.status === 'completed' ? 'stop' : (r.incomplete_details?.reason || 'stop') });
+        break;
+      }
+      case 'response.failed':
+      case 'response.incomplete':
+        onEv({ type: 'finish', reason: 'error' });
+        break;
+      default:
+        break; // response.created / in_progress / content_part.added 等直接忽略
+    }
+  };
+}
+
+/** UI 文案：这一轮的联网是以什么格式发生的 */
+export function webCapNote(cap) {
+  if (!cap) return '当前模型没有原生联网格式，本轮不联网（可换 Claude / GPT / Kimi / GLM / Grok 系列）';
+  return `联网：${cap.label}`;
+}

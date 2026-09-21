@@ -16,6 +16,11 @@ import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
 import { TOOL_DEFS, executeTool } from '../js/tools.js';
 import { createAgent, copyAttachmentsToFS } from '../js/agent.js';
 
+// 联网开关在本轮改动里默认是开的（走模型 API 自带格式），而下面这些既有用例只校验
+// /v1/chat/completions 与 /v1/messages 两条端点的解析与循环 —— 统一关掉，避免它们改道 /v1/responses。
+// 联网本身有独立的用例组（见「联网：模型 API 自带请求格式」）。
+const storeNoWeb = (st) => { st.state.settings.webEnabled = false; return st; };
+
 // 排空上一用例遗留的持久化防抖定时器（state.save 用 300ms setTimeout），
 // 避免它的写入串进下一个用例的 localStorage 桩
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
@@ -126,7 +131,18 @@ test('tool_use 块 + input_json_delta 拼接', () => {
   assert.equal(calls[0].name, 'execute_python');
   assert.deepEqual(calls[0].args, { code: 'print(1)' });
 });
-test('坏 JSON 参数降级为 __raw', () => {
+test('坏 JSON 参数降级为 __raw', () => {test('replace 语义：done 的完整 arguments 覆盖而非叠加', () => {
+  // Responses 协议既流式给 delta、又在 output_item.done 里给全量 arguments；
+  // 聚合器必须用 replace 覆盖，否则参数变成两份拼接的坏 JSON（真实踩过）。
+  const acc = createToolCallAccumulator();
+  acc.push({ index: 0, id: 'c1', name: 'f', argsText: '' });
+  acc.push({ index: 0, argsText: '{"a":1}' });
+  acc.push({ index: 0, argsText: '{"a":1}', replace: true });
+  assert.deepEqual(acc.result()[0].args, { a: 1 });
+  acc.push({ index: 0, argsText: '', replace: true }); // 空全量不得抹掉已有增量
+  assert.deepEqual(acc.result()[0].args, { a: 1 });
+});
+
   const acc = createToolCallAccumulator();
   acc.push({ index: 0, id: 'x', name: 'f', argsText: '{broken' });
   assert.deepEqual(acc.result()[0].args, { __raw: '{broken' });
@@ -254,7 +270,7 @@ test('FS 读写列举', () => {
   assert.throws(() => fs.read('nope.txt'));
 });
 test('检查点回滚 + 一步撤销', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   // 真实时序：createCheckpoint（记录当前消息数）→ pushMessage
   store.createCheckpoint('第一问');
   store.pushMessage({ role: 'user', text: '第一问' });
@@ -273,7 +289,7 @@ test('检查点回滚 + 一步撤销', () => {
   assert.equal(store.state.messages[3].text, '第二答');
 });
 test('dropLastAssistantTurn 保留 user 消息（重新生成）', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   store.createCheckpoint('Q');
   store.pushMessage({ role: 'user', text: 'Q' });
   store.pushMessage({ role: 'assistant', text: 'A1', toolCalls: [{ id: 'c', name: 'f', args: {} }] });
@@ -457,7 +473,7 @@ test('dispatch_subagent 工具已注册且 enum 覆盖全部子智能体', () =>
 
 group('多会话');
 test('创建/切换/删除会话，活动会话引用正确同步', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   store.createCheckpoint('A');
   store.pushMessage({ role: 'user', text: '会话A的消息' });
   const s1 = store.state.activeSessionId;
@@ -473,7 +489,7 @@ test('创建/切换/删除会话，活动会话引用正确同步', () => {
   assert.equal(store.state.activeSessionId, s1);
 });
 test('删除最后一个会话时自动补新会话', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   const id = store.state.activeSessionId;
   store.deleteSession(id);
   assert.equal(store.state.sessions.length, 1);
@@ -482,7 +498,7 @@ test('删除最后一个会话时自动补新会话', () => {
 
 group('导入会话');
 test('importSession：导入导出 JSON 会新建并激活会话', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   const before = store.state.sessions.length;
   const s = store.importSession({
     title: '我的导出会话',
@@ -503,7 +519,7 @@ test('importSession：导入导出 JSON 会新建并激活会话', () => {
   assert.equal(store.state.stats.totalMs, 0, '新会话计时从零开始');
 });
 test('importSession：非法数据返回 null 且不改变状态', () => {
-  const store = createStore();
+  const store = storeNoWeb(createStore());
   const before = store.state.sessions.length;
   assert.equal(store.importSession(null), null);
   assert.equal(store.importSession({}), null);
@@ -598,7 +614,7 @@ test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
   try {
     // 全新模块实例，确保读到上面这个 localStorage 桩
     const { createStore } = await import('../js/state.js?imm=' + Date.now());
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.pushMessage({ role: 'user', text: '最后一轮对话' });
     const key = 'teamo-agent-state-v1-v2';
 
@@ -633,7 +649,7 @@ test('小体积状态：图片 dataUrl 原样持久化', async () => {
   };
   try {
     const { createStore } = await import('../js/state.js?small=' + Date.now());
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.pushMessage({ role: 'user', text: '看图', attachments: [{ kind: 'image', name: 'p.png', size: 10, dataUrl: 'data:image/png;base64,AAA' }] });
     store.save(true);
     const saved = JSON.parse(mem.get('teamo-agent-state-v1-v2'));
@@ -655,7 +671,7 @@ test('超大状态（含 5MB 图片）：走瘦身路径，剥离 dataUrl 且不
   };
   try {
     const { createStore } = await import('../js/state.js?big=' + Date.now());
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.pushMessage({
       role: 'user', text: '大图',
       attachments: [{ kind: 'image', name: 'big.png', size: 5 * 1024 * 1024, dataUrl: 'data:image/png;base64,' + 'A'.repeat(5 * 1024 * 1024) }],
@@ -725,7 +741,7 @@ test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）
     openaiTextTurn('已写入'),
   ], calls);
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -750,7 +766,7 @@ test('工具循环：迭代上限（TOOL_LOOP_MAX）后停止并告知用户', a
   let n = 0;
   globalThis.fetch = async () => { n++; return openaiToolTurn(`call_${n}`, 'write_file', JSON.stringify({ path: `f${n}.txt`, content: 'x' })); };
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -769,7 +785,7 @@ test('工具循环：坏 JSON 参数不执行，反馈模型纠错', async () =>
     openaiTextTurn('已修正'),
   ], calls);
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -785,7 +801,7 @@ test('P0-2 端到端：Claude 思考+工具调用，第二次请求回传思考�
   const calls = [];
   mockFetch([anthropicThinkingToolTurn(), anthropicTextTurn('完成')], calls);
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'claude-replay-test';
     store.state.settings.thinking = true;
@@ -822,7 +838,7 @@ test('思考参数 400：去掉参数重试、记录模型并通知上层（不�
     anthropicTextTurn('好的'),
   ], calls);
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'claude-fallback-test';
     store.state.settings.thinking = true;
@@ -851,7 +867,7 @@ test('中断：流式中途 abort() → 状态 cancelled、消息标记 cancelle
     return Promise.resolve(new Response(stream, { status: 200 }));
   };
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -1056,7 +1072,7 @@ test('assistant 消息记录生成时所用模型；连接阶段状态可见', a
     sseEv({ choices: [{ delta: { content: '好的' } }] }) + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone,
   ));
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.4-mini';
     const seen = [];
@@ -1437,7 +1453,7 @@ test('UI 钩子抛错或缺失，都不能打断对话循环', async () => {
     console.warn = (...a) => warns.push(a.map(String).join(' '));
     // ① 钩子存在但抛错（真实故障形态：旧 ui.js 上调用不存在的方法）
     mockFetch([openaiTextTurn('好的')], []);
-    const s1 = createStore();
+    const s1 = storeNoWeb(createStore());
     s1.state.apiKey = 'sk-teamo-test'; s1.state.model = 'gpt-5.6-sol';
     const a1 = createAgent(s1, {
       setStatus() { throw new TypeError('boom: setStatus'); },
@@ -1456,7 +1472,7 @@ test('UI 钩子抛错或缺失，都不能打断对话循环', async () => {
     // ② 旧版 UI：压根没有 onUserMessage 方法
     globalThis.fetch = origFetch;
     mockFetch([openaiTextTurn('收到')], []);
-    const s2 = createStore();
+    const s2 = storeNoWeb(createStore());
     s2.state.apiKey = 'sk-teamo-test'; s2.state.model = 'gpt-5.6-sol';
     const a2 = createAgent(s2, { onAssistantStart() {} });
     await a2.send('你好呀');
@@ -1545,7 +1561,7 @@ test('关闭沙箱时委派指引照样注入（旧写法整段被开关藏起�
   const calls = [];
   mockFetch([openaiTextTurn('你好')], calls);
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     store.state.settings.sandboxEnabled = false;
@@ -1576,7 +1592,7 @@ test('同一轮的多个 dispatch_subagent 并发执行，结果仍按调用顺�
     return openaiTextTurn('整合完成');
   };
   try {
-    const store = createStore();
+    const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -1673,7 +1689,7 @@ const withLS = async (fn) => {
 group('会话记录：入列时机 / 改名 / 一键清空');
 test('空草稿不进侧栏列表，有第一条消息后才入列', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.createSession();
   assert.deepEqual(st.listableSessions().map((x) => x.title), [], '空会话不应出现在 listableSessions');
   assert.ok(st.sortedSessions().length >= 1, 'sortedSessions 仍能看到草稿（切换/复用要用）');
@@ -1684,7 +1700,7 @@ test('空草稿不进侧栏列表，有第一条消息后才入列', async () =>
 }));
 test('ensureDraft 复用空草稿，不堆积 invisible 会话', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   const a = st.ensureDraft();
   const b = st.ensureDraft();
   assert.equal(a.id, b.id, '当前已是空会话时不应再造一个');
@@ -1695,7 +1711,7 @@ test('ensureDraft 复用空草稿，不堆积 invisible 会话', async () => wit
 }));
 test('clearAllSessions 只留一个空草稿并返回被删条数', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.pushMessage({ role: 'user', text: '会话一' });
   st.state.files['a.txt'] = '1';
   st.createSession();
@@ -1710,7 +1726,7 @@ test('clearAllSessions 只留一个空草稿并返回被删条数', async () => 
 }));
 test('renameSession 记为 user 并拒绝空标题', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.pushMessage({ role: 'user', text: "「关于沙箱的一些问题」" });
   const id = st.state.activeSessionId;
   assert.equal(st.renameSession(id, '  '), false, '空标题不改名');
@@ -1723,7 +1739,7 @@ test('renameSession 记为 user 并拒绝空标题', async () => withLS(async ()
 }));
 test('needsTitle 只在「有已完成的回答且没总结过」时为真', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.pushMessage({ role: 'user', text: '问题' });
   const a = st.pushMessage({ role: 'assistant', text: '输出中', done: false });
   assert.equal(st.needsTitle(), null, '回答还没结束，先不起标题');
@@ -1735,7 +1751,7 @@ test('needsTitle 只在「有已完成的回答且没总结过」时为真', asy
 }));
 test('setAutoTitle 不覆盖用户改名，空结果只标记已尝试', async () => withLS(async () => {
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.pushMessage({ role: 'user', text: '问题' });
   st.pushMessage({ role: 'assistant', text: '回答', done: true });
   assert.equal(st.setAutoTitle(st.state.activeSessionId, '   '), false, '空标题不改内容');
@@ -1760,7 +1776,7 @@ test('summarizeTitle 只取第一行非空文本', async () => {
 test('autoTitle：无 Key 时不消耗也不标记', async () => withLS(async () => {
   const t = await import('../js/titler.js');
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.pushMessage({ role: 'user', text: 'q' });
   st.pushMessage({ role: 'assistant', text: 'a', done: true });
   const r = await t.autoTitle(st, { summarize: async () => { throw new Error('不该被调用'); } });
@@ -1771,7 +1787,7 @@ test('autoTitle：无 Key 时不消耗也不标记', async () => withLS(async ()
 test('autoTitle：成功写回 auto 标题；失败标记已尝试', async () => withLS(async () => {
   const t = await import('../js/titler.js');
   const { createStore } = await import('../js/state.js?' + Date.now());
-  const st = createStore();
+  const st = storeNoWeb(createStore());
   st.state.apiKey = 'sk-test';
   st.state.model = 'gpt-5.6-sol';
   st.pushMessage({ role: 'user', text: '帮我把π算到小数点后 50 位' });
@@ -1814,36 +1830,11 @@ const withNetFetch = async (handler, fn) => {
   try { return await fn(net); } finally { globalThis.fetch = real; net.resetRelayProbe(); }
 };
 const NO_RELAY = { '/api/health': () => new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } }) };
-test('无中继时搜索退回 DDG Instant Answer', async () => {
-  await withNetFetch(async (url) => {
-    if (url.startsWith('/api/health')) return NO_RELAY['/api/health']();
-    assert.ok(url.includes('api.duckduckgo.com'), `不该打别的搜索端点：${url}`);
-    return jsonResponse({ Heading: 'Pyodide', RelatedTopics: [{ Text: 'Pyodide 是浏览器里的 Python 运行时', FirstURL: 'https://pyodide.org' }] });
-  }, async (net) => {
-    const r = await net.webSearch({ query: 'Pyodide', count: 5 });
-    assert.equal(r.provider, 'duckduckgo-instant');
-    assert.equal(r.results.length, 1);
-    assert.match(r.note, /本地中继|python3 server\.py/, '降级要说明清楚');
-  });
-});
-test('搜索无结果时不编造，给出下一步建议', async () => {
-  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({ RelatedTopics: [] })),
-    async (net) => {
-      const r = await net.webSearch({ query: '某个非常冷门的查询' });
-      assert.deepEqual(r.results, []);
-      assert.match(r.note, /fetch_url|python3 server\.py/);
-    });
-});
-test('有中继时搜索走中继（provider/结果透传）', async () => {
-  let hit = '';
-  await withNetFetch(async (url) => {
-    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, git: true, search: true });
-    hit = url;
-    return jsonResponse({ provider: 'brave', results: [{ title: 'T1', url: 'https://a.test/1', snippet: 'S1' }], note: '' });
-  }, async (net) => {
-    const r = await net.webSearch({ query: 'x y', count: 3 });
-    assert.equal(r.provider, 'brave');
-    assert.match(hit, /\/api\/search\?q=x%20y&count=3/, hit);
+test('net.webSearch 只保留兼容桩，不再发起任何第三方搜索请求', async () => {
+  await withNetFetch(async () => { throw new Error('不该发请求'); }, async (net) => {
+    const r = await net.webSearch({ query: '随便' });
+    assert.equal(r.provider, 'none');
+    assert.match(r.note, /模型 API 自带|顶栏「联网」/, '桩里要写清联网改哪儿了');
   });
 });
 test('fetch_url 只接受 http(s) 绝对地址', async () => {
@@ -1884,7 +1875,7 @@ test('fetch_url 命中二进制/JS 渲染页面时给出可读原因', async () 
     async (net) => {
       const r = await net.fetchPage({ url: 'https://example.com/spa' });
       assert.equal(r.ok, false);
-      assert.match(r.error, /mode="markdown"/, '空页面要提示可换 markdown 模式');
+      assert.match(r.error, /mode="raw"/, '空页面要提示改用 raw 自己解析（markdown 抽取器是第三方，已移除）');
     });
 });
 test('run_git：无中继明确拒绝（浏览器执行不了外部程序）', async () => {
@@ -1921,42 +1912,241 @@ test('run_git：POST 体带 command/repo/timeout 且成功判定看退出码', a
   });
 });
 
-group('工具层：三个新工具的对外契约');
+group('联网：模型 API 自带的网页搜索请求格式');
+const web = await import('../js/websearch.js');
+test('按模型家族挑原生格式，没有原生格式的模型不联网', async () => {
+  assert.equal(web.webCapFor('claude-sonnet-5').endpoint, 'messages');
+  assert.equal(web.webCapFor('gpt-5.6-sol').endpoint, 'responses', 'GPT 的自带格式在 /v1/responses');
+  assert.equal(web.webCapFor('gpt-6-astra').endpoint, 'responses');
+  assert.equal(web.webCapFor('kimi-k3').endpoint, 'chat');
+  assert.equal(web.webCapFor('glm-5.3').endpoint, 'chat');
+  assert.equal(web.webCapFor('grok-4.6').endpoint, 'chat');
+  assert.equal(web.webCapFor('deepseek-v4-pro'), null, '没有原生格式就是 null，不许偷偷改道第三方');
+  assert.equal(web.webCapFor(''), null);
+  assert.match(web.webCapNote(null), /没有原生联网格式/);
+  assert.match(web.webCapNote(web.webCapFor('claude-sonnet-5')), /web_search_20250305/);
+});
+test('注入的请求体只加原生字段，不新增任何 host', async () => {
+  const a = web.injectWeb({ model: 'claude-sonnet-5', messages: [] }, web.webCapFor('claude-sonnet-5'));
+  assert.deepEqual(a.tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }]);
+  const r = web.injectWeb({ model: 'gpt-5.6-sol', input: [] }, web.webCapFor('gpt-5.6-sol'));
+  assert.deepEqual(r.tools, [{ type: 'web_search', search_context_size: 'medium' }]);
+  assert.deepEqual(r.include, ['web_search_call.action.sources'], 'Responses 要 include 来源才有引用');
+  const k = web.injectWeb({ model: 'kimi-k3', messages: [] }, web.webCapFor('kimi-k3'));
+  assert.deepEqual(k.tools, [{ type: 'builtin_function', function: { name: '$web_search' } }]);
+  const g = web.injectWeb({ model: 'glm-5.3', messages: [] }, web.webCapFor('glm-5.3'));
+  assert.deepEqual(g.tools, [{ type: 'web_search' }]);
+  const x = web.injectWeb({ model: 'grok-4.6', messages: [] }, web.webCapFor('grok-4.6'));
+  assert.deepEqual(x.search_parameters, { mode: 'live', return_citations: true });
+  for (const body of [a, r, k, g, x]) {
+    assert.ok(!/duckduckgo|brave|tavily|serper|jina/i.test(JSON.stringify(body)), '请求体里不能出现第三方搜索服务');
+  }
+  assert.deepEqual(web.injectWeb({ model: 'deepseek-v4-pro', messages: [] }, null).tools, undefined);
+});
+test('已有客户端工具时原生工具是追加而不是替换', async () => {
+  const cap = web.webCapFor('claude-sonnet-5');
+  const body = web.injectWeb({ tools: [{ name: 'write_file' }], messages: [] }, cap);
+  assert.deepEqual(body.tools.map((t) => t.name), ['write_file', 'web_search']);
+});
+test('Responses API 请求体：system→instructions，工具与附件映射成 input items', async () => {
+  const { instructions, input } = web.buildResponsesInput([
+    { role: 'system', text: '你是…' },
+    { role: 'user', text: '看这张图', attachments: [{ kind: 'image', name: 'a.png', dataUrl: 'data:image/png;base64,AAA' }] },
+    { role: 'assistant', text: '先写文件', toolCalls: [{ id: 'call_9', name: 'write_file', args: { path: 'a.txt' } }] },
+    { role: 'tool', toolCallId: 'call_9', content: '已写入' },
+  ]);
+  assert.equal(instructions, '你是…');
+  assert.deepEqual(input.map((x) => x.type), ['message', 'message', 'function_call', 'function_call_output']);
+  assert.deepEqual(input[0].content[1], { type: 'input_image', image_url: 'data:image/png;base64,AAA' });
+  assert.deepEqual(input[2], { type: 'function_call', call_id: 'call_9', name: 'write_file', arguments: '{"path":"a.txt"}' });
+  assert.deepEqual(input[3], { type: 'function_call_output', call_id: 'call_9', output: '已写入' });
+  const onlyUser = web.buildResponsesInput([{ role: 'user', text: 'hi' }]);
+  assert.equal(onlyUser.instructions, '', '没有 system 时不要塞空 instructions');
+});
+test('Responses 流事件归一到与另两种协议相同的事件词汇', async () => {
+  const evs = [];
+  const h = web.createResponsesStream((e) => evs.push(e));
+  h({ type: 'response.created', response: { id: 'resp_1' } });
+  h({ type: 'response.output_item.added', item: { type: 'web_search_call', status: 'in_progress' } });
+  h({ type: 'response.output_text.delta', delta: '查到 ' });
+  h({ type: 'response.output_text.delta', delta: '3 条' });
+  h({ type: 'response.output_item.done', item: { type: 'web_search_call', action: { query: 'pyodide 版本', sources: [{ url: 'https://a.test' }, { url: 'https://b.test' }] } } });
+  h({ type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'call_1', name: 'write_file', arguments: '' } });
+  h({ type: 'response.function_call_arguments.delta', delta: '{"path":"x"}' });
+  h({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 11, output_tokens: 5 }, output: [] } });
+  assert.deepEqual(evs.map((e) => e.type), ['web_search', 'text', 'text', 'web_search', 'tool_delta', 'tool_delta', 'usage', 'finish']);
+  assert.equal(evs[1].text + evs[2].text, '查到 3 条');
+  assert.equal(evs[3].status, 'done');
+  assert.deepEqual(evs[3].queries, ['pyodide 版本']);
+  assert.equal(evs[3].sources.length, 2, '引用来源要带出来');
+  assert.equal(evs[4].name, 'write_file');
+  assert.equal(evs[4].id, 'call_1');
+  assert.deepEqual({ input: evs[6].usage.input, output: evs[6].usage.output }, { input: 11, output: 5 });
+  assert.equal(evs[7].reason, 'stop');
+  const err = [];
+  web.createResponsesStream((e) => err.push(e))({ type: 'response.failed', error: { message: '上游炸了' } });
+  assert.equal(err[0].message, '上游炸了', '失败要冒泡成 error 事件，不能静默结束');
+  // 并行两个 function_call 且协议不给 output_index：不能塌成同一个 index（参数会糊成一坨）
+  const acc = api.createToolCallAccumulator();
+  const h2 = web.createResponsesStream((e) => { if (e.type === 'tool_delta') acc.push(e); });
+  for (const it of [{ type: 'function_call', call_id: 'A', name: 'f1', arguments: '' }, { type: 'function_call', call_id: 'B', name: 'f2', arguments: '' }]) {
+    h2({ type: 'response.output_item.added', item: it });
+  }
+  h2({ type: 'response.function_call_arguments.delta', call_id: 'A', delta: '{"p":1}' });
+  h2({ type: 'response.function_call_arguments.delta', call_id: 'B', delta: '{"p":2}' });
+  h2({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'A', name: 'f1', arguments: '{"p":1}' } });
+  h2({ type: 'response.output_item.done', item: { type: 'function_call', call_id: 'B', name: 'f2', arguments: '{"p":2}' } });
+  assert.deepEqual(acc.result().map((c) => [c.name, c.args.p]), [['f1', 1], ['f2', 2]], JSON.stringify(acc.result()));
+});
+test('Anthropic 流里的服务端联网块被归一为 web_search 事件', async () => {
+  const evs = [];
+  const h = api.createAnthropicStream((e) => evs.push(e));
+  h({ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search', input: {} } });
+  h({ type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', url: 'https://a.test', title: 'A' }, { type: 'web_search_result', url: 'https://b.test', title: 'B' }] } });
+  h({ type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } });
+  h({ type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: '据来源 A、B' } });
+  assert.deepEqual(evs.map((e) => e.type), ['web_search', 'web_search', 'text']);
+  assert.equal(evs[0].status, 'searching');
+  assert.equal(evs[1].status, 'done');
+  assert.equal(evs[1].results, 2);
+  assert.deepEqual(evs[1].sources[0], { url: 'https://a.test', title: 'A' });
+});
+test('streamChat：GPT 联网走 /v1/responses，Claude 联网走 /v1/messages 的服务器工具', async () => {
+  const calls = [];
+  api.__resetWebFallbackForTests();
+  mockFetch([
+    sseResponse('data: ' + JSON.stringify({ type: 'response.output_text.delta', delta: '联网答完了' }) + '\n\ndata: ' + JSON.stringify({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 3, output_tokens: 2 }, output: [] } }) + '\n\ndata: [DONE]\n\n', 200),
+    api.anthropicTextTurnForTest ? api.anthropicTextTurnForTest('x') : sseResponse('data: ' + JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) + '\n\ndata: ' + JSON.stringify({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'claude 联网答完' } }) + '\n\ndata: ' + JSON.stringify({ type: 'message_stop' }) + '\n\ndata: [DONE]\n\n', 200),
+  ], calls);
+  try {
+    const msgs = [{ role: 'system', text: 'S' }, { role: 'user', text: '今天几点' }];
+    let got = '';
+    await api.streamChat({ model: 'gpt-5.6-sol', apiKey: 'k', messages: msgs, webEnabled: true, onEvent: (ev) => { if (ev.type === 'text') got += ev.text; } });
+    assert.equal(got, '联网答完了');
+    assert.ok(calls[0].url.endsWith('/v1/responses'), calls[0].url);
+    assert.equal(calls[0].body.instructions, 'S', 'system 要落到 instructions');
+    assert.deepEqual(calls[0].body.tools, [{ type: 'web_search', search_context_size: 'medium' }]);
+    assert.equal(calls[0].body.stream, true);
+    got = '';
+    await api.streamChat({ model: 'claude-sonnet-5', apiKey: 'k', messages: msgs, webEnabled: true, onEvent: (ev) => { if (ev.type === 'text') got += ev.text; } });
+    assert.ok(calls[1].url.endsWith('/v1/messages'), calls[1].url);
+    assert.deepEqual(calls[1].body.tools.map((t) => t.type), ['web_search_20250305']);
+    assert.equal(got, 'claude 联网答完');
+  } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); }
+});
+test('关掉联网就完全没有原生字段；无原生格式的模型也不联网', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('ok'), openaiTextTurn('ok2')], calls);
+  try {
+    const msgs = [{ role: 'user', text: 'q' }];
+    await api.streamChat({ model: 'gpt-5.6-sol', apiKey: 'k', messages: msgs, webEnabled: false, onEvent: () => {} });
+    assert.ok(calls[0].url.endsWith('/v1/chat/completions'), '关联网时仍走 Chat Completions');
+    assert.ok(!('tools' in calls[0].body) || calls[0].body.tools.every((t) => t.type === 'function'));
+    await api.streamChat({ model: 'deepseek-v4-pro', apiKey: 'k', messages: msgs, webEnabled: true, onEvent: () => {} });
+    assert.ok(calls[1].url.endsWith('/v1/chat/completions'), 'DeepSeek 没有原生格式 → 不改端点');
+    assert.ok(!JSON.stringify(calls[1].body).includes('web_search'), '也不能塞任何联网字段');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('Responses 端点被拒 → 自动退回 Chat Completions、剥掉联网并告知', async () => {
+  const calls = [];
+  api.__resetWebFallbackForTests();
+  mockFetch([
+    new Response(JSON.stringify({ error: { message: 'responses api is only supported for gpt models' } }), { status: 400, headers: { 'content-type': 'application/json' } }),
+    openaiTextTurn('退回后答完了'),
+    openaiTextTurn('下一轮直接走 chat'), // 记住降级后第二次调用不该再碰 /v1/responses
+  ], calls);
+  let why = '';
+  try {
+    let got = '';
+    await api.streamChat({
+      model: 'gpt-5.6-sol', apiKey: 'k', messages: [{ role: 'user', text: 'q' }], webEnabled: true,
+      onEvent: (ev) => { if (ev.type === 'text') got += ev.text; },
+      onWebFallback: (m, note) => { why = note; },
+    });
+    assert.equal(got, '退回后答完了');
+    assert.equal(calls.length, 2, '第一次被拒后必须重放一次');
+    assert.ok(calls[1].url.endsWith('/v1/chat/completions'), calls[1].url);
+    assert.ok(!JSON.stringify(calls[1].body).includes('web_search'), '重放时联网字段要摘掉');
+    assert.match(why, /Responses API 端点被拒/);
+    // 记住这个模型：后续回合不再白白试一次 Responses
+    await api.streamChat({ model: 'gpt-5.6-sol', apiKey: 'k', messages: [{ role: 'user', text: 'q2' }], webEnabled: true, onEvent: () => {} });
+    assert.ok(calls[2].url.endsWith('/v1/chat/completions'), '第二次直接走 chat 端点');
+  } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); }
+});
+test('联网字段被模型拒收 → 剥离重试并记入降级表', async () => {
+  const calls = [];
+  api.__resetWebFallbackForTests();
+  mockFetch([
+    new Response(JSON.stringify({ error: { message: "Invalid tool type 'web_search' for this model" } }), { status: 400, headers: { 'content-type': 'application/json' } }),
+    openaiTextTurn('没联网也答完了'),
+    openaiTextTurn('记住之后不带联网字段'),
+  ], calls);
+  const notes = [];
+  try {
+    let got = '';
+    await api.streamChat({
+      model: 'glm-5.3', apiKey: 'k', messages: [{ role: 'user', text: 'q' }], webEnabled: true,
+      onEvent: (ev) => { if (ev.type === 'text') got += ev.text; },
+      onWebFallback: (m, note) => notes.push([m, note]),
+    });
+    assert.equal(got, '没联网也答完了');
+    assert.equal(notes.length, 1);
+    assert.match(notes[0][1], /拒绝原生联网字段/);
+    assert.ok(api.webFallbackFor('glm-5.3'), '该模型进入降级表，本会话不再重复尝试');
+    await api.streamChat({ model: 'glm-5.3', apiKey: 'k', messages: [{ role: 'user', text: 'q2' }], webEnabled: true, onEvent: () => {} });
+    assert.ok(!JSON.stringify(calls[1].body).includes('web_search'), '记住之后连第一次请求都不带联网字段');
+  } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); }
+});
+test('Agent 回合：联网来源写进消息（切会话后还在），提示词按开关说明联网', async () => {
+  const calls = [];
+  api.__resetWebFallbackForTests();
+  mockFetch([
+    sseResponse(['data: ' + JSON.stringify({ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srv_1', name: 'web_search', input: {} } }) + '\n\n',
+      'data: ' + JSON.stringify({ type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'srv_1', content: [{ type: 'web_search_result', url: 'https://src.test/x', title: '来源一' }] } }) + '\n\n',
+      'data: ' + JSON.stringify({ type: 'content_block_start', index: 2, content_block: { type: 'text', text: '' } }) + '\n\n',
+      'data: ' + JSON.stringify({ type: 'content_block_delta', index: 2, delta: { type: 'text_delta', text: '据来源一' } }) + '\n\n',
+      'data: ' + JSON.stringify({ type: 'message_stop' }) + '\n\n', 'data: [DONE]\n\n'].join(''), 200),
+    anthropicTextTurn('未联网时照样能答'),
+  ], calls);
+  let seen = null;
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'claude-sonnet-5';
+    store.state.settings.webEnabled = true;
+    const agent = createAgent(store, { onWebSearch: (m, w) => { seen = w; } });
+    await agent.send('今天有什么新闻');
+    assert.equal(seen.results, 1, 'UI 要收到「检索到 1 条来源」');
+    const done = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(done.webSearch.sources[0].url, 'https://src.test/x', '来源随消息持久化');
+    const sys = calls[0].body.system || calls[0].body.messages[0].content;
+    assert.match(sys, /本轮已按当前模型的原生格式开启服务端网页搜索/, '开联网时提示词要说明能力从哪来');
+    assert.match(sys, /不必等用户点名/);
+    // 关掉联网后必须换成「别声称能联网」的说法
+    store.state.settings.webEnabled = false;
+    await agent.send('再来一轮');
+    const sys2 = calls[1].body.system || calls[1].body.messages[0].content;
+    assert.match(sys2, /本轮未联网（本项目不接任何第三方搜索接口）/);
+    assert.ok(!/web_search_20250305/.test(String(sys2)), '关联网时不要再宣称已开启服务端搜索');
+    assert.ok(!('tools' in calls[1].body) || calls[1].body.tools.every((t) => t.name !== 'web_search'), '也不能带原生联网工具');
+  } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); await drainSaves(); }
+});
+group('工具层：抓取与 git 工具的对外契约');
 test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
   const byName = Object.fromEntries(TOOL_DEFS.map((t) => [t.name, t]));
-  for (const n of ['web_search', 'fetch_url', 'run_git']) assert.ok(byName[n], `缺少工具 ${n}`);
-  assert.deepEqual(byName.web_search.parameters.required, ['query']);
+  for (const n of ['fetch_url', 'run_git']) assert.ok(byName[n], `缺少工具 ${n}`);
+  assert.ok(!byName.web_search, '不能再有 web_search 工具：联网由模型 API 自带格式完成（用户明确要求不接第三方搜索）');
   assert.deepEqual(byName.fetch_url.parameters.required, ['url']);
+  assert.deepEqual(byName.fetch_url.parameters.properties.mode.enum, ['text', 'raw'], 'markdown 模式依赖第三方抽取器，必须移除');
   assert.ok(byName.run_git.parameters.required.includes('command'));
   assert.ok(/git /.test(byName.run_git.description), '描述里要写清 git 走本地中继');
-  assert.ok(TOOL_DEFS.length >= 12, `工具总数：${TOOL_DEFS.length}`);
+  assert.ok(TOOL_DEFS.length >= 10, `工具总数：${TOOL_DEFS.length}`);
 });
-test('系统提示词提到了三个新工具（漂移守卫）', async () => {
+test('系统提示词提到了抓取与 git、并说明联网不是工具（漂移守卫）', async () => {
   const sp = cfg.systemPrompt();
-  for (const kw of ['web_search', 'fetch_url', 'run_git']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
-  assert.match(sp, /先查再答|查不到/, '要有「查不到就明说」的自主性规则');
-});
-test('executeTool(web_search) 输出编号列表并回报状态', async () => {
-  await withNetFetch(async (url) => {
-    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, search: true });
-    return jsonResponse({ provider: 'tavily', results: [{ title: 'A', url: 'https://a.test', snippet: 'sa' }, { title: 'B', url: 'https://b.test', snippet: '' }] });
-  }, async () => {
-    const ev = [];
-    const out = await executeTool('web_search', { query: 'x', count: 5 }, { fs: createFS(), onUi: (p) => ev.push(p) });
-    assert.match(out, /^\[搜索结果 · tavily · 2 条\]/, out.slice(0, 60));
-    assert.ok(out.includes('1. A\n   https://a.test\n   sa'), out);
-    assert.equal(ev[0].status, 'running');
-    assert.match(ev[1].note, /2 条结果（tavily）/);
-  });
-});
-test('executeTool(web_search) 缺 query / 无结果都不抛错', async () => {
-  assert.match(await executeTool('web_search', {}, { fs: createFS() }), /缺少 query/);
-  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({ RelatedTopics: [] })), async () => {
-    let err = null;
-    const out = await executeTool('web_search', { query: '冷门问题' }, { fs: createFS(), onUi: (p) => { if (p.status === 'error') err = p.error; } });
-    assert.match(out, /^\[搜索无结果\] 冷门问题/, out);
-    assert.ok(err && err.message, '芯片要显示错误说明');
-  });
+  for (const kw of ['fetch_url', 'run_git', '联网']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
+  assert.match(sp, /不要去找一个叫 web_search 的工具/, '要说明联网不是工具');
+  assert.match(sp, /查不到就明说没查到|明确说无法核实/, '要有「查不到就明说」的自主性规则');
 });
 test('executeTool(fetch_url) 用 save_path 落盘并在芯片里标记 fsChange', async () => {
   await withNetFetch(async (url) => {
@@ -1984,9 +2174,9 @@ test('executeTool(run_git) 无中继时返回带修复说明的失败', async ()
     assert.match(ev[ev.length - 1].error.message, /python3 server\.py/);
   });
 });
-test('三个新工具在关闭沙箱时依然可用（它们不依赖 Worker）', async () => {
+test('抓取与 git 工具在关闭沙箱时依然可用（它们不依赖 Worker）', async () => {
   const names = (await import('../js/tools.js')).toolsFor(false).map((t) => t.name);
-  for (const n of ['web_search', 'fetch_url', 'run_git']) assert.ok(names.includes(n), `关沙箱后 ${n} 不应被摘掉`);
+  for (const n of ['fetch_url', 'run_git']) assert.ok(names.includes(n), `关沙箱后 ${n} 不应被摘掉`);
   assert.ok(!names.includes('execute_python'), '代码执行工具仍应被摘掉');
 });
 

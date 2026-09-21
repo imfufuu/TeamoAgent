@@ -3,7 +3,7 @@ import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js'
 import { generateImage, editImage, bytesToDataUrl, sniffImage } from './api.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
-import { webSearch, fetchPage, gitRun } from './net.js';
+import { fetchPage, gitRun } from './net.js';
 
 export const TOOL_DEFS = [
   {
@@ -100,31 +100,17 @@ export const TOOL_DEFS = [
     },
   },
   {
-    name: 'web_search',
-    description:
-      '联网搜索关键词，返回标题/链接/摘要列表。用于拿最新信息、找文档出处、确认第三方库版本与行为。' +
-      '优先走本地中继（server.py 的 /api/search，通用搜索引擎结果）；静态托管下会自动降级为 DuckDuckGo Instant Answer' +
-      '（百科/定义/产品概述类效果好，长尾可能为空——为空时请改用 fetch_url 抓你已知的网址）。',
-    parameters: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: '搜索词（尽量具体，可带 site: 或年份等限定词）' },
-        count: { type: 'integer', enum: [1, 3, 5, 6, 8, 10], description: '返回条数，默认 6' },
-      },
-      required: ['query'],
-    },
-  },
-  {
     name: 'fetch_url',
     description:
-      '抓取一个 http(s) 网址并转成正文文本（或 markdown / 原始 HTML）。用于读文档、CHANGELOG、issue、API 响应。' +
+      '抓取一个 http(s) 网址并转成正文文本（或原始 HTML）。用于读文档、CHANGELOG、issue、API 响应。' +
       '长内容会自动写入沙箱 web/ 目录（可用 read_file 续读，也能交给子智能体），返回值给前 6000 字符预览。' +
-      '跨域限制下部分站点必须由本地中继代抓，失败信息里会说明原因。',
+      '本工具只走本地中继（server.py 的 /api/fetch）：页面抓取需要服务端发请求，浏览器 CSP 与目标站点的 CORS 都不允许直连。' +
+      '中继没在跑时会直接返回原因，此时请让用户启动中继，或用联网搜索（顶栏「联网」开关，走模型 API 自带格式）替代。',
     parameters: {
       type: 'object',
       properties: {
         url: { type: 'string', description: '完整网址（含 http:// 或 https://）' },
-        mode: { type: 'string', enum: ['text', 'markdown', 'raw'], description: 'text=去标签正文（默认）；markdown=正文抽取器；raw=原始 HTML/JSON' },
+        mode: { type: 'string', enum: ['text', 'raw'], description: 'text=去标签正文（默认）；raw=原始 HTML/JSON（自己做正则/解析时用）' },
         max_bytes: { type: 'integer', description: '最多抓取字节数，默认 2000000，上限 4000000' },
         save_path: { type: 'string', description: '可选：把全文写到沙箱的指定路径（默认 web/<host>/<slug>.md）' },
       },
@@ -247,19 +233,6 @@ export async function executeTool(name, args, ctx) {
         const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
         emit({ status: 'ok', note: msg });
         return msg;
-      }
-      case 'web_search': {
-        const q = String(args.query || '').trim();
-        if (!q) return 'web_search 缺少 query 参数。';
-        emit({ status: 'running', note: `搜索：${q.slice(0, 40)}` });
-        const r = await webSearch({ query: q, count: Number(args.count) || 6, signal: ctx.signal });
-        if (!r.results.length) {
-          emit({ status: 'error', error: { message: r.note || '无结果' } });
-          return `[搜索无结果] ${q}\n${r.note || ''}`;
-        }
-        emit({ status: 'ok', note: `${r.results.length} 条结果（${r.provider}）` });
-        const lines = r.results.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}${x.snippet ? `\n   ${x.snippet}` : ''}`);
-        return `[搜索结果 · ${r.provider} · ${r.results.length} 条]\n${lines.join('\n')}${r.note ? `\n\n说明：${r.note}` : ''}\n提示：需要页面正文请用 fetch_url。`;
       }
       case 'fetch_url': {
         emit({ status: 'running', note: `抓取 ${String(args.url || '').slice(0, 50)}` });

@@ -344,6 +344,7 @@ ok('index.html 侧栏 Logo 无内联动画', !/logo-mark[^>]*style="[^"]*animati
 
 console.log('\n③ 视图层故障不能 brick 发送');
 const cfgMod = await import(path.join(ROOT, 'js/config.js'));
+const cfgMod2 = cfgMod;
 ok('侧栏展示构建版本', $('#build-stamp').textContent.includes(cfgMod.APP_VERSION), $('#build-stamp').textContent);
 ok('index.html 入口资源已版本化', /css\/styles\.css\?v=/.test(html) && /js\/main\.js\?v=/.test(html));
 // 旧调用方只传文本（缓存了旧 main.js 的情形）：UI 需自己找回那条用户消息
@@ -397,6 +398,73 @@ console.log('\n⑪ 沙箱面板头部改成两行（标题一行，统计与按�
   const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
   ok('工具栏为 column 布局（两行）', /\.files-toolbar\s*\{[^}]*flex-direction: column/.test(css));
   ok('第二行自身是左右分布', /\.files-bar\s*\{[^}]*justify-content: space-between/.test(css));
+}
+
+console.log('\n⑫ 联网开关（模型 API 自带格式，无第三方搜索）');
+{
+  const web = await import(path.join(ROOT, 'js/websearch.js'));
+  const pill = $('#web-toggle');
+  ok('顶栏有「联网」pill（SVG + 中文）', !!pill && !!pill.querySelector('svg') && /联网/.test(pill.textContent), pill ? pill.textContent : '缺失');
+  ok('默认开启', pill.classList.contains('on') && store.state.settings.webEnabled !== false);
+  // 提示语必须跟着「当前模型」走：先点模型列表选 GPT，pill 要立刻改成 Responses 原生格式的说法
+  const before = pill.title;
+  // 提示语必须跟着「当前模型」走：从模型菜单选 GPT，pill 要立刻改成 Responses 原生格式的说法
+  const titleBefore = pill.title;
+  click($('#model-btn'));
+  const item = $$('#model-menu .dd-item').find((n) => /gpt-5\.5/.test(n.textContent));
+  ok('模型菜单里有 GPT 这一项', !!item, $$('#model-menu .dd-item').length + ' 项');
+  click(item);
+  ok('菜单点完即关闭', !$('#model-menu').classList.contains('open'));
+  ok('切模型后 store 里确实是这个模型', store.state.model === 'gpt-5.5', store.state.model);
+  const capGpt = web.webCapFor('gpt-5.5');
+  const capClaude = web.webCapFor('claude-opus-5');
+  ok('pill 的提示语跟着换成该模型的原生格式',
+    pill.title.includes(capGpt.label) && !pill.title.includes(capClaude.label) && pill.title !== titleBefore,
+    pill.title);
+  click(pill);
+  ok('点一下即关闭并写回 settings', store.state.settings.webEnabled === false && !$('#web-toggle').classList.contains('on'));
+  click($('#web-toggle'));
+  ok('再点恢复开启', store.state.settings.webEnabled === true);
+  // 联网来源条：由消息上的 webSearch 渲染（切会话/重开页面后同样能重建）
+  const m = store.pushMessage({
+    role: 'assistant', text: '根据来源回答', model: store.state.model, done: true,
+    webSearch: { status: 'done', results: 2, queries: ['pyodide 0.26 版本'], sources: [{ url: 'https://pyodide.org/docs', title: 'Pyodide 文档' }, { url: 'https://a.test/b', title: 'B' }] },
+  });
+  ui.rebuildMessages();
+  const note = $('#messages .msg[data-id="' + m.id + '"] .web-note');
+  ok('回答下方出现联网来源条（含条数与查询词）', !!note && /服务端检索到 2 条来源/.test(note.textContent) && /pyodide 0.26 版本/.test(note.textContent), note ? note.textContent : '缺失');
+  ok('来源渲染成可点外链且带 noopener', [...note.querySelectorAll('a.web-src')].length === 2 && String(note.querySelector('a').getAttribute('rel')).includes('noopener') && note.querySelector('a').target === '_blank');
+  const m2 = store.pushMessage({ role: 'assistant', text: 'x', done: true, webSearch: { status: 'searching', sources: [], results: 0, queries: [] } });
+  ui.rebuildMessages();
+  ok('检索中显示进度而不是一片空白', !!$('#messages .msg[data-id="' + m2.id + '"] .web-note .web-dot'));
+  ok('没有 webSearch 的消息不画来源条', $$('#messages .msg-user .web-note').length === 0);
+}
+
+console.log('\n⑬ 余额显示已删除');
+{
+  const html2 = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok('markup 里没有 balance-badge', !/balance-badge/.test(html2));
+  ok('UI 源码不再请求余额接口', !/fetchBalance|\/api\/user\/self/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  ok('api.js 也不再导出余额函数', !/export async function fetchBalance/.test(fs.readFileSync(path.join(ROOT, 'js/api.js'), 'utf8')) && !/refreshBalance/.test(uiSrc));
+}
+
+console.log('\n⑭ 欢迎页在 y 轴居中');
+{
+  const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
+  const rule = /\.empty-state\s*\{[^}]*\}/.exec(css)?.[0] || '';
+  ok('empty-state 自己是 flex 纵向居中容器', /display: flex/.test(rule) && /align-items: center/.test(rule) && /justify-content: center/.test(rule), rule);
+  ok('靠 min-height:100% 占满视口而不是拍脑袋的 margin', /min-height: 100%/.test(rule) && !/margin: 9vh/.test(rule), rule);
+  ok('内容超高时不裁顶（safe center）', /justify-content: safe center/.test(rule), rule);
+  ok('有对话时布局不变（.messages 仍是普通滚动容器）', !/\.messages\s*\{[^}]*display: flex/.test(css));
+}
+
+console.log('\n⑮ 版本漂移自检（硬刷新前就能发现缓存不一致）');
+{
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  ok('入口自带 app-version meta', /<meta name="app-version" content="([\d.]+)"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  ok('UI 比对入口版本与模块版本并提示', /meta\[name="app-version"\]/.test(uiSrc) && /资源缓存不一致|缓存不一致/.test(uiSrc));
+  ok('侧栏版本号仍然显示', $('#build-stamp').textContent.includes(cfgMod2.APP_VERSION), $('#build-stamp').textContent);
 }
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');

@@ -47,59 +47,82 @@ const ok = (name, cond, extra = '') => {
   else { failures++; console.log(`  ✗ ${name} ${extra}`); if (diag.length) console.log('      ' + diag.join('\n      ')); }
 };
 
-// ── 桩网关：只对话端点回 SSE，其它端点回 JSON（避免占用回合）──
+// ── 桩网关：三种协议端点都回各自的 SSE（chat/completions · messages · responses）──
+// /v1/responses 这一条是本轮改动后才会被走到的：GPT 系开联网时前端就发这里。
 const enc = (o) => `data: ${JSON.stringify(o)}\n\n`;
+const SSE = { 'content-type': 'text/event-stream' };
 let turn = 0;
 const reqs = []; // 抓请求体，供「关掉沙箱后还能委派子智能体」这类断言核对
+const allUrls = []; // 所有出网 URL：用来断言「不存在任何第三方 host / 余额接口」
+const chatText = (t) => new Response([enc({ choices: [{ delta: { content: t } }] }), enc({ choices: [{ delta: {}, finish_reason: 'stop' }] }), 'data: [DONE]\n\n'].join(''), { status: 200, headers: SSE });
+const chatTool = (id, name, args) => new Response([enc({ choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: args } }] } }] }), enc({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })].join(''), { status: 200, headers: SSE });
+const sseRes = (b) => new Response(b, { status: 200, headers: SSE });
+const anthTextSse = (t, stop = 'end_turn') => ['event: message_start\ndata: {"type":"message_start","message":{"id":"m","role":"assistant","content":[]}}\n\n',
+  `event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n`,
+  `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":${JSON.stringify(t)}}}\n\n`,
+  'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+  `event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"${stop}"}}\n\n`,
+  'event: message_stop\ndata: {"type":"message_stop"}\n\n'].join('');
+const anthToolSse = (id, name, args) => ['event: message_start\ndata: {"type":"message_start","message":{"id":"m","role":"assistant","content":[]}}\n\n',
+  `event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":${JSON.stringify(id)},"name":${JSON.stringify(name)},"input":{}}}\n\n`,
+  `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":${JSON.stringify(args)}}}\n\n`,
+  'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
+  'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}\n\n',
+  'event: message_stop\ndata: {"type":"message_stop"}\n\n'].join('');
+// Responses 协议：文本走 output_text.delta，工具走 function_call item，服务端联网走 web_search_call
+const respText = (t) => new Response([enc({ type: 'response.output_text.delta', delta: t }),
+  enc({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 12 }, output: [] } }),
+  'data: [DONE]\n\n'].join(''), { status: 200, headers: SSE });
+const respTool = (id, name, args) => new Response([enc({ type: 'response.output_item.added', item: { type: 'function_call', call_id: id, name, arguments: '' } }),
+  enc({ type: 'response.function_call_arguments.delta', item_id: id, delta: args }),
+  enc({ type: 'response.output_item.done', item: { type: 'function_call', call_id: id, name, arguments: args } }),
+  enc({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 20, output_tokens: 8 }, output: [] } })].join(''), { status: 200, headers: SSE });
+// 联网发生在模型服务端：开联网时桩里就多回一段 web_search_call（界面上应出现来源条）
+const respWeb = [enc({ type: 'response.output_item.added', item: { type: 'web_search_call', status: 'in_progress' } }),
+  enc({ type: 'response.output_item.done', item: { type: 'web_search_call', status: 'completed', action: { query: 'Pyodide 0.26 变更', sources: [{ type: 'url_citation', url: 'https://pyodide.org/docs/changelog', title: 'Changelog' }] } } })];
+const anthWeb = [enc({ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 'srv_boot', name: 'web_search', input: {} } }),
+  enc({ type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 'srv_boot', content: [{ type: 'web_search_result', url: 'https://pyodide.org/docs/changelog', title: 'Changelog' }] } })];
+
 globalThis.fetch = async (url, opts) => {
   const u = String(url);
-  if (/\/v1\/(chat\/completions|messages)$/.test(u)) {
-    try { reqs.push({ url: u, body: JSON.parse(opts.body) }); } catch { /**/ }
+  allUrls.push(u);
+  const ep = /\/v1\/chat\/completions$/.test(u) ? 'chat' : /\/v1\/messages$/.test(u) ? 'anthropic' : /\/v1\/responses$/.test(u) ? 'responses' : null;
+  let body = null;
+  if (ep) { try { body = JSON.parse(opts.body); reqs.push({ url: u, body }); } catch { /**/ } }
+  if (!ep) return new Response(JSON.stringify({ data: [{ id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-5' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  const hay = JSON.stringify(body || {});
+  // 只看请求体里的工具声明（提示词里也写着 web_search 这个词，不能拿整个 body 当判据）
+  const wantsWeb = ((body && body.tools) || []).some((t) => String(t.type || '').startsWith('web_search'));
+  // 标题总结是独立的小调用（不带历史与工具）：直接回一个标题，不占对话回合计数
+  if (hay.includes('给下面这轮对话起一个标题')) {
+    return ep === 'anthropic' ? sseRes(anthTextSse('沙箱算质数与 π')) : ep === 'responses' ? respText('沙箱算质数与 π') : chatText('沙箱算质数与 π');
   }
-  if (!/\/v1\/(chat\/completions|messages)$/.test(u)) {
-    return new Response(JSON.stringify({ data: [{ id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-5' }], balance: 12.5, quota: 100, used: 2 }), { status: 200, headers: { 'content-type': 'application/json' } });
-  }
-  // 标题总结是独立的小调用（不进对话历史）：桩网关直接回一个标题，避免占用回合计数
-  let isTitleTurn = false;
-  try { isTitleTurn = String(JSON.parse(opts.body).messages?.[0]?.content || '').includes('给下面这轮对话起一个标题'); } catch { /**/ }
-  if (isTitleTurn) {
-    return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: '沙箱算质数与 π' } }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-  }
-  const anthropic = u.includes('/v1/messages');
   // 子智能体的首轮请求只有 system+user，system 里一定带「TeamoAgent 体系中的」
-  let isSubTurn = false;
-  try { isSubTurn = String(JSON.parse(opts.body).messages?.[0]?.content || '').includes('体系中的'); } catch { /**/ }
-  if (isSubTurn) {
-    return new Response([enc({ choices: [{ delta: { content: '结论：先加输入校验，再补边界用例' } }] }), 'data: [DONE]\n\n'].join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  if (hay.includes('体系中的')) {
+    return ep === 'anthropic' ? sseRes(anthTextSse('结论：先加输入校验，再补边界用例'))
+      : ep === 'responses' ? respText('结论：先加输入校验，再补边界用例')
+        : chatText('结论：先加输入校验，再补边界用例');
   }
   turn++;
   const isToolTurn = turn === 1;
-  if (anthropic) {
-    const isDispatchTurn = turn === 3;
-  const body = isToolTurn
-      ? ['event: message_start\ndata: {"type":"message_start","message":{"id":"m1","role":"assistant","content":[]}}\n\n',
-        'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_boot","name":"write_file","input":{}}}\n\n',
-        `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":${JSON.stringify(JSON.stringify({ path: 'uploads/cat.png', content: 'data:image/png;base64,iVBORw0KGgo=' }))}}}\n\n`,
-        'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
-        'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"tool_use"}}\n\n',
-        'event: message_stop\ndata: {"type":"message_stop"}\n\n'].join('')
-      : ['event: message_start\ndata: {"type":"message_start","message":{"id":"m2","role":"assistant","content":[]}}\n\n',
-        'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
-        'event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"已写入"}}\n\n',
-        'event: content_block_stop\ndata: {"type":"content_block_stop","index":0}\n\n',
-        'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}\n\n',
-        'event: message_stop\ndata: {"type":"message_stop"}\n\n'].join('');
-    return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
-  }
   const isDispatchTurn = turn === 3;
-  const body = isToolTurn
-    ? [enc({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_boot', function: { name: 'write_file', arguments: JSON.stringify({ path: 'uploads/cat.png', content: 'data:image/png;base64,iVBORw0KGgo=' }) } }] } }] }),
-      enc({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })].join('')
-    : isDispatchTurn
-      ? [enc({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_sub', function: { name: 'dispatch_subagent', arguments: JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }) } }] } }] }),
-        enc({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })].join('')
-      : [enc({ choices: [{ delta: { content: turn === 2 ? '已写入' : '已整合专家意见' } }] }), 'data: [DONE]\n\n'].join('');
-  return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  const args = JSON.stringify({ path: 'uploads/cat.png', content: 'data:image/png;base64,iVBORw0KGgo=' });
+  if (ep === 'responses') {
+    if (isToolTurn) return respTool('call_boot', 'write_file', args);
+    if (isDispatchTurn) return respTool('call_sub', 'dispatch_subagent', JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }));
+    if (wantsWeb) return new Response([...respWeb, ...[enc({ type: 'response.output_text.delta', delta: turn === 2 ? '已写入' : '已整合专家意见' })],
+      enc({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 12 }, output: [] } })].join(''), { status: 200, headers: SSE });
+    return respText(turn === 2 ? '已写入' : '已整合专家意见');
+  }
+  if (ep === 'anthropic') {
+    if (isToolTurn) return sseRes(anthToolSse('call_boot', 'write_file', args));
+    // 联网由模型服务端完成：开联网时先回一段 server_tool_use + 结果，再接正文
+    const pre = wantsWeb ? anthWeb.join('') : '';
+    return sseRes(pre + anthTextSse(turn === 2 ? '已写入' : '已整合专家意见'));
+  }
+  if (isToolTurn) return chatTool('call_boot', 'write_file', args);
+  if (isDispatchTurn) return chatTool('call_sub', 'dispatch_subagent', JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }));
+  return chatText(turn === 2 ? '已写入' : '已整合专家意见');
 };
 
 console.log('应用装配冒烟（真实 js/main.js 引导）');
@@ -174,18 +197,67 @@ $('#composer-input').value = '让代码审查员看看这段逻辑';
 click($('#send-btn'));
 await tick(1400);
 // 只挑「主回合」请求：子智能体的请求 system 里有「体系中的」，起标题的小调用只有 1 条消息
-const isMainReq = (r) => (r.body.messages?.length || 0) > 1 && !String(r.body.messages?.[0]?.content || '').includes('体系中的')
-  && !String(r.body.messages?.[0]?.content || '').includes('起一个标题');
+// messages（chat / Anthropic）与 input+instructions（Responses）两种形状都要认：开联网的 GPT 走 /v1/responses
+const mainSys = (r) => String(r.body.messages?.[0]?.content || r.body.instructions || '');
+const isMainReq = (r) => ((r.body.messages?.length || 0) > 1 || (r.body.input?.length || 0) > 1)
+  && !mainSys(r).includes('体系中的') && !mainSys(r).includes('起一个标题');
 const mainReq = reqs.filter(isMainReq).pop();
-const toolNames = (mainReq.body.tools || []).map((t) => t.function.name);
+const toolNames = (mainReq.body.tools || []).map((t) => t.function?.name || t.name);
 ok('关沙箱后请求里仍有 dispatch_subagent', toolNames.includes('dispatch_subagent'), toolNames.join(','));
 ok('关沙箱后不再下发代码执行工具', !toolNames.includes('execute_python') && !toolNames.includes('execute_javascript'), toolNames.join(','));
-ok('系统提示词始终带子智能体名录与触发条件', /dispatch_subagent/.test(mainReq.body.messages[0].content) && /何时应当主动委派/.test(mainReq.body.messages[0].content));
+const sysTxt = mainReq.body.messages?.[0]?.content || mainReq.body.instructions || '';
+ok('系统提示词始终带子智能体名录与触发条件', /dispatch_subagent/.test(sysTxt) && /何时应当主动委派/.test(sysTxt));
 const chips2 = $$('#messages .chip').map((n) => n.textContent.replace(/\s+/g, ' '));
 ok('委派芯片出现并标记成功', chips2.some((t) => /dispatch_subagent/.test(t) && !/✕/.test(t)), chips2.join(' ~ '));
 const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ');
 ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
 ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
+
+console.log('\n联网：按模型 API 自带的网页搜索请求格式发请求（当前模型 gpt-5.6-sol）');
+{
+  const pill = $('#web-toggle');
+  ok('顶栏「联网」pill 默认亮着', pill.classList.contains('on') && /联网/.test(pill.textContent));
+  ok('提示语写明当前模型用哪种原生格式', /Responses API/.test(pill.title), pill.title);
+  const greq = reqs.find((r) => r.url.includes('/v1/responses'));
+  ok('GPT 联网改走 POST /v1/responses（官方原生格式所在端点）', !!greq, JSON.stringify(reqs.map((r) => r.url.split('/v1/')[1])));
+  ok('Responses 请求体带 tools:[{type:"web_search"}] + include 来源', !!greq
+    && (greq.body.tools || []).some((t) => t.type === 'web_search')
+    && (greq.body.include || []).includes('web_search_call.action.sources'), JSON.stringify(greq && greq.body.tools));
+  ok('system 落到 instructions、历史落到 input', !!greq && typeof greq.body.instructions === 'string'
+    && greq.body.instructions.length > 10 && Array.isArray(greq.body.input) && greq.body.input.length > 0);
+  const notes = $$('#messages .web-note');
+  ok('模型服务端返回的来源渲染成回答下方的可点链接条', notes.length > 0 && /1 条来源/.test(notes.map((n) => n.textContent).join(' '))
+    && notes.some((n) => [...n.querySelectorAll('a')].some((a) => a.href.includes('pyodide.org'))),
+    `${notes.length} 条 · ${notes.map((n) => n.textContent.trim().slice(0, 60)).join(' | ')}`);
+  // 换 Claude：同一个开关，走的是 Anthropic 的服务器工具格式
+  click($('#model-btn'));
+  click($$('#model-menu .dd-item').find((n) => /claude-sonnet-5/.test(n.textContent)));
+  await tick(60);
+  ok('切到 Claude 后提示语改口成 Anthropic 服务器工具', /web_search_20250305/.test($('#web-toggle').title), $('#web-toggle').title);
+  $('#composer-input').value = '换 Claude 再答一次';
+  click($('#send-btn'));
+  await tick(1400);
+  const creq = [...reqs].reverse().find((r) => r.url.includes('/v1/messages') && r.body.model === 'claude-sonnet-5' && !mainSys(r).includes('起一个标题'));
+  ok('Claude 回合走 /v1/messages 且带原生服务器工具', !!creq && (creq.body.tools || []).some((t) => t.type === 'web_search_20250305'),
+    `${creq ? creq.url : '未发请求'} ${JSON.stringify((creq || {}).body?.tools || [])}`);
+  ok('Claude 的来源条同样渲染', $$('#messages .web-note').some((n) => /服务端检索到 1 条来源/.test(n.textContent)),
+    $$('#messages .web-note').map((n) => n.textContent.trim().slice(0, 60)).join(' | '));
+  // 关掉开关：两种端点都不该再带联网字段
+  click($('#web-toggle'));
+  await tick(30);
+  ok('关掉后 pill 熄灭', !$('#web-toggle').classList.contains('on'));
+  $('#composer-input').value = '关联网再答一次';
+  click($('#send-btn'));
+  await tick(1400);
+  const off = [...reqs].reverse().find((r) => /关联网再答一次/.test(JSON.stringify(r.body)));
+  ok('关掉后不再带原生联网工具', !!off && !(off.body.tools || []).some((t) => String(t.type).startsWith('web_search')),
+    `${off ? off.url : '未发请求'} ${JSON.stringify((off || {}).body?.tools || [])}`);
+  ok('关掉后这条回答没有来源条', !$$('#messages .msg-assistant').slice(-1).some((n) => /服务端检索到/.test(n.textContent)));
+  // 全程不得碰任何第三方搜索服务或余额接口
+  ok('全程零次第三方搜索 host', !/brave|tavily|serper|duckduckgo|jina|mojeek|searx/i.test(allUrls.join(' ')), allUrls.join(' ').slice(0, 160));
+  const hosts = [...new Set(allUrls.map((u) => { try { return new URL(u).host; } catch { return u.slice(0, 24); } }))];
+  ok('只打网关与本地页面 host', hosts.every((h) => h.includes('teamorouter') || h === 'localhost'), JSON.stringify(hosts));
+}
 
 console.log('\n会话记录：入列时机 / 自动标题 / 一键清空');
 ok('第一条消息发出后会话进入侧栏', $$('#session-list .sess-item').length === 1, `${$$('#session-list .sess-item').length} 条`);
@@ -206,12 +278,25 @@ await tick(30);
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
 ok('清空后对话区回到空状态示例', $$('#messages .empty-state .suggest').length === 3 && !$$('#messages .msg-assistant').length);
 
-console.log('\n网络与 git 工具（无中继时的降级说明）');
+console.log('\n网络与 git 工具（只留中继抓取 + 本地 git）');
 {
   const tools = await import(path.join(ROOT, 'js/tools.js'));
   const names = tools.TOOL_DEFS.map((t) => t.name);
-  for (const n of ['web_search', 'fetch_url', 'run_git']) ok(`工具已注册：${n}`, names.includes(n));
+  for (const n of ['fetch_url', 'run_git']) ok(`工具已注册：${n}`, names.includes(n));
+  ok('web_search 不再是工具（联网由模型 API 自带格式完成）', !names.includes('web_search'));
+  const modes = tools.TOOL_DEFS.find((t) => t.name === 'fetch_url').parameters.properties.mode.enum;
+  ok('fetch_url 的 mode 只剩 text|raw（第三方抽取器已删）', modes.join(',') === 'text,raw', JSON.stringify(modes));
   ok('关沙箱也保留网络与 git 工具', tools.toolsFor(false).map((t) => t.name).includes('fetch_url'));
+}
+
+console.log('\n余额显示已删除（不再请求任何余额/用量接口）');
+{
+  ok('侧栏没有余额元素', !$('#balance-badge') && !$('#messages').querySelector('#balance-badge'));
+  ok('顶栏只有「联网」与「沙箱」两枚 pill', !!$('#web-toggle') && !!$('#sandbox-toggle') && !/余额|balance/i.test($('.side-footer').textContent), $('.side-footer').textContent.trim());
+  const hits = allUrls.filter((u) => /balance|user\/self|usage|billing/i.test(u));
+  ok('全程零次余额类请求', hits.length === 0, JSON.stringify(hits.slice(0, 3)));
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  ok('UI 源码里余额函数已清干净', !/fetchBalance|refreshBalance|balanceText/.test(uiSrc));
 }
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\n应用装配冒烟全部通过 ✅');

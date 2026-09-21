@@ -2,7 +2,8 @@
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL, APP_VERSION } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport, fetchBalance } from './api.js';
+import { fetchModels, getTransport } from './api.js';
+import { webCapFor, webCapNote } from './websearch.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
@@ -198,6 +199,7 @@ export function mountUI(store, agent) {
           </span>`;
         item.addEventListener('click', () => {
           store.state.model = m.id; store.notify();
+          if (typeof syncWeb === 'function') syncWeb(); // 换了模型要重说「联网按哪个原生格式走」
           updateModelBtn(); closeMenu();
           $('#fast-toggle').disabled = !supportsFastMode(m.id);
           if (store.state.settings.fastMode && !supportsFastMode(m.id)) {
@@ -285,6 +287,34 @@ export function mountUI(store, agent) {
   });
   syncSandbox();
 
+  // 联网：打开后由 api.js 往请求体里注入「当前模型 API 自带」的网页搜索格式
+  //（Claude → /v1/messages 的 web_search_20250305；GPT → /v1/responses 的 web_search；
+  //  Kimi/GLM/Grok → Chat Completions 的对应原生字段）。本项目不调用任何第三方搜索 API。
+  const GLOBE_SVG = '<svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>';
+  const webToggle = $('#web-toggle');
+  const syncWeb = () => {
+    if (!webToggle) return;
+    const on = store.state.settings.webEnabled !== false;
+    webToggle.classList.toggle('on', on);
+    const cap = webCapFor(store.state.model);
+    webToggle.innerHTML = GLOBE_SVG + '联网';
+    webToggle.title = on
+      ? `联网：${cap ? cap.label : '当前模型没有原生联网格式，本轮不会联网'}`
+      : '联网已关闭：模型不再具备实时检索能力';
+  };
+  if (webToggle) {
+    webToggle.addEventListener('click', () => {
+      store.state.settings.webEnabled = !(store.state.settings.webEnabled !== false);
+      store.notify(); syncWeb();
+      const on = store.state.settings.webEnabled !== false;
+      const cap = webCapFor(store.state.model);
+      if (on && !cap) toast('联网已开启，但当前模型没有原生联网格式 —— 本轮仍不会联网（可换 Claude / GPT / Kimi / GLM / Grok）', 'warn', 6000);
+      else if (on) toast(`联网已开启：${cap.label}`, 'ok', 4000);
+      else toast('联网已关闭：不再联网，时效性问题会明确说明无法核实');
+    });
+    syncWeb();
+  }
+
   // 思考模式（默认开启；按模型家族自动映射协议参数，不支持的模型 400 自动降级）
   const thinkingToggle = $('#thinking-toggle');
   const syncThinking = () => thinkingToggle.classList.toggle('on', store.state.settings.thinking !== false);
@@ -348,7 +378,6 @@ export function mountUI(store, agent) {
     closeKeyModal();
     toast(store.state.apiKey ? 'API Key 已保存（仅存于浏览器 localStorage）' : 'API Key 已清除', 'ok');
     updateTransportBadge();
-    refreshBalance();
   });
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
 
@@ -777,6 +806,7 @@ export function mountUI(store, agent) {
     if (!m.done && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
+    if (m.webSearch) body.appendChild(webNote(m.webSearch));
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
     // 工具芯片
     const chips = $('.tool-chips', wrap);
@@ -822,6 +852,30 @@ export function mountUI(store, agent) {
   //   ① 复制 / 重新生成 只出现在「本轮末尾」的 assistant 消息上（每轮一次）
   //   ② 整轮输出没结束（流式、工具执行、子智能体跑着）时，本轮所有按钮一律不显示
   //      —— 用户要的是「输出完了再动手」，半截输出上点复制/回滚都不是想要的结果
+  // 联网来源条：搜索由模型服务端完成，这里只把「查了什么、来自哪儿」亮出来（含引用链接）
+  function webNote(w) {
+    const box = el('div', 'web-note');
+    const sources = (w.sources || []).filter((x) => x && x.url).slice(0, 6);
+    if (w.status === 'searching') box.innerHTML = '<span class="web-dot"></span><span>联网检索中（模型原生 web_search）…</span>';
+    else if (w.status === 'error') box.innerHTML = `<span class="web-fail">联网检索失败</span><span class="mono">${esc(String(w.message || '').slice(0, 90))}</span>`;
+    else {
+      // 各家原生格式给的计数字段不一致（有的只给 sources），取两者较大值，别显示「0 条来源」
+      const n = Math.max(Number(w.results) || 0, sources.length);
+      const q = (w.queries || []).slice(0, 2).map((x) => `「${String(x).slice(0, 40)}」`).join(' ');
+      box.innerHTML = `<span class="web-tag">联网</span><span>${q ? esc(q) + ' · ' : ''}服务端检索到 ${n} 条来源</span>`;
+      if (sources.length) {
+        const ul = el('div', 'web-srcs');
+        for (const x of sources) {
+          const a = el('a', 'web-src'); a.href = x.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+          a.textContent = String(x.title || x.url).slice(0, 90);
+          ul.appendChild(a);
+        }
+        box.appendChild(ul);
+      }
+    }
+    return box;
+  }
+
   function refreshActionVisibility() {
     const msgs = store.state.messages;
     const busy = getBusy();
@@ -962,21 +1016,6 @@ export function mountUI(store, agent) {
     const b = $('#transport-badge');
     b.textContent = getTransport() === 'proxy' ? '中继模式' : '直连模式';
     b.title = getTransport() === 'proxy' ? '浏览器直连失败，已通过本地服务器代理转发' : '浏览器直连 api.teamorouter.com（CORS 已放行）';
-  }
-
-  // ── 账户余额（GET /api/user/self，兼容 new-api 系 quota 单位）────────
-  async function refreshBalance() {
-    const badge = $('#balance-badge');
-    if (!store.state.apiKey) { badge.textContent = ''; return; }
-    try {
-      const b = await fetchBalance(store.state.apiKey);
-      if (!b) { badge.textContent = '余额 —'; badge.title = '接口未返回余额字段'; return; }
-      badge.textContent = `余额 $${b.usd.toFixed(2)}${b.used != null ? ` · 已用 $${b.used.toFixed(2)}` : ''}`;
-      badge.title = `GET /api/user/self${b.username ? ' · ' + b.username : ''}`;
-    } catch (err) {
-      badge.textContent = '余额 —';
-      badge.title = err.message;
-    }
   }
 
   // ── 输出用时（本轮 / 会话累计，随会话持久化）────────────────────────
@@ -1151,12 +1190,17 @@ export function mountUI(store, agent) {
   updateTransportBadge();
   updateStats();
   renderTimeStats();
-  refreshBalance();
   // 构建标识：静态站点无法靠响应头保证刷新即最新，先把版本号亮出来便于自检
   const stampEl = $('#build-stamp');
   if (stampEl) {
-    stampEl.textContent = `v${APP_VERSION}`;
-    stampEl.title = `构建版本 ${APP_VERSION} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
+    // 入口 index.html 自带 app-version meta；子资源 URL 没有版本参数（Pages 对所有静态文件统一回
+    // cache-control: max-age=600），所以「入口已新、某个 js 还是旧的」是真实存在的窗口期
+    //（这正是硬刷新后仍看到旧版本号的机制）。这里直接比对并把原因说出来。
+    const entryVer = (document.querySelector('meta[name="app-version"]') || {}).content || '';
+    const drifted = !!entryVer && entryVer !== APP_VERSION;
+    stampEl.textContent = drifted ? `v${APP_VERSION} / 入口 ${entryVer}` : `v${APP_VERSION}`;
+    stampEl.title = `构建版本 ${APP_VERSION}${drifted ? `；入口 index.html 是 ${entryVer}（两者应一致）` : ''} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
+    if (drifted) setTimeout(() => toast(`资源缓存不一致（入口 ${entryVer}，模块 ${APP_VERSION}）：请硬刷新或用无痕窗口打开`, 'warn', 9000), 700);
   }
 
   if (!store.state.apiKey) setTimeout(openKeyModal, 600);
@@ -1201,8 +1245,17 @@ export function mountUI(store, agent) {
       store.notify();
       renderTimeStats();
     },
-    refreshBalance,
     // 回合结束后给会话起个标题（Agent 总结；用户手改过的不会被覆盖）
+    // 联网：进度与来源（模型服务端返回的 web_search 事件）
+    onWebSearch: (m) => {
+      const wrap = msgNodes.get(m && m.id);
+      if (!wrap) return;
+      paintAssistant(wrap, store.state.messages.find((x) => x.id === m.id) || m);
+    },
+    onWebFallback: (model, why) => {
+      toast(`联网已自动关闭（${String(why || '').slice(0, 120)}）`, 'warn', 7000);
+      syncWeb();
+    },
     // 起标题失败绝不能冒泡到回合流程（catch 掉，标题自然退回「首条消息截断」）
     autoTitle: () => autoTitle(store).then((r) => { if (r && r.ok) renderSessions(); return r; }, () => ({ ok: false, reason: 'view-error' })),
     onToolStart() { scrollToBottom(); },

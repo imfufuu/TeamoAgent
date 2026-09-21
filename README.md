@@ -1,8 +1,8 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 账户余额与输出用时 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
+黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 模型原生联网检索 · 输出用时与 token 统计 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
 
-布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次。余额读取 `GET /api/user/self`（兼容 new-api 系 quota 单位，500000 quota = $1）。
+布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次。顶栏只有「联网」「沙箱」两枚状态胶囊（不再显示账户余额）。
 
 ## 快速开始
 
@@ -71,7 +71,8 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）、
-`web_search` / `fetch_url`（联网检索与抓取，抓取正文可自动落进虚拟文件系统）、`run_git`（在本地中继的 `workspace/` 内执行 git）。
+`fetch_url`（抓取网页正文，可自动落进虚拟文件系统）、`run_git`（在本地中继的 `workspace/` 内执行 git）。
+联网检索**不是工具**：由模型 API 自带的网页搜索格式在模型服务端执行（见下一节）。
 
 ## 子智能体（18 个专家，`dispatch_subagent` 委派）
 
@@ -88,32 +89,47 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 | 数据 | data-analyst 数据分析 · mathematician 数学 · sql-expert SQL · regex-expert 正则 |
 | 内容 | doc-writer 文档 · translator 翻译 · copywriter 文案 · explainer 讲解 · brainstormer 头脑风暴 |
 
-## 网络能力：搜索 / 抓取 / git（`web_search` · `fetch_url` · `run_git`）
+## 联网与抓取：模型原生检索 + 本地中继
 
-浏览器里没有跨域抓取能力，所以这三件事按可用性**分层兜底**，而不是假装能用：
+**联网搜索只用模型 API 自带的请求格式，不接任何第三方搜索服务。** 顶栏「联网」胶囊（默认开启）打开后，
+前端在**同一个**对话请求体里声明供应商的原生服务器工具，检索由模型服务端执行、结果与引用随流返回；
+关掉开关或模型没有原生格式时，就完全不联网，并让模型明确说「当前未联网」而不是编一个「刚查到」。
 
-| 层 | 条件 | 效果 |
-| -- | ---- | ---- |
-| ① 本地中继 `server.py` | 同源端口在跑 | `web_search` 走 Brave / Tavily / Serper（配了哪个用哪个），`fetch_url` 抓任意页面（`mode=markdown` 用 `r.jina.ai` 正文抽取器），`run_git` 执行真 git |
-| ② 浏览器直连 | 只有 Pages 静态托管 | `web_search` 退回 DuckDuckGo Instant Answer（`api.duckduckgo.com` 允许跨域，百科/定义类查询有效）；`fetch_url` 直接 `fetch()` 目标 URL（站点须允许 CORS）；`run_git` **不可用**，工具会回一句怎么修 |
-| ③ 全部失败 | — | 返回可读原因 + 修复步骤，绝不返回编造结果 |
+| 模型家族 | 原生格式（写在请求体里） | 走的端点 |
+| -------- | -------------------------- | -------- |
+| Claude | `tools: [{type:"web_search_20250305", name:"web_search", max_uses:5}]` | `POST /v1/messages` |
+| GPT | `tools: [{type:"web_search", search_context_size:"medium"}]` + `include:["web_search_call.action.sources"]` | `POST /v1/responses`（网关仅 GPT 支持此端点） |
+| Kimi | `tools: [{type:"builtin_function", function:{name:"$web_search"}}]` | `POST /v1/chat/completions` |
+| GLM | `tools: [{type:"web_search"}]` | `POST /v1/chat/completions` |
+| Grok | `search_parameters: {mode:"live", return_citations:true}` | `POST /v1/chat/completions` |
+| 其余（DeepSeek 等） | 无原生格式 → 不联网 | 原端点，不塞任何联网字段 |
+
+- 能力表与请求/流转换都在 `js/websearch.js`；GPT 改道 `/v1/responses` 后被拒（400/404/422）会**自动退回**
+  Chat Completions 并剥掉联网字段，同时 toast 告知并把该模型记入降级表（本会话不再白试一次）——
+  见 `api.webFallbackFor(model)`。
+- 模型返回的查询词与来源渲染成回答下方的「联网 · 服务端检索到 N 条来源」条（链接 `rel="noopener"`），
+  随消息一起持久化，切会话/重开页面仍在。
+- **不做**的事：不在浏览器里打 DuckDuckGo/Brave/Tavily/Serper，不用 `r.jina.ai` 之类的第三方抽取器，
+  也不为搜索单独配 key（历史上的 `TEAMO_*_KEY` 已随之删除）。
+
+`fetch_url`（抓取指定 URL）与 `run_git` 则需要本地中继 `server.py`：浏览器受同源与 CSP 限制抓不了任意站点，
+所以这两个工具是「中继优先」——中继不在就返回可读原因 + 修复步骤，绝不返回编造内容。
 
 ```bash
 python3 server.py 8787                 # 默认开启 git（只在 ./workspace 里跑）
-python3 server.py --no-git             # 只留搜索/抓取
+python3 server.py --no-git             # 只留抓取
 python3 server.py --workspace ~/code   # 换工作区（git 的根，越界一律拒绝）
-TEAMO_BRAVE_KEY=bk-xxx TEAMO_TAVILY_KEY=tvly-xxx python3 server.py   # 任一即可，都没有则退回 DDG
 ```
 
-中继端点：`GET /api/health`（前端据此决定走哪层）、`GET /api/search?q=&count=`、
-`GET /api/fetch?url=&mode=text|markdown|raw&max=`、`POST /api/git {command,repo,timeout}`。
+中继端点：`GET /api/health`（前端据此决定是否可用）、`GET /api/fetch?url=&mode=text|raw&max=`、
+`POST /api/git {command,repo,timeout}`。**没有 `/api/search`**：联网属于模型服务端。
 
-安全边界（`tests/server_checks.py` 44 项护栏自检覆盖）：
+安全边界（`tests/server_checks.py` 51 项护栏自检覆盖）：
 
 - 子命令白名单 + 参数黑名单（`-c/--git-dir/--work-tree/--upload-pack/--ext::/…`），
   `GIT_CEILING_DIRECTORIES` 把仓库定位钉死在 `workspace/` 内，`GIT_TERMINAL_PROMPT=0` 不弹账号密码；
   `config` 只允许白名单里的本仓库键，`--global/--file/alias.*` 一律拒绝；
-- `/api/search`、`/api/fetch` 与 `/api/git` 的 URL 都过 `guard_public_http_url`：只允许公网 http(s)，
+- `/api/fetch` 与 `/api/git` 的 URL 都过 `guard_public_http_url`：只允许公网 http(s)，
   loopback / 私网 / 链路本地（含 `169.254.169.254`）直接拒，防中继当 SSRF 跳板；
 - 抓取上限 4 MB（`max` 可再调小），返回文本按 `max_bytes` 截断，`fetch_url` 超过 2000 字符时把全文
   写进 `web/<host>/<slug>.md`（或模型指定的 `save_path`），对话里只给 6000 字符预览 + 落盘路径。
@@ -190,7 +206,8 @@ js/config.js      端点 / 协议路由 / 兜底模型表 / 系统提示词
 js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代理兜底）
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
-js/net.js         搜索 / 抓取 / git 的传输分层（中继 → 直连 → 明确失败）与 HTML→文本纯函数
+js/net.js         抓取 / git 的中继调用与 HTML→文本纯函数（webSearch 只剩一枚说明性兼容桩）
+js/websearch.js   联网：各模型家族的原生网页搜索请求格式、Responses 请求体/流转换、能力表
 js/titler.js      会话标题自动总结（独立小调用，不写进对话历史；新模块避免混版缓存的 link 期白屏）
 js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包 / 单目录下载
 js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总、折叠展开）

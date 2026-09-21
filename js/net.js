@@ -1,18 +1,17 @@
-// ─── 网络能力：搜索 / 拉取网页 / git（浏览器没有跨域抓取能力，需要分层兜底）──
+// ─── 网络能力：网页抓取 / git（浏览器既没有跨域抓取能力，也没有执行外部程序的能力）
 //
-// 传输层次（按可用性依次尝试，全部失败时给出「怎么修」的可执行说明）：
-//   ① 本地中继 server.py 的 /api/search、/api/fetch、/api/git —— 同源、无 CORS 限制、可抓任意页面
-//   ② 直连对 CORS 友好的公开端点（DuckDuckGo Instant Answer API 返回 access-control-allow-origin: *）
-//   ③ 直连目标 URL 本身（少数站点/API 允许跨域）
+// 分层：
+//   ① 本地中继 server.py 的 /api/fetch、/api/git —— 同源、无 CORS 与 CSP 限制、可抓任意页面
+//   ② 直连目标 URL（仅在页面 CSP 与站点 CORS 都放行时可用，例如用户自己改过 connect-src）
+//   全部不可用时返回「怎么修」的可执行说明，而不是给一堆假结果。
 //
-// 为什么不做「前端硬编一个第三方搜索」：实测 html.duckduckgo.com / lite.duckduckgo.com 对数据中心
-// IP 直接回 202 反爬页，public SearXNG 实例普遍 429，corsproxy.io 要 key，allorigins 已 522 ——
-// 这些都不适合写进产品里当唯一路径。所以能力可用来就去中继，去不了就明确说明，而不是给一堆假结果。
+// 「联网搜索」不在这里：按用户要求，联网只使用模型 API 自带的网页搜索请求格式
+//（见 js/websearch.js 与 api.js 的注入逻辑），本项目不再调用任何第三方搜索 API。
 //
 // 注意：本模块被 tools.js 与测试引用；tools.js 里只 import 已有形状的函数，
 // 避免「新增具名导出 + 混版缓存」的 link 期白屏（见 js/agent.js 同类注释）。
 
-const RELAY = { search: '/api/search', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
+const RELAY = { fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
 
 let relayOk = null; // null=未探测 true/false
 let relayProbe = null;
@@ -41,7 +40,7 @@ export async function relayAvailable(signal) {
 /** 测试/页面切换部署环境时重置探测缓存 */
 export function resetRelayProbe() { relayOk = null; relayProbe = null; }
 
-export const RELAY_HINT = '需要本地中继：在该目录执行 python3 server.py 后打开 http://localhost:8787（Pages 静态托管没有服务端，抓取与 git 只能走本地中继）';
+export const RELAY_HINT = '需要本地中继：在项目目录执行 python3 server.py 后打开 http://localhost:8787（Pages 静态托管没有服务端，抓取与 git 只能走本地中继）';
 
 // ── HTML → 纯文本（纯函数，可在 node 里单测）─────────────────────────
 export function htmlToText(html) {
@@ -60,66 +59,17 @@ export function pageTitle(html) {
   return m ? htmlToText(m[1]).slice(0, 160) : '';
 }
 
-// ── 搜索 ────────────────────────────────────────────────────────────────
-const ddgToResults = (json, count) => {
-  const out = [];
-  const push = (title, url, snippet) => {
-    if (url && title && out.length < count) out.push({ title: String(title).trim(), url, snippet: String(snippet || '').trim() });
+// ── 兼容桩（一个发布周期内保留）──────────────────────────────────────
+// 静态站点没有构建器、Pages 对子资源有 ~10 分钟缓存，于是可能出现「旧 tools.js + 新 net.js」：
+// 旧 tools.js 还写着 import { webSearch } —— 少这个导出会在 ESM link 期直接报错（整页白屏，
+// 比按钮失灵严重得多）。所以保留同名导出但不再实现任何搜索：搜索已按用户要求改成模型 API 自带格式。
+// 下一个发布周期（所有访问者的缓存都换过一轮后）可以删掉本函数与 tools.js 里的旧引用痕迹。
+export async function webSearch() {
+  return {
+    provider: 'none',
+    results: [],
+    note: '项目已不再内置第三方搜索；联网请打开顶栏「联网」开关，由模型 API 自带的网页搜索格式完成。',
   };
-  const j = json || {};
-  if (j.AbstractText) push(j.Heading || j.AbstractSource || 'Instant Answer', j.AbstractURL || '', j.AbstractText);
-  if (j.Answer) push(typeof j.Answer === 'string' ? j.Answer.slice(0, 80) : 'Answer', '', typeof j.Answer === 'string' ? j.Answer : JSON.stringify(j.Answer));
-  if (j.Definition) push(j.DefinitionSource || 'Definition', j.DefinitionURL || '', j.Definition);
-  for (const r of j.RelatedTopics || []) {
-    if (!r) continue;
-    if (r.FirstURL) push(r.Text || r.FirstURL, r.FirstURL, r.Text);
-    else for (const t of r.Topics || []) if (t && t.FirstURL) push(t.Text || t.FirstURL, t.FirstURL, t.Text);
-  }
-  return out;
-};
-
-async function ddgInstantSearch(query, count, signal) {
-  const u = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1&skip_disambig=1&t=teamoagent`;
-  const res = await fetch(u, { signal, headers: { Accept: 'application/json' } });
-  if (!res.ok) throw new Error(`DuckDuckGo Instant Answer HTTP ${res.status}`);
-  return ddgToResults(await res.json(), count);
-}
-
-/**
- * 搜索：中继优先，其次直连 DDG Instant Answer。
- * @returns {Promise<{provider:string, results:{title:string,url:string,snippet:string}[], note:string}>}
- */
-export async function webSearch({ query, count = 6, signal } = {}) {
-  const q = String(query || '').trim();
-  if (!q) return { provider: 'none', results: [], note: 'web_search 缺少 query 参数' };
-  const n = Math.max(1, Math.min(10, Number(count) || 6));
-  if (await relayAvailable(signal)) {
-    try {
-      const res = await fetch(`${RELAY.search}?q=${encodeURIComponent(q)}&count=${n}`, { signal, headers: { Accept: 'application/json' } });
-      if (res.ok) {
-        const j = await res.json();
-        const results = Array.isArray(j.results) ? j.results.slice(0, n) : [];
-        if (results.length) return { provider: j.provider || 'relay', results, note: j.note || '' };
-      }
-    } catch { /* 中继失败 → 降级到直连 */ }
-  }
-  try {
-    const results = await ddgInstantSearch(q, n, signal);
-    if (results.length) {
-      return {
-        provider: 'duckduckgo-instant',
-        results,
-        note: '未连到本地中继，用的是 DuckDuckGo Instant Answer（百科/定义类查询效果好，新闻与长尾覆盖有限）；想要通用搜索请跑 ' + RELAY_HINT,
-      };
-    }
-    return {
-      provider: 'duckduckgo-instant',
-      results: [],
-      note: `DuckDuckGo Instant Answer 对「${q}」没有结果。${RELAY_HINT}；或者直接用 fetch_url 抓你已知的网址。`,
-    };
-  } catch (err) {
-    return { provider: 'none', results: [], note: `搜索失败：${err.message}。${RELAY_HINT}` };
-  }
 }
 
 // ── 拉取网页 ────────────────────────────────────────────────────────────
@@ -140,7 +90,7 @@ export function slugFromUrl(url) {
 export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal, fs, savePath } = {}) {
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) return { ok: false, error: `fetch_url 只接受 http(s) 绝对地址，收到：${u || '(空)'}` };
-  const want = mode === 'raw' ? 'raw' : mode === 'markdown' ? 'markdown' : 'text';
+  const want = mode === 'raw' ? 'raw' : 'text';
   let status = 0, body = '', contentType = '', finalUrl = u, note = '';
 
   if (await relayAvailable(signal)) {
@@ -163,6 +113,8 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
   }
 
   if (!body) {
+    // 直连只在「页面 CSP 允许 + 目标站点允许跨域」时才可能成功；本项目 index.html 的 CSP
+    // 只放行了网关，所以绝大多数情况下这一步会失败 —— 保留它是为了让自建部署（改过 CSP）仍可用
     try {
       const res = await fetch(u, { signal, redirect: 'follow', headers: { Accept: 'text/html,application/xhtml+xml,application/json,text/plain,*/*' } });
       status = res.status;
@@ -171,22 +123,23 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
       if (!res.ok) return { ok: false, error: `直连抓取失败：HTTP ${res.status}${contentType.includes('html') ? '' : `（${contentType}）`}` };
       if (!looksTextual(contentType)) {
         const size = res.headers.get('content-length');
-        return { ok: false, error: `目标是 ${contentType || '未知类型'}${size ? `（${size} 字节）` : ''}，不是文本；fetch_url 只做文本/markdown 提取。要下载二进制请让用户在浏览器里打开该链接。` };
+        return { ok: false, error: `目标是 ${contentType || '未知类型'}${size ? `（${size} 字节）` : ''}，不是文本；fetch_url 只做文本提取。要下载二进制请让用户在浏览器里打开该链接。` };
       }
       const raw = await res.text();
       body = /html/i.test(contentType) ? (want === 'text' ? htmlToText(raw) : raw) : raw;
-      if (want === 'text' && /html/i.test(contentType)) note = note || '已直连抓取并在浏览器内去标签（无本地中继）';
+      if (want === 'text' && /html/i.test(contentType)) note = note || '已直连抓取并在浏览器内去标签（未走本地中继）';
       else note = note || '已直连抓取（未走本地中继）';
     } catch (err) {
       return {
         ok: false,
-        error: `抓取失败：${err.message}（该站点不允许浏览器跨域读取）。${RELAY_HINT}`,
+        error: `抓取失败：${err.message}。浏览器直连会被页面 CSP(connect-src) 或目标站点的 CORS 挡住，`
+          + `这不是可绕过的偶发错误。${RELAY_HINT}`,
       };
     }
   }
 
   const text = String(body || '');
-  if (!text.trim()) return { ok: false, error: `抓到了内容但是空的（可能是纯 JS 渲染页面）。可试 mode="markdown"（走中继的正文抽取器）或换一个 URL。` };
+  if (!text.trim()) return { ok: false, error: `抓到了内容但是空的（可能是纯 JS 渲染页面）。换个直链的静态页面试试，或用 mode="raw" 拿原始 HTML 自己解析。` };
   let savedTo = '';
   if (fs && text.length > 2000) {
     savedTo = savePath || `web/${slugFromUrl(finalUrl)}.md`;

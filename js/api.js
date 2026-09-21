@@ -3,12 +3,19 @@
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
 import { BASE_URL, ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
 
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
 const thinkingUnsupported = new Set();
 export function thinkingDisabledFor(model) { return thinkingUnsupported.has(model); }
+// 原生联网被拒过的模型（400 降级后记录，会话内不再尝试）
+const webUnsupported = new Set();
+const responsesUnsupported = new Set();
+export function webFallbackFor(model) { return webUnsupported.has(model); }
+export function responsesFallbackFor(model) { return responsesUnsupported.has(model); }
 // 仅测试用：清空降级记录，保证用例互相独立
 export function __resetThinkingFallbackForTests() { thinkingUnsupported.clear(); }
+export function __resetWebFallbackForTests() { webUnsupported.clear(); responsesUnsupported.clear(); }
 
 let transport = 'direct'; // 'direct' | 'proxy'
 export function getTransport() { return transport; }
@@ -97,6 +104,14 @@ export function createAnthropicStream(onEv) {
       }
       case 'content_block_start': {
         const b = json.content_block || {};
+        // 模型服务端自带的联网工具：不由我们执行，只把「查了什么 / 拿到几条来源」暴露给 UI
+        if (b.type === 'server_tool_use') { onEv({ type: 'web_search', status: 'searching', name: b.name || 'web_search' }); break; }
+        if (b.type === 'web_search_tool_result' || b.type === 'web_search_result') {
+          const rows = Array.isArray(b.content) ? b.content : [];
+          onEv({ type: 'web_search', status: 'done', results: rows.length, sources: rows.map((r) => ({ url: r.url, title: r.title })) });
+          if (b.content && b.content.error_code) onEv({ type: 'web_search', status: 'error', message: b.content.error_code });
+          break;
+        }
         if (b.type === 'tool_use') onEv({ type: 'tool_delta', index: json.index, id: b.id, name: b.name, argsText: '' });
         else if (b.type === 'text' && b.text) onEv({ type: 'text', text: b.text });
         // thinking / redacted_thinking 块必须在后续回合原样回传（含 signature），
@@ -134,7 +149,10 @@ export function createToolCallAccumulator() {
       const t = map.get(ev.index);
       if (ev.id) t.id = ev.id;
       if (ev.name) t.name = ev.name;
-      if (ev.argsText) t.argsText += ev.argsText;
+      // replace：某些协议（OpenAI Responses 的 output_item.done）在收尾时给出**完整** arguments，
+      // 直接追加会和已收到的增量重复 → 这里整体覆盖（空值不清掉已有的流式结果）。
+      if (ev.replace) { if (ev.argsText) t.argsText = ev.argsText; }
+      else if (ev.argsText) t.argsText += ev.argsText;
     },
     result() {
       return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([, t]) => {
@@ -281,12 +299,29 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
 
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
 // onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
-export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent, onThinkingFallback }) {
+export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
   const protocol = protocolOf(model);
   const wantThinking = thinking && !thinkingUnsupported.has(model);
+  // 联网 = 只往请求体里塞模型 API 自带的网页搜索字段（能力表见 js/websearch.js）。
+  // 没有原生格式的模型（DeepSeek 等）就是「本轮不联网」，绝不改道去调第三方搜索 API。
+  const webCap = webEnabled && !webUnsupported.has(model) ? webCapFor(model) : null;
+  let endpoint = webCap && webCap.endpoint === 'responses' && !responsesUnsupported.has(model) ? 'responses'
+    : (protocol === 'anthropic' ? 'messages' : 'chat');
 
-  const buildBody = (withThinking) => {
+  const buildBody = (withThinking, withWeb) => {
     let body;
+    if (endpoint === 'responses') {
+      // OpenAI Responses API：网关文档 4.4 —— /v1/responses 仅 GPT 系列，Claude/Gemini 会 400
+      const { instructions, input } = buildResponsesInput(messages);
+      body = { model, stream: true, input };
+      if (instructions) body.instructions = instructions;
+      const fnTools = tools && tools.length ? toOpenAITools(tools) : [];
+      if (fnTools.length) body.tools = fnTools.map((t) => ({ type: 'function', ...t.function }));
+      if (withThinking) body.reasoning = { effort: thinkingParamsFor(model).reasoning_effort || 'medium' };
+      if (fastMode) body.service_tier = 'fast';
+      if (withWeb) injectWeb(body, webCap);
+      return body;
+    }
     if (protocol === 'anthropic') {
       // 思考关闭的请求不能夹带历史 thinking 块（API 会拒收）
       const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
@@ -301,16 +336,21 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     if (tools && tools.length) {
       body.tools = protocol === 'anthropic' ? toAnthropicTools(tools) : toOpenAITools(tools);
     }
+    if (withWeb) injectWeb(body, webCap);
     return body;
   };
 
-  let body = buildBody(wantThinking);
   let bodyThinking = wantThinking;
+  let bodyWeb = !!webCap;
+  let body = buildBody(bodyThinking, bodyWeb);
   const headers = { 'Content-Type': 'application/json', ...authHeaders(protocol, apiKey) };
+  const noteWebFallback = (why) => {
+    try { onWebFallback && onWebFallback(model, why); } catch { /* 视图层异常不能影响请求本身 */ }
+  };
 
   // 发起请求（429/5xx 自动退避重试一次）
   const res = await withRetry(async () => {
-    const path = protocol === 'anthropic' ? '/v1/messages' : '/v1/chat/completions';
+    const path = endpoint === 'messages' ? '/v1/messages' : (endpoint === 'responses' ? '/v1/responses' : '/v1/chat/completions');
     const r = await request(path, { method: 'POST', headers, body: JSON.stringify(body), signal });
     if ((r.status === 429 || r.status >= 500) && r.status !== 501) {
       const text = await r.text().catch(() => '');
@@ -320,7 +360,28 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     }
     if (!r.ok) {
       const text = await r.text().catch(() => '');
-      // 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）。
+      // ① Responses 端点被拒 → 退回 /v1/chat/completions 并同时去掉联网字段
+      if ((r.status === 400 || r.status === 404 || r.status === 422) && endpoint === 'responses') {
+        responsesUnsupported.add(model);
+        endpoint = 'chat';
+        bodyWeb = false;
+        body = buildBody(bodyThinking, false);
+        noteWebFallback(`Responses API 端点被拒（${String(text).slice(0, 120)}），已退回 /v1/chat/completions，本轮不联网`);
+        const err = new Error(httpErrorMessage(r.status, text));
+        err.status = r.status; err.retryable = true;
+        throw err;
+      }
+      // ② 联网字段被拒（模型或上游不认这套原生格式）→ 剥离后重试一次，并记住这个模型
+      if (r.status === 400 && bodyWeb && /web_search|search_parameters|search_context|builtin_function|\$web_search|unsupported|not support|unknown|invalid|tool|include|instructions/i.test(text)) {
+        webUnsupported.add(model);
+        bodyWeb = false;
+        body = buildBody(bodyThinking, false);
+        noteWebFallback(`该模型拒绝原生联网字段，已按无联网重试：${String(text).slice(0, 160)}`);
+        const err = new Error(httpErrorMessage(r.status, text));
+        err.status = r.status; err.retryable = true;
+        throw err;
+      }
+      // ③ 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）。
       // 通过 onThinkingFallback 告知上层，避免「思考被静默关闭」用户无感知
       if (r.status === 400 && bodyThinking && /thinking|reasoning|extended/i.test(text)) {
         thinkingUnsupported.add(model);
@@ -338,7 +399,8 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     return r;
   });
 
-  const normalize = protocol === 'anthropic' ? createAnthropicStream(onEvent) : createOpenAIStream(onEvent);
+  const normalize = endpoint === 'responses' ? createResponsesStream(onEvent)
+    : (protocol === 'anthropic' ? createAnthropicStream(onEvent) : createOpenAIStream(onEvent));
   const feed = createSSEParser((json) => { if (json !== null) normalize(json); });
 
   // 某些代理/服务端会以 200 + 空 body 回（如中间层截断）：直接 getReader() 会抛
@@ -398,24 +460,6 @@ export function toOpenAITools(tools) {
 }
 export function toAnthropicTools(tools) {
   return tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.parameters }));
-}
-
-// ── 账户余额（GET /api/user/self；兼容 new-api 系 quota 单位：500000 quota = $1）──
-export async function fetchBalance(apiKey, signal) {
-  const res = await request('/api/user/self', { method: 'GET', headers: authHeaders('openai', apiKey), signal });
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(httpErrorMessage(res.status, text));
-  }
-  const json = await res.json();
-  const d = json.data || json;
-  if (d == null || typeof d !== 'object') return null;
-  let usd = null, used;
-  if (typeof d.balance === 'number') usd = d.balance;
-  else if (typeof d.usd === 'number') usd = d.usd;
-  else if (typeof d.quota === 'number') { usd = d.quota / 500000; if (typeof d.used_quota === 'number') used = d.used_quota / 500000; }
-  if (usd == null) return null;
-  return { usd, used, username: d.username || d.name };
 }
 
 // ── 模型列表 ────────────────────────────────────────────────────────────

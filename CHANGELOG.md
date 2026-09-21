@@ -2,6 +2,57 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（四项）联网改成模型 API 自带格式 · 余额下线 · 欢迎页居中 · 缓存可见性
+
+### 1. 联网：改用模型 API 自带的网页搜索请求格式（删掉全部第三方搜索）
+上一节的 `web_search` 工具是「我们自己去打搜索引擎」，按用户要求整个换掉：不再有 `web_search` 工具、
+不再有 Brave / Tavily / Serper / DuckDuckGo 分支、不再有 `TEAMO_*_KEY` 与 `server.py` 的 `/api/search`，
+也不用 `r.jina.ai` 抓正文。改为在**同一个对话请求体**里声明供应商的原生服务器工具，检索由模型服务端执行：
+Claude → `/v1/messages` 的 `web_search_20250305`；GPT → `/v1/responses` 的 `tools:[{type:"web_search"}]`
+（配 `include:["web_search_call.action.sources"]` 才有引用）；Kimi → `$web_search` builtin_function；
+GLM → `{type:"web_search"}`；Grok → `search_parameters:{mode:"live"}`。**没有原生格式的模型（DeepSeek 等）
+就是不联网**，不会偷偷改道别的服务。
+
+- 顶栏新增「联网」胶囊（线性地球 SVG + 中文，与「沙箱」同一视觉语言），`settings.webEnabled` 默认开；
+  提示语随当前模型说明它走哪种原生格式，模型没有原生格式时点击给警告。切换模型即刷新（`syncWeb()`）。
+- 全部格式细节集中在**新文件** `js/websearch.js`（能力表 + `injectWeb` + `buildResponsesInput` +
+  `createResponsesStream`）；新开文件是刻意的：Pages 会缓存子资源，给已有模块加具名导出会在
+  「新 ui.js + 旧 api.js」这类混版组合下 ESM link 失败 → 白屏。
+- 三种协议的流被归一到同一套事件词汇（`text/reasoning/tool_delta/usage/finish/web_search/error`），
+  所以 UI 与 Agent 循环不关心底层是 Messages、Responses 还是 Chat Completions。
+- GPT 改道 `/v1/responses` 若被网关拒（400/404/422），**自动退回** Chat Completions 并剥掉联网字段，
+  toast 告知、把模型记入降级表（`webFallbackFor`），下一轮直接走能用的端点，不白试；模型拒收原生字段时同理。
+- 引用可见且持久：回答下方渲染「联网 ·「查询词」· 服务端检索到 N 条来源」+ 来源链接（`rel="noopener"`），
+  写进消息对象，切会话/重开页面仍在；关联网时提示词改口为「未联网，涉及时效性要明确说无法核实」。
+- 顺带修掉两个 Responses 转换层的真实缺陷：`output_item.done` 带的是**全量** `arguments`，与已收到的增量
+  叠加会拼成坏 JSON（`createToolCallAccumulator` 新增 `replace` 语义）；并行 `function_call` 若都塌到
+  `index 0` 参数会互相污染（改为按 `output_index`／`call_id` 稳定编号）。两者都源于装配冒烟真实跑通了
+  GPT 联网回合，而不是只看请求形状。
+
+### 2. 删除账户余额显示
+移除 `#balance-badge` 与其 CSS、`fetchBalance()`（`GET /api/user/self`）及回合结束后的刷新调用：
+界面上不再出现余额，也不再有余额类请求（app-boot 用「全程出网 URL 白名单」断言这点）。
+侧栏底部只剩 传输状态 · 版本 · 会话统计 · 主题切换。
+
+### 3. 欢迎页（空状态）元素 y 轴回到居中
+撤掉上一轮「整体向上微调」的 `margin: 9vh auto 0`，`.empty-state` 改回
+`min-height:100% + flex + align-items:center + justify-content:safe center`：垂直居中，内容超高时向上滚而不裁顶，
+有对话后布局不受影响（`dom-smoke ⑭` 直接对 CSS 源码断言这四条）。
+
+### 4. 部署可见性：缓存漂移自检
+`index.html` 增加 `<meta name="app-version">`，与 `APP_VERSION` 比对：入口被刷新但子资源还是旧缓存时，
+界面直接 toast「资源缓存不一致 —— 请硬刷新」，不用人肉对比版本号（Pages 静态资源是 `max-age=600`，
+这正是上一轮「强刷还是旧版本」的原因）。入口 `css/styles.css?v=` 与 `js/main.js?v=` 一起 bump。
+
+### 中继与测试
+`server.py` 去掉 `/api/search`、`search_providers_configured()`、`run_search()` 与 `mode=markdown`（第三方抽取），
+`/api/health` 不再报 `search/providers`，git 参数黑名单补 `--upload-pack=` / `--config=` / `init --exec=` /
+`--output=` 四条（`clone --upload-pack` 是任意执行入口，原来漏了）。`fetch_url` 保留且只走中继，
+工具描述里写清「浏览器直连受 CSP 限制」。
+单测 144 → **152**、`tests/server_checks.py` 44 → **51**、app-boot 36 → **55**（含 GPT 的 `/v1/responses`
+回合、Claude 的服务器工具回合、来源条渲染、关联网后不带原生字段、只打网关 host）；
+dom-smoke 122 → **144**（联网胶囊、来源条、余额删除、居中、版本漂移）。`APP_VERSION` → `2026.09.21.6`。
+
 ## 2026-09-21（六项体验与能力）会话记录自动整理 + 联网检索 + 本地 git
 
 按用户提出的 6 点逐条落地：4 项是会话记录与操作条的体验，1 项是能力（搜索 / 抓取 / git），1 项是面板排版。
@@ -34,6 +85,9 @@
 `copy` 不再是没有图标的纯文字；剪贴板被拒时给可读提示而不是静默失败。
 
 ### 5. 联网检索、抓取网页与 git
+> 本节已被上面「2026-09-21（四项）」第 1 条取代：`web_search` 工具与第三方搜索分支已删除，
+> 联网改成模型 API 自带的请求格式；`fetch_url` 现在只走本地中继。
+
 新增 3 个工具（`js/net.js` 负责传输，`server.py` 负责中继）：
 
 | 工具 | 中继在跑 | 只有 Pages |

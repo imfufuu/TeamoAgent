@@ -57,6 +57,10 @@ def main():
         ("git init --separate-git-dir=/home/user/.git", False),  # 等号形式也要拦住
         ("git status --git-dir=/home/user/.git", False),
         ("git clone ext::sh:ls x", False),                 # ext 传输 = 任意执行
+        ("git clone --upload-pack=evil https://x", False),  # 借 clone 执行远端程序
+        ("git clone --config=credential.helper=cat x", False),
+        ("git init --exec=/bin/sh", False),
+        ("git log --output=/home/user/x", False),
         ("git daemon --export-all", False),                # 起服务/放行子命令
         ("git credential fill", False),                    # 读用户凭据
         ("rm -rf workspace", False),                       # 不是 git
@@ -99,19 +103,14 @@ def main():
     check("html_title 只取 title 文本", m.html_title(doc).startswith("标题"), m.html_title(doc))
     check("空输入不炸", m.html_to_text("") == "" and m.html_title(None) == "")
 
-    print("\n搜索提供方配置（run_search 的可用性判定）")
-    saved = {k: os.environ.get(k) for k in ("TEAMO_BRAVE_KEY", "TEAMO_TAVILY_KEY", "TEAMO_SERPER_KEY")}
-    try:
-        for k in saved:
-            os.environ.pop(k, None)
-        check("无 key 时 providers 为空（退回 DDG Instant Answer）", m.search_providers_configured() == [], str(m.search_providers_configured()))
-        os.environ["TEAMO_TAVILY_KEY"] = "tvly-test"
-        check("配了 key 后列出提供方", m.search_providers_configured() == ["tavily"], str(m.search_providers_configured()))
-    finally:
-        for k, v in saved.items():
-            os.environ.pop(k, None)
-            if v is not None:
-                os.environ[k] = v
+    print("\n搜索端点已移除（联网只用模型 API 自带格式）")
+    src = (ROOT / "server.py").read_text(encoding="utf8")
+    check("源码里没有 /api/search 路由与 handler",
+          'route == "/api/search"' not in src and "def _search" not in src and "self._search" not in src)
+    check("源码不引用任何第三方搜索 key", not any(k in src for k in ("TEAMO_BRAVE_KEY", "TEAMO_TAVILY_KEY", "TEAMO_SERPER_KEY")))
+    check("源码不再借用 r.jina.ai 抽取器", "r.jina.ai" not in src.split("只有 text / raw")[0])
+    check("health 只报 fetch/git", '"fetch": True,' in src and '"providers"' not in src)
+    check("fetch 的 mode 白名单只剩 text|raw", 'if mode not in ("text", "raw")' in src)
     check("工作区目录名可配置（默认 ./workspace）", os.path.basename(m.WORKSPACE) in ("workspace",) or True)
 
     print(f"\n{'%d 项护栏自检通过 ✅' % ok if not bad else '%d 项失败 ❌：%s' % (len(bad), '、'.join(bad))}")

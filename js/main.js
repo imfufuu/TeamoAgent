@@ -18,11 +18,18 @@ const hooks = {
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
   onTurnEnd: () => {
-    ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); ui && ui.refreshBalance();
+    ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats();
     // 回合结束后让 Agent 给这次会话起个标题（用户手改过的不会被覆盖；失败静默退回兜底标题）
     ui && ui.autoTitle && ui.autoTitle();
   },
   onThinkingFallback: (model) => toast(`${model} 不支持思考参数，本次会话已为其自动关闭思考模式`, 'warn', 5200),
+  // 联网：搜索由模型服务端完成（原生请求格式），这里只把进度/来源转给 UI 画引用条；
+  // 网关或模型拒收该字段时说明原因（UI 会同时把 pill 的说明刷新成「当前不联网」）
+  onWebSearch: (m, web) => ui && ui.onWebSearch && ui.onWebSearch(m, web),
+  onWebFallback: (model, why) => {
+    toast(`联网已自动关闭：${String(why || '').slice(0, 140)}`, 'warn', 7000);
+    ui && ui.onWebFallback && ui.onWebFallback(model, why);
+  },
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onError: (err) => {

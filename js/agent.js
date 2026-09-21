@@ -61,7 +61,7 @@ export function subagentTools(sandboxEnabled, def) {
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal, onThinkingFallback, imageModel }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel }) {
   const subTools = subagentTools(sandboxEnabled, def);
   const messages = [
     { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}\n\n${OUTPUT_SPEC}` },
@@ -76,6 +76,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     await streamChat({
       model, apiKey, thinking, signal, tools: subTools,
       onThinkingFallback,
+      webEnabled: !!webEnabled, onWebFallback,
       messages,
       onEvent: (ev) => {
         if (ev.type === 'text') text += ev.text;
@@ -99,6 +100,18 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
   }
   return finalText || '（子智能体未产生最终报告）';
 }
+
+// 联网开关的提示词：联网用的是模型 API 自带的网页搜索请求格式，所以这里不挂我们自己的搜索工具，
+// 只告诉模型「能力从哪来」。文本放在本模块内而不是给 config.js 新增具名导出再 import —— 那会在
+// 「新 agent.js + 旧 config.js」的混版缓存下触发 ESM link 错误（整页白屏），历史上真踩过。
+const WEB_ON_NOTE = '\n\n【联网】本轮已按当前模型的原生格式开启服务端网页搜索'
+  + '（Claude：/v1/messages 的 tools:[{type:"web_search_20250305"}]；GPT：/v1/responses 的 tools:[{type:"web_search"}]；'
+  + 'Kimi/GLM/Grok：Chat Completions 的对应原生字段）。搜索由模型服务端自己完成，结果带引用回流进本轮上下文：'
+  + '遇到「最新/当下/版本号/今天/价格/近期」这类光靠权重参数答不了的问题就直接联网，不必等用户点名，'
+  + '回答里给出来源链接。要抓某个具体网页的正文用 fetch_url（走本地中继），需要 git 用 run_git。';
+const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第三方搜索接口）。不要声称自己能查实时信息：'
+  + '涉及时效性问题就直说「当前未联网，无法核实」，或建议用户打开顶栏的「联网」开关；'
+  + '确定的知识可以直接答，但别把记忆包装成「刚查到的」。';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -136,7 +149,8 @@ export function createAgent(store, hooks = {}) {
     const { messages: compacted, droppedCount } = compactMessages(messages, budget);
     // subagentGuide 无条件注入：委派子智能体不依赖代码沙箱开关（开关只决定子智能体
     // 自己能用的工具集合），旧写法把整段名录藏在开关后面，关掉沙箱就等于没有子智能体。
-    const sys = [{ role: 'system', text: systemPrompt() + fsNote() + subagentGuide() }];
+    const sys = [{ role: 'system', text: systemPrompt() + fsNote()
+      + (store.state.settings.webEnabled !== false ? WEB_ON_NOTE : WEB_OFF_NOTE) + subagentGuide() }];
     if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
     return [...sys, ...compacted];
   }
@@ -166,8 +180,10 @@ export function createAgent(store, hooks = {}) {
           model: turn.model,
           thinking: turn.thinking,
           sandboxEnabled: turn.sandboxEnabled,
+          webEnabled: turn.webEnabled,
           imageModel: turn.imageModel,
           onThinkingFallback: (m) => emit('onThinkingFallback', m),
+          onWebFallback: (m, why) => emit('onWebFallback', m, why),
           fs,
           signal: turn.signal,
         });
@@ -226,6 +242,7 @@ export function createAgent(store, hooks = {}) {
       apiKey, model, signal,
       thinking: settings.thinking !== false,
       sandboxEnabled: settings.sandboxEnabled,
+      webEnabled: settings.webEnabled !== false, // 联网默认开（搜不搜由模型自己判断）
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
     };
     let iterations = 0;
@@ -240,6 +257,7 @@ export function createAgent(store, hooks = {}) {
         let tb = createThinkingTracker(); // Anthropic 思考块（含 signature），随消息持久化并在下一轮回传
         let text = '', reasoning = '';
         let sawToolDelta = false, lastChipPaint = 0;
+        let web = null; // 服务端联网进度：{status, queries, sources, results}
         const usage = {};
         let finishReason = null;
 
@@ -256,6 +274,8 @@ export function createAgent(store, hooks = {}) {
               fastMode: settings.fastMode,
               thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
+              webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
+              onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
               messages: buildMessages(model),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
@@ -286,6 +306,23 @@ export function createAgent(store, hooks = {}) {
                       lastChipPaint = now;
                       store.updateMessage(assistantMsg.id, { toolCalls: acc.result() });
                     }
+                    break;
+                  }
+                  case 'web_search': {
+                    // 联网进度/来源：并进消息（重开会话后引用还在），同时通知 UI 画状态
+                    const prev = web || { status: 'idle', sources: [], results: 0, queries: [] };
+                    const mergeSources = (rows) => (rows && rows.length)
+                      ? [...new Map([...prev.sources, ...rows].map((x) => [x.url, x])).values()]
+                      : prev.sources;
+                    if (ev.status === 'searching') web = { ...prev, status: 'searching', name: ev.name || prev.name };
+                    else if (ev.status === 'done') web = { ...prev, status: 'done',
+                      results: ev.results != null ? ev.results : prev.results,
+                      queries: (ev.queries && ev.queries.length) ? [...new Set([...prev.queries, ...ev.queries])] : prev.queries,
+                      sources: mergeSources(ev.sources) };
+                    else if (ev.status === 'sources') web = { ...prev, sources: mergeSources(ev.sources) };
+                    else if (ev.status === 'error') web = { ...prev, status: 'error', message: ev.message };
+                    store.updateMessage(assistantMsg.id, { webSearch: web });
+                    emit('onWebSearch', assistantMsg, web);
                     break;
                   }
                   case 'usage':
@@ -325,6 +362,7 @@ export function createAgent(store, hooks = {}) {
           thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
           usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
           finishReason, done: true, transport: getTransport(),
+          webSearch: web && (web.sources.length || web.results) ? web : undefined,
         });
         emit('onAssistantDone', assistantMsg);
 

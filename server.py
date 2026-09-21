@@ -9,8 +9,9 @@
 端点:
   ANY  /api/proxy?path=/v1/chat/completions  →  https://api.teamorouter.com/v1/... （流式透传）
   GET  /api/health      →  能力探测（前端据此决定工具走中继还是降级）
-  GET  /api/search?q=   →  搜索引擎结果 JSON（配 key 则用 Brave/Tavily/Serper，否则 DuckDuckGo）
-  GET  /api/fetch?url=  →  抓取网页并抽取正文（mode=text|markdown|raw，禁止指向内网地址）
+  GET  /api/fetch?url=  →  抓取网页并抽取正文（mode=text|raw，禁止指向内网地址）
+                        联网搜索不在这里：按用户要求，搜索只用模型 API 自带的请求格式
+                       （js/websearch.js），本中继不接任何第三方搜索服务
   POST /api/git         →  在 ./workspace/ 里执行 git 子命令（白名单、不经 shell、禁交互凭据提示）
 """
 import html as htmlmod
@@ -146,80 +147,6 @@ def html_title(doc):
     return html_to_text(m.group(1))[:160] if m else ""
 
 
-def search_providers_configured():
-    return [n for n, e in (("brave", "TEAMO_BRAVE_KEY"), ("tavily", "TEAMO_TAVILY_KEY"), ("serper", "TEAMO_SERPER_KEY")) if os.environ.get(e)]
-
-
-def run_search(query, count):
-    """按「配了 key 的搜索引擎 → DuckDuckGo Instant Answer」顺序尝试，返回 (results, provider, note)。"""
-    errs = []
-    if os.environ.get("TEAMO_BRAVE_KEY"):
-        try:
-            u = "https://api.search.brave.com/res/v1/web/search?" + urllib.parse.urlencode({"q": query, "count": count})
-            req = urllib.request.Request(u, headers={"User-Agent": UA, "Accept": "application/json", "X-Subscription-Token": os.environ["TEAMO_BRAVE_KEY"]})
-            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as res:  # noqa: S310
-                j = json.loads(res.read(2_000_000).decode("utf-8", "replace"))
-            rows = (j.get("web") or {}).get("results") or j.get("results") or []
-            out = [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": html_to_text(r.get("description", ""))} for r in rows[:count]]
-            if out:
-                return out, "brave", ""
-            errs.append("brave 无结果")
-        except Exception as exc:
-            errs.append(f"brave 失败({type(exc).__name__})")
-    if os.environ.get("TEAMO_TAVILY_KEY"):
-        try:
-            body = json.dumps({"query": query, "max_results": count, "search_depth": "basic"}).encode()
-            req = urllib.request.Request("https://api.tavily.com/search", data=body, method="POST", headers={"User-Agent": UA, "Content-Type": "application/json", "Authorization": "Bearer " + os.environ["TEAMO_TAVILY_KEY"]})
-            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as res:  # noqa: S310
-                j = json.loads(res.read(2_000_000).decode("utf-8", "replace"))
-            out = [{"title": r.get("title", ""), "url": r.get("url", ""), "snippet": (r.get("content") or "")[:400]} for r in (j.get("results") or [])[:count]]
-            if out:
-                return out, "tavily", ""
-            errs.append("tavily 无结果")
-        except Exception as exc:
-            errs.append(f"tavily 失败({type(exc).__name__})")
-    if os.environ.get("TEAMO_SERPER_KEY"):
-        try:
-            body = json.dumps({"q": query, "num": count}).encode()
-            req = urllib.request.Request("https://google.serper.dev/search", data=body, method="POST", headers={"User-Agent": UA, "Content-Type": "application/json", "X-API-KEY": os.environ["TEAMO_SERPER_KEY"]})
-            with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as res:  # noqa: S310
-                j = json.loads(res.read(2_000_000).decode("utf-8", "replace"))
-            out = [{"title": r.get("title", ""), "url": r.get("link", ""), "snippet": r.get("snippet", "")} for r in (j.get("webResults") or j.get("organic") or [])[:count]]
-            if out:
-                return out, "serper", ""
-            errs.append("serper 无结果")
-        except Exception as exc:
-            errs.append(f"serper 失败({type(exc).__name__})")
-    try:
-        u = "https://api.duckduckgo.com/?" + urllib.parse.urlencode({"q": query, "format": "json", "no_html": 1, "skip_disambig": 1})
-        req = urllib.request.Request(u, headers={"User-Agent": UA, "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as res:  # noqa: S310
-            j = json.loads(res.read(1_000_000).decode("utf-8", "replace"))
-        out = []
-        if j.get("AbstractText"):
-            out.append({"title": j.get("Heading") or j.get("AbstractSource") or "Instant Answer", "url": j.get("AbstractURL", ""), "snippet": j["AbstractText"]})
-        if j.get("Definition"):
-            out.append({"title": j.get("DefinitionSource") or "Definition", "url": j.get("DefinitionURL", ""), "snippet": j["Definition"]})
-        for r in j.get("RelatedTopics") or []:
-            if len(out) >= count:
-                break
-            rows = [r] if r.get("FirstURL") else (r.get("Topics") or [])
-            for t in rows:
-                if t.get("FirstURL"):
-                    out.append({"title": t.get("Text") or t["FirstURL"], "url": t["FirstURL"], "snippet": t.get("Text", "")})
-                    break
-        if out:
-            note = "provider=duckduckgo-instant（百科/定义类查询效果好）；想要通用搜索结果，导出 TEAMO_BRAVE_KEY / TEAMO_TAVILY_KEY / TEAMO_SERPER_KEY 任一即可自动切换"
-            return out[:count], "duckduckgo-instant", note
-        errs.append("duckduckgo-instant 无结果")
-    except Exception as exc:
-        errs.append(f"duckduckgo 失败({type(exc).__name__})")
-    return [], "none", "；".join(errs) + "。可改用 /api/fetch 直抓已知网址，或配置搜索 key。"
-
-
-# git config 只放行「读」与「本仓库的少量身份/行为键」：
-# alias.*（等价任意命令执行）、core.fsmonitor / core.hooksPath（同样是执行外部程序）、
-# credential.*（会读写凭据 helper）都必须在外面
 GIT_CONFIG_KEYS = {"user.name", "user.email", "init.defaultbranch", "pull.rebase",
                    "commit.gpgsign", "advice.detachedhead", "advice.pushupdaterejected"}
 GIT_CONFIG_FLAGS = {"--local", "--unset", "--unset-all", "--add", "--replace-all", "--bool"}
@@ -304,14 +231,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/health":
             return self._json(200, {
                 "ok": True, "service": "teamo-agent-local-relay",
-                "search": True, "fetch": True,
+                "fetch": True,
                 "git": bool(GIT_ENABLED) and shutil.which("git") is not None,
                 "workspace": WORKSPACE,
-                "providers": search_providers_configured(),
                 "time": int(time.time()),
             })
-        if route == "/api/search":
-            return self._search(qs)
         if route == "/api/fetch":
             return self._fetch(qs)
         if route == "/api/git":
@@ -319,8 +243,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return self._json(404, {"error": f"unknown api route {route}"})
 
     def _fetch(self, qs):
+        """抓一个公网 URL → 纯文本（或原始体）。
+
+        只有 text / raw 两种模式：原先的 markdown 模式借用 r.jina.ai，那是第三方服务，
+        按「联网只用模型 API 自带格式」的要求移除；正文抽取由前端/这里的 html_to_text 完成。
+        （顺带：原来的 _search 端点也删了 —— 见 js/websearch.js 的说明。）
+        """
         raw = (qs.get("url") or [""])[0]
         mode = (qs.get("mode") or ["text"])[0]
+        if mode not in ("text", "raw"):
+            mode = "text"
         try:
             limit = min(int((qs.get("max") or [str(MAX_FETCH_BYTES)])[0]), MAX_FETCH_BYTES)
         except ValueError:
@@ -330,37 +262,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             url = guard_public_http_url(raw)
         except ValueError as exc:
             return self._json(400, {"error": str(exc)})
-        target = url
-        if mode == "markdown":
-            # 正文抽取器（r.jina.ai）：JS 渲染页面也能拿到 markdown；失败自动退回直抓
-            target = "https://r.jina.ai/" + url
         try:
-            status, ctype, body = http_get_text(target, limit)
+            status, ctype, body = http_get_text(url, limit)
         except urllib.error.HTTPError as exc:
             return self._json(502, {"error": f"上游返回 HTTP {exc.code}", "url": url})
         except Exception as exc:  # DNS / 超时 / TLS
             return self._json(502, {"error": f"抓取失败：{type(exc).__name__}: {exc}", "url": url})
-        if mode == "markdown" and (not body or "jina" in ctype.lower() and "html" in body[:400].lower()):
-            pass  # 上游返回错误页时保留原样，交给前端判断
         truncated = len(body) >= limit
-        text = body if mode in ("raw", "markdown") else html_to_text(body)
+        text = body if mode == "raw" else html_to_text(body)
         return self._json(200, {
             "url": url, "status": status, "content_type": ctype,
             "title": html_title(body) if "html" in ctype.lower() else "",
             "text": text, "truncated": truncated, "limit": limit,
             "chars": len(text),
         })
-
-    def _search(self, qs):
-        q = (qs.get("q") or [""])[0].strip()
-        if not q:
-            return self._json(400, {"error": "缺少 q 参数"})
-        try:
-            count = max(1, min(int((qs.get("count") or ["6"])[0]), 10))
-        except ValueError:
-            count = 6
-        out, provider, note = run_search(q, count)
-        return self._json(200, {"query": q, "provider": provider, "results": out, "note": note})
 
     def _git(self, method, qs):
         if not GIT_ENABLED:
@@ -506,8 +421,8 @@ if __name__ == "__main__":
     os.makedirs(WORKSPACE, exist_ok=True)
     print(
         f"◐ TeamoAgent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})\n"
-        f"  工作区 {WORKSPACE} · /api/search {search_providers_configured() or 'duckduckgo-instant'} · "
-        f"/api/fetch on · /api/git {'on' if GIT_ENABLED else 'off'}"
+        f"  工作区 {WORKSPACE} · /api/fetch on · /api/git {'on' if GIT_ENABLED else 'off'}\n"
+        "  联网搜索走模型 API 自带格式（本中继不提供 /api/search）"
     )
     if not loopback and not args.allow_git and not args.no_git:
         print("  ⚠ 非本机监听：/api/git 已自动关闭（要开请加 --allow-git）")
