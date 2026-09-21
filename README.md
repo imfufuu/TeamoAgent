@@ -84,7 +84,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 ## 思考模式（默认开启）
 
-顶栏 🧠 开关；按模型家族自动映射到各自协议的思考参数，模型不支持（400）时**自动降级重试并记住**：
+顶栏「思考」开关（线性 SVG 图标）；按模型家族自动映射到各自协议的思考参数，模型不支持（400）时**自动降级重试并记住**：
 
 | 模型家族 | 思考参数 |
 |---|---|
@@ -120,6 +120,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **容错**：429/5xx 指数退避重试一次；HTTP 错误映射中文提示（401 查 Key / 402 充值 / 404 模型名）；直连失败自动切换 `/api/proxy` 中继并回放请求；中断按钮随时终止流。
 
+**视图层故障隔离**：Agent 的所有 UI 回调都经 `emit()` 分发（钩子缺失或抛错只 `console.warn`），
+因为 GitHub Pages 对静态资源有 ~10 分钟缓存，浏览器完全可能拿到「新 main.js + 旧 ui.js」的混版组合；
+这类组合最多让界面退回旧交互，**不允许**把整轮对话 brick 掉（曾有真实故障：旧 `ui.js` 没有 `onUserMessage`，
+直调抛 `TypeError` 冒泡到 `send()`，表现为「发了提示词界面毫无反应」）。
+入口资源（`css/styles.css`、`js/main.js`）统一带 `?v=APP_VERSION`，侧栏底部显示 `v<版本>` 便于自检；
+`APP_VERSION` 与 index.html 的 `?v=` 由单测强制同步。
+
 ## 目录
 
 ```
@@ -131,6 +138,7 @@ js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
 js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包 / 单目录下载
 js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总、折叠展开）
+js/config.js      常量与模型目录（含 APP_VERSION：入口资源 ?v= 的单一真源）
 js/suggestions.js 空状态任务示例池 + 随机抽取（纯函数，可单测）
 js/icons.js       供应商品牌 Logo + 界面线性图标（currentColor，随主题反色）
 js/agent.js       工具调用循环状态机

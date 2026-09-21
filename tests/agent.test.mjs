@@ -1428,6 +1428,62 @@ test('shuffled 不改动入参且长度守恒', () => {
   assert.deepEqual([...out].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
 });
 
+group('视图层故障隔离（缓存版本错配的防线）');
+test('UI 钩子抛错或缺失，都不能打断对话循环', async () => {
+  const warns = [];
+  const origWarn = console.warn;
+  const origFetch = globalThis.fetch;
+  try {
+    console.warn = (...a) => warns.push(a.map(String).join(' '));
+    // ① 钩子存在但抛错（真实故障形态：旧 ui.js 上调用不存在的方法）
+    mockFetch([openaiTextTurn('好的')], []);
+    const s1 = createStore();
+    s1.state.apiKey = 'sk-teamo-test'; s1.state.model = 'gpt-5.6-sol';
+    const a1 = createAgent(s1, {
+      setStatus() { throw new TypeError('boom: setStatus'); },
+      onUserMessage() { throw new TypeError('ui.onUserMessage is not a function'); },
+      onAssistantStart() { throw new TypeError('ui.onAssistantStart is not a function'); },
+      onDelta() { throw new TypeError('boom: onDelta'); },
+      onTurnEnd() { throw new TypeError('boom: onTurnEnd'); },
+    });
+    await a1.send('你好');
+    const last1 = s1.state.messages[s1.state.messages.length - 1];
+    assert.equal(last1.role, 'assistant');
+    assert.equal(last1.text, '好的', '视图抛错不应影响模型回复落地');
+    assert.equal(a1.getStatus(), 'done', '状态机应正常收尾');
+    assert.ok(warns.some((w) => /hooks\.onUserMessage 异常/.test(w)), '异常要可在控制台定位');
+    assert.ok(warns.some((w) => /hooks\.onDelta 异常/.test(w)), '每个钩子独立隔离');
+    // ② 旧版 UI：压根没有 onUserMessage 方法
+    globalThis.fetch = origFetch;
+    mockFetch([openaiTextTurn('收到')], []);
+    const s2 = createStore();
+    s2.state.apiKey = 'sk-teamo-test'; s2.state.model = 'gpt-5.6-sol';
+    const a2 = createAgent(s2, { onAssistantStart() {} });
+    await a2.send('你好呀');
+    assert.equal(a2.getStatus(), 'done');
+    assert.ok(s2.state.messages.some((m) => m.role === 'user' && m.text === '你好呀'), '缺钩子时消息仍应入列');
+    assert.equal(s2.state.messages[s2.state.messages.length - 1].text, '收到');
+  } finally {
+    console.warn = origWarn;
+    globalThis.fetch = origFetch;
+  }
+});
+test('index.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => {
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const { APP_VERSION } = await import('../js/config.js');
+  assert.match(APP_VERSION, /^\d{4}\.\d{2}\.\d{2}\.\d+$/, '版本形如 2026.09.21.2');
+  for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
+    const m = new RegExp(`${asset}\\?v=([\\d.]+)`).exec(html);
+    assert.ok(m, `${asset.replace(/\\/g, '')} 应带 ?v=`);
+    assert.equal(m[1], APP_VERSION, '?v= 必须与 APP_VERSION 同步（发版一起 bump）');
+  }
+  assert.match(html, /id="build-stamp"/, '侧栏要有可见的构建标识');
+  // 模块间 import 不带版本（无构建器），因此必须靠 emit() 兜住混版 —— 见上一条用例
+  const mainSrc = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  assert.match(mainSrc, /ui && ui\.onUserMessage\(msg\)/, 'main.js 仍显式接上用户消息上屏');
+});
+
 
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {

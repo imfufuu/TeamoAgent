@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL, APP_VERSION } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
@@ -1050,6 +1050,13 @@ export function mountUI(store, agent) {
   updateStats();
   renderTimeStats();
   refreshBalance();
+  // 构建标识：静态站点无法靠响应头保证刷新即最新，先把版本号亮出来便于自检
+  const stampEl = $('#build-stamp');
+  if (stampEl) {
+    stampEl.textContent = `v${APP_VERSION}`;
+    stampEl.title = `构建版本 ${APP_VERSION} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
+  }
+
   if (!store.state.apiKey) setTimeout(openKeyModal, 600);
 
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
@@ -1062,8 +1069,10 @@ export function mountUI(store, agent) {
     rebuildMessages, // 外部触发整段对话重绘（会话切换、示例卡刷新等）
     // 用户消息入列后立刻上屏：否则要等本轮输出完（甚至切出再切回会话）才看得到自己说了什么
     onUserMessage(m) {
-      if (!m || !m.id || msgNodes.has(m.id)) return;
-      appendMessage(m);
+      // 兼容只传文本的旧调用方（缓存错配时会出现）：退化为「最近一条还没上屏的 user 消息」
+      const msg = (m && m.id) ? m : [...store.state.messages].reverse().find((x) => x.role === 'user' && !msgNodes.has(x.id));
+      if (!msg || !msg.id || msgNodes.has(msg.id)) return;
+      appendMessage(msg);
       refreshActionVisibility();
     },
     onAssistantStart(m) { appendMessage(m); streamingId = m.id; },

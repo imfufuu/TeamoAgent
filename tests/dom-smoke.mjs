@@ -283,7 +283,12 @@ for (let i = 0; i < 12 && !sawDifferent; i++) {
 ok('换一批会换出不同组合', sawDifferent);
 const cardEl = window.document.querySelector('#messages .empty-state .suggest');
 click(cardEl);
-ok('点示例卡填入输入框（用 data-prompt 而非含标签的 textContent）', $('#composer-input').value === cardEl.dataset.prompt && !$('#composer-input').value.includes(cardEl.querySelector('.suggest-tag').textContent), JSON.stringify($('#composer-input').value).slice(0, 60));
+// 关键差异：textContent 会把能力标签一起带进输入框（旧写法的老 bug），data-prompt 不会
+ok('点示例卡填入输入框（用 data-prompt 而非含标签的 textContent）', (() => {
+  const v = $('#composer-input').value;
+  const tag = cardEl.querySelector('.suggest-tag').textContent;
+  return v === cardEl.dataset.prompt && v !== cardEl.textContent.trim() && !v.startsWith(tag);
+})(), JSON.stringify($('#composer-input').value).slice(0, 60));
 store.state.messages.push(...savedMsgs);
 ui.rebuildMessages();
 
@@ -292,6 +297,19 @@ const logoRule = /\.logo-mark\s*\{[^}]*\}/.exec(cssText)?.[0] || '';
 ok('.logo-mark 无 animation', !/animation/.test(logoRule), logoRule.trim());
 ok('仅空状态大 Logo 保留慢转', /\.empty-logo svg\s*\{[^}]*animation: halfspin/.test(cssText));
 ok('index.html 侧栏 Logo 无内联动画', !/logo-mark[^>]*style="[^"]*animation/.test(html));
+
+console.log('\n③ 视图层故障不能 brick 发送');
+const cfgMod = await import(path.join(ROOT, 'js/config.js'));
+ok('侧栏展示构建版本', $('#build-stamp').textContent.includes(cfgMod.APP_VERSION), $('#build-stamp').textContent);
+ok('index.html 入口资源已版本化', /css\/styles\.css\?v=/.test(html) && /js\/main\.js\?v=/.test(html));
+// 旧调用方只传文本（缓存了旧 main.js 的情形）：UI 需自己找回那条用户消息
+const oldStyle = store.pushMessage({ role: 'user', text: '旧式调用只给文本' });
+ui.onUserMessage('旧式调用只给文本');
+ok('旧式 onUserMessage(text) 仍能上屏', $$('#messages .msg-user .bubble').some((n) => n.textContent.includes('旧式调用只给文本')));
+ok('不会重复插入同一节点', $$('#messages .msg[data-id="' + oldStyle.id + '"]').length === 1,
+  `${$$('#messages .msg[data-id="' + oldStyle.id + '"]').length} 个节点`);
+ui.onUserMessage('旧式调用只给文本');
+ok('重复调用被去重', $$('#messages .msg[data-id="' + oldStyle.id + '"]').length === 1);
 
 console.log('\n⑥ Kimi 品牌图标');
 const { providerIcon } = await import(path.join(ROOT, 'js/icons.js'));

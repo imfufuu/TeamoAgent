@@ -2,6 +2,26 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（严重修复）混版缓存会 brick 发送 —— 视图层故障隔离 + 入口资源版本化
+
+线上反馈「发送提示词后界面没有任何变化」，且看不到新增的任务示例与下载图标。
+仓库里已无 `⬇`/`⚡`、`js/suggestions.js` 也已上线，逐项核对线上字节后定位为**同一根因**：
+GitHub Pages 对 JS/CSS 子资源有 ~10 分钟 `max-age`，浏览器于是组合出
+「新 `main.js` + 旧 `ui.js`」——旧 `ui.js` 没有 `onUserMessage` 方法，
+`ui.onUserMessage(msg)` 直接抛 `TypeError`，从 `store.pushMessage()` 冒泡出 `agent.send()`，
+于是用户气泡、assistant 占位、流式请求全都没发生（= 界面毫无反应），
+而旧的 `ui.js` 同时解释了「没有随机示例」「下载图标还是 ⬇」。
+
+- **不变量**：Agent 的每个 UI 回调改经 `emit(name, …)` 分发 —— 钩子缺失只跳过、抛错只
+  `console.warn`，视图层任何异常都不得中断对话循环（`js/agent.js`，18 处调用点全量改造）。
+- **双向兼容**：`ui.onUserMessage()` 允许只收到文本（旧 `main.js` 的调用形态），自行回退到
+  「最近一条还没上屏的 user 消息」，并按 `msgNodes` 去重；混版时任一侧都能工作。
+- **穿透缓存**：`css/styles.css` 与 `js/main.js` 改为 `?v=APP_VERSION`；侧栏底部新增 `v<版本>`
+  构建标识（hover 提示强制刷新）；新增单测强制 `?v=` 与 `APP_VERSION` 同步，避免发版漏改。
+- 复现与验证：用**上一版 `ui.js` + 当前 `agent.js`** 实跑，修复前 `TypeError`，修复后
+  `send()` 正常收尾（`user` + `assistant` 消息齐全，状态 `done`）；另有「钩子全抛错」单测。
+- 测试：单测 99 → 101，DOM 冒烟 90 → 95（连续 6 轮 0 失败；顺带修掉一条会误判的
+  DOM 断言——示例文案本身包含其能力标签文字，改为比较 `data-prompt` 与 `textContent` 差异）。
 ## 2026-09-21（修复 + 体验）用户消息即时上屏 / 随机任务示例 / Logo 静止
 
 - **修复：发完提示词看不到自己说的话**。`store.pushMessage(user)` 之后只刷新了会话列表与

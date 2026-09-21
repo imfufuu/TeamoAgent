@@ -90,7 +90,22 @@ export function createAgent(store, hooks = {}) {
   let abortController = null;
   let status = 'idle'; // idle | thinking | streaming | executing | done | error | cancelled
 
-  const setStatus = (s) => { status = s; hooks.onStatus && hooks.onStatus(s); };
+  // UI 钩子统一经 emit 分发：钩子缺失或抛错都不得打断对话循环。
+  // 线上教训：GitHub Pages 对 JS 子资源有 ~10 分钟缓存，浏览器可能拿到「新版 main.js +
+  // 旧版 ui.js」；旧 ui.js 没有 onUserMessage，直接调用会 TypeError 冒泡到 send()，
+  // 表现成「发了提示词界面毫无反应」。视图层的异常只该降级，不该 brick 整轮对话。
+  const emit = (name, ...args) => {
+    const fn = hooks[name];
+    if (typeof fn !== 'function') return undefined;
+    try {
+      return fn(...args);
+    } catch (err) {
+      console.warn(`[TeamoAgent] hooks.${name} 异常（已忽略，不影响本轮对话）`, err);
+      return undefined;
+    }
+  };
+
+  const setStatus = (s) => { status = s; emit('onStatus', s); };
   const syncFS = () => { store.state.files = fs.export(); };
 
   function buildMessages() {
@@ -110,7 +125,7 @@ export function createAgent(store, hooks = {}) {
 
   async function runLoop({ regenerate = false } = {}) {
     const { apiKey, model, settings } = store.state;
-    if (!apiKey) { hooks.onNeedKey && hooks.onNeedKey(); return; }
+    if (!apiKey) { emit('onNeedKey'); return; }
     if (status === 'connecting' || status === 'streaming' || status === 'thinking' || status === 'executing') return;
 
     const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
@@ -133,7 +148,7 @@ export function createAgent(store, hooks = {}) {
         let finishReason = null;
 
         const assistantMsg = store.pushMessage({ role: 'assistant', text: '', model, usage: null });
-        hooks.onAssistantStart && hooks.onAssistantStart(assistantMsg);
+        emit('onAssistantStart', assistantMsg);
         setStatus('connecting'); // 已发出请求、尚未收到首个 token：UI 显示连接动画
         let streamed = false;
 
@@ -144,7 +159,7 @@ export function createAgent(store, hooks = {}) {
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
               thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
-              onThinkingFallback: hooks.onThinkingFallback, // 思考参数 400 降级 → 提示用户（不再静默）
+              onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               messages: buildMessages(),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
@@ -152,13 +167,13 @@ export function createAgent(store, hooks = {}) {
                   case 'text':
                     text += ev.text;
                     store.updateMessage(assistantMsg.id, { text });
-                    hooks.onDelta && hooks.onDelta(assistantMsg, text);
+                    emit('onDelta', assistantMsg, text);
                     break;
                   case 'reasoning':
                     reasoning += ev.text;
                     tb.delta(ev.index, ev.text);
                     store.updateMessage(assistantMsg.id, { reasoning });
-                    hooks.onReasoning && hooks.onReasoning(assistantMsg, reasoning);
+                    emit('onReasoning', assistantMsg, reasoning);
                     break;
                   case 'block_start':
                     if (ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
@@ -215,28 +230,28 @@ export function createAgent(store, hooks = {}) {
           usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
           finishReason, done: true, transport: getTransport(),
         });
-        hooks.onAssistantDone && hooks.onAssistantDone(assistantMsg);
+        emit('onAssistantDone', assistantMsg);
 
         // ── 无工具调用 → 回合结束 ──
-        if (!toolCalls.length) { setStatus('done'); hooks.onTurnEnd && hooks.onTurnEnd(); return; }
+        if (!toolCalls.length) { setStatus('done'); emit('onTurnEnd'); return; }
 
         // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
         setStatus('executing');
         for (const call of toolCalls) {
           if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-          hooks.onToolStart && hooks.onToolStart(call);
+          emit('onToolStart', call);
           let result;
           if (call.args && typeof call.args === 'object' && '__raw' in call.args) {
             // 参数 JSON 解析失败 → 不执行，反馈模型自行纠错（成熟的工具循环必备）
             result = `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
-            hooks.onToolEvent && hooks.onToolEvent(call, { status: 'error', note: '参数解析失败' });
+            emit('onToolEvent', call, { status: 'error', note: '参数解析失败' });
           } else {
             result = await executeTool(call.name, call.args, {
               fs,
               apiKey: store.state.apiKey,
               imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
               signal,
-              onUi: (patch) => hooks.onToolEvent && hooks.onToolEvent(call, patch),
+              onUi: (patch) => emit('onToolEvent', call, patch),
               dispatch: async (agentId, subTask, onNote) => {
                 const def = findSubagent(agentId);
                 if (!def) return `未知子智能体：${agentId}。请用 enum 中列出的 ID。`;
@@ -246,7 +261,7 @@ export function createAgent(store, hooks = {}) {
                   model: store.state.model,
                   thinking: store.state.settings.thinking !== false,
                   sandboxEnabled: store.state.settings.sandboxEnabled,
-                  onThinkingFallback: hooks.onThinkingFallback,
+                  onThinkingFallback: (m) => emit('onThinkingFallback', m),
                   fs, signal,
                 });
                 return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;
@@ -255,28 +270,28 @@ export function createAgent(store, hooks = {}) {
           }
           syncFS();
           store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: truncateToolContent(result, 8000) });
-          hooks.onToolResult && hooks.onToolResult(call, result);
+          emit('onToolResult', call, result);
         }
       }
       // 达到迭代上限
       store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, model, done: true });
       setStatus('done');
-      hooks.onTurnEnd && hooks.onTurnEnd();
+      emit('onTurnEnd');
     } catch (err) {
       if (err.name === 'AbortError' || signal.aborted) {
         setStatus('cancelled');
         const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
         if (last) store.updateMessage(last.id, { cancelled: true, done: true });
-        hooks.onCancelled && hooks.onCancelled();
+        emit('onCancelled');
       } else {
         setStatus('error');
-        hooks.onError && hooks.onError(err);
+        emit('onError', err);
       }
     } finally {
       abortController = null;
       syncFS();
       store.notify();
-      try { hooks.onTurnTiming && hooks.onTurnTiming(Math.round(performance.now() - t0)); } catch { /* noop */ }
+      emit('onTurnTiming', Math.round(performance.now() - t0)); // emit 内部已吞掉视图层异常
     }
   }
 
@@ -288,11 +303,11 @@ export function createAgent(store, hooks = {}) {
       // 所有附件（文本 + 图片）自动复制到沙箱 uploads/：文本存原文、图片存 data URL，
       // 工具循环可直接 read_file 读取，图片也能作为 generate_image 的 reference_paths 编辑
       const copied = copyAttachmentsToFS(fs, attachments);
-      if (copied.length) { syncFS(); store.notify(); hooks.onFsChange && hooks.onFsChange(copied); }
+      if (copied.length) { syncFS(); store.notify(); emit('onFsChange', copied); }
       store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
       const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
       // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
-      hooks.onUserMessage && hooks.onUserMessage(userText, userMsg);
+      emit('onUserMessage', userText, userMsg);
       await runLoop();
     },
 
