@@ -95,6 +95,30 @@ export function createOpenAIStream(onEv) {
 
 // ── Anthropic /v1/messages 事件流归一化 ─────────────────────────────────
 export function createAnthropicStream(onEv) {
+  // 服务器工具（模型侧 web_search）的块不能进客户端工具累积器：它的 input_json_delta 里装的是
+  // 「搜索查询词」，如果混进 tool_calls 会凭空多出一个 name 为空的工具调用，主循环会去执行它。
+  const serverIdx = new Set();
+  const serverArgs = new Map();
+  const emittedQuery = new Set(); // 同一查询词只上报一次（分片凑齐与 content_block_stop 都会尝试解析）
+  // 网关实测：Anthropic 路由把网页工具**混着两种块**发出来 —— 有时是 server_tool_use（服务端自己执行），
+  // 有时干脆是一个名叫 web_search / web_fetch 的普通 tool_use 块。后者如果按客户端工具处理，主循环会去
+  // executeTool('web_fetch') 然后报「未知工具」；实际内容仍由服务端以 web_search_tool_result 回灌。
+  // 这里统一按服务端工具对待：不进客户端累积器，只上报进度。
+  const SERVER_TOOL_NAMES = new Set(['web_search', 'web_fetch', 'web_search_preview', 'google_search']);
+  const flushQuery = (idx) => {
+    const raw = serverArgs.get(idx);
+    if (!raw) return;
+    let j = null;
+    try { j = JSON.parse(raw); } catch { return; } // 分片还没拼完，等下一片或 content_block_stop
+    if (!j) return;
+    const value = j.query || j.url;
+    if (!value) return;
+    const kind = j.query ? 'search' : 'fetch';
+    const key = `${idx}|${kind}|${value}`;
+    if (emittedQuery.has(key)) return;
+    emittedQuery.add(key);
+    onEv({ type: 'web_search', status: 'query', query: String(value), ...(kind === 'fetch' ? { kind: 'fetch' } : {}) });
+  };
   return function handle(json) {
     switch (json.type) {
       case 'message_start': {
@@ -105,11 +129,26 @@ export function createAnthropicStream(onEv) {
       case 'content_block_start': {
         const b = json.content_block || {};
         // 模型服务端自带的联网工具：不由我们执行，只把「查了什么 / 拿到几条来源」暴露给 UI
-        if (b.type === 'server_tool_use') { onEv({ type: 'web_search', status: 'searching', name: b.name || 'web_search' }); break; }
+        if (b.type === 'server_tool_use') {
+          serverIdx.add(json.index); serverArgs.set(json.index, ''); // 同一 index 复用时重置分片，避免两次查询拼在一起
+          onEv({ type: 'web_search', status: 'searching', name: b.name || 'web_search' });
+          if (b.input && b.input.query) onEv({ type: 'web_search', status: 'query', query: String(b.input.query) });
+          break;
+        }
         if (b.type === 'web_search_tool_result' || b.type === 'web_search_result') {
+          serverIdx.add(json.index);
           const rows = Array.isArray(b.content) ? b.content : [];
-          onEv({ type: 'web_search', status: 'done', results: rows.length, sources: rows.map((r) => ({ url: r.url, title: r.title })) });
+          const sources = rows.filter((r) => r && r.url).map((r) => (r.page_age ? { url: r.url, title: r.title || '', page_age: r.page_age } : { url: r.url, title: r.title || '' }));
+          onEv({ type: 'web_search', status: 'done', results: sources.length || rows.length, sources });
+          // 上游检索服务不可用时 content 是 {type:'web_search_tool_result_error', error_code}
           if (b.content && b.content.error_code) onEv({ type: 'web_search', status: 'error', message: b.content.error_code });
+          break;
+        }
+        if (b.type === 'tool_use' && SERVER_TOOL_NAMES.has(b.name)) {
+          serverIdx.add(json.index); serverArgs.set(json.index, '');
+          onEv({ type: 'web_search', status: 'searching', name: b.name });
+          if (b.input && b.input.query) onEv({ type: 'web_search', status: 'query', query: String(b.input.query) });
+          else if (b.input && b.input.url) onEv({ type: 'web_search', status: 'query', query: String(b.input.url), kind: 'fetch' });
           break;
         }
         if (b.type === 'tool_use') onEv({ type: 'tool_delta', index: json.index, id: b.id, name: b.name, argsText: '' });
@@ -123,7 +162,14 @@ export function createAnthropicStream(onEv) {
       case 'content_block_delta': {
         const d = json.delta || {};
         if (d.type === 'text_delta' && d.text) onEv({ type: 'text', text: d.text });
-        else if (d.type === 'input_json_delta') onEv({ type: 'tool_delta', index: json.index, argsText: d.partial_json || '' });
+        else if (d.type === 'input_json_delta') {
+          if (serverIdx.has(json.index)) { serverArgs.set(json.index, (serverArgs.get(json.index) || '') + (d.partial_json || '')); flushQuery(json.index); }
+          else onEv({ type: 'tool_delta', index: json.index, argsText: d.partial_json || '' });
+        }
+        // 引用（web_search_result_location）：顺带补齐来源的标题，去重交给上层按 url 合并
+        else if (d.type === 'citations_delta' && d.citation && d.citation.url) {
+          onEv({ type: 'web_search', status: 'sources', sources: [{ url: d.citation.url, title: d.citation.title || '' }] });
+        }
         else if (d.type === 'thinking_delta' && d.thinking) onEv({ type: 'reasoning', text: d.thinking, index: json.index });
         else if (d.type === 'signature_delta' && d.signature) onEv({ type: 'signature_delta', index: json.index, signature: d.signature });
         break;
@@ -133,6 +179,9 @@ export function createAnthropicStream(onEv) {
         if (json.delta && json.delta.stop_reason) onEv({ type: 'finish', reason: json.delta.stop_reason });
         break;
       }
+      case 'content_block_stop':
+        if (serverIdx.has(json.index)) flushQuery(json.index);
+        break;
       case 'message_stop': onEv({ type: 'stop' }); break;
       case 'error': onEv({ type: 'error', message: (json.error && json.error.message) || 'Anthropic stream error' }); break;
       default: break;
@@ -327,7 +376,9 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
       // 思考模式要求 max_tokens > budget_tokens
       const maxTokens = withThinking ? Math.max(p.max_tokens, THINKING_BUDGET * 4) : p.max_tokens;
-      body = { model, stream: true, system: p.system, messages: p.messages, max_tokens: maxTokens };
+      // 空 system 不要发：实测网关 Anthropic 路由收到 system:"" 时上游整段不返回 thinking 块
+      body = { model, stream: true, messages: p.messages, max_tokens: maxTokens };
+      if (p.system) body.system = p.system;
     } else {
       body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
       if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）

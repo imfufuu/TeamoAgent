@@ -106,7 +106,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
 // 「新 agent.js + 旧 config.js」的混版缓存下触发 ESM link 错误（整页白屏），历史上真踩过。
 const WEB_ON_NOTE = '\n\n【联网】本轮已按当前模型的原生格式开启服务端网页搜索'
   + '（Claude：/v1/messages 的 tools:[{type:"web_search_20250305"}]；GPT：/v1/responses 的 tools:[{type:"web_search"}]；'
-  + 'Kimi/GLM/Grok：Chat Completions 的对应原生字段）。搜索由模型服务端自己完成，结果带引用回流进本轮上下文：'
+  + '其它厂商经实测没有可用的原生格式，本轮不联网）。搜索由模型服务端自己完成，结果带引用回流进本轮上下文：'
   + '遇到「最新/当下/版本号/今天/价格/近期」这类光靠权重参数答不了的问题就直接联网，不必等用户点名，'
   + '回答里给出来源链接。要抓某个具体网页的正文用 fetch_url（走本地中继），需要 git 用 run_git。';
 const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第三方搜索接口）。不要声称自己能查实时信息：'
@@ -320,6 +320,8 @@ export function createAgent(store, hooks = {}) {
                       queries: (ev.queries && ev.queries.length) ? [...new Set([...prev.queries, ...ev.queries])] : prev.queries,
                       sources: mergeSources(ev.sources) };
                     else if (ev.status === 'sources') web = { ...prev, sources: mergeSources(ev.sources) };
+                    // 查询词：Claude 走 server_tool_use 的 input_json_delta 分片到达，凑齐才发过来
+                    else if (ev.status === 'query' && ev.query) web = { ...prev, queries: [...new Set([...prev.queries, String(ev.query)])] };
                     else if (ev.status === 'error') web = { ...prev, status: 'error', message: ev.message };
                     store.updateMessage(assistantMsg.id, { webSearch: web });
                     emit('onWebSearch', assistantMsg, web);

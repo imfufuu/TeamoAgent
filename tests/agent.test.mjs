@@ -1404,14 +1404,14 @@ test('示例池覆盖多类能力且文案不重复', () => {
   assert.ok(sg.SUGGESTIONS.length >= 12, `池子应有 ≥12 条，实际 ${sg.SUGGESTIONS.length}`);
   const texts = sg.SUGGESTIONS.map((x) => x.text);
   assert.equal(new Set(texts).size, texts.length, '存在重复文案');
-  assert.ok(sg.SUGGESTIONS.every((x) => x.tag && x.tag.length <= 12), '每条都要有简短能力标签');
-  // 覆盖面按「文案 + 标签」一起判定（如子智能体两条只写 agent 名，标签才写「子智能体」）
-  const joined = sg.SUGGESTIONS.map((x) => `${x.text} ${x.tag}`).join('\n');
-  for (const kw of ['沙箱', 'generate_image', 'ZIP', '子智能体', '回滚', 'models']) {
+  // 用户要求：示例卡前面不加「任务类型」标签 → 池子里也不该再有 tag 字段
+  assert.ok(sg.SUGGESTIONS.every((x) => x.tag === undefined), '示例条目不应再带 tag（任务类型标签已移除）');
+  const joined = sg.SUGGESTIONS.map((x) => x.text).join('\n');
+  for (const kw of ['沙箱', 'generate_image', 'ZIP', 'code-reviewer', '回滚', 'models']) { // 标签去掉后按正文关键词判定覆盖面
     assert.ok(joined.includes(kw), `示例应覆盖「${kw}」`);
   }
 });
-test('pickSuggestions：随机 3 条、不重复、标签互不相同', () => {
+test('pickSuggestions：随机 3 条、不重复', () => {
   let seed = 1;
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
   const seen = new Set();
@@ -1419,7 +1419,6 @@ test('pickSuggestions：随机 3 条、不重复、标签互不相同', () => {
     const picks = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
     assert.equal(picks.length, 3, `第 ${i} 轮抽到 ${picks.length} 条`);
     assert.equal(new Set(picks.map((x) => x.text)).size, 3, '同一轮内不应重复');
-    assert.equal(new Set(picks.map((x) => x.tag)).size, 3, `同轮标签应互不相同：${picks.map((x) => x.tag).join('/')}`);
     picks.forEach((x) => seen.add(x.text));
   }
   assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
@@ -1427,7 +1426,7 @@ test('pickSuggestions：随机 3 条、不重复、标签互不相同', () => {
   assert.equal(sg.SUGGESTIONS[0].text, '用沙箱计算：前 100 个斐波那契数中有多少个质数？');
 });
 test('边界：n 超过池子 / 空池 / 脏数据', () => {
-  assert.equal(sg.pickSuggestions([{ text: 'a', tag: 'A' }], 3).length, 1);
+  assert.equal(sg.pickSuggestions([{ text: 'a' }], 3).length, 1);
   assert.deepEqual(sg.pickSuggestions([], 3), []);
   // 契约：不传 list 走默认池（JS 默认参数语义），传空数组才是「没有示例」
   assert.equal(sg.pickSuggestions(undefined, 3).length, 3);
@@ -1914,16 +1913,19 @@ test('run_git：POST 体带 command/repo/timeout 且成功判定看退出码', a
 
 group('联网：模型 API 自带的网页搜索请求格式');
 const web = await import('../js/websearch.js');
-test('按模型家族挑原生格式，没有原生格式的模型不联网', async () => {
+// 能力表以「拿 key 真打过网关」的实测为准（2026-09-21，tests/live-web.mjs 里是同款断言）：
+//   Claude / GPT 真联网；Kimi/GLM/Grok/Gemini 走不通 → 一律不联网，不让 UI 假装能查
+test('按实测结果挑原生格式：只认 Claude 与 GPT', async () => {
   assert.equal(web.webCapFor('claude-sonnet-5').endpoint, 'messages');
+  assert.equal(web.webCapFor('claude-haiku-4-5').endpoint, 'messages');
   assert.equal(web.webCapFor('gpt-5.6-sol').endpoint, 'responses', 'GPT 的自带格式在 /v1/responses');
   assert.equal(web.webCapFor('gpt-6-astra').endpoint, 'responses');
-  assert.equal(web.webCapFor('kimi-k3').endpoint, 'chat');
-  assert.equal(web.webCapFor('glm-5.3').endpoint, 'chat');
-  assert.equal(web.webCapFor('grok-4.6').endpoint, 'chat');
-  assert.equal(web.webCapFor('deepseek-v4-pro'), null, '没有原生格式就是 null，不许偷偷改道第三方');
-  assert.equal(web.webCapFor(''), null);
-  assert.match(web.webCapNote(null), /没有原生联网格式/);
+  // 实测：Kimi 的 $web_search 网关不执行、GLM 400、Grok 只把工具调用当文本吐回来
+  for (const m of ['kimi-k3', 'glm-5.3', 'grok-4.6', 'gemini-3.5-flash', 'deepseek-v4-pro', '']) {
+    assert.equal(web.webCapFor(m), null, `${m} 没有可用的原生格式，必须返回 null（不许改道第三方）`);
+  }
+  assert.match(web.webCapNote(null), /没有可用的原生联网格式/);
+  assert.match(web.webCapNote(null), /Claude 或 GPT/);
   assert.match(web.webCapNote(web.webCapFor('claude-sonnet-5')), /web_search_20250305/);
 });
 test('注入的请求体只加原生字段，不新增任何 host', async () => {
@@ -1932,13 +1934,12 @@ test('注入的请求体只加原生字段，不新增任何 host', async () => 
   const r = web.injectWeb({ model: 'gpt-5.6-sol', input: [] }, web.webCapFor('gpt-5.6-sol'));
   assert.deepEqual(r.tools, [{ type: 'web_search', search_context_size: 'medium' }]);
   assert.deepEqual(r.include, ['web_search_call.action.sources'], 'Responses 要 include 来源才有引用');
-  const k = web.injectWeb({ model: 'kimi-k3', messages: [] }, web.webCapFor('kimi-k3'));
-  assert.deepEqual(k.tools, [{ type: 'builtin_function', function: { name: '$web_search' } }]);
-  const g = web.injectWeb({ model: 'glm-5.3', messages: [] }, web.webCapFor('glm-5.3'));
-  assert.deepEqual(g.tools, [{ type: 'web_search' }]);
-  const x = web.injectWeb({ model: 'grok-4.6', messages: [] }, web.webCapFor('grok-4.6'));
-  assert.deepEqual(x.search_parameters, { mode: 'live', return_citations: true });
-  for (const body of [a, r, k, g, x]) {
+  // 实测走不通的厂商：请求体必须原样不动（连一个联网字段都不许塞）
+  for (const m of ['kimi-k3', 'glm-5.3', 'grok-4.6', 'gemini-3.5-flash']) {
+    const raw = { model: m, messages: [] };
+    assert.deepEqual(web.injectWeb({ ...raw }, web.webCapFor(m)), raw, `${m} 不该被注入任何联网字段`);
+  }
+  for (const body of [a, r]) {
     assert.ok(!/duckduckgo|brave|tavily|serper|jina/i.test(JSON.stringify(body)), '请求体里不能出现第三方搜索服务');
   }
   assert.deepEqual(web.injectWeb({ model: 'deepseek-v4-pro', messages: [] }, null).tools, undefined);
@@ -2011,6 +2012,48 @@ test('Anthropic 流里的服务端联网块被归一为 web_search 事件', asyn
   assert.equal(evs[1].results, 2);
   assert.deepEqual(evs[1].sources[0], { url: 'https://a.test', title: 'A' });
 });
+test('服务端联网块不进客户端工具累积器（否则会凭空多出一个空名工具调用）', async () => {
+  const acc = api.createToolCallAccumulator();
+  const evs = [];
+  const h = api.createAnthropicStream((e) => { evs.push(e); if (e.type === 'tool_delta') acc.push(e); });
+  // 实测网关会把网页工具混成两种块：server_tool_use 与名叫 web_search/web_fetch 的普通 tool_use
+  h({ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 's1', name: 'web_search', input: {} } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"今天' } });
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '日期"}' } });
+  h({ type: 'content_block_stop', index: 0 });
+  h({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 'tu1', name: 'web_fetch', input: {} } });
+  h({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"url":"https://a.test"}' } });
+  h({ type: 'content_block_stop', index: 1 });
+  // 真正的客户端工具照旧要收进累积器
+  h({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'tu2', name: 'write_file', input: {} } });
+  h({ type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"path":"a.txt"}' } });
+  const calls = acc.result();
+  assert.equal(calls.length, 1, `只应有 write_file，实际 ${JSON.stringify(calls)}`);
+  assert.equal(calls[0].name, 'write_file');
+  const q = evs.filter((e) => e.type === 'web_search' && e.status === 'query' && e.kind !== 'fetch');
+  assert.deepEqual(q.map((e) => e.query), ['今天日期'], '分片要拼成完整查询词（且同一个词只报一次）');
+  assert.equal(evs.some((e) => e.type === 'web_search' && e.status === 'query' && e.kind === 'fetch'), true, '抓取按 URL 上报');
+});
+
+test('Anthropic 抓取失败（web_search_tool_result_error）：如实报错而不是「0 条来源」', async () => {
+  const evs = [];
+  const h = api.createAnthropicStream((e) => evs.push(e));
+  h({ type: 'content_block_start', index: 0, content_block: { type: 'server_tool_use', id: 's1', name: 'web_search', input: { query: 'x' } } });
+  h({ type: 'content_block_start', index: 1, content_block: { type: 'web_search_tool_result', tool_use_id: 's1', content: { type: 'web_search_tool_result_error', error_code: 'unavailable' } } });
+  const err = evs.find((e) => e.type === 'web_search' && e.status === 'error');
+  assert.ok(err, '要有 error 事件');
+  assert.equal(err.message, 'unavailable');
+  assert.equal(evs.some((e) => e.type === 'web_search' && e.status === 'done' && e.results > 0), false);
+});
+
+test('Anthropic 引用补标题：citations_delta 归一为 sources 事件', async () => {
+  const evs = [];
+  const h = api.createAnthropicStream((e) => evs.push(e));
+  h({ type: 'content_block_delta', index: 0, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url: 'https://a.test', title: '来源 A', cited_text: '正文' } } });
+  const s = evs.find((e) => e.type === 'web_search' && e.status === 'sources');
+  assert.deepEqual(s.sources, [{ url: 'https://a.test', title: '来源 A' }]);
+});
+
 test('streamChat：GPT 联网走 /v1/responses，Claude 联网走 /v1/messages 的服务器工具', async () => {
   const calls = [];
   api.__resetWebFallbackForTests();
@@ -2073,28 +2116,30 @@ test('Responses 端点被拒 → 自动退回 Chat Completions、剥掉联网并
     assert.ok(calls[2].url.endsWith('/v1/chat/completions'), '第二次直接走 chat 端点');
   } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); }
 });
-test('联网字段被模型拒收 → 剥离重试并记入降级表', async () => {
+test('联网字段被模型拒收 → 剥离重试并记入降级表（用 Claude 这条仍然支持的原生格式）', async () => {
   const calls = [];
   api.__resetWebFallbackForTests();
   mockFetch([
     new Response(JSON.stringify({ error: { message: "Invalid tool type 'web_search' for this model" } }), { status: 400, headers: { 'content-type': 'application/json' } }),
-    openaiTextTurn('没联网也答完了'),
-    openaiTextTurn('记住之后不带联网字段'),
+    anthropicTextTurn('没联网也答完了'),
+    anthropicTextTurn('记住之后不带联网字段'),
   ], calls);
   const notes = [];
   try {
     let got = '';
     await api.streamChat({
-      model: 'glm-5.3', apiKey: 'k', messages: [{ role: 'user', text: 'q' }], webEnabled: true,
+      model: 'claude-sonnet-5', apiKey: 'k', messages: [{ role: 'user', text: 'q' }], webEnabled: true,
       onEvent: (ev) => { if (ev.type === 'text') got += ev.text; },
       onWebFallback: (m, note) => notes.push([m, note]),
     });
     assert.equal(got, '没联网也答完了');
     assert.equal(notes.length, 1);
     assert.match(notes[0][1], /拒绝原生联网字段/);
-    assert.ok(api.webFallbackFor('glm-5.3'), '该模型进入降级表，本会话不再重复尝试');
-    await api.streamChat({ model: 'glm-5.3', apiKey: 'k', messages: [{ role: 'user', text: 'q2' }], webEnabled: true, onEvent: () => {} });
-    assert.ok(!JSON.stringify(calls[1].body).includes('web_search'), '记住之后连第一次请求都不带联网字段');
+    assert.ok(api.webFallbackFor('claude-sonnet-5'), '该模型进入降级表，本会话不再重复尝试');
+    assert.deepEqual(calls[0].body.tools.map((t) => t.type), ['web_search_20250305'], '第一次带原生联网工具');
+    assert.equal(JSON.stringify(calls[1].body).includes('web_search'), false, '重放时已摘掉联网工具');
+    await api.streamChat({ model: 'claude-sonnet-5', apiKey: 'k', messages: [{ role: 'user', text: 'q2' }], webEnabled: true, onEvent: () => {} });
+    assert.ok(!JSON.stringify(calls[2].body).includes('web_search'), '记住之后连第一次请求都不带联网字段');
   } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); }
 });
 test('Agent 回合：联网来源写进消息（切会话后还在），提示词按开关说明联网', async () => {

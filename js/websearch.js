@@ -4,10 +4,19 @@
 //
 //   Claude   POST /v1/messages        tools: [{ type: "web_search_20250305", name: "web_search", max_uses }]
 //   GPT      POST /v1/responses       tools: [{ type: "web_search", search_context_size }]（网关文档 4.4：Responses 仅 GPT 系列）
-//   Kimi     POST /v1/chat/completions tools: [{ type: "builtin_function", function: { name: "$web_search" } }]
-//   GLM      POST /v1/chat/completions tools: [{ type: "web_search" }]
-//   Grok     POST /v1/chat/completions search_parameters: { mode: "live", return_citations: true }
-//   其余（DeepSeek 等）：没有原生格式 → 不联网（不假装能联网）
+//   其余（Kimi / GLM / Grok / Gemini / DeepSeek …）：不联网（不假装能联网）
+//
+// ⚠ 以上是**实打实拿 key 打过网关**的结论（2026-09-21，见 tests/live-web.mjs）：
+//   · GPT  → 真联网：web_search_call + action.sources（250+ URL）+ output_text 的 url_citation 标注
+//   · Claude → 真联网：server_tool_use → web_search_tool_result（含 title/url/page_age）+ citations_delta；
+//              上游偶发 web_search_tool_result_error{error_code:"unavailable"}，此时如实报「检索失败」
+//   · Kimi 的 $web_search builtin_function：网关收下但**不会执行**，模型自述「我没有联网能力」
+//   · GLM  的 tools:[{type:"web_search"}]：上游直接 400 upstream_error
+//   · Grok 的 search_parameters.mode=live：网关把工具调用当普通文本吐回来（XML 片段），不是真搜索
+//   · Gemini 的原生 google_search（POST /v1beta/models/{model}:generateContent）实测**可用**
+//     （groundingMetadata.groundingChunks），但需要另开一条原生 Gemini 协议通道，本轮未接；
+//     chat/completions 里塞 tools:[{type:"google_search"}] 会被网关 503 挡掉。
+// 宁可少支持、也不给用户看「假装查过了」的来源条 —— 这是本文件存在的理由。
 //
 // 之所以是独立模块：本文件被 api.js 引用，而「给既有模块新增具名导出再被别的既有模块 import」
 // 在 Pages 子资源缓存下会出现「新调用方 + 旧被调用方」的混版 → ESM link 期直接白屏。
@@ -20,8 +29,8 @@ export const WEB_CAPS = [
     label: 'Anthropic 服务器工具 web_search_20250305',
     match: (m) => /^claude-/i.test(m),
     endpoint: 'messages',
-    // 服务器工具由 Anthropic 侧执行：结果以 server_tool_use / web_search_tool_result 块回流，
-    // 后续回合必须把这些块原样重放（含 encrypted_content），否则模型看不到自己查到的内容
+    // 服务器工具由 Anthropic 侧执行：结果以 server_tool_use / web_search_tool_result 块回流。
+    // 这些块**不要**在下个回合重放（实测网关侧 encrypted_content 为空串，重放只会惹 400）。
     searchTool: () => [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
     serverBlockTypes: ['server_tool_use', 'web_search_tool_result', 'web_search_result'],
   },
@@ -31,30 +40,8 @@ export const WEB_CAPS = [
     match: (m) => /^gpt-/i.test(m),
     endpoint: 'responses',
     searchTool: () => [{ type: 'web_search', search_context_size: 'medium' }],
-    // 让响应里带上来源，前端才能显示引用与出处
+    // 让响应里带上来源（web_search_call.action.sources），前端才能显示引用与出处
     include: () => ['web_search_call.action.sources'],
-  },
-  {
-    id: 'kimi-builtin-web-search',
-    label: 'Kimi 内置工具 $web_search',
-    match: (m) => /^kimi-/i.test(m),
-    endpoint: 'chat',
-    searchTool: () => [{ type: 'builtin_function', function: { name: '$web_search' } }],
-  },
-  {
-    id: 'glm-web-search',
-    label: 'GLM tools:[{type:"web_search"}]',
-    match: (m) => /^glm-/i.test(m),
-    endpoint: 'chat',
-    searchTool: () => [{ type: 'web_search' }],
-  },
-  {
-    id: 'grok-live-search',
-    label: 'Grok search_parameters.mode=live',
-    match: (m) => /^grok-/i.test(m),
-    endpoint: 'chat',
-    // Grok 走的是请求级字段而不是 tools 项
-    patch: (body) => { body.search_parameters = { mode: 'live', return_citations: true }; },
   },
 ];
 
@@ -137,6 +124,20 @@ export function createResponsesStream(onEv) {
         if (json.delta) onEv({ type: 'reasoning', text: json.delta });
         break;
       // 联网：模型侧发起的搜索（原生格式的核心可见性：查询词 + 来源数）
+      // 搜索进度（实测事件名）：in_progress → searching → completed
+      case 'response.web_search_call.in_progress':
+      case 'response.web_search_call.searching':
+        onEv({ type: 'web_search', status: 'searching' });
+        break;
+      case 'response.web_search_call.completed':
+        onEv({ type: 'web_search', status: 'searching', phase: 'completed' });
+        break;
+      // 正文里的引用标注：只有它带 title，用它把来源列表的标题补全（按 url 去重在上层做）
+      case 'response.output_text.annotation.added': {
+        const a = json.annotation || {};
+        if (a.type === 'url_citation' && a.url) onEv({ type: 'web_search', status: 'sources', sources: [{ url: a.url, title: a.title || '' }] });
+        break;
+      }
       case 'response.output_item.added': {
         const item = json.item || {};
         if (item.type === 'web_search_call') onEv({ type: 'web_search', status: 'searching' });
@@ -151,7 +152,9 @@ export function createResponsesStream(onEv) {
         const item = json.item || {};
         if (item.type === 'web_search_call') {
           const sources = (item.action && item.action.sources) || item.sources || [];
-          onEv({ type: 'web_search', status: 'done', results: sources.length, queries: item.action && item.action.query ? [item.action.query] : [], sources });
+          const act = item.action || {};
+          const qs = [...new Set([...(act.queries || []), ...(act.query ? [act.query] : [])].filter(Boolean))];
+          onEv({ type: 'web_search', status: 'done', results: sources.length, queries: qs, sources });
         } else if (item.type === 'function_call') {
           // done 事件带完整 arguments，兜住 delta 丢失的情况
           onEv({ type: 'tool_delta', index: toolIndex(json, item), id: item.call_id || item.id || '', name: item.name || '', argsText: item.arguments || '', replace: true });
@@ -160,6 +163,10 @@ export function createResponsesStream(onEv) {
       }
       case 'response.function_call_arguments.delta':
         onEv({ type: 'tool_delta', index: toolIndex(json, json.item || {}), argsText: json.delta || '' });
+        break;
+      case 'response.function_call_arguments.done':
+        // 同样给全量快照，兜住 output_item.done 因网络截断没到达的情况
+        onEv({ type: 'tool_delta', index: toolIndex(json, json.item || {}), argsText: json.arguments || '', replace: true });
         break;
       case 'response.completed': {
         const r = json.response || {};
@@ -192,6 +199,6 @@ export function createResponsesStream(onEv) {
 
 /** UI 文案：这一轮的联网是以什么格式发生的 */
 export function webCapNote(cap) {
-  if (!cap) return '当前模型没有原生联网格式，本轮不联网（可换 Claude / GPT / Kimi / GLM / Grok 系列）';
+  if (!cap) return '当前模型（网关实测）没有可用的原生联网格式，本轮不联网；要联网请换 Claude 或 GPT 系列';
   return `联网：${cap.label}`;
 }

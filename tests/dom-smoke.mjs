@@ -313,7 +313,10 @@ ui.rebuildMessages();
 const emptyState = $('#messages .empty-state');
 const cards = emptyState ? [...emptyState.querySelectorAll('.suggest')] : [];
 ok('空状态展示 3 条示例卡片', cards.length === 3, `${cards.length} 张`);
-ok('每条示例带能力标签', cards.every((c) => !!c.querySelector('.suggest-tag') && c.querySelector('.suggest-tag').textContent.length > 0));
+const cmp = (a, b) => { const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) if (a[i] !== b[i]) return `${i}:${a.charCodeAt(i)}≠${b.charCodeAt(i)}`; return a.length === b.length ? 'eq' : `len ${a.length}/${b.length}`; };
+ok('示例卡不再带「任务类型」标签', cards.every((c) => !c.querySelector('.suggest-tag') && cmp(c.textContent.trim(), c.dataset.prompt || '') === 'eq'),
+  cards.map((c) => `${cmp(c.textContent.trim(), c.dataset.prompt || '')}/${c.querySelector('.suggest-tag') ? '有标签:' + c.querySelector('.suggest-tag').outerHTML.slice(0, 60) : '无标签'}/${JSON.stringify([...c.children].map((k) => k.className))}`).join(' | '));
+ok('CSS 里也没有 .suggest-tag 残留', !cssText.includes('.suggest-tag'));
 ok('示例文本来自池子且本轮不重复', cards.every((c) => sg.SUGGESTIONS.some((x) => x.text === c.dataset.prompt)) && new Set(cards.map((c) => c.dataset.prompt)).size === 3);
 ok('有「换一批」按钮', !!$('#messages .suggest-shuffle svg'));
 const firstBatch = cards.map((c) => c.dataset.prompt).join('|');
@@ -327,11 +330,9 @@ for (let i = 0; i < 12 && !sawDifferent; i++) {
 ok('换一批会换出不同组合', sawDifferent);
 const cardEl = window.document.querySelector('#messages .empty-state .suggest');
 click(cardEl);
-// 关键差异：textContent 会把能力标签一起带进输入框（旧写法的老 bug），data-prompt 不会
-ok('点示例卡填入输入框（用 data-prompt 而非含标签的 textContent）', (() => {
+ok('点示例卡把整句任务填进输入框', (() => {
   const v = $('#composer-input').value;
-  const tag = cardEl.querySelector('.suggest-tag').textContent;
-  return v === cardEl.dataset.prompt && v !== cardEl.textContent.trim() && !v.startsWith(tag);
+  return v === cardEl.dataset.prompt && v === cardEl.textContent.trim() && v.length > 8;
 })(), JSON.stringify($('#composer-input').value).slice(0, 60));
 store.state.messages.push(...savedMsgs);
 ui.rebuildMessages();
@@ -465,6 +466,30 @@ console.log('\n⑮ 版本漂移自检（硬刷新前就能发现缓存不一致�
   ok('入口自带 app-version meta', /<meta name="app-version" content="([\d.]+)"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
   ok('UI 比对入口版本与模块版本并提示', /meta\[name="app-version"\]/.test(uiSrc) && /资源缓存不一致|缓存不一致/.test(uiSrc));
   ok('侧栏版本号仍然显示', $('#build-stamp').textContent.includes(cfgMod2.APP_VERSION), $('#build-stamp').textContent);
+}
+
+console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护栏）');
+{
+  const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
+  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  // 根因：窄屏时 sidebar / panel 变 position:fixed 脱离网格，若没有命名网格区，
+  // 唯一的在流子项 .main 会被自动排进第一列（--sbw 收敛为 0px）→ 主区宽度 0、内容挤成一团
+  ok('网格用命名区域钉住三块', /grid-template-areas:\s*"side main panel"/.test(css));
+  ok('.main / .sidebar / #sandbox-panel 各自认领区域', /\.main\s*\{[^}]*grid-area:\s*main/.test(css)
+    && /\.sidebar\s*\{[^}]*grid-area:\s*side/.test(css) && /#sandbox-panel\s*\{[^}]*grid-area:\s*panel/.test(css));
+  const m720 = /@media \(max-width: 720px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
+  ok('存在 ≤720px 的移动端排布层', m720.length > 400, `${m720.length} 字节`);
+  ok('顶栏胶囊横滑而不是挤成多行', /\.topbar-right\s*\{[^}]*flex-wrap: nowrap/.test(m720) && /\.topbar-right\s*\{[^}]*overflow-x: auto/.test(m720));
+  ok('输入框字号 16px（低于它 iOS 会放大整页）', /#composer-input\s*\{[^}]*font-size: 16px/.test(m720));
+  ok('消息区左右留白收窄、操作条允许换行', /\.msg\s*\{[^}]*padding: 0 14px/.test(m720) && /\.msg-actions\s*\{[^}]*flex-wrap: wrap/.test(m720));
+  ok('长链接/代码块各自滚动不撑宽页面', /\.md-body pre\s*\{[^}]*font-size/.test(m720) && /\.md-body a\s*\{[^}]*overflow-wrap: anywhere/.test(m720));
+  ok('输入区贴安全区（刘海屏不被遮挡）', /\.composer-wrap\s*\{[^}]*env\(safe-area-inset-bottom\)/.test(m720));
+  const touch = /@media \(hover: none\), \(max-width: 720px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
+  ok('触屏设备（含平板）可点区域 ≥40px', /\.act\s*\{[^}]*min-height: 40px/.test(touch) && /\.pill\s*\{[^}]*min-height: 40px/.test(touch)
+    && /\.mini-btn\s*\{[^}]*min-height: 40px/.test(touch), `${touch.length} 字节`);
+  // 侧栏面板按钮曾被 textContent='◧' 整体替换，丢掉 pill 的「图标 + 文字」统一外观并被压到 30 多像素宽
+  ok('沙箱面板按钮保留图标+文字（没有 ◧ / ◨ 字符）', !/[◧◨]/.test(uiSrc));
+  ok('它的状态改用 class + aria-pressed 表达', /setPanelCollapsed/.test(uiSrc) && /aria-pressed/.test(uiSrc) && /classList\.toggle\('on'/.test(uiSrc));
 }
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');

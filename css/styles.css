@@ -53,12 +53,19 @@ a { color: var(--fg); }
 /* ── 布局（变量驱动，侧栏与面板均可收起，宽屏永不遮挡内容）──────────── */
 .app {
   display: grid;
+  /* grid-template-areas 不只是可读性：窄屏时 .sidebar / #sandbox-panel 变成 position:fixed
+     脱离文档流，若没有命名区，唯一的在流子项 .main 会被自动排到第一列（--sbw 已收敛为 0px）
+     → 主区宽度 0、全部内容横向溢出（这就是「移动端元素挤在一起」的根因）。 */
   grid-template-columns: var(--sbw, 268px) minmax(0, 1fr) var(--pnw, 320px);
+  grid-template-areas: "side main panel";
   height: 100vh;
   height: 100dvh; /* 移动 Safari：地址栏收起时不被底部工具栏遮住 */
   overflow: hidden; /* 内容再长也只让 .messages 内部滚动 */
   transition: grid-template-columns .4s var(--ease);
 }
+.sidebar { grid-area: side; }
+.main { grid-area: main; }
+#sandbox-panel { grid-area: panel; }
 .app > * { min-height: 0; min-width: 0; } /* 关键：解除 grid 子项 min-height:auto 导致的整页撑长 */
 .app:has(.sidebar.collapsed) { --sbw: 0px; }
 .app:has(#sandbox-panel.collapsed) { --pnw: 0px; }
@@ -78,8 +85,9 @@ a { color: var(--fg); }
 @media (max-width: 860px) {
   .app { --sbw: 0px; }
   .sidebar {
-    position: fixed; left: 0; top: 0; bottom: 0; width: 268px; z-index: 48;
+    position: fixed; left: 0; top: 0; bottom: 0; width: min(268px, 84vw); z-index: 48;
     transform: translateX(-100%); transition: transform .35s var(--ease);
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .sidebar.sidebar-open { transform: none; box-shadow: var(--shadow-lg); }
   #sidebar-fab { display: flex; }
@@ -419,13 +427,6 @@ a { color: var(--fg); }
   transition: all .25s var(--ease);
 }
 .suggest:hover { border-color: var(--fg); color: var(--fg); transform: translateY(-2px); box-shadow: var(--shadow); }
-/* 示例卡片的能力标签：小字标注「这是哪类能力」，避免三条示例看起来是同一件事 */
-.suggest-tag {
-  display: inline-block; margin-right: 8px; padding: 1px 6px; border-radius: 999px;
-  border: 1px solid var(--line); color: var(--fg-3); font-size: 10px; letter-spacing: .02em;
-  vertical-align: 1px; white-space: nowrap;
-}
-.suggest:hover .suggest-tag { color: var(--fg); border-color: var(--fg-3); }
 .suggest-shuffle {
   margin: 6px auto 0; display: inline-flex; align-items: center; gap: 5px;
   padding: 4px 10px; border: 0; background: none; border-radius: 999px;
@@ -448,6 +449,7 @@ a { color: var(--fg); }
 }
 .web-note .web-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--fg-3); animation: pulse 1.1s ease-in-out infinite; }
 .web-note .web-fail { color: var(--warn, #b4531a); font-weight: 700; }
+.web-note .web-hint { color: var(--fg-3); font-size: 10.5px; }
 .web-note .web-srcs { display: flex; flex-direction: column; gap: 2px; width: 100%; margin-top: 2px; }
 .web-note .web-src { color: var(--fg-2); text-decoration: none; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11px; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .web-note .web-src:hover { color: var(--fg); border-bottom-color: var(--fg); }
@@ -704,6 +706,109 @@ a { color: var(--fg); }
 /* 键盘焦点可见（鼠标点击不显示轮廓） */
 :focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
 .dd-search:focus-visible, .key-input:focus-visible, #composer-input:focus-visible { outline-offset: 0; }
+
+/* ── 触屏设备通用（含平板）：可点区域 ≥40px ─────────────────────────────
+   与宽度无关 —— 手指粗细不随屏幕变。窄屏（≤720px）另有更密的排布规则。 */
+@media (hover: none), (max-width: 720px) {
+  .act { min-height: 40px; padding: 10px 14px; font-size: 12.5px; }
+  .act svg { width: 14px; height: 14px; }
+  #attach-btn, #send-btn { width: 40px; height: 40px; }
+  .pill { min-height: 40px; }
+  .mini-btn { min-height: 40px; padding: 9px 12px; font-size: 12.5px; }
+  .icon-btn { min-width: 40px; min-height: 40px; }
+  .suggest { min-height: 52px; }
+  .suggest-shuffle { min-height: 40px; padding: 8px 14px; font-size: 12.5px; }
+  .dd-item, .sess-item { min-height: 44px; }
+  .panel-tabs button { min-height: 44px; }
+  .files-toolbar button, .fv-actions button { min-height: 40px; }
+}
+
+/* ── 移动端（≤720px）：重新排布密度，而不是把桌面布局等比缩小 ────────────
+   目标是「不挤在一起」：顶栏胶囊横滑不换行、消息区左右留白收到 14px、
+   所有可点元素 ≥40px 高、输入框字号 16px（低于 16px 时 iOS 会自动放大页面）、
+   正文里的长链接 / 代码块各自横向滚动而不是把整页撑宽。 */
+@media (max-width: 720px) {
+  body { font-size: 14.5px; }
+  html { -webkit-text-size-adjust: 100%; }
+
+  /* 顶栏：状态可截断，胶囊一行横滑 */
+  .topbar {
+    padding: 8px 12px; gap: 10px; flex-wrap: nowrap; align-items: center;
+    padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .status { min-width: 0; flex: 0 1 auto; overflow: hidden; }
+  #status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .time-stats { display: none; } /* 窄屏优先保证胶囊可点，耗时在消息头里还能看到 */
+  .topbar-right {
+    flex: 1 1 auto; justify-content: flex-start; flex-wrap: nowrap;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+    padding: 4px 2px; margin: -4px -2px; /* 给触控留出上下 4px，滚动时不裁阴影 */
+  }
+  .topbar-right::-webkit-scrollbar { display: none; }
+  .pill { flex: 0 0 auto; padding: 8px 12px; font-size: 12.5px; min-height: 40px; gap: 6px; }
+  .pill .pill-ico { width: 14px; height: 14px; }
+
+  /* 消息区：左右 14px，气泡与操作条不贴边 */
+  .messages { padding: 16px 0 8px; }
+  .msg { padding: 0 14px; margin-bottom: 20px; max-width: 100%; }
+  .msg-user .bubble { max-width: 100%; }
+  .msg-head { flex-wrap: wrap; gap: 6px 8px; margin-bottom: 6px; }
+  .msg-model { overflow-wrap: anywhere; }
+  .msg-meta { width: 100%; order: 9; } /* 用量/传输信息单独一行，别把模型名挤掉 */
+  .md-body { font-size: 14.5px; line-height: 1.72; }
+  .md-body pre { font-size: 12px; -webkit-overflow-scrolling: touch; }
+  .md-body table { display: block; overflow-x: auto; }
+  .md-body img { max-width: 100%; height: auto; }
+  .md-body a { overflow-wrap: anywhere; }
+
+  /* 操作条：换行 + 40px 触控高度（原来 11px 字号 / 3px 内边距在手机上点不中） */
+  .msg-actions { flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .act { min-height: 40px; padding: 10px 14px; font-size: 12.5px; border-color: var(--line); }
+  .act svg { width: 14px; height: 14px; }
+
+  /* 工具芯片 / 联网来源条 */
+  .tool-chips { gap: 8px; }
+  .chip { padding: 8px 10px; font-size: 12px; }
+  .web-note { padding: 9px 11px; font-size: 12px; line-height: 1.6; }
+  .web-note .web-src { white-space: normal; overflow-wrap: anywhere; }
+
+  /* 欢迎页 */
+  .empty-state { padding: 8px 16px; }
+  .empty-logo svg { width: 44px; height: 44px; }
+  .empty-state h2 { font-size: 22px; }
+  .empty-state p { font-size: 13px; }
+  .suggest { min-height: 52px; padding: 12px 14px; font-size: 13px; }
+
+  /* 输入区 */
+  .composer-wrap {
+    padding: 8px 12px max(10px, env(safe-area-inset-bottom));
+    padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right));
+  }
+  .composer { padding: 6px 6px 6px 10px; gap: 6px; }
+  #composer-input { font-size: 16px; min-height: 24px; max-height: 40vh; } /* 16px：iOS 不放大页面 */
+  #attach-btn { width: 40px; height: 40px; }
+  #send-btn { width: 42px; height: 42px; font-size: 17px; }
+  .composer-hint { font-size: 10px; line-height: 1.5; margin-top: 6px; opacity: .85;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .attach-chips { gap: 8px; }
+
+  /* 浮层按钮：抬高避开输入区，触控区 ≥40px */
+  #jump-bottom { bottom: 108px; padding: 10px 16px; min-height: 40px; }
+  #undo-pill { bottom: 108px; }
+
+  /* 侧栏 / 面板内部密度 */
+  .side-footer { gap: 8px; padding: 12px 14px max(14px, env(safe-area-inset-bottom)); }
+  .side-footer-btns { flex-wrap: wrap; gap: 8px; }
+  .dd-menu { max-height: min(60vh, 420px); overflow-y: auto; }
+}
+
+/* 更窄（≤380px）：再让一步，取消一切并排挤压 */
+@media (max-width: 380px) {
+  .pill { padding: 8px 10px; font-size: 12px; }
+  .pill-ico { display: none; } /* 只有图标文字同挤时，保留文字（中文标签更可读） */
+  .msg { padding: 0 12px; }
+  .act { padding: 10px 12px; }
+}
 
 /* 尊重系统「减少动态效果」：停掉无限循环动画，淡入改为直出 */
 @media (prefers-reduced-motion: reduce) {

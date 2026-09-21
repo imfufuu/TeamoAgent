@@ -2,6 +2,55 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（移动端 / 重新生成 / API 实测联网 / 示例文案）
+
+### 1. 带入真 key 实测 TeamoRouter 的联网能力 → 能力表按实测收敛
+拿用户提供的 key 把六条路都打了一遍（回归固化在 `tests/live-web.mjs`，无 key 自动跳过）：
+GPT 的 `/v1/responses + tools:[{type:"web_search"}]` 真检索（一次问题回 16~250 条 URL 与
+`url_citation`）；Claude 的 `web_search_20250305` 真检索（`server_tool_use` → `web_search_tool_result`，
+含 title/url/page_age，引用走 `citations_delta`）；**Kimi 的 `$web_search` 网关收下但不执行、
+GLM 的 `tools:[{type:"web_search"}]` 上游 400、Grok 的 `search_parameters` 只把工具调用当文本吐回来**；
+Gemini 的原生 `google_search` 实测可用但需要另开原生 Gemini 协议通道（本轮未接）。
+于是 `js/websearch.js` 的能力表**只留 Claude 与 GPT**，其余模型一律「不联网」并在提示语里说明，
+宁可少支持也不给用户看「假装查过了」的来源条。
+
+实测顺带挖出三个真 bug，都已修 + 补回归：
+
+1. 网关 Anthropic 路由会把网页工具**混着两种块**发出来：有时是 `server_tool_use`，有时是名叫
+   `web_search`/`web_fetch` 的普通 `tool_use`。后者按客户端工具处理会让主循环去执行一个不存在的工具
+   （`runLoop` 真会 `executeTool('web_fetch')`）→ 现在统一按服务端工具处理，不进客户端累积器。
+2. 请求体里带 `"system": ""` 时上游整段不返回 thinking 块（同一个请求、同一个模型，去掉空 system 就有
+   299 字符的推理流）→ 空 system 不再发送。
+3. 同一个查询词会因「分片凑齐」与 `content_block_stop` 各上报一次 → 加去重；
+   `web_search_tool_result_error{error_code:"unavailable"}` 现在如实显示「联网检索未成功」而不是
+   「服务端检索到 0 条来源」。
+
+### 2. 移动端布局大幅优化（先修根因，再重排密度）
+窄屏时侧栏（≤860px）与沙箱面板（≤760px）都变成 `position: fixed` 脱离网格，`.main` 作为唯一在流
+子项被自动排进第一列、而该列宽度已收敛为 0 → **主区宽度 0**，内容全部横向溢出：这就是「元素全挤在
+一起」的根因（实测 `.main` clientWidth = 0、scrollWidth = 352）。修法是给三块命名网格区
+（`grid-template-areas: "side main panel"`）。随后新增移动端一层：顶栏胶囊一行横滑、消息区留白收窄、
+操作条换行、长链接/代码块各自滚动、输入框 16px（防 iOS 缩放）、输入区贴安全区；触屏设备（含平板）
+所有可点元素 ≥40px。同时修掉侧栏沙箱面板按钮被 `textContent='◧'` 整体替换的问题（丢掉图标+文字外观、
+窄屏被压到 33px 宽）。
+护栏：新增 `tests/mobile-layout.mjs`（真 Chromium，320/360/390/414/768 量溢出/重叠/触控尺寸/面板越界，
+`npm run audit:mobile`）与 dom-smoke 第 ⑯ 组源码级断言。
+
+### 3. 「重新生成」= 覆盖最近一条回答
+以前只调 `agent.regenerate()`：store 里旧消息删了，但 DOM 里旧回答还挂着，新回答又追加在下面，看起来
+像「没重新生成」或「生成了两条」。现在点击时先 `dropLastAssistantTurn()` + `rebuildMessages()`，
+界面上的旧答案当场消失再重跑。按钮本身**只出现在最近一条 assistant 上**（更早的回答按钮保留但隐藏），
+要重生成旧回答请先「回滚」再重新提问——提示语里写明了这一点。app-boot 新增分组用「同一句话问两次、
+桩回两版不同文本」证明是覆盖而非并列。
+
+### 4. 任务示例去掉「任务类型」标签
+空状态示例卡不再在句首挂「沙箱 / 文生图 / 协议」这类小标签（`js/suggestions.js` 的 `tag` 字段、
+`css/styles.css` 的 `.suggest-tag` 一并删除），卡片只显示任务原句；点卡片回填的仍是完整原句。
+
+测试：单测 152→**155**、dom-smoke 144→**154**、app-boot 55→**60**、server_checks 51（不变）、
+`tests/live-web.mjs` 新增 4 项真网关断言、`tests/mobile-layout.mjs` 新增（真 Chrome）。
+`APP_VERSION` / `?v=` / `<meta name="app-version">` 全部 → `2026.09.21.7`。
+
 ## 2026-09-21（四项）联网改成模型 API 自带格式 · 余额下线 · 欢迎页居中 · 缓存可见性
 
 ### 1. 联网：改用模型 API 自带的网页搜索请求格式（删掉全部第三方搜索）

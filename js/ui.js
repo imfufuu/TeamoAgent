@@ -527,8 +527,12 @@ export function mountUI(store, agent) {
   }
   function setPanelCollapsed(v) {
     panel.classList.toggle('collapsed', v);
-    $('#panel-toggle').textContent = v ? '◧' : '◨';
-    updateBackdrop();
+    // 以前这里把按钮内容整体替换成两个方块符号字符：既丢掉了 pill 的「SVG 图标 + 中文文字」统一外观，
+    // 又在窄屏下把按钮压到 30 多像素宽（点不中）。改成切状态类 + 提示语，外观与其它 pill 一致。
+    const btn = $('#panel-toggle');
+    btn.classList.toggle('on', !v);
+    btn.setAttribute('aria-pressed', v ? 'false' : 'true');
+    btn.title = v ? '沙箱面板已收起（文件树 / 下载 / 清空）：点开' : '沙箱面板已展开：点此收起';
   }
   function setSidebarOpen(open) {
     sidebar.classList.toggle('sidebar-open', open);
@@ -714,7 +718,7 @@ export function mountUI(store, agent) {
       <h2>TeamoAgent</h2>
       <p>基于 <span class="mono">api.teamorouter.com</span> 的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
-        ${picks.map((x) => `<button class="suggest" type="button" data-prompt="${esc(x.text)}"><span class="suggest-tag mono">${esc(x.tag || '')}</span>${esc(x.text)}</button>`).join('')}
+        ${picks.map((x) => `<button class="suggest" type="button" data-prompt="${esc(x.text)}">${esc(x.text)}</button>`).join('')}
       </div>
       <button class="suggest-shuffle" type="button" title="换一批任务示例">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>换一批</button>`));
@@ -749,7 +753,7 @@ export function mountUI(store, agent) {
         <div class="msg-actions">
           <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
           <button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button>
-          <button class="act act-regen" data-act="regen" title="重新生成本轮回复">${ICON.regen || ''}<span>重新生成</span></button>
+          <button class="act act-regen" data-act="regen" title="重新生成并覆盖最近这一条回答（更早的回答请先「回滚」再重新提问）">${ICON.regen || ''}<span>重新生成</span></button>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         const act = b.dataset.act;
@@ -759,6 +763,11 @@ export function mountUI(store, agent) {
         if (act === 'rollback') doRollback(m);
         if (act === 'regen') {
           if (getBusy()) return;
+          // 「重新生成」= 覆盖这一次的回答：先把旧回答从会话与视图里一起抹掉，再重跑同一轮。
+          // 之前只调 agent.regenerate()：store 里旧消息删了，但 DOM 节点还挂在消息区，
+          // 新回答又追加在下面 → 看起来像「没重新生成」或「生成了两条」。
+          const removed = store.dropLastAssistantTurn();
+          if (removed) { rebuildMessages(); toast('已覆盖上一次回答，正在重新生成…', 'ok', 1600); }
           agent.regenerate();
         }
       }));
@@ -857,7 +866,11 @@ export function mountUI(store, agent) {
     const box = el('div', 'web-note');
     const sources = (w.sources || []).filter((x) => x && x.url).slice(0, 6);
     if (w.status === 'searching') box.innerHTML = '<span class="web-dot"></span><span>联网检索中（模型原生 web_search）…</span>';
-    else if (w.status === 'error') box.innerHTML = `<span class="web-fail">联网检索失败</span><span class="mono">${esc(String(w.message || '').slice(0, 90))}</span>`;
+    else if (w.status === 'error') {
+      // 上游检索服务不可用（如 Anthropic 的 error_code:"unavailable"）：如实说清，不显示「0 条来源」
+      box.innerHTML = `<span class="web-fail">联网检索未成功</span><span class="mono">${esc(String(w.message || '上游未返回结果').slice(0, 90))}</span>`
+        + (sources.length ? '' : '<span class="web-hint">可稍后重试，或换用其它支持原生联网的模型</span>');
+    }
     else {
       // 各家原生格式给的计数字段不一致（有的只给 sources），取两者较大值，别显示「0 条来源」
       const n = Math.max(Number(w.results) || 0, sources.length);

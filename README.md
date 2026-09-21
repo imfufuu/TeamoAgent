@@ -2,7 +2,7 @@
 
 黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 模型原生联网检索 · 输出用时与 token 统计 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
 
-布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次。顶栏只有「联网」「沙箱」两枚状态胶囊（不再显示账户余额）。
+布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次，**「重新生成」只给最近一条回答**（覆盖式重生成，更早的先回滚再问）。顶栏只有「联网」「沙箱」两枚状态胶囊（不再显示账户余额）。移动端另有一层排布（胶囊横滑、触控 ≥40px、输入框 16px），见「移动端布局」一节。
 
 ## 快速开始
 
@@ -93,20 +93,31 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **联网搜索只用模型 API 自带的请求格式，不接任何第三方搜索服务。** 顶栏「联网」胶囊（默认开启）打开后，
 前端在**同一个**对话请求体里声明供应商的原生服务器工具，检索由模型服务端执行、结果与引用随流返回；
-关掉开关或模型没有原生格式时，就完全不联网，并让模型明确说「当前未联网」而不是编一个「刚查到」。
+关掉开关或模型没有可用原生格式时，就完全不联网，并让模型明确说「当前未联网」而不是编一个「刚查到」。
 
-| 模型家族 | 原生格式（写在请求体里） | 走的端点 |
-| -------- | -------------------------- | -------- |
-| Claude | `tools: [{type:"web_search_20250305", name:"web_search", max_uses:5}]` | `POST /v1/messages` |
-| GPT | `tools: [{type:"web_search", search_context_size:"medium"}]` + `include:["web_search_call.action.sources"]` | `POST /v1/responses`（网关仅 GPT 支持此端点） |
-| Kimi | `tools: [{type:"builtin_function", function:{name:"$web_search"}}]` | `POST /v1/chat/completions` |
-| GLM | `tools: [{type:"web_search"}]` | `POST /v1/chat/completions` |
-| Grok | `search_parameters: {mode:"live", return_citations:true}` | `POST /v1/chat/completions` |
-| 其余（DeepSeek 等） | 无原生格式 → 不联网 | 原端点，不塞任何联网字段 |
+下表是**拿真 key 打过网关**的结论（2026-09-21，回归测试在 `tests/live-web.mjs`），不是照文档抄的：
+
+| 模型家族 | 原生格式（写在请求体里） | 走的端点 | 实测结果 |
+| -------- | -------------------------- | -------- | -------- |
+| Claude | `tools: [{type:"web_search_20250305", name:"web_search", max_uses:5}]` | `POST /v1/messages` | ✅ 真检索：`server_tool_use` → `web_search_tool_result`（含 title/url/page_age），引用走 `citations_delta` |
+| GPT | `tools: [{type:"web_search", search_context_size:"medium"}]` + `include:["web_search_call.action.sources"]` | `POST /v1/responses`（网关仅 GPT 支持此端点） | ✅ 真检索：`web_search_call` + `action.sources`（一次问题可回十几到上百条 URL），引用走 `url_citation` 标注 |
+| Kimi | `tools: [{type:"builtin_function", function:{name:"$web_search"}}]` | `POST /v1/chat/completions` | ❌ 网关收下但不执行，模型自述「我没有联网能力」 |
+| GLM | `tools: [{type:"web_search"}]` | `POST /v1/chat/completions` | ❌ 上游直接 400 `upstream_error` |
+| Grok | `search_parameters: {mode:"live"}` | `POST /v1/chat/completions` | ❌ 把工具调用当普通文本吐回来（XML 片段），不是检索 |
+| Gemini | `tools: [{google_search:{}}]` | `POST /v1beta/models/{model}:generateContent` | ⚠️ 原生端点实测可用（`groundingMetadata.groundingChunks`），但需要另开一条原生 Gemini 协议通道，**本轮未接**；chat 协议里塞 `google_search` 会被网关 503 |
+| 其余（DeepSeek 等） | 无原生格式 → **不联网** | 原端点，不塞任何联网字段 | — |
+
+所以现在只有 Claude 与 GPT 会真的联网：**宁可少支持，也不给用户看「假装查过了」的来源条。**
 
 - 能力表与请求/流转换都在 `js/websearch.js`；GPT 改道 `/v1/responses` 后被拒（400/404/422）会**自动退回**
   Chat Completions 并剥掉联网字段，同时 toast 告知并把该模型记入降级表（本会话不再白试一次）——
   见 `api.webFallbackFor(model)`。
+- 实测坑位两条，已修并各有回归：① 网关 Anthropic 路由会把网页工具**混着两种块**发出来
+  （`server_tool_use` 与名叫 `web_search`/`web_fetch` 的普通 `tool_use`）——后者若按客户端工具处理，
+  主循环会去执行一个不存在的工具，所以统一按服务端工具处理、不进客户端累积器；
+  ② 请求体里带 `"system": ""` 会让上游整段不返回 thinking 块，空 system 现在不发。
+- 上游检索偶发不可用（Anthropic 会明确回 `web_search_tool_result_error{error_code:"unavailable"}`），
+  此时如实显示「联网检索未成功」并给出建议，而不是显示「服务端检索到 0 条来源」。
 - 模型返回的查询词与来源渲染成回答下方的「联网 · 服务端检索到 N 条来源」条（链接 `rel="noopener"`），
   随消息一起持久化，切会话/重开页面仍在。
 - **不做**的事：不在浏览器里打 DuckDuckGo/Brave/Tavily/Serper，不用 `r.jina.ai` 之类的第三方抽取器，
@@ -219,12 +230,18 @@ js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持�
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道）+ /api/{health,search,fetch,git} 本地中继
                   （默认仅绑定 127.0.0.1；git 只在 ./workspace 内执行）
-tests/            agent.test.mjs（144 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
+tests/            agent.test.mjs（155 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
                   Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
-                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义）
-                  dom-smoke.mjs（122 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局）
-                  app-boot.mjs（36 项）· pyodide-worker.test.mjs（5 项）
-                  server_checks.py（44 项：git 参数白名单 / SSRF / HTML 抽取护栏，纯 stdlib）
+                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义 /
+                  服务端联网块不进客户端累积器 / 联网失败如实报错）
+                  dom-smoke.mjs（154 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局 /
+                  移动端布局源码护栏）
+                  app-boot.mjs（60 项：真实入口整轮对话 + 重新生成覆盖 + 联网形状）
+                  live-smoke.mjs / live-web.mjs（拿 key 打真网关：双协议 + 联网能力实测，无 key 自动跳过）
+                  mobile-layout.mjs（真 Chrome 量移动端：320/360/390/414/768 无溢出、无重叠、触控 ≥36px；
+                  npm run audit:mobile，需先 npm i puppeteer）
+                  pyodide-worker.test.mjs（5 项）
+                  server_checks.py（51 项：git 参数白名单 / SSRF / HTML 抽取护栏，纯 stdlib）
 ```
 
 真实网关系统测试（会实际调用 `/v1/images/*` 并产生费用，默认跳过）：
@@ -248,6 +265,8 @@ npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹�
 npm run test:pyodide  # tests/pyodide-worker.test.mjs：Node 里用薄垫片直接跑真实 js/worker-py.js
                       # （npm i -D pyodide@0.26.4）：FILES 回写 / result 捕获 / 陈旧全局
 npm run test:server   # tests/server_checks.py：中继护栏（git 白名单 / SSRF / HTML 抽取），纯 stdlib 无需 node
+npm run test:live     # 真实网关：live-smoke + live-check + live-web（TEAMO_API_KEY=… 才跑，否则跳过）
+npm run audit:mobile  # 真 Chrome 量移动端布局（需 puppeteer）：无横向溢出 / 无重叠 / 触控目标 ≥36px
 npm run test:all      # 前四连（含 server_checks）
 ```
 
@@ -291,6 +310,29 @@ curl -X POST -H "Authorization: Bearer <你的token>" \
 ```bash
 python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 ```
+
+## 移动端布局（≤720px 单独一层，不是把桌面等比缩小）
+
+窄屏曾有一个**布局根因 bug**：`@media (max-width: 860px)` 把侧栏、`760px` 把沙箱面板都改成
+`position: fixed`，两者脱离网格后，`.main` 成为唯一在流的网格子项，被自动排进第一列
+（`--sbw` 此时已收敛为 `0px`）→ **主区宽度 0**，所有内容横向溢出、挤成一团。现在三块用
+`grid-template-areas: "side main panel"` 钉死在各自轨道上，无论谁变成浮层都不会串位。
+
+在此之上是专门的一层排布（`css/styles.css` 的 `@media (max-width: 720px)` 与
+`@media (hover: none), (max-width: 720px)`）：
+
+- 顶栏胶囊**一行横滑**（`overflow-x: auto` + `flex-wrap: nowrap`），状态文字可省略号截断，
+  小屏再让一步：≤380px 只留中文文字、隐藏图标；
+- 消息区左右留白收到 14px，模型名/用量分行，操作条换行；
+- 所有可点元素 ≥40px（`.act` / `.pill` / `.mini-btn` / `.icon-btn` → 触屏设备一律生效，平板也算）；
+- 输入框字号 **16px**（低于它 iOS 会在聚焦时放大整页）、输入区贴 `env(safe-area-inset-bottom)`、
+  「定位到最新输出」上移避开输入区；
+- 长链接、代码块、表格各自横向滚动，正文不撑宽页面。
+
+这些不是「凭感觉调的」：`tests/mobile-layout.mjs` 用真实 Chromium 在 320/360/390/414/768 宽度下
+量 **横向溢出 / 区域重叠 / 触控目标尺寸 / 面板是否越界**（桩网关先灌一整段带工具芯片与联网来源条的
+对话），`npm run audit:mobile` 一条命令跑完；也可以加 `TEAMO_AUDIT_URL=https://imfufuu.github.io/TeamoAgent/`
+直接量线上站点。
 
 ## 说明
 

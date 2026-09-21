@@ -52,6 +52,7 @@ const ok = (name, cond, extra = '') => {
 const enc = (o) => `data: ${JSON.stringify(o)}\n\n`;
 const SSE = { 'content-type': 'text/event-stream' };
 let turn = 0;
+const regenStub = {}; // 「重新生成」分组用的计数器
 const reqs = []; // 抓请求体，供「关掉沙箱后还能委派子智能体」这类断言核对
 const allUrls = []; // 所有出网 URL：用来断言「不存在任何第三方 host / 余额接口」
 const chatText = (t) => new Response([enc({ choices: [{ delta: { content: t } }] }), enc({ choices: [{ delta: {}, finish_reason: 'stop' }] }), 'data: [DONE]\n\n'].join(''), { status: 200, headers: SSE });
@@ -103,6 +104,12 @@ globalThis.fetch = async (url, opts) => {
       : ep === 'responses' ? respText('结论：先加输入校验，再补边界用例')
         : chatText('结论：先加输入校验，再补边界用例');
   }
+  // 「重新生成」测试专用：同一句话问两次，桩回两版不同文本，用来证明旧回答被覆盖而不是并列留下
+  if (hay.includes('重新生成这条测试')) {
+    regenStub.n = (regenStub.n || 0) + 1;
+    const t = regenStub.n === 1 ? '初版回答：第一版内容' : '重生成后的回答：界面上只应该有这一版';
+    return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
+  }
   turn++;
   const isToolTurn = turn === 1;
   const isDispatchTurn = turn === 3;
@@ -139,7 +146,7 @@ ok('入口样式/脚本带 ?v=（穿透 Pages 静态资源缓存）', htmlSrc.in
 console.log('\n空状态：随机三条任务示例');
 const cards = $$('#messages .empty-state .suggest');
 ok('展示 3 条示例卡片', cards.length === 3, `${cards.length} 张`);
-ok('每条带能力标签与 data-prompt', cards.every((c) => c.querySelector('.suggest-tag')?.textContent && c.dataset.prompt?.length > 8));
+ok('示例卡只有任务文案（没有任务类型标签）', cards.every((c) => !c.querySelector('.suggest-tag') && c.dataset.prompt?.length > 8 && c.textContent.trim() === c.dataset.prompt));
 ok('「换一批」可点', !!$('#messages .suggest-shuffle'));
 const firstBatch = cards.map((c) => c.dataset.prompt).join('|');
 let changed = false;
@@ -150,7 +157,9 @@ for (let i = 0; i < 10 && !changed; i++) {
 ok('换一批换出不同组合', changed);
 click($$('#messages .empty-state .suggest')[0]);
 const clicked = $$('#messages .empty-state .suggest')[0];
-ok('点卡片只回填 prompt（不带标签文字）', $('#composer-input').value === clicked.dataset.prompt && $('#composer-input').value !== clicked.textContent.trim());
+ok('点卡片把任务原句回填进输入框', $('#composer-input').value === clicked.dataset.prompt
+  && $('#composer-input').value === clicked.textContent.trim() && $('#composer-input').value.length > 8,
+  JSON.stringify($('#composer-input').value).slice(0, 50));
 $('#composer-input').value = '';
 
 console.log('\n发送一整轮（含工具调用）');
@@ -257,6 +266,29 @@ console.log('\n联网：按模型 API 自带的网页搜索请求格式发请求
   ok('全程零次第三方搜索 host', !/brave|tavily|serper|duckduckgo|jina|mojeek|searx/i.test(allUrls.join(' ')), allUrls.join(' ').slice(0, 160));
   const hosts = [...new Set(allUrls.map((u) => { try { return new URL(u).host; } catch { return u.slice(0, 24); } }))];
   ok('只打网关与本地页面 host', hosts.every((h) => h.includes('teamorouter') || h === 'localhost'), JSON.stringify(hosts));
+}
+
+console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');
+{
+  $('#composer-input').value = '重新生成这条测试：随便答一句';
+  click($('#send-btn'));
+  await tick(1600);
+  const assists = () => $$('#messages .msg-assistant');
+  const visibleRegen = () => $$('#messages .act-regen').filter((b) => b.style.display !== 'none');
+  ok('初版回答已渲染', /初版回答/.test(assists().slice(-1)[0].textContent), assists().slice(-1)[0].textContent.slice(0, 40));
+  ok('整段对话里只有最近一条带可见的「重新生成」', visibleRegen().length === 1
+    && assists().slice(-1)[0].contains(visibleRegen()[0]), `${visibleRegen().length} 个`);
+  const olderRegens = $$('#messages .act-regen').filter((b) => !assists().slice(-1)[0].contains(b));
+  ok('更早的回答保留按钮但隐藏（要改就得先回滚）', olderRegens.length >= 1 && olderRegens.every((b) => b.style.display === 'none'),
+    `${olderRegens.length} 个 · ${olderRegens.map((b) => b.style.display || 'visible').join(',')}`);
+  const beforeCount = assists().length;
+  click(visibleRegen()[0]);
+  await tick(1800);
+  ok('点击后消息条数不变（覆盖，不是追加出第二条）', assists().length === beforeCount, `${beforeCount} → ${assists().length}`);
+  ok('旧回答已从界面上消失', !assists().some((n) => /初版回答/.test(n.textContent)),
+    assists().map((n) => n.textContent.trim().slice(0, 30)).join(' | '));
+  ok('新回答落在那条消息上', /重生成后的回答/.test(assists().slice(-1)[0].textContent), assists().slice(-1)[0].textContent.slice(0, 40));
+  ok('重新生成后可见按钮仍是 1 个（新的那条）', visibleRegen().length === 1 && assists().slice(-1)[0].contains(visibleRegen()[0]));
 }
 
 console.log('\n会话记录：入列时机 / 自动标题 / 一键清空');
