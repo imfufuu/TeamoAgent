@@ -1,9 +1,10 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
+import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
-import { providerIcon, APP_LOGO } from './icons.js';
+import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -301,7 +302,7 @@ export function mountUI(store, agent) {
   fastToggle.addEventListener('click', () => {
     store.state.settings.fastMode = !store.state.settings.fastMode;
     syncFast(); store.notify();
-    toast(store.state.settings.fastMode ? 'Fast mode 开启（service_tier=fast，2x 计费，仅 GPT 系列）' : 'Fast mode 关闭');
+    toast(store.state.settings.fastMode ? '快速模式开启（service_tier=fast，2x 计费，仅 GPT 系列）' : '快速模式关闭');
   });
   syncFast();
 
@@ -509,40 +510,102 @@ export function mountUI(store, agent) {
     saveBlob(name, new Blob([bytes], { type: mime }));
     toast(`已下载 ${name}（${fmtSize(bytes.length)}）`, 'ok');
   }
-  $('#download-zip').addEventListener('click', () => {
-    const files = agent.fs.export();
-    const paths = Object.keys(files);
-    if (!paths.length) return toast('沙箱为空，没有可打包的文件', 'warn');
-    const entries = paths.map((p) => {
-      const { bytes, mime } = fileBytesFromValue(files[p]);
-      return { name: withExtension(p, mime && mime.startsWith('image/') ? mime : ''), bytes };
-    });
-    const blob = createZip(entries);
-    saveBlob(`teamo-sandbox-${stampName()}.zip`, blob);
-    toast(`已打包 ${paths.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
+  // 打包：整包（保留目录结构）或单个目录；entries.name 即沙箱内路径
+  const zipEntriesOf = (paths) => paths.map((p) => {
+    let raw = '';
+    try { raw = agent.fs.read(p); } catch { /**/ }
+    const { bytes, mime } = fileBytesFromValue(raw);
+    return { name: withExtension(p, mime && mime.startsWith('image/') ? mime : ''), bytes };
   });
+  function saveZip(entries, base) {
+    if (!entries.length) return toast('没有可打包的文件', 'warn');
+    const blob = createZip(entries);
+    saveBlob(`${base}-${stampName()}.zip`, blob);
+    toast(`已打包 ${entries.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
+  }
+  $('#download-zip').addEventListener('click', () => saveZip(zipEntriesOf(Object.keys(agent.fs.export())), 'teamo-sandbox'));
   $('#clear-files').addEventListener('click', () => { agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空'); });
+
+  // 目录折叠状态：本次页面会话内记住（沙箱是路径即结构，没有真实目录节点）
+  const collapsedDirs = new Set();
+  // 图片以 data URL 存放，字符串长度会虚高 ~1/3；按 base64 反推真实字节
+  const approxBytes = (raw) => {
+    const str = String(raw || '');
+    if (str.startsWith('data:')) {
+      const comma = str.indexOf(',');
+      if (comma > 0 && /;base64/i.test(str.slice(0, comma))) return Math.max(0, Math.round((str.length - comma - 1) * 0.75));
+    }
+    return new TextEncoder().encode(str).length;
+  };
 
   function renderFiles() {
     const box = $('#file-list'); box.innerHTML = '';
-    const list = agent.fs.list();
-    if (!list.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
-    for (const f of list) {
-      const item = el('div', 'file-item');
-      item.innerHTML = `<span class="mono file-path">${esc(f.path)}</span><span class="file-size">${fmtSize(f.size)}</span><button class="mini-btn file-dl" type="button" title="下载此文件">⬇</button>`;
-      $('.file-dl', item).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(f.path); });
-      item.addEventListener('click', () => {
-        const viewer = $('#file-viewer');
-        const raw = agent.fs.read(f.path);
-        const isImg = /^data:image\//.test(raw);
-        viewer.innerHTML = `<div class="file-viewer-head mono">${esc(f.path)}<span class="fv-actions"><button id="fv-dl" title="下载此文件">⬇ 下载</button><button id="fv-close">✕</button></span></div>`
-          + (isImg ? `<div class="fv-img"><img src="${raw}" alt="${esc(f.path)}"></div>` : `<pre>${esc(raw)}</pre>`);
-        viewer.classList.add('open');
-        $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
-        $('#fv-dl').addEventListener('click', () => downloadFile(f.path));
-      });
-      box.appendChild(item);
+    const files = agent.fs.list().map((f) => {
+      let raw = '';
+      try { raw = agent.fs.read(f.path); } catch { /**/ }
+      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(raw) };
+    });
+    const tree = buildFileTree(files);
+    const stat = treeStats(tree);
+    const countEl = $('#files-count');
+    if (countEl) {
+      countEl.textContent = stat.files
+        ? `${stat.files} 个文件${stat.dirs ? ` · ${stat.dirs} 个目录` : ''} · ${fmtSize(stat.size)}`
+        : '';
     }
+    if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
+    const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
+    const rows = flattenTree(tree, { isCollapsed: (p) => collapsedDirs.has(p) });
+    for (const r of rows) {
+      const closed = r.type === 'dir' && collapsedDirs.has(r.path);
+      const row = el('div', `ft-row ft-${r.type}${r.type === 'dir' ? (closed ? ' closed' : ' open') : ' file-item'}`);
+      row.style.setProperty('--d', r.depth);
+      row.dataset.path = r.path;
+      row.title = r.type === 'dir' ? `${r.path}/（点击${collapsedDirs.has(r.path) ? '展开' : '折叠'}，共 ${r.count} 个文件）` : r.path;
+      if (r.type === 'dir') {
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.setAttribute('aria-expanded', String(!closed));
+        row.innerHTML = `<span class="ft-chev">${ICON.chevRight}</span>`
+          + `<span class="ft-ico">${closed ? ICON.folder : ICON.folderOpen}</span>`
+          + `<span class="ft-name mono">${esc(r.name)}</span>`
+          + `<span class="ft-meta mono">${r.count} 个文件 · ${fmtSize(r.size)}</span>`
+          + `<span class="ft-actions"><button class="mini-btn ft-zip" type="button" title="把 ${esc(r.path)}/ 下的文件按原目录结构打包下载（.zip）">${ICON.download}<span>ZIP</span></button></span>`;
+        const toggle = () => {
+          if (collapsedDirs.has(r.path)) collapsedDirs.delete(r.path); else collapsedDirs.add(r.path);
+          renderFiles();
+        };
+        row.addEventListener('click', toggle);
+        row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        $('.ft-zip', row).addEventListener('click', (e) => {
+          e.stopPropagation();
+          saveZip(zipEntriesOf(collectPaths(r)), `teamo-${r.name || 'folder'}`);
+        });
+      } else {
+        row.innerHTML = `<span class="ft-sp"></span>`
+          + `<span class="ft-ico">${imageSet.has(r.path) ? ICON.image : ICON.file}</span>`
+          + `<span class="ft-name mono file-path">${esc(r.name)}</span>`
+          + `<span class="ft-meta mono file-size">${fmtSize(r.size)}</span>`
+          + `<span class="ft-actions"><button class="mini-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
+        $('.file-dl', row).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(r.path); });
+        row.addEventListener('click', () => openFileViewer(r.path));
+      }
+      box.appendChild(row);
+    }
+  }
+
+  function openFileViewer(path) {
+    const viewer = $('#file-viewer');
+    let raw = '';
+    try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
+    const isImg = /^data:image\//.test(raw);
+    viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-actions">`
+      + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
+      + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
+      + (isImg ? `<div class="fv-img"><img src="${raw}" alt="${esc(path)}"></div>` : `<pre>${esc(raw)}</pre>`);
+    viewer.classList.add('open');
+    $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
+    $('#fv-dl').addEventListener('click', () => downloadFile(path));
   }
   renderFiles();
 

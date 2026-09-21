@@ -1323,6 +1323,65 @@ test('网关 400 时错误文案保留上游消息与 trace 提示', async () =>
   } finally { globalThis.fetch = realFetch; }
 });
 
+group('文件面板目录树（js/filetree.js）');
+const ft = await import('../js/filetree.js');
+test('buildFileTree：按 / 还原层级并汇总大小与数量', () => {
+  const tree = ft.buildFileTree([
+    { path: 'uploads/cat.png', size: 100 },
+    { path: 'uploads/spec.md', size: 50 },
+    { path: 'outputs/nested/deep.md', size: 10 },
+    { path: 'root.txt', size: 1 },
+  ]);
+  assert.deepEqual(tree.map((n) => `${n.type}:${n.name}`), ['dir:outputs', 'dir:uploads', 'file:root.txt'], '目录在前、同级按名称排序');
+  const uploads = tree[1];
+  assert.equal(uploads.size, 150);
+  assert.equal(uploads.count, 2);
+  assert.deepEqual(uploads.children.map((c) => c.name), ['cat.png', 'spec.md']);
+  const outputs = tree[0];
+  assert.equal(outputs.count, 1, '嵌套目录的文件数汇总到上层');
+  assert.equal(outputs.dirs, 1, '直接子目录数');
+  assert.equal(outputs.children[0].path, 'outputs/nested');
+  assert.equal(outputs.children[0].children[0].path, 'outputs/nested/deep.md', '子节点保留完整路径');
+});
+test('排序用自然数序：image-2 在 image-10 之前', () => {
+  const tree = ft.buildFileTree([{ path: 'o/image-10.png', size: 1 }, { path: 'o/image-2.png', size: 1 }, { path: 'o/image-1.png', size: 1 }]);
+  assert.deepEqual(tree[0].children.map((c) => c.name), ['image-1.png', 'image-2.png', 'image-10.png']);
+});
+test('脏路径（多余斜杠 / 空段 / 非字符串）不产生空目录', () => {
+  const tree = ft.buildFileTree([{ path: '/a//b.txt', size: 3 }, { path: '  ', size: 9 }, null, { path: 'c/', size: 4 }]);
+  assert.deepEqual(tree.map((n) => `${n.type}:${n.name}`), ['dir:a', 'file:c']);
+  assert.equal(tree[0].children[0].path, 'a/b.txt', '空段被清掉');
+  assert.equal(ft.treeStats(tree).files, 2);
+});
+test('collectPaths：目录打包时收集全部后代文件', () => {
+  const tree = ft.buildFileTree([{ path: 'a/x.txt', size: 1 }, { path: 'a/b/y.txt', size: 2 }, { path: 'z.txt', size: 3 }]);
+  assert.deepEqual(ft.collectPaths(tree[0]).sort(), ['a/b/y.txt', 'a/x.txt']);
+  assert.deepEqual(ft.collectPaths(tree[1]), ['z.txt']);
+  assert.deepEqual(ft.collectPaths(null), []);
+});
+test('flattenTree：折叠的目录不输出子项，深度驱动缩进', () => {
+  const tree = ft.buildFileTree([{ path: 'a/b/c.txt', size: 1 }, { path: 'a/top.txt', size: 1 }]);
+  const flat = ft.flattenTree(tree, { isCollapsed: () => false });
+  assert.deepEqual(flat.map((n) => `${n.depth}:${n.name}`), ['0:a', '1:b', '2:c.txt', '1:top.txt']);
+  assert.equal(flat[0].hasChildren, true);
+  const closed = ft.flattenTree(tree, { isCollapsed: (p) => p === 'a/b' });
+  assert.deepEqual(closed.map((n) => `${n.depth}:${n.name}`), ['0:a', '1:b', '1:top.txt'], '折叠后其子树消失');
+  assert.deepEqual(ft.flattenTree(tree, {}).map((n) => n.name), ['a', 'b', 'c.txt', 'top.txt'], '未传 isCollapsed 时全展开');
+});
+test('treeStats：目录不重复计数', () => {
+  const tree = ft.buildFileTree([{ path: 'a/x.txt', size: 10 }, { path: 'a/b/y.txt', size: 5 }, { path: 'z.txt', size: 1 }]);
+  const st = ft.treeStats(tree);
+  assert.deepEqual({ files: st.files, dirs: st.dirs, size: st.size }, { files: 3, dirs: 2, size: 16 });
+  assert.deepEqual(ft.treeStats([]), { files: 0, dirs: 0, size: 0 });
+});
+test('界面图标为 currentColor 线性 SVG（随主题与选中态自动反色）', async () => {
+  const { ICON } = await import('../js/icons.js');
+  for (const k of ['bolt', 'download', 'folder', 'folderOpen', 'file', 'image', 'chevRight', 'x']) {
+    assert.ok(ICON[k].startsWith('<svg') && ICON[k].includes('stroke="currentColor"') && !ICON[k].includes('#'), `${k} 应为 currentColor 单色 SVG`);
+    assert.ok(/fill="none"/.test(ICON[k]), `${k} 线性描边而非填充`);
+  }
+});
+
 
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {

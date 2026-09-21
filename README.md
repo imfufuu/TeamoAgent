@@ -30,7 +30,7 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 | 模型列表 | `GET /v1/models`（需鉴权，401 时本项目回退内置列表） |
 | 文生图 | `POST /v1/images/generations`（`Authorization: Bearer`）；body `{model, prompt, size, quality, output_format, background, n…}`；结果在 `data[i].b64_json`（`n>1` 时数组多于一项）；官方建议超时 300s（实测 30–90s） |
 | 图片编辑 | `POST /v1/images/edits`（`multipart/form-data`：`model` + `image`（多张用 `image[]`）+ `prompt`，可选 `mask`/`size`/`quality`/`input_fidelity`） |
-| Fast mode | 请求体加 `"service_tier": "fast"`，仅 GPT 系列，2x 计费（旧值 `priority` 仍兼容） |
+| Fast mode | 请求体加 `"service_tier": "fast"`，仅 GPT 系列，2x 计费（旧值 `priority` 仍兼容）；顶栏「快速」按钮（线性闪电图标，与思考/沙箱同一 pill 风格）切换 |
 | 流式事件 | Anthropic：`message_start → content_block_start → content_block_delta → content_block_stop → message_delta → message_stop` |
 | CORS | **实测返回 `Access-Control-Allow-Origin: *`** → 浏览器可直连；本项目仍内置服务端代理兜底 |
 | 超时 | 服务器最长支持 600s 响应；大模型首 token 可能需数十秒，务必 `stream: true` |
@@ -38,7 +38,7 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 
 ## 附件支持
 
-- **入口**：输入框 📎 按钮 / 拖拽到聊天区 / 直接粘贴（截图可用）
+- **入口**：输入框附件按钮 / 拖拽到聊天区 / 直接粘贴（截图可用）
 - **图片**（png/jpg/gif/webp ≤5MB）：多模态直传 —— OpenAI 协议走 `image_url`(data URL)，Anthropic 协议走 `image.source.base64` 原生块；需所选模型支持视觉（Claude/GPT/Gemini/deepseek-vision 等），气泡内缩略图可点开
 - **文本/代码文件**（≤512KB，30+ 扩展名）：正文随消息注入，同时**自动写入沙箱 `uploads/` 目录**，Agent 可用 read_file 或沙箱代码处理全文
 - **全部附件（图片 + 文本）都会自动复制到沙箱 `uploads/`**：图片以 data URL 存放，Agent 可把它作为 `generate_image` 的 `reference_paths` 直接改图；文件面板可逐个下载或整包导出 ZIP
@@ -107,7 +107,9 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 - **失败可读**：不再把任何异常都写成「缺少 data[0]」。区分「HTTP 200 + `error`/`message`」「200 但 `data` 为空数组」「非 JSON 响应体（带 HTTP 码、Content-Type、字节数与原文片段）」「`data` 字段缺失」；上游类错误自动补一次重试（3s），4xx 参数/模型类错误不重放。
 - **输出真实化**：`sniffImage()` 直接解析 PNG/JPEG/GIF/WebP 头部拿到真实宽高与格式——网关偶尔无视 `output_format` 返回 PNG，此时扩展名会自动纠正；`n>1` 的多张候选全部写入沙箱，不再只取第一张。
 - **连接反馈**：请求发出到首字返回之间为「连接模型中」状态——状态点脉冲+光环、三点跳动、实时秒数、顶栏不确定进度条，气泡内显示「正在连接 <模型>，等待首个响应…」，收到首个 token 自动切到「生成中」。
-- **沙箱导出**：文件面板「⬇ ZIP」打包整个虚拟文件系统（图片按原始二进制还原 + 自动补扩展名，单文件行内 ⬇ 可单独下载）；ZIP 由 `js/zip.js` 手写 STORE 容器生成，零依赖。
+- **文件面板 = 目录树**：沙箱是「路径即结构」的扁平字典，UI 用 `js/filetree.js`（纯函数）把它还原成可折叠的目录树 —— 目录行显示文件夹图标、缩进（`--d` 驱动）、汇总的文件数与体积，点一下折叠/展开（键盘 Enter/Space 可用），工具栏右侧给出「N 个文件 · M 个目录 · 体积」摘要；同级目录在前、名称按自然数序（`image-2` 排在 `image-10` 前）。
+- **沙箱导出**：工具栏「ZIP」打包整个虚拟文件系统（保留 `uploads/`、`outputs/` 目录结构），每个目录行还有独立的「ZIP」按钮只打包该目录（含子目录），文件行内下载按钮取单文件；图片按原始二进制还原 + 自动补扩展名。ZIP 由 `js/zip.js` 手写 STORE 容器生成，零依赖。
+- **图片体积按真实字节算**：data URL 字符串比二进制长 ~1/3，列表与芯片都按 base64 反推字节显示，避免 `1.4 MB` 被标成 `1.9 MB`。
 - **会话级模型**：模型与生图模型都属于会话属性，切换会话自动恢复各自的选择；每条 assistant 消息记录当轮实际使用的模型，回看时头部按消息显示，不会被当前选择覆盖。
 
 ## 图标来源与版权
@@ -125,7 +127,9 @@ js/config.js      端点 / 协议路由 / 兜底模型表 / 系统提示词
 js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代理兜底）
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
-js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包下载
+js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包 / 单目录下载
+js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总、折叠展开）
+js/icons.js       供应商品牌 Logo + 界面线性图标（currentColor，随主题反色）
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互

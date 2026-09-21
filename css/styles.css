@@ -557,14 +557,36 @@ a { color: var(--fg); }
 .agent-desc { font-size: 11.5px; color: var(--fg-2); margin: 4px 0 6px; line-height: 1.55; }
 .agent-tools { font-size: 9.5px; color: var(--fg-3); word-break: break-all; }
 
-.files-toolbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.files-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
+.files-count { font-size: 10px; color: var(--fg-3); margin-left: auto; white-space: nowrap; }
 .file-list { display: flex; flex-direction: column; gap: 4px; }
-.file-item {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+.file-item, .ft-row {
+  display: flex; justify-content: flex-start; align-items: center; gap: 6px;
   padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; cursor: pointer;
   transition: all .2s var(--ease); animation: fadeUp .3s var(--ease) both;
 }
-.file-item:hover { border-color: var(--fg); transform: translateX(2px); }
+.file-item:hover, .ft-row:hover { border-color: var(--fg); transform: translateX(2px); }
+.file-item:focus-visible, .ft-row:focus-visible { outline: 2px solid var(--fg); outline-offset: 1px; }
+
+/* 目录树：沙箱是「路径即结构」，UI 还原层级；缩进用 --d（深度）驱动 */
+.ft-row { padding-left: calc(9px + var(--d, 0) * 13px); }
+.ft-dir { background: var(--bg-soft); }
+.ft-dir .ft-name { font-weight: 650; letter-spacing: .01em; }
+.ft-chev, .ft-ico, .ft-sp { width: 12px; height: 12px; display: inline-flex; flex-shrink: 0; color: var(--fg-3); }
+.ft-ico { width: 14px; height: 14px; color: var(--fg-2); }
+.ft-dir .ft-ico { color: var(--fg); }
+.ft-chev { transition: transform .2s var(--ease); transform: rotate(90deg); }
+.ft-dir.closed .ft-chev { transform: rotate(0deg); }
+.ft-chev svg, .ft-ico svg { width: 100%; height: 100%; display: block; }
+.ft-name { font-size: 11.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ft-meta { font-size: 10px; color: var(--fg-3); font-family: var(--mono); flex-shrink: 0; }
+.ft-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+.ft-zip { opacity: .55; transition: opacity .18s var(--ease); }
+.ft-row:hover .ft-zip, .ft-row:focus-within .ft-zip, .ft-dir.closed .ft-zip { opacity: 1; }
+@media (hover: none) { .file-dl { opacity: 1; } } /* 触屏无 hover：下载按钮常显 */
+/* 按钮里的线性图标：与文字同色（currentColor），随主题/选中态自动反转 */
+.mini-btn { display: inline-flex; align-items: center; gap: 4px; }
+.mini-btn .btn-ico, .mini-btn svg.ico { width: 12px; height: 12px; display: block; flex-shrink: 0; }
 .file-path { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .file-size { font-size: 10px; color: var(--fg-3); font-family: var(--mono); flex-shrink: 0; }
 .files-actions { display: flex; gap: 5px; flex-shrink: 0; }
@@ -572,7 +594,8 @@ a { color: var(--fg); }
 .file-item:hover .file-dl, .file-item:focus-within .file-dl { opacity: 1; }
 .file-viewer { display: none; position: absolute; inset: 48px 12px 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg); z-index: 5; flex-direction: column; }
 .fv-actions { display: flex; align-items: center; gap: 6px; }
-.fv-actions button { font-size: 11px; color: var(--fg-2); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; cursor: pointer; transition: all .18s var(--ease); }
+.fv-actions button { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-2); background: none; border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; cursor: pointer; transition: all .18s var(--ease); }
+.fv-actions button svg { width: 12px; height: 12px; display: block; }
 .fv-actions button:hover { color: var(--fg); border-color: var(--fg); }
 .fv-img { flex: 1; overflow: auto; display: flex; align-items: flex-start; justify-content: center; padding: 12px; background: var(--bg-soft); }
 .fv-img img { max-width: 100%; max-height: 100%; border-radius: 8px; border: 1px solid var(--line); }

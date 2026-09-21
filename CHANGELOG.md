@@ -2,6 +2,23 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（UI）文件面板目录树 + 按钮图标统一
+
+- **虚拟文件系统支持目录显示**：新增纯函数模块 `js/filetree.js`（`buildFileTree` /
+  `flattenTree` / `collectPaths` / `treeStats`），把扁平路径还原成可折叠目录树：
+  文件夹图标 + 缩进（`--d`）+ 每级汇总「N 个文件 · 体积」，点目录行折叠/展开
+  （`role=button` + `aria-expanded` + Enter/Space），工具栏显示整体计数摘要。
+  同级目录在前、自然数序排序；脏路径（多余 `/`、空段）不会造出空目录。
+- **逐目录打包**：每个目录行一个「ZIP」按钮，只打包该目录（含子目录）且保留相对路径；
+  工具栏 ZIP 仍是整包。触屏无 hover 时下载按钮常显。
+- **列表大小真实化**：图片以 data URL 存放，按 base64 反推字节显示（此前按字符串长度虚高约 1/3）。
+- **⚡ Fast → 「快速」**：改为与「思考」「沙箱」完全一致的 `pill + .pill-ico` 内联线性 SVG
+  闪电图标 + 中文文案（选中态随 `currentColor` 自动反色），去掉系统 emoji。
+- **下载图标化**：`#download-zip`、文件行下载、查看器「下载/关闭」统一换成 `js/icons.js`
+  新增的 `ICON.download` / `ICON.x` / `ICON.folder(Open)` / `ICON.file` / `ICON.image` /
+  `ICON.chevRight` / `ICON.bolt`（24 视图、1.9 描边、圆角端点）。
+- 测试：单测 88 → 95（目录树纯函数全覆盖），DOM 冒烟新增 24 项检查（层级/折叠/逐目录
+  ZIP/图标化按钮/三按钮风格一致），全部通过。
 ## 2026-09-20（修复）生图模型 400 与不可读的失败原因
 
 线上反馈三类报错：`图像模型调用失败（gpt-image-2）：图像接口响应异常：缺少 data[0]`、

@@ -127,12 +127,43 @@ store.state.files = agent.fs.export();
 store.notify();
 ui.renderFiles();
 ok('uploads/ 下生成两条记录', written.length === 2 && written[0] === 'uploads/spec.md', JSON.stringify(written));
-const paths = $$('#file-list .file-path').map((n) => n.textContent);
-ok('文件面板列出 uploads 条目', paths.includes('uploads/cat.png') && paths.includes('uploads/spec.md'), paths.join(','));
-ok('每行有下载按钮', $$('#file-list .file-dl').length === 2, `${$$('#file-list .file-dl').length} 个`);
-click($$('#file-list .file-item').find((n) => n.textContent.includes('cat.png')));
+agent.fs.write('outputs/nested/deep.md', '# 深一层');
+store.state.files = agent.fs.export();
+ui.renderFiles();
+const rowPath = (n) => n.dataset.path;
+const paths = $$('#file-list .ft-file').map(rowPath);
+const dirs = $$('#file-list .ft-dir').map(rowPath);
+ok('文件行按 data-path 记录完整路径', paths.includes('uploads/cat.png') && paths.includes('uploads/spec.md'), paths.join(','));
+ok('目录节点被识别（uploads / outputs / outputs/nested）', dirs.join(',') === 'outputs,outputs/nested,uploads', dirs.join(','));
+ok('目录行带 aria-expanded', $$('#file-list .ft-dir').every((n) => n.getAttribute('aria-expanded') === 'true'));
+ok('目录行汇总文件数与体积', /2 个文件 ·/.test($$('#file-list .ft-dir')[2].textContent), $$('#file-list .ft-dir')[2].textContent);
+ok('文件行显示文件名，整条路径挂到行 title', (() => {
+  const row = $$('#file-list .ft-file').find((n) => rowPath(n) === 'uploads/cat.png');
+  return !!row && row.querySelector('.ft-name').textContent === 'cat.png' && row.title === 'uploads/cat.png';
+})());
+ok('目录行 title 提示折叠与数量', (() => {
+  const row = $$('#file-list .ft-dir').find((n) => rowPath(n) === 'uploads');
+  return /共 2 个文件/.test(row.title) && /点击折叠/.test(row.title);
+})(), $$('#file-list .ft-dir').map((n) => n.title).join(' | '));
+ok('缩进由 --d 驱动', $$('#file-list .ft-row').some((n) => n.style.getPropertyValue('--d') === '2'), $$('#file-list .ft-row').map((n) => n.style.getPropertyValue('--d')).join(','));
+ok('每行有下载按钮（目录行只有 ZIP）', $$('#file-list .file-dl').length === 3, `${$$('#file-list .file-dl').length} 个`);
+ok('目录行有打包按钮', $$('#file-list .ft-zip').length === 3, `${$$('#file-list .ft-zip').length} 个`);
+ok('目录/文件图标为内联 SVG', $$('#file-list .ft-ico').every((n) => !!n.querySelector('svg')));
+ok('工具栏摘要含文件与目录计数', /3 个文件 · 3 个目录/.test($('#files-count').textContent), $('#files-count').textContent);
+
+// 折叠：点目录行收起整棵子树
+const uploadsRow = () => $$('#file-list .ft-dir').find((n) => rowPath(n) === 'uploads');
+click(uploadsRow());
+ui.renderFiles();
+ok('折叠后子文件不再渲染', !$$('#file-list .ft-file').map(rowPath).includes('uploads/cat.png'), $$('#file-list .ft-file').map(rowPath).join(','));
+ok('折叠后 aria-expanded=false 且带 closed 类', uploadsRow().getAttribute('aria-expanded') === 'false' && uploadsRow().classList.contains('closed'));
+ok('折叠行上出现常驻 ZIP 按钮（不依赖 hover）', /ft-dir\.closed \.ft-zip \{ opacity: 1/.test(cssText));
+click(uploadsRow());
+ok('再点一次展开', $$('#file-list .ft-file').map(rowPath).includes('uploads/cat.png'));
+click($$('#file-list .ft-file').find((n) => rowPath(n) === 'uploads/cat.png'));
 ok('图片文件在查看器内预览', !!$('#file-viewer .fv-img img'));
-ok('查看器带下载按钮', !!$('#file-viewer #fv-dl'));
+ok('查看器带 SVG 下载按钮', !!$('#file-viewer #fv-dl svg') && /下载/.test($('#file-viewer #fv-dl').textContent));
+ok('查看器关闭按钮为 SVG', !!$('#file-viewer #fv-close svg'));
 click($('#fv-close'));
 ok('查看器可关闭', !$('#file-viewer').classList.contains('open'));
 
@@ -143,17 +174,35 @@ const origClick = window.HTMLAnchorElement.prototype.click;
 window.URL.createObjectURL = (b) => { download = b; return 'blob:fake'; };
 window.URL.revokeObjectURL = () => {};
 window.HTMLAnchorElement.prototype.click = function () { downloadName = this.getAttribute('download'); };
-click($$('#file-list .file-dl')[1]);
-ok('单文件下载触发且文件名正确', !!download && /cat\.png$/.test(downloadName || ''), String(downloadName));
+click($$('#file-list .file-dl').find((n) => n.closest('.ft-file').dataset.path === 'uploads/spec.md'));
+ok('单文件下载触发且文件名正确', !!download && /spec\.md$/.test(downloadName || ''), String(downloadName));
+ok('单文件下载按钮是 SVG 图标（不是 emoji）', !/⬇|↓/.test($$('#file-list .file-dl')[0].innerHTML) && !!$$('#file-list .file-dl')[0].querySelector('svg'));
+download = null; downloadName = null;
+click($$('#file-list .ft-zip').find((n) => n.closest('.ft-dir').dataset.path === 'uploads'));
+ok('目录 ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
+ok('目录 ZIP 以目录名命名', /^teamo-uploads-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
 download = null; downloadName = null;
 click($('#download-zip'));
-ok('ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
+ok('整包 ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
 ok('ZIP 文件名规范', /^teamo-sandbox-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
 window.HTMLAnchorElement.prototype.click = origClick;
 window.URL.createObjectURL = origCreate;
 window.URL.revokeObjectURL = origRevoke;
 const zipBlob = createZip([{ name: 'a.txt', bytes: new TextEncoder().encode('hi') }]);
 ok('createZip 返回非空 Blob', zipBlob && zipBlob.size > 22, `size=${zipBlob?.size}`);
+
+console.log('\n①⚡ 顶栏按钮风格一致性（SVG 图标 + 中文文案）');
+const fast = $('#fast-toggle');
+ok('快速按钮用 class="pill"（与思考/沙箱同结构）', fast.className.includes('pill'));
+ok('快速按钮内联 SVG 图标', !!fast.querySelector('svg.pill-ico') && !!fast.querySelector('svg path'));
+ok('文案为「快速」而非 ⚡ Fast', fast.textContent.trim() === '快速', JSON.stringify(fast.textContent));
+for (const id of ['#thinking-toggle', '#sandbox-toggle', '#fast-toggle']) {
+  ok(`${id} 三个按钮同风格（pill + pill-ico svg）`, !!$(id) && $(id).classList.contains('pill') && !!$(id).querySelector('svg.pill-ico'));
+}
+ok('整站按钮不再使用 ⚡/⬇ emoji', !/⚡|⬇/.test(html) && !/⚡|⬇/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
+click(fast.querySelector('svg') || fast);
+ok('点击快速按钮切换 on 状态', fast.classList.contains('on') !== (store.state.settings.fastMode === false));
+store.state.settings.fastMode = false; fast.classList.remove('on');
 
 console.log('\n② Agent 出图在工具芯片中展示');
 const call = { id: 'call-img-1', name: 'generate_image', args: { prompt: '一只橘猫' } };
