@@ -22,6 +22,12 @@ import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IM
 const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
 const toolsFor = (sandboxEnabled) =>
   sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name));
+// 只在中继里能用的工具：网页版（GitHub Pages）没有 server.py，这两个调到必然失败。
+// 实测后果：模型会拿 fetch_url 去「联网」，失败后要么编数字、要么说一堆环境限制，
+// 而真正可用的服务器网页搜索就在同一份请求里。没有中继时直接不提供，别给死路。
+const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'run_git']);
+const RELAY_OFF_NOTE = '\n\n【工具可用性】本环境没有本地中继（server.py 未运行），因此 fetch_url 与 run_git '
+  + '本轮不在工具表里。要查资料就用上面说的「服务器网页搜索工具」，不要试图用其它办法抓网页，也不要因此说不能联网。';
 
 // 附件落盘文件名：去掉路径分隔与控制字符，避免越权写到 uploads/ 之外
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'file';
@@ -95,6 +101,8 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     for (const c of calls) {
       // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
       const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
+      // 中继工具真跑通了 → 记下「本会话中继可用」，后续回合把 fetch_url / run_git 放回工具表
+      if (RELAY_ONLY_TOOLS.has(c.name) && res && res.ok) store.state.relayOk = true;
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
     }
   }
@@ -109,7 +117,9 @@ const WEB_ON_NOTE = '\n\n【联网】本轮已按当前模型的原生格式开�
   + '其它厂商经实测没有可用的原生格式，本轮不联网）。搜索由模型服务端自己完成，结果带引用回流进本轮上下文：'
   + '遇到「最新/当下/版本号/今天/价格/汇率/近期」这类光靠权重参数答不了的问题就直接联网，不必等用户点名；'
   + '回答里给出来源链接。要抓某个具体网页的正文用 fetch_url（走本地中继，没开中继时它会直接失败），需要 git 用 run_git。\n'
-  + '【硬性要求】只有当你这一轮**真的**调用了网页搜索工具、并拿到结果时，才可以说「已联网查询 / 搜索到」；'
+  + '\n【优先用它】要联网查资料时，直接用本轮已开启的服务器网页搜索工具，不要拿 fetch_url 去代替：'
+  + 'fetch_url 需要本地中继（网页版没有中继时必然失败），服务器搜索不需要任何本地依赖。'
+  + '\n【硬性要求】只有当你这一轮**真的**调用了网页搜索工具、并拿到结果时，才可以说「已联网查询 / 搜索到」；'
   + '没有拿到检索结果时，绝不允许用「我已经联网搜索了」这类说法给记忆里的数字背书 —— 那样用户会当真。'
   + '这种情况请直说「本轮没能取得检索结果」，并说明数字仅供记忆参考或建议用户手动核实。';
 const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第三方搜索接口）。不要声称自己能查实时信息：'
@@ -145,15 +155,16 @@ export function createAgent(store, hooks = {}) {
 
   // lockModel：本轮锁定的模型（runLoop 开头取的快照），保证预算与提示词不会因
   // 用户中途切换模型而和本轮上下文错位
-  function buildMessages(lockModel) {
+  function buildMessages(lockModel, relayOk = true) {
     const { messages } = store.state;
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
     const { messages: compacted, droppedCount } = compactMessages(messages, budget);
     // subagentGuide 无条件注入：委派子智能体不依赖代码沙箱开关（开关只决定子智能体
     // 自己能用的工具集合），旧写法把整段名录藏在开关后面，关掉沙箱就等于没有子智能体。
-    const sys = [{ role: 'system', text: systemPrompt() + fsNote()
-      + (store.state.settings.webEnabled !== false ? WEB_ON_NOTE : WEB_OFF_NOTE) + subagentGuide() }];
+    const sys = [{ role: 'system', text: systemPrompt(new Date(), { webEnabled: store.state.settings.webEnabled !== false }) + fsNote()
+      + (store.state.settings.webEnabled !== false ? WEB_ON_NOTE : WEB_OFF_NOTE)
+      + (relayOk ? '' : RELAY_OFF_NOTE) + subagentGuide() }];
     if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
     return [...sys, ...compacted];
   }
@@ -240,7 +251,11 @@ export function createAgent(store, hooks = {}) {
     abortController = new AbortController();
     const signal = abortController.signal;
     // 沙箱关闭时仍保留文件/生图/时间/委派工具（只有代码执行三件套被摘掉）
-    const tools = toolsFor(settings.sandboxEnabled);
+    // 中继不在（静态站点常见）时，再把只在本地中继里能用的工具摘掉。
+    // 状态来自 main.js 启动时的一次探测（store.state.relayOk），没探过就当「可能在」，
+    // 避免每次回合都多发一个 /api/health 请求，也避免测试桩被这层探测打乱。
+    const relayOk = store.state.relayOk !== false;
+    const tools = toolsFor(settings.sandboxEnabled).filter((t) => relayOk || !RELAY_ONLY_TOOLS.has(t.name));
     const turn = {
       apiKey, model, signal,
       thinking: settings.thinking !== false,
@@ -279,7 +294,7 @@ export function createAgent(store, hooks = {}) {
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
-              messages: buildMessages(model),
+              messages: buildMessages(model, relayOk),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {

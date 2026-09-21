@@ -1928,6 +1928,74 @@ test('按实测结果挑原生格式：只认 Claude 与 GPT', async () => {
   assert.match(web.webCapNote(null), /Claude 或 GPT/);
   assert.match(web.webCapNote(web.webCapFor('claude-sonnet-5')), /web_search_20250305/);
 });
+test('webRefusal()：认出「我上不了网」式拒答，但别把正常技术回答当拒答', async () => {
+  const { webRefusal } = await import('../js/websearch.js');
+  const 拒答 = [
+    '我无法实时获取今天的美元兑人民币中间价，因为我没有联网查询当前金融数据的能力。',
+    '我无法访问当前的实时汇率数据。',
+    '我不能浏览互联网或访问实时金融数据源。',
+    '我的知识库有截止日期限制，无法访问当前的实时汇率数据。',
+    'I cannot access the internet.',
+    '我没有访问当前金融数据的能力。',
+    '我没有联网。',
+    '本模型没有可用的联网工具。',
+    '我无法联网检索。',
+    '我无法联网，请自行核实。',
+    '我无法联网查询实时数据。',
+    '本助手没有联网搜索功能。',
+  ];
+  for (const t of 拒答) assert.equal(webRefusal(t), true, `应判为拒答：${t}`);
+  const 正常 = [
+    '根据今天的搜索结果，美元兑人民币中间价是 6.7487',
+    '已联网查询到 3 条来源',
+    '你好，有什么可以帮你？',
+    '这段代码会发起一次 HTTP 请求并读取响应体',
+    '我没有访问该目录的权限，请先 chmod。',
+    '该函数不能访问网络——它是纯计算函数。',
+    '如果网络不可用，脚本会抛错。',
+    '我的知识截止到 2025 年 8 月，但这条我确定。',
+    '我没有联网权限的沙箱里也能跑 pyodide。',
+    '沙箱里没有可用的搜索工具，请用 grep。',
+  ];
+  for (const t of 正常) assert.equal(webRefusal(t), false, `不该判为拒答：${t}`);
+  // 声称查过的不算「上不了网」——那条走 claimsWebSearch 的提醒
+  assert.equal(webRefusal('我已经请求了模型的原生网页搜索功能'), false);
+});
+
+test('系统提示词不再自相矛盾：不能说「去找 web_search 工具」也不能说「模型不能联网」', async () => {
+  const { systemPrompt } = await import('../js/config.js');
+  const sys = systemPrompt();
+  // 真踩过的坑：旧句子「不要去找一个叫 web_search 的工具」被模型理解成「本轮没有联网能力」，
+  // 于是它在真开着服务器搜索时说自己没有联网工具、改去用 fetch_url。
+  assert.equal(/不要去找一个叫\s*web_search/.test(sys), false, '残留旧句子会让模型放弃原生搜索');
+  assert.match(sys, /联网搜索」由\*\*模型服务端\*\*执行/, '要明确说明搜索由服务端执行，不需要客户端工具');
+  assert.match(sys, /web_search_20250305/);
+  // 工具列表里也确实带着原生搜索字段（Pro 层验证过的形状）
+  assert.ok(web.injectWeb({ tools: [] }, web.webCapFor('claude-sonnet-5')).tools.some((t) => t.type === 'web_search_20250305'));
+});
+
+test('没有本地中继时，只在本地可用的工具（fetch_url / run_git）不进请求', async () => {
+  const calls = [];
+  await withNetFetch(async (url) => { if (url.startsWith('/api/health')) return new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } });
+    return jsonResponse({ choices: [{ message: { content: 'ok' } }] }); }, async () => {
+    mockFetch([openaiTextTurn('中继不在也照样答')], calls);
+    try {
+      const store = storeNoWeb(createStore());
+      store.state.apiKey = 'sk-teamo-test';
+      store.state.model = 'gpt-5.6-sol';
+      store.state.relayOk = false; // main.js 启动探测的结论
+      const agent = createAgent(store, {});
+      await agent.send('随便问一句');
+      const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
+      assert.equal(names.includes('fetch_url'), false, `没中继就不该提供 fetch_url：${names.join(',')}`);
+      assert.equal(names.includes('run_git'), false);
+      assert.ok(names.includes('write_file'), '其它工具照常提供');
+      const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+      assert.match(sys, /没有本地中继/, '要告诉模型为什么少了两个工具');
+    } finally { globalThis.fetch = realFetch; }
+  });
+});
+
 test('诚实性护栏：正文声称「已联网」但没有检索事件时能被识别', async () => {
   const yes = [
     '我已经请求了模型的原生网页搜索功能，今日中间价为 7.28。',
@@ -2212,7 +2280,8 @@ test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
 test('系统提示词提到了抓取与 git、并说明联网不是工具（漂移守卫）', async () => {
   const sp = cfg.systemPrompt();
   for (const kw of ['fetch_url', 'run_git', '联网']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
-  assert.match(sp, /不要去找一个叫 web_search 的工具/, '要说明联网不是工具');
+  assert.match(sp, /由\*\*模型服务端\*\*执行/, '要说明联网由服务端执行、不是客户端工具');
+  assert.ok(!/不要去找一个叫\s*web_search/.test(sp), '旧句子会让模型以为自己没有联网能力（真踩过）');
   assert.match(sp, /查不到就明说没查到|明确说无法核实/, '要有「查不到就明说」的自主性规则');
 });
 test('executeTool(fetch_url) 用 save_path 落盘并在芯片里标记 fsChange', async () => {

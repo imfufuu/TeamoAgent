@@ -9,7 +9,7 @@ import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
-import { claimsWebSearch } from './websearch.js';
+import { claimsWebSearch, webRefusal } from './websearch.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -823,6 +823,13 @@ export function mountUI(store, agent) {
       warn.innerHTML = '<span class="web-fail">未见检索事件</span>'
         + '<span>本轮没有收到任何网页搜索事件（模型的「已联网」说法无法证实），其中的具体数字请另行核实</span>';
       body.appendChild(warn);
+    }
+    // 开关开着、模型却回「我上不了网」：上游没去调用服务器搜索（网关侧实测会发生），给一句可操作提示
+    else if (m.done && m.role === 'assistant' && store.state.settings.webEnabled !== false && webRefusal(m.text)) {
+      const hint = el('div', 'web-note hint');
+      hint.innerHTML = '<span class="web-hint">联网开关是开着的，但本轮没有发生检索</span>'
+        + '<span>上游模型自己没调用服务端搜索（网关侧偶发）。需要实时数据的话，可以在提问里写明「先联网检索再回答」，或换个模型重问一次</span>';
+      body.appendChild(hint);
     }
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
     // 工具芯片

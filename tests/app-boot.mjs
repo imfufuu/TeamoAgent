@@ -121,6 +121,11 @@ globalThis.fetch = async (url, opts) => {
     const t = '我已经请求了模型的原生网页搜索功能，今日中间价是 7.28。';
     return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
   }
+  // 「开关开着但模型说自己上不了网」测试：桩回拒答、且不发任何检索事件（网关侧实测会发生）
+  if (/测试联网拒答/.test(lastUser)) {
+    const t = '我无法实时获取该数据，因为我没有联网查询当前金融数据的能力。';
+    return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
+  }
   // 「重新生成」测试专用：同一句话问两次，桩回两版不同文本，用来证明旧回答被覆盖而不是并列留下
   if (/重新生成这条测试/.test(lastUser)) {
     regenStub.n = (regenStub.n || 0) + 1;
@@ -282,7 +287,9 @@ console.log('\n联网：按模型 API 自带的网页搜索请求格式发请求
   // 全程不得碰任何第三方搜索服务或余额接口
   ok('全程零次第三方搜索 host', !/brave|tavily|serper|duckduckgo|jina|mojeek|searx/i.test(allUrls.join(' ')), allUrls.join(' ').slice(0, 160));
   const hosts = [...new Set(allUrls.map((u) => { try { return new URL(u).host; } catch { return u.slice(0, 24); } }))];
-  ok('只打网关与本地页面 host', hosts.every((h) => h.includes('teamorouter') || h === 'localhost'), JSON.stringify(hosts));
+  // 允许的相对路径只有本地中继的自检端点（/api/health，本机 server.py），它没有 host
+  ok('只打网关与本地 host：无第三方服务', hosts.every((h) => h.includes('teamorouter') || h === 'localhost' || h === '' || h === '/api/health'), JSON.stringify(hosts));
+  ok('本地中继探测只探 /api/health（不误触 /api/fetch）', allUrls.filter((u) => /\/api\//.test(u)).every((u) => u.endsWith('/api/health')), allUrls.filter((u) => /\/api\//.test(u)).join(' '));
 }
 
 console.log('\n诚实性护栏：正文说「已联网」但没有任何检索事件');
@@ -297,6 +304,32 @@ console.log('\n诚实性护栏：正文说「已联网」但没有任何检索�
   ok('同一轮里不会同时出现来源条与提醒条', last.querySelectorAll('.web-note').length === 1);
   // 对照：真的检索过的那一轮（前面联网分组）不该出现提醒条
   ok('真正检索过的回答不会被误报', !$$('#messages .web-note.warn').some((n) => /Pyodide|来源/.test(n.textContent)));
+}
+
+console.log('\n诚实性护栏 2：开关开着、模型却回「我上不了网」时给可操作提示');
+{
+  // 上一组把联网关掉了，这里先打开（开关状态本身就决定提示条出不出）
+  if (!$('#web-toggle').classList.contains('on')) { click($('#web-toggle')); await tick(40); }
+  ok('联网开关已打开', $('#web-toggle').classList.contains('on'));
+  $('#composer-input').value = '测试联网拒答：今天的汇率是多少';
+  click($('#send-btn'));
+  await tick(1600);
+  const last = $$('#messages .msg-assistant').slice(-1)[0];
+  const hint = last.querySelector('.web-note.hint');
+  ok('出现「本轮没有发生检索」提示条', !!hint && /没有发生检索/.test(hint.textContent), hint ? hint.textContent.slice(0, 70) : '没有提示条');
+  ok('提示条给出可操作建议（写明先联网检索 / 换模型）', !!hint && /先联网检索再回答/.test(hint.textContent) && /换/.test(hint.textContent));
+  ok('提示条里没有任何链接（不许凭空造来源）', !!hint && hint.querySelectorAll('a').length === 0);
+  ok('这一轮只有一条提示条', last.querySelectorAll('.web-note').length === 1);
+  ok('拒答型回答不会被当成「假称已联网」告警', !last.querySelector('.web-note.warn'));
+  // 对照组：同样的回答，但开关关掉 → 不该出现提示条（没开联网就没什么好提示的）
+  click($('#web-toggle]'.replace(']', ''))); await tick(40);
+  ok('联网已关闭', !$('#web-toggle').classList.contains('on'));
+  $('#composer-input').value = '测试联网拒答：再问一次汇率';
+  click($('#send-btn'));
+  await tick(1600);
+  const last2 = $$('#messages .msg-assistant').slice(-1)[0];
+  ok('开关关掉后不再出现联网提示条', last2.querySelectorAll('.web-note.hint').length === 0,
+    last2.textContent.trim().slice(0, 50));
 }
 
 console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');

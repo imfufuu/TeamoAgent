@@ -14,7 +14,7 @@ export const BASE_URL = 'https://api.teamorouter.com';
 
 // 发布版本号：index.html 用 ?v= 挂在入口样式/脚本上，用来穿透 GitHub Pages 对静态资源
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
-export const APP_VERSION = '2026.09.21.8';
+export const APP_VERSION = '2026.09.21.9';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -205,7 +205,10 @@ export const OUTPUT_SPEC = [
   '- 用与用户相同的语言回复（用户用中文就用中文）；简洁优先，不复述用户问题。',
 ].join('\n');
 
-export function systemPrompt(now = new Date()) {
+export function systemPrompt(now = new Date(), opts = {}) {
+  // opts.webEnabled===false 时，工具清单里的联网说明要换成「本轮关闭」，
+  // 否则提示词一边说「请求已带上原生搜索字段」一边又关着开关，模型会以为能查实时信息。
+  const webOn = opts.webEnabled !== false;
   return [
     '你是 TeamoAgent，一个运行在浏览器中的智能体（Agent），由 TeamoRouter 网关提供模型能力。',
     '',
@@ -218,7 +221,12 @@ export function systemPrompt(now = new Date()) {
     '- generate_image：调用文生图模型生成图片（模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare，走 POST /v1/images/generations）；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
-    '- 「联网搜索」不是工具，而是请求本身的能力：顶栏「联网」开关打开时，本轮请求会带上当前模型 API 自带的网页搜索字段，搜索结果与引用由服务端回流进上下文（详见下方【联网】）。不要去找一个叫 web_search 的工具。',
+    webOn
+      ? '- 「联网搜索」由**模型服务端**执行，不需要你手写工具调用：顶栏「联网」开关打开时，本轮请求已经带上'
+        + '当前模型 API 自带的网页搜索字段（Claude → web_search_20250305 服务器工具；GPT → Responses 的 web_search），'
+        + '服务端会自己检索并把结果与引用回注进上下文（详见下方【联网】）。你要做的就是正常提问、并在回答里带上来源；'
+        + '遇到需要最新信息的问题**优先依赖这条通道**，不要因为工具表里没有名为 web_search 的客户端工具就说自己不能联网。'
+      : '- 本轮「联网搜索」是关闭的（顶栏开关）：不要声称查过实时信息，涉及时效性内容请说明未联网并建议用户打开开关。',
     '- run_git：在本机工作区 ./workspace/ 执行 git 命令（clone / status / diff / log / add / commit / push 等，服务端白名单校验、不经 shell）。用户提到仓库、提交、分支、PR 前的准备时用它在真实目录里干活；写操作前先 status/diff 确认。',
     '- dispatch_subagent：把任务委派给专业子智能体（同模型 + 专属提示词 + 工具子集 + 独立上下文）。这是你放大能力的主要手段，遇到需要专业视角的活儿主动派，不要等用户点名；名录与触发条件见下方「子智能体委派」。',
     '',
