@@ -33,15 +33,20 @@ const SSE_TEXT = [
 ].join('');
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST,GET,OPTIONS' };
 
-const server = http.createServer((q, r) => {
-  const u = decodeURIComponent(String(q.url).split('?')[0]);
-  const f = path.join(ROOT, u === '/' ? 'index.html' : u);
-  if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); r.end(); return; }
-  r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' });
-  fs.createReadStream(f).pipe(r);
-});
-await new Promise((res) => server.listen(0, '127.0.0.1', res));
-const base = `http://127.0.0.1:${server.address().port}/`;
+// 默认量本地文件；给出 TEAMO_TOUCH_URL 就量线上站点（部署后复测用同一条脚本）
+let server = null;
+let base = process.env.TEAMO_TOUCH_URL || '';
+if (!base) {
+  server = http.createServer((q, r) => {
+    const u = decodeURIComponent(String(q.url).split('?')[0]);
+    const f = path.join(ROOT, u === '/' ? 'index.html' : u);
+    if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); r.end(); return; }
+    r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' });
+    fs.createReadStream(f).pipe(r);
+  });
+  await new Promise((res) => server.listen(0, '127.0.0.1', res));
+  base = `http://127.0.0.1:${server.address().port}/`;
+}
 
 const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'],
   env: { ...process.env, LD_LIBRARY_PATH: '/home/user/.local/chromedeps/usr/lib/x86_64-linux-gnu' } });
@@ -155,7 +160,7 @@ await probe({ width: 1280, height: 900 }, '桌面 1280×900');
 await probe({ width: 390, height: 844, isMobile: true, hasTouch: true }, '手机 390×844');
 
 await browser.close();
-server.close();
+if (server) server.close();
 console.log('');
 if (failures.length) { console.log(`${failures.length} 项失败 ❌`); process.exit(1); }
 console.log('触屏密度检查全部通过 ✅');
