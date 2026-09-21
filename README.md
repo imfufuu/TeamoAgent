@@ -155,7 +155,7 @@ js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道；默认仅绑定 127.0.0.1）
-tests/            agent.test.mjs（115 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
+tests/            agent.test.mjs（116 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
                   Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
                   生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义）
                   dom-smoke.mjs（95 项）· app-boot.mjs（26 项）· pyodide-worker.test.mjs（5 项）
