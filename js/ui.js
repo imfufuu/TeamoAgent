@@ -397,14 +397,14 @@ export function mountUI(store, agent) {
     const box = $('#session-list'); box.innerHTML = '';
     const list = store.listableSessions ? store.listableSessions() : store.sortedSessions();
     if (!list.length) {
-      box.appendChild(el('div', 'sess-empty-hint', '还没有会话记录。<br>直接输入第一条消息，它才会出现在这里。'));
+      box.appendChild(el('div', 'sess-empty-hint', '还没有会话记录'));
       return;
     }
     for (const s of list) {
       const node = el('div', 'sess-item' + (s.id === store.state.activeSessionId ? ' active' : ''));
       node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span>`
         + `<button class="sess-rename" type="button" title="重命名会话">${ICON.pencil || ''}</button>`
-        + `<button class="sess-del" type="button" title="删除会话" aria-label="删除会话「${esc(s.title || '新对话')}」">✕</button>`;
+        + `<button class="sess-del" type="button" title="删除会话" aria-label="删除会话「${esc(s.title || '新对话')}」">${ICON.x}</button>`;
       node.addEventListener('click', () => switchToSession(s.id));
       const del = $('.sess-del', node);
       if (del) del.addEventListener('click', (e) => {
@@ -860,7 +860,8 @@ export function mountUI(store, agent) {
         for (const t of m.toolCalls) {
           const chip = el('div', 'chip');
           chip.dataset.callId = t.id;
-          chip.innerHTML = `<span class="chip-ico">⚙</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-state">…</span>`;
+          // 图标用 SVG（线性扳手），未完成时缓慢转动、完成后停下（.done 由 attachToolResult 打上）
+          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-state">…</span>`;
           chip.addEventListener('click', () => chip.classList.toggle('expanded'));
           const detail = el('div', 'chip-detail mono');
           chip.appendChild(detail);
@@ -876,7 +877,13 @@ export function mountUI(store, agent) {
           chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
           chip._renderedArgs = !!m.done;
         }
-        const shot = m.toolCalls[i] && chipImages.get(m.toolCalls[i].id);
+        const tc = m.toolCalls[i];
+        let shot = tc && chipImages.get(tc.id);
+        // 刷新页面后 chipImages 是空的：用持久化在工具调用记录里的图补上（水合后再取回 dataUrl）
+        if (!shot && tc && tc.image) {
+          shot = { dataUrl: tc.image, path: tc.imagePath, width: tc.width, height: tc.height };
+          chipImages.set(tc.id, shot);
+        }
         if (shot) paintChipImage(chip, shot);
       }
     }
@@ -994,6 +1001,8 @@ export function mountUI(store, agent) {
     const ok = !toolMsg.content.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(toolMsg.content);
     $('.chip-state', chip).textContent = ok ? '✓' : '✕';
     $('.chip-state', chip).classList.toggle('bad', !ok);
+    chip.classList.add('done');        // 图标停止转动（含刷新页面后重建的芯片）
+    chip.classList.remove('running');
     chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(String(toolMsg.content).slice(0, 3000))}</pre>`;
     chip._renderedArgs = true;
   }
@@ -1176,7 +1185,7 @@ export function mountUI(store, agent) {
       chip.innerHTML = (a.kind === 'image'
         ? `<img src="${a.dataUrl}" alt="">`
         : `<span class="attach-chip-ico">📄</span>`)
-        + `<span class="attach-chip-name mono">${esc(a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button">✕</button>`;
+        + `<span class="attach-chip-name mono">${esc(a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
       $('.attach-chip-x', chip).addEventListener('click', () => {
         pending = pending.filter((x) => x.id !== a.id);
         renderAttachChips();
@@ -1256,6 +1265,12 @@ export function mountUI(store, agent) {
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
   return {
     setStatus,
+    // 刷新页面后：外置在 IndexedDB 的重数据取回来了 → 重绘消息（附件图片、芯片里的生成图）
+    // 与文件面板（沙箱里的图），并把沙箱重新灌进 agent（createAgent 建 fs 时它们还没回来）
+    afterHydrate() {
+      try { agent.loadFiles(store.state.files); } catch { /* 忽略 */ }
+      rebuildMessages(); renderFiles(); renderSessions(); updateStats(); updateTransportBadge();
+    },
     updateTransportBadge,
     updateStats,
     renderSessions,
@@ -1335,6 +1350,13 @@ export function mountUI(store, agent) {
       }
       if (patch.image) {
         chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath, width: patch.width, height: patch.height });
+        // 把图记在工具调用记录上：刷新页面后能重新画出来，持久化时也才认得这是「重数据」
+        // （state.js 会把它挪到 IndexedDB，而不是塞进 5MB 的 localStorage）
+        call.image = patch.image;
+        if (patch.imagePath) call.imagePath = patch.imagePath;
+        if (patch.width) call.width = patch.width;
+        if (patch.height) call.height = patch.height;
+        store.save();
         paintChipImage(chip, chipImages.get(call.id));
       }
       if (patch.status === 'running' || patch.image) scrollToBottom();

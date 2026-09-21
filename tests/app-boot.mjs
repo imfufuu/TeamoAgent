@@ -214,6 +214,9 @@ await tick(1200);
 const allText = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ');
 ok('工具回合执行且回复落地', allText.includes('已写入') && !!$('.chip'), allText.replace(/\s+/g, ' ').slice(0, 120));
 ok('工具芯片显示 write_file 成功', !!$('.chip') && /write_file/.test($('.chip').textContent) && !/✕/.test($('.chip-state')?.textContent || ''));
+ok('工具芯片图标是 SVG（不再是 ⚙ 字符）', !!$('.chip .chip-ico svg') && !/⚙/.test($('.chip .chip-ico').textContent),
+  $('.chip .chip-ico').innerHTML.slice(0, 60));
+ok('工具跑完后芯片标记 .done（停止转动）', $('.chip').classList.contains('done') && !$('.chip').classList.contains('running'), $('.chip').className);
 
 console.log('\n沙箱文件面板');
 const dirRow = $$('#file-list .ft-dir')[0];
@@ -405,6 +408,8 @@ globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm →
 click($('#clear-sessions'));
 await tick(30);
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
+ok('没有会话记录时只显示一句短提示', $('#session-list .sess-empty-hint').textContent.trim() === '还没有会话记录'
+  && $('#session-list .sess-empty-hint').querySelectorAll('br').length === 0, $('#session-list .sess-empty-hint').textContent.trim());
 ok('清空后对话区回到空状态示例', $$('#messages .empty-state .suggest').length === 3 && !$$('#messages .msg-assistant').length);
 
 console.log('\n网络与 git 工具（只留中继抓取 + 本地 git）');

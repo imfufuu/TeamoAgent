@@ -1962,6 +1962,56 @@ test('webRefusal()：认出「我上不了网」式拒答，但别把正常技�
   assert.equal(webRefusal('我已经请求了模型的原生网页搜索功能'), false);
 });
 
+test('重数据外置：附件图片与沙箱里的图不会把 localStorage 顶爆（extractBlobs/applyBlobs）', async () => {
+  const { extractBlobs, applyBlobs, collectBlobKeys } = await import('../js/state.js');
+  const big = 'data:image/png;base64,' + 'A'.repeat(80 * 1024);   // 80KB data URL
+  const txt = 'x'.repeat(30000);
+  const state = {
+    activeSessionId: 's1',
+    sessions: [{
+      id: 's1',
+      messages: [
+        { id: 'm1', role: 'user', text: '看图', attachments: [{ kind: 'image', name: 'a.png', dataUrl: big }, { kind: 'text', name: 'b.txt', text: txt }] },
+        { id: 'm2', role: 'assistant', text: '画好了', toolCalls: [{ id: 'c1', name: 'generate_image', args: {}, image: big, imagePath: 'outputs/a.png' }] },
+      ],
+      files: { 'outputs/a.png': big, 'notes.md': '小文件照旧留在快照里' },
+    }],
+    messages: [], files: {},
+  };
+  const ex = extractBlobs(state);
+  const json = JSON.stringify(ex.light);
+  assert.equal(/data:image\/png;base64/.test(json), false, '轻量快照里不能再有 base64 图');
+  // 长附件文本按 ATT_TEXT_KEEP=2 万字符留了预览，所以不是「越小越好」，但要远小于原状态（≈19 万字符）
+  assert.ok(json.length < 60000, `轻量快照应远小于原状态，实际 ${json.length}`);
+  assert.ok(json.includes('小文件照旧留在快照里'), '普通文本文件照旧留在快照里');
+  // 4 份：附件图 + 长附件文本 + 芯片里的生成图 + 沙箱里的同名 data URL 文件
+  assert.equal(ex.blobs.length, 4, `应外置 4 份重数据，实际 ${ex.blobs.length}`);
+  assert.equal(collectBlobKeys(ex.light).length, 4, '索引 key 要能重新收集出来');
+  // 模拟「重新打开网页」：从空状态 + IDB 数据回填
+  const restored = JSON.parse(json);
+  const n = applyBlobs(restored, new Map(ex.blobs));
+  assert.equal(n, 4, '四份都该回填');
+  assert.equal(restored.sessions[0].messages[0].attachments[0].dataUrl, big, '附件图回来了');
+  assert.equal(restored.sessions[0].messages[0].attachments[1].text, txt, '长附件文本全文回来了');
+  assert.equal(restored.sessions[0].messages[1].toolCalls[0].image, big, '生成图回来了');
+  assert.equal(restored.sessions[0].files['outputs/a.png'], big, '沙箱里的图回来了');
+  assert.equal(restored.sessions[0].messages[0].attachments[0].stripped, false);
+  // 没有 IDB 数据时不能崩，只是保持「已省略」
+  const lost = JSON.parse(json);
+  assert.equal(applyBlobs(lost, new Map()), 0);
+  assert.equal(lost.sessions[0].messages[0].attachments[0].dataUrl, undefined);
+  assert.equal(lost.sessions[0].messages[0].attachments[0].stripped, true);
+});
+
+test('孤儿数据会被清理：会话/消息删掉后不再保留对应的 IDB key', async () => {
+  const { extractBlobs, collectBlobKeys } = await import('../js/state.js');
+  const big = 'data:image/png;base64,' + 'B'.repeat(70 * 1024);
+  const withMsg = { activeSessionId: 's1', sessions: [{ id: 's1', messages: [{ id: 'm1', role: 'user', attachments: [{ kind: 'image', name: 'a.png', dataUrl: big }] }], files: {} }], messages: [], files: {} };
+  const noMsg = { activeSessionId: 's1', sessions: [{ id: 's1', messages: [], files: {} }], messages: [], files: {} };
+  assert.equal(collectBlobKeys(extractBlobs(withMsg).light).length, 1);
+  assert.equal(collectBlobKeys(extractBlobs(noMsg).light).length, 0, '消息删掉后 key 也应消失（blobPrune 据此清理）');
+});
+
 test('系统提示词不再自相矛盾：不能说「去找 web_search 工具」也不能说「模型不能联网」', async () => {
   const { systemPrompt } = await import('../js/config.js');
   const sys = systemPrompt();

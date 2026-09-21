@@ -61,4 +61,11 @@ document.addEventListener('visibilitychange', () => {
 // 探测结果只影响工具表与系统提示词，不影响任何联网搜索（那走的是模型 API 自带格式）。
 relayAvailable().then((ok) => { store.state.relayOk = ok; }).catch(() => {});
 
+// 刷新页面后把外置的重数据取回来（附件图片 / 沙箱里的图 / 生成图）：
+// 这些原本存在 localStorage 里，图一多就爆 5MB 配额、被静默丢掉；现在放在 IndexedDB，
+// 启动后台取回，取到了再重绘（不阻塞首屏，失败就按「已省略」显示）。
+if (store.hydrateBlobs) {
+  store.hydrateBlobs().then((n) => { if (n) ui.afterHydrate(); }).catch(() => {});
+}
+
 console.log('%c◐ TeamoAgent', 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');

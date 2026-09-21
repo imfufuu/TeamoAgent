@@ -12,6 +12,8 @@
     "test:all": "node tests/agent.test.mjs && node tests/dom-smoke.mjs && node tests/app-boot.mjs && python3 tests/server_checks.py",
     "start": "python3 server.py",
     "test:server": "python3 tests/server_checks.py",
-    "audit:mobile": "node tests/mobile-layout.mjs"
+    "audit:mobile": "node tests/mobile-layout.mjs",
+    "test:persist": "node tests/persist.mjs",
+    "test:touch": "node tests/touch-density.mjs"
   }
 }

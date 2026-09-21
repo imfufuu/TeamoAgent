@@ -1,6 +1,7 @@
 // ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
 // 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
 import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js';
+import { blobsSupported, blobPut, blobGet, blobPrune } from './blobstore.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
 
@@ -16,6 +17,119 @@ function sessionModel(s) {
   if (s && s.model) return s.model;
   const last = [...((s && s.messages) || [])].reverse().find((m) => m.role === 'assistant' && m.model);
   return last ? last.model : '';
+}
+
+// ── 大对象外置（IndexedDB）：哪些字段算「重数据」──
+// 附件图片 / 沙箱里的 data URL（生成的图）/ 工具芯片的预览图 / 超长附件文本。
+// 这些留在一个 ~5MB 的 localStorage 里迟早爆配额，爆了就是「刷新后附件和沙箱全没了」。
+const ATT_TEXT_KEEP = 20000; // 附件文本：localStorage 只留前 2 万字符，全文进 IDB
+const FILE_KEEP = 16 * 1024; // 沙箱文件 / data URL 超过 16KB 就外置（图片基本都在此列，localStorage 只留文本类小文件）
+
+/** 收集当前状态里所有外置 key（水合时按这些 key 去 IDB 取） */
+export function collectBlobKeys(state) {
+  const keys = [];
+  for (const s of state.sessions || []) {
+    for (const k of Object.values(s.blobFiles || {})) keys.push(k);
+    for (const m of s.messages || []) {
+      for (const k of Object.values(m.blobAtts || {})) keys.push(k);
+      for (const k of Object.values(m.blobChips || {})) keys.push(k);
+    }
+  }
+  return [...new Set(keys)];
+}
+
+/** 把重数据抽出来：返回 { light（可安全写 localStorage 的快照）, blobs: [[key, value]] } */
+export function extractBlobs(state) {
+  const blobs = [];
+  const sessions = (state.sessions || []).map((s) => {
+    const sid = s.id;
+    const files = { ...(s.files || {}) };
+    const blobFiles = { ...(s.blobFiles || {}) };
+    for (const [path, val] of Object.entries(files)) {
+      if (typeof val === 'string' && val.length > FILE_KEEP) {
+        const key = `f:${sid}:${path}`;
+        blobFiles[path] = key; blobs.push([key, val]); delete files[path];
+      } else if (blobFiles[path]) delete blobFiles[path]; // 变回普通文本/已删除 → 不再外置
+    }
+    const messages = (s.messages || []).map((m) => {
+      const out = { ...m };
+      const blobAtts = { ...(m.blobAtts || {}) };
+      if (m.attachments && m.attachments.length) {
+        out.attachments = m.attachments.map((a, i) => {
+          if (a.dataUrl && String(a.dataUrl).length > FILE_KEEP) {
+            const key = `a:${sid}:${m.id}:${i}`;
+            blobAtts[i] = key; blobs.push([key, a.dataUrl]);
+            return { ...a, dataUrl: undefined, stripped: true };
+          }
+          if (a.text && String(a.text).length > ATT_TEXT_KEEP) {
+            const key = `t:${sid}:${m.id}:${i}`;
+            blobAtts[i] = key; blobs.push([key, a.text]);
+            return { ...a, text: String(a.text).slice(0, ATT_TEXT_KEEP), stripped: true, textTruncated: true };
+          }
+          delete blobAtts[i];
+          return a;
+        });
+      }
+      const blobChips = { ...(m.blobChips || {}) };
+      if (m.toolCalls && m.toolCalls.length) {
+        out.toolCalls = m.toolCalls.map((c) => {
+          if (!c) return c;
+          if (c.image && String(c.image).length > FILE_KEEP) {
+            const key = `c:${sid}:${c.id}`;
+            blobChips[c.id] = key; blobs.push([key, c.image]);
+            return { ...c, image: undefined, imageStripped: true };
+          }
+          delete blobChips[c.id];
+          return c;
+        });
+      }
+      if (Object.keys(blobAtts).length) out.blobAtts = blobAtts; else delete out.blobAtts;
+      if (Object.keys(blobChips).length) out.blobChips = blobChips; else delete out.blobChips;
+      return out;
+    });
+    const out = { ...s, messages };
+    if (Object.keys(blobFiles).length) { out.files = files; out.blobFiles = blobFiles; }
+    return out;
+  });
+  const active = sessions.find((s) => s.id === state.activeSessionId) || sessions[0] || { messages: [], files: {} };
+  const light = { ...state, sessions, messages: active.messages, files: active.files };
+  if (active.blobFiles) light.blobFiles = active.blobFiles; else delete light.blobFiles;
+  return { light, blobs, keys: blobs.map(([k]) => k) };
+}
+
+/** 把 IDB 里取回的重数据填回状态（原地修改 state，返回填了几处） */
+export function applyBlobs(state, map) {
+  if (!map || !map.size) return 0;
+  let filled = 0;
+  for (const s of state.sessions || []) {
+    if (s.blobFiles) {
+      for (const [path, key] of Object.entries(s.blobFiles)) {
+        if (!map.has(key)) continue;
+        s.files = s.files || {}; s.files[path] = map.get(key); filled++;
+      }
+    }
+    for (const m of s.messages || []) {
+      if (m.blobAtts) {
+        for (const [i, key] of Object.entries(m.blobAtts)) {
+          const a = (m.attachments || [])[Number(i)];
+          if (!a || !map.has(key)) continue;
+          if (String(key).startsWith('a:')) { a.dataUrl = map.get(key); a.stripped = false; }
+          else { a.text = map.get(key); a.stripped = false; a.textTruncated = false; }
+          filled++;
+        }
+      }
+      if (m.blobChips && m.toolCalls) {
+        for (const [callId, key] of Object.entries(m.blobChips)) {
+          const c = m.toolCalls.find((x) => x && x.id === callId);
+          if (!c || !map.has(key)) continue;
+          c.image = map.get(key); c.imageStripped = false; filled++;
+        }
+      }
+    }
+  }
+  const active = (state.sessions || []).find((s) => s.id === state.activeSessionId) || (state.sessions || [])[0];
+  if (active) { state.messages = active.messages; state.files = active.files; }
+  return filled;
 }
 
 export function createStore(onChange) {
@@ -114,14 +228,40 @@ export function createStore(onChange) {
     return c;
   };
   const writeNow = () => {
+    try { commit(); } catch { /* 提交失败也不能影响主流程 */ }
+    const KEY = STORAGE_KEY + '-v2';
+    if (blobsSupported()) {
+      // 有 IndexedDB：重数据外置，localStorage 只存轻量状态（不再有 4MB 天花板）
+      let entries = [], keep = [];
+      try {
+        const ex = extractBlobs(state);
+        entries = ex.blobs; keep = ex.keys;
+        localStorage.setItem(KEY, JSON.stringify(ex.light));
+      } catch {
+        try { localStorage.setItem(KEY, JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
+      }
+      if (entries.length) {
+        blobPut(entries)
+          // 落库失败（隐私模式 / 配额）：退回把完整状态塞进 localStorage，至少别丢
+          .catch((e) => {
+            console.warn('[persist] IndexedDB 写入失败，退回 localStorage：', e && e.message);
+            try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 放不下就算了 */ }
+          })
+          .then(() => blobPrune(keep))
+          .catch((e) => console.warn('[persist] 清理孤儿数据失败：', e && e.message));
+      } else {
+        blobPrune(keep).catch(() => {}); // 会话/消息删掉后不留孤儿
+      }
+      return;
+    }
+    // 没有 IndexedDB（老环境）：沿用旧路径
     try {
-      commit();
       // 先预估再决定序列化目标；预估偏低时仍有全量兜底检查
       let json = estimateStateChars() > 4000000 ? JSON.stringify(slimState()) : JSON.stringify(state);
       if (json.length > 4000000) json = JSON.stringify(slimState());
-      localStorage.setItem(STORAGE_KEY + '-v2', json);
+      localStorage.setItem(KEY, json);
     } catch {
-      try { localStorage.setItem(STORAGE_KEY + '-v2', JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
+      try { localStorage.setItem(KEY, JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
     }
   };
   // immediate=true 立即同步落盘：beforeunload / 页面隐藏时不能用防抖，
@@ -132,6 +272,20 @@ export function createStore(onChange) {
     saveTimer = setTimeout(writeNow, 300);
   };
   const notify = () => { commit(); save(); onChange && onChange(state); };
+
+  // 刷新页面后把外置的重数据（附件图片 / 沙箱里的图 / 芯片预览图）从 IDB 取回来。
+  // 失败或环境不支持时返回 0，界面按「已省略」渲染，不阻塞启动。
+  async function hydrateBlobs() {
+    if (!blobsSupported()) return 0;
+    const keys = collectBlobKeys(state);
+    if (!keys.length) return 0;
+    try {
+      const map = await blobGet(keys);
+      const n = applyBlobs(state, map);
+      if (n) hydrate();
+      return n;
+    } catch { return 0; }
+  }
 
   try {
     const raw = localStorage.getItem(STORAGE_KEY + '-v2');
@@ -169,6 +323,7 @@ export function createStore(onChange) {
     state,
     notify,
     save,
+    hydrateBlobs,
 
     // ── 多会话 ──
     // 空的「新对话」草稿不进侧栏（第一条消息发出后才出现）；反复点「＋ 新建」

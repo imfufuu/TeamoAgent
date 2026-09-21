@@ -487,6 +487,28 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   const touch = /@media \(hover: none\), \(max-width: 720px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
   ok('触屏设备（含平板）可点区域 ≥40px', /\.act\s*\{[^}]*min-height: 40px/.test(touch) && /\.pill\s*\{[^}]*min-height: 40px/.test(touch)
     && /\.mini-btn\s*\{[^}]*min-height: 40px/.test(touch), `${touch.length} 字节`);
+  // 触屏层曾把字号/内边距一起放大：中文标签一换行，左下角四个按钮就被撑成两行高（58px）、
+  // 模型菜单每行 44px 也长得不像话 —— 现在只抬到「够点得中」，并且按钮文字永不折行
+  ok('触屏层的按钮文字不折行', /\.mini-btn\s*\{[^}]*white-space: nowrap/.test(touch) && /\.mini-btn\s*\{[^}]*white-space: nowrap/.test(css));
+  ok('模型菜单行收敛到 38px（不再是 44px）', /\.dd-item, \.sess-item\s*\{\s*min-height: 38px/.test(touch) && !/\.dd-item[^{]*\{[^}]*min-height:\s*44px/.test(touch));
+  ok('左下角按钮不再被换行撑高（内边距/字号不跟着触屏层放大）', !/\.mini-btn\s*\{[^}]*padding: 9px 12px/.test(touch));
+  // 工具芯片：图标改 SVG（原先是 ⚙ 字符），且只有「没跑完」时才转动
+  ok('工具芯片图标用 SVG 且跑完停转', /\.chip:not\(\.done\) \.chip-ico\s*\{[^}]*animation: spin/.test(css)
+    && /\.chip\.done \.chip-ico\s*\{[^}]*animation: none/.test(css)
+    && /chip-ico">\$\{ICON\.tool/.test(uiSrc) && !/chip-ico">⚙/.test(uiSrc));
+  ok('刷新模型按钮只转箭头（不转整个按钮）', /\.icon-btn\.spin svg\s*\{[^}]*animation: spin/.test(css) && !/\.icon-btn\.spin\s*\{\s*animation/.test(css));
+  ok('芯片完成时打上 .done', /classList\.add\('done'\)/.test(uiSrc));
+  // 图例统一：按钮里不许再出现图形字符（用户明确要求「SVG + 中文，不要 emoji/字符图形」）
+  const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok('顶栏/侧栏按钮图标全是 SVG（没有 ⟳ ⟨ ☰ ✕ 这类字符）', !/[\u27F3\u27E8\u2630\u2715\u21BB\u2699]/.test(htmlSrc) && /refresh-models[^>]*>\s*<svg/.test(htmlSrc)
+    && /sidebar-toggle[^>]*>\s*<svg/.test(htmlSrc) && /sidebar-fab[^>]*>\s*<svg/.test(htmlSrc));
+  ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));
+  // 刷新后「对话 + 附件 + 沙箱」都要在：重数据外置到 IndexedDB
+  const stateSrc = fs.readFileSync(path.join(ROOT, 'js/state.js'), 'utf8');
+  ok('重数据外置到 IndexedDB（附件图/沙箱图/生成图）', /extractBlobs/.test(stateSrc) && /applyBlobs/.test(stateSrc) && /hydrateBlobs/.test(stateSrc)
+    && /blobPrune\(keep\)/.test(stateSrc), 'state.js 缺少外置逻辑');
+  ok('启动时水合并重绘界面', /hydrateBlobs\(\)\.then/.test(mainSrc || fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8'))
+    && /afterHydrate/.test(uiSrc));
   // 侧栏面板按钮曾被 textContent='◧' 整体替换，丢掉 pill 的「图标 + 文字」统一外观并被压到 30 多像素宽
   ok('沙箱面板按钮保留图标+文字（没有 ◧ / ◨ 字符）', !/[◧◨]/.test(uiSrc));
   ok('它的状态改用 class + aria-pressed 表达', /setPanelCollapsed/.test(uiSrc) && /aria-pressed/.test(uiSrc) && /classList\.toggle\('on'/.test(uiSrc));
