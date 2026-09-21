@@ -50,16 +50,27 @@ const ok = (name, cond, extra = '') => {
 // ── 桩网关：只对话端点回 SSE，其它端点回 JSON（避免占用回合）──
 const enc = (o) => `data: ${JSON.stringify(o)}\n\n`;
 let turn = 0;
-globalThis.fetch = async (url) => {
+const reqs = []; // 抓请求体，供「关掉沙箱后还能委派子智能体」这类断言核对
+globalThis.fetch = async (url, opts) => {
   const u = String(url);
+  if (/\/v1\/(chat\/completions|messages)$/.test(u)) {
+    try { reqs.push({ url: u, body: JSON.parse(opts.body) }); } catch { /**/ }
+  }
   if (!/\/v1\/(chat\/completions|messages)$/.test(u)) {
     return new Response(JSON.stringify({ data: [{ id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-5' }], balance: 12.5, quota: 100, used: 2 }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
   const anthropic = u.includes('/v1/messages');
+  // 子智能体的首轮请求只有 system+user，system 里一定带「TeamoAgent 体系中的」
+  let isSubTurn = false;
+  try { isSubTurn = String(JSON.parse(opts.body).messages?.[0]?.content || '').includes('体系中的'); } catch { /**/ }
+  if (isSubTurn) {
+    return new Response([enc({ choices: [{ delta: { content: '结论：先加输入校验，再补边界用例' } }] }), 'data: [DONE]\n\n'].join(''), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }
   turn++;
   const isToolTurn = turn === 1;
   if (anthropic) {
-    const body = isToolTurn
+    const isDispatchTurn = turn === 3;
+  const body = isToolTurn
       ? ['event: message_start\ndata: {"type":"message_start","message":{"id":"m1","role":"assistant","content":[]}}\n\n',
         'event: content_block_start\ndata: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call_boot","name":"write_file","input":{}}}\n\n',
         `event: content_block_delta\ndata: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":${JSON.stringify(JSON.stringify({ path: 'uploads/cat.png', content: 'data:image/png;base64,iVBORw0KGgo=' }))}}}\n\n`,
@@ -74,10 +85,14 @@ globalThis.fetch = async (url) => {
         'event: message_stop\ndata: {"type":"message_stop"}\n\n'].join('');
     return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
   }
+  const isDispatchTurn = turn === 3;
   const body = isToolTurn
     ? [enc({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_boot', function: { name: 'write_file', arguments: JSON.stringify({ path: 'uploads/cat.png', content: 'data:image/png;base64,iVBORw0KGgo=' }) } }] } }] }),
       enc({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })].join('')
-    : [enc({ choices: [{ delta: { content: '已写入' } }] }), 'data: [DONE]\n\n'].join('');
+    : isDispatchTurn
+      ? [enc({ choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_sub', function: { name: 'dispatch_subagent', arguments: JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }) } }] } }] }),
+        enc({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })].join('')
+      : [enc({ choices: [{ delta: { content: turn === 2 ? '已写入' : '已整合专家意见' } }] }), 'data: [DONE]\n\n'].join('');
   return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } });
 };
 
@@ -144,6 +159,25 @@ ok('文件行下载按钮为 SVG（非 emoji）', !!fileRow?.querySelector('.fil
 click(dirRow);
 await tick(30);
 ok('点目录行折叠子文件', !$$('#file-list .ft-file').length && $$('#file-list .ft-dir')[0]?.classList.contains('closed'));
+
+console.log('\n关掉代码沙箱后仍能自主委派子智能体');
+click($('#sandbox-toggle'));
+await tick(20);
+ok('沙箱开关切换生效（按钮回到未激活态）', !$('#sandbox-toggle').classList.contains('on'));
+$('#composer-input').value = '让代码审查员看看这段逻辑';
+click($('#send-btn'));
+await tick(1400);
+const subReqs = reqs.slice(2);
+const mainReq = subReqs.find((r) => !String(r.body.messages?.[0]?.content || '').includes('体系中的'));
+const toolNames = (mainReq.body.tools || []).map((t) => t.function.name);
+ok('关沙箱后请求里仍有 dispatch_subagent', toolNames.includes('dispatch_subagent'), toolNames.join(','));
+ok('关沙箱后不再下发代码执行工具', !toolNames.includes('execute_python') && !toolNames.includes('execute_javascript'), toolNames.join(','));
+ok('系统提示词始终带子智能体名录与触发条件', /dispatch_subagent/.test(mainReq.body.messages[0].content) && /何时应当主动委派/.test(mainReq.body.messages[0].content));
+const chips2 = $$('#messages .chip').map((n) => n.textContent.replace(/\s+/g, ' '));
+ok('委派芯片出现并标记成功', chips2.some((t) => /dispatch_subagent/.test(t) && !/✕/.test(t)), chips2.join(' ~ '));
+const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ');
+ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
+ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\n应用装配冒烟全部通过 ✅');
 process.exit(failures ? 1 : 0);

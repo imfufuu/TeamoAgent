@@ -83,7 +83,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(res.status)
         ctype = res.getheader("Content-Type", "application/json")
         self.send_header("Content-Type", ctype)
-        self.send_header("Access-Control-Allow-Origin", "*")
         self.end_headers()
 
         try:

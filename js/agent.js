@@ -9,7 +9,7 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
-import { TOOL_DEFS, executeTool } from './tools.js';
+import { TOOL_DEFS, executeTool, toolsFor } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
@@ -43,10 +43,18 @@ export function copyAttachmentsToFS(fs, attachments = []) {
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
 // （导出以供 tests/live-smoke.mjs 对真实 API 验证）
-export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal, onThinkingFallback }) {
-  const subTools = sandboxEnabled && def.tools.length
-    ? TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent')
-    : null;
+export function subagentTools(sandboxEnabled, def) {
+  // 按「本轮实际可用的工具」取交集：沙箱关闭时代码执行工具不可用，
+  // 但读写文件之类不执行任意代码的工具仍应留给子智能体（旧写法直接给了 null，
+  // 等于一关沙箱就把所有子智能体退化成纯推理）。
+  const allow = new Set(toolsFor(sandboxEnabled).map((t) => t.name));
+  if (!def.tools.length) return null;
+  const list = TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent' && allow.has(t.name));
+  return list.length ? list : null;
+}
+
+export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, fs, signal, onThinkingFallback, imageModel }) {
+  const subTools = subagentTools(sandboxEnabled, def);
   const messages = [
     { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}\n\n${OUTPUT_SPEC}` },
     { role: 'user', text: task },
@@ -76,7 +84,8 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     const blocks = tb.blocks();
     messages.push({ role: 'assistant', text, toolCalls: calls, ...(blocks.length ? { thinkingBlocks: blocks } : {}) });
     for (const c of calls) {
-      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: null, signal });
+      // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
+      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
     }
   }
@@ -84,6 +93,8 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
+const DISPATCH_CONCURRENCY = 3;
 
 export function createAgent(store, hooks = {}) {
   const fs = createFS(store.state.files);
@@ -108,11 +119,16 @@ export function createAgent(store, hooks = {}) {
   const setStatus = (s) => { status = s; emit('onStatus', s); };
   const syncFS = () => { store.state.files = fs.export(); };
 
-  function buildMessages() {
-    const { messages, model } = store.state;
+  // lockModel：本轮锁定的模型（runLoop 开头取的快照），保证预算与提示词不会因
+  // 用户中途切换模型而和本轮上下文错位
+  function buildMessages(lockModel) {
+    const { messages } = store.state;
+    const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
     const { messages: compacted, droppedCount } = compactMessages(messages, budget);
-    const sys = [{ role: 'system', text: systemPrompt() + fsNote() + (store.state.settings.sandboxEnabled ? subagentGuide() : '') }];
+    // subagentGuide 无条件注入：委派子智能体不依赖代码沙箱开关（开关只决定子智能体
+    // 自己能用的工具集合），旧写法把整段名录藏在开关后面，关掉沙箱就等于没有子智能体。
+    const sys = [{ role: 'system', text: systemPrompt() + fsNote() + subagentGuide() }];
     if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
     return [...sys, ...compacted];
   }
@@ -123,7 +139,72 @@ export function createAgent(store, hooks = {}) {
     return `\n\n## 当前沙箱文件\n${list.slice(0, 40).map((f) => `- ${f.path} (${f.size}B)`).join('\n')}${list.length > 40 ? `\n…等共 ${list.length} 个` : ''}`;
   }
 
-  async function runLoop({ regenerate = false } = {}) {
+  // 单个工具的执行上下文（含子智能体委派闭包）。本轮的 apiKey/model/thinking 等一律
+  // 来自 runLoop 开头的快照，避免「中途换模型 → 子智能体跟着换」的错位。
+  function toolCtxFor(call, turn) {
+    return {
+      fs,
+      apiKey: turn.apiKey,
+      imageModel: turn.imageModel,
+      sandboxEnabled: turn.sandboxEnabled,
+      signal: turn.signal,
+      onUi: (patch) => emit('onToolEvent', call, patch),
+      dispatch: async (agentId, subTask, onNote) => {
+        const def = findSubagent(agentId);
+        if (!def) return `未知子智能体：${agentId}。请用 enum 中列出的 ID。`;
+        onNote && onNote(`子智能体「${def.name}」思考中…`);
+        const report = await runSubagent(def, subTask, {
+          apiKey: turn.apiKey,
+          model: turn.model,
+          thinking: turn.thinking,
+          sandboxEnabled: turn.sandboxEnabled,
+          imageModel: turn.imageModel,
+          onThinkingFallback: (m) => emit('onThinkingFallback', m),
+          fs,
+          signal: turn.signal,
+        });
+        return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;
+      },
+    };
+  }
+
+  const badArgs = (call) => !!(call.args && typeof call.args === 'object' && '__raw' in call.args);
+
+  // 同一轮里的多个 dispatch_subagent 并发执行（子智能体上下文彼此不可见，天然独立），
+  // 其余工具保持串行：沙箱代码会改虚拟文件，交错跑就说不清「基于哪一版文件」。
+  // 结果仍按调用原顺序写回对话，两种协议的 tool_use/tool_result 配对都不受影响。
+  async function runToolCalls(calls, turn) {
+    const out = new Array(calls.length);
+    const runOne = async (call) => {
+      if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      emit('onToolStart', call);
+      if (badArgs(call)) {
+        // 参数 JSON 解析失败 → 不执行，反馈模型自行纠错（成熟的工具循环必备）
+        emit('onToolEvent', call, { status: 'error', note: '参数解析失败' });
+        return `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
+      }
+      return executeTool(call.name, call.args, toolCtxFor(call, turn));
+    };
+    let i = 0;
+    while (i < calls.length) {
+      const delegating = calls[i].name === 'dispatch_subagent' && !badArgs(calls[i]);
+      if (!delegating) { out[i] = await runOne(calls[i]); i++; continue; }
+      let j = i;
+      while (j < calls.length && calls[j].name === 'dispatch_subagent' && !badArgs(calls[j])) j++;
+      for (let k = i; k < j; k += DISPATCH_CONCURRENCY) {
+        const group = [];
+        for (let n = k; n < Math.min(k + DISPATCH_CONCURRENCY, j); n++) group.push(n);
+        const rs = await Promise.all(group.map((n) => runOne(calls[n])));
+        group.forEach((n, m) => { out[n] = rs[m]; });
+      }
+      i = j;
+    }
+    return out;
+  }
+
+  async function runLoop() {
+    // 整轮锁定 apiKey/model/settings：中途用户换模型不会让后续迭代与子智能体错位
+    //（旧写法一处读 store.state、一处读快照，等于两个来源）
     const { apiKey, model, settings } = store.state;
     if (!apiKey) { emit('onNeedKey'); return; }
     if (status === 'connecting' || status === 'streaming' || status === 'thinking' || status === 'executing') return;
@@ -131,7 +212,14 @@ export function createAgent(store, hooks = {}) {
     const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
     abortController = new AbortController();
     const signal = abortController.signal;
-    const tools = settings.sandboxEnabled ? TOOL_DEFS : null;
+    // 沙箱关闭时仍保留文件/生图/时间/委派工具（只有代码执行三件套被摘掉）
+    const tools = toolsFor(settings.sandboxEnabled);
+    const turn = {
+      apiKey, model, signal,
+      thinking: settings.thinking !== false,
+      sandboxEnabled: settings.sandboxEnabled,
+      imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
+    };
     let iterations = 0;
 
     try {
@@ -160,7 +248,7 @@ export function createAgent(store, hooks = {}) {
               fastMode: settings.fastMode,
               thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
-              messages: buildMessages(),
+              messages: buildMessages(model),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {
@@ -237,37 +325,9 @@ export function createAgent(store, hooks = {}) {
 
         // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
         setStatus('executing');
-        for (const call of toolCalls) {
-          if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
-          emit('onToolStart', call);
-          let result;
-          if (call.args && typeof call.args === 'object' && '__raw' in call.args) {
-            // 参数 JSON 解析失败 → 不执行，反馈模型自行纠错（成熟的工具循环必备）
-            result = `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
-            emit('onToolEvent', call, { status: 'error', note: '参数解析失败' });
-          } else {
-            result = await executeTool(call.name, call.args, {
-              fs,
-              apiKey: store.state.apiKey,
-              imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
-              signal,
-              onUi: (patch) => emit('onToolEvent', call, patch),
-              dispatch: async (agentId, subTask, onNote) => {
-                const def = findSubagent(agentId);
-                if (!def) return `未知子智能体：${agentId}。请用 enum 中列出的 ID。`;
-                onNote && onNote(`子智能体「${def.name}」思考中…`);
-                const report = await runSubagent(def, subTask, {
-                  apiKey: store.state.apiKey,
-                  model: store.state.model,
-                  thinking: store.state.settings.thinking !== false,
-                  sandboxEnabled: store.state.settings.sandboxEnabled,
-                  onThinkingFallback: (m) => emit('onThinkingFallback', m),
-                  fs, signal,
-                });
-                return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;
-              },
-            });
-          }
+        const results = await runToolCalls(toolCalls, turn);
+        for (const [i, call] of toolCalls.entries()) {
+          const result = results[i];
           syncFS();
           store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: truncateToolContent(result, 8000) });
           emit('onToolResult', call, result);
@@ -313,7 +373,7 @@ export function createAgent(store, hooks = {}) {
 
     async regenerate() {
       store.dropLastAssistantTurn();
-      await runLoop({ regenerate: true });
+      await runLoop();
     },
 
     // 会话切换后重载虚拟文件系统

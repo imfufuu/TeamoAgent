@@ -127,12 +127,3 @@ export function createZip(entries = []) {
 
   return new Blob(chunks, { type: 'application/zip' });
 }
-
-// 便捷入口：沙箱 { path: value } 快照 → ZIP Blob（图片自动解码为二进制 + 补扩展名）
-export function zipFileMap(files = {}, stamp = new Date()) {
-  const entries = Object.entries(files).map(([path, value]) => {
-    const { bytes, mime } = fileBytesFromValue(value);
-    return { name: withExtension(path, mime.startsWith('image/') ? mime : ''), bytes, date: stamp };
-  });
-  return createZip(entries);
-}

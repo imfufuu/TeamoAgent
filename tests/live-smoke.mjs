@@ -1,15 +1,24 @@
-// ─── 全局系统性冒烟测试（真实 TeamoRouter API）─────────────────────────
+// ─── 协议层全局冒烟测试（真实 TeamoRouter API）─────────────────────────
 // 用法: TEAMO_API_KEY=sk-teamo-xxx node tests/live-smoke.mjs
 // 原则: 最小化消耗 —— 免费/最低价模型、极短提示词、跳过图像等贵价路径
+// 分工: 本文件只覆盖「两条协议 + 流式解析 + 子智能体」；图像/工具循环的真实验证在
+//       tests/live-check.mjs，部署后字节校验在 tests/app-boot.mjs（离线 jsdom）。
 import assert from 'node:assert/strict';
 import { streamChat, fetchModels, createToolCallAccumulator, thinkingDisabledFor } from '../js/api.js';
 import { runSubagent } from '../js/agent.js';
 import { createFS } from '../js/sandbox.js';
 import { findSubagent } from '../js/subagents.js';
-import { get_current_time_TOOL } from './smoke-tools.mjs';
+import { TOOL_DEFS } from '../js/tools.js';
 
 const API_KEY = process.env.TEAMO_API_KEY;
-if (!API_KEY) { console.error('缺少 TEAMO_API_KEY 环境变量'); process.exit(1); }
+if (!API_KEY) {
+  // 与其它可选的联网测试一致：没有 key 就跳过（退出码 0），不阻断 npm run test:all / CI
+  console.log('⏭  tests/live-smoke.mjs 跳过：未设置 TEAMO_API_KEY（真实网关冒烟测试需显式提供 key）');
+  process.exit(0);
+}
+
+// 直接用应用真实的工具定义，避免测试里的副本与 tools.js 漂移
+const get_current_time_TOOL = TOOL_DEFS.find((t) => t.name === 'get_current_time');
 
 let passed = 0, failed = 0;
 const results = [];

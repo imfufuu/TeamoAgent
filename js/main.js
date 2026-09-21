@@ -35,9 +35,9 @@ const hooks = {
 
 const agent = createAgent(store, hooks);
 ui = mountUI(store, agent);
-
-// 沙箱内 files 与 store 双向同步：state.files 作为持久化源
-agent.fs.import(store.state.files);
+// 这里不再 fs.import(state.files)：createAgent 已经用同一份 state.files 建好了 fs，
+// 再 import 一次不仅多余，还会把「挂载期间被清空的文件」重新灌回去（clearFiles 走的是
+// 同一批同步路径），表现为清空后文件又出现。
 
 // 关闭/隐藏页面时同步落盘（防抖版 save 的定时器在卸载时不会触发，会丢最后一轮对话）
 window.addEventListener('beforeunload', () => store.save(true));

@@ -66,6 +66,7 @@ agent.js  ── ReAct 式工具调用循环（上限 8 轮）
   ▼
 state.js  检查点快照（每轮 user 消息前）→ 支持回滚 / 一步撤销 / 重新生成
 sandbox.js Web Worker 沙箱（JS 8s / Pyodide Python 60s 超时强杀）+ 虚拟文件系统
+context.js    上下文预算与分级压缩（历史工具结果先收紧，本轮内容永远完整）
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
@@ -74,6 +75,10 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ## 子智能体（18 个专家，`dispatch_subagent` 委派）
 
 主 Agent 按需把专业任务委派给子智能体——**同模型、专属系统提示词、工具子集、独立上下文**（看不到会话历史，task 必须自包含；不可再委派，防递归；内部循环上限 4 轮）。面板「子智能体」页可查看名录。
+
+- **自主触发**：系统提示词给了明确的触发条件（交付物含 ≥2 个专业维度、写完代码请 reviewer/debugger 复核、翻译与长文改写等脏活外包、需要真实计算时派分析师），用户不点名也会自己派。
+- **并行委派**：互不依赖的子任务在同一轮里一次发多个 `dispatch_subagent`，运行时最多 3 个并发，结果按调用顺序回填对话。
+- **与代码沙箱解耦**：顶栏「沙箱」只控制三个代码执行工具；关掉后文件读写、生图、子智能体委派照常用（子智能体能用的工具也按同一规则取交集）。
 
 | 分类 | 子智能体 |
 |---|---|
@@ -145,15 +150,16 @@ js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道；默认仅绑定 127.0.0.1）
-tests/            node tests/agent.test.mjs（74 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
-                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传回归）/
-                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽）
+tests/            agent.test.mjs（115 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
+                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
+                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义）
+                  dom-smoke.mjs（95 项）· app-boot.mjs（26 项）· pyodide-worker.test.mjs（5 项）
 ```
 
 真实网关系统测试（会实际调用 `/v1/images/*` 并产生费用，默认跳过）：
 
 ```bash
-TEAMO_API_KEY=sk-teamo-xxx node tests/live-check.mjs
+npm run test:live     # = live-smoke（协议层）+ live-check（图像与工具循环），缺 key 自动跳过
 ```
 
 覆盖：三个生图模型逐个出图、显示名 `2.5 Sunburst` 纠正后成功、非法名退回会话模型、
@@ -161,14 +167,16 @@ TEAMO_API_KEY=sk-teamo-xxx node tests/live-check.mjs
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
 `report.json` 输出到 `/tmp/teamo-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
 
-三层测试（后两层需 `npm i -D jsdom`，未安装时自动跳过，CI 不依赖）：
+四层离线测试（后三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
 
 ```bash
 npm test              # tests/agent.test.mjs：解析/状态机/纯函数（无 DOM）
 npm run test:dom      # tests/dom-smoke.mjs ：挂载 UI 驱动交互路径
 npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹窗填 Key → 选模型
-                      #                       → 发送 → 工具调用 → 文件面板目录树
-npm run test:all      # 三连
+                      #                       → 发送 → 工具调用 → 文件面板目录树 → 关沙箱后委派
+npm run test:pyodide  # tests/pyodide-worker.test.mjs：Node 里用薄垫片直接跑真实 js/worker-py.js
+                      # （npm i -D pyodide@0.26.4）：FILES 回写 / result 捕获 / 陈旧全局
+npm run test:all      # 前三连
 ```
 
 `test:app` 是唯一覆盖「入口装配 + hook 接线」的一层：混版缓存、hook 缺失这类故障在纯函数
@@ -215,6 +223,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 ## 说明
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
+- 顶栏「沙箱」开关只决定三个代码执行工具是否下发（文件读写/生图/委派不受影响）；无鉴权中继 `server.py` 因此同源使用，不要暴露到共享网络。
 - JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
 - 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证（详见 `ANALYSIS.md`）。
 - 本地服务器默认仅监听 `127.0.0.1`（代理通道无鉴权，`--host 0.0.0.0` 显式开放需自担风险）。

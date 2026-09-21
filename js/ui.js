@@ -149,7 +149,6 @@ export function mountUI(store, agent) {
   const statusText = $('#status-text');
   const msgNodes = new Map();
 
-  let streamingId = null;
   let rafPending = false;
 
   // ── 主题 ──
@@ -279,7 +278,9 @@ export function mountUI(store, agent) {
   sandboxToggle.addEventListener('click', () => {
     store.state.settings.sandboxEnabled = !store.state.settings.sandboxEnabled;
     syncSandbox(); store.notify();
-    toast(store.state.settings.sandboxEnabled ? '沙箱已开启：Agent 可执行代码与读写文件' : '沙箱已关闭：纯对话模式');
+    toast(store.state.settings.sandboxEnabled
+      ? '沙箱已开启：Agent 可执行 JS/Python/C++ 代码'
+      : '代码沙箱已关闭：不再执行代码，文件读写、生图与子智能体委派仍可用');
   });
   syncSandbox();
 
@@ -777,11 +778,13 @@ export function mountUI(store, agent) {
   function rebuildMessages() {
     msgNodes.clear(); msgList.innerHTML = '';
     renderEmpty();
+    // 入场动画只给最后一条：旧写法每追加一条就重扫整个列表（n 条消息 → n 次全量
+    // querySelectorAll，长会话首屏明显卡顿），而且语义也只是「别给历史消息加动画」
     for (const m of store.state.messages) {
       if (m.role === 'tool') continue;
       appendMessage(m);
-      $$('.msg', msgList).forEach((n) => n.classList.remove('enter'));
     }
+    for (const n of $$('.msg', msgList)) n.classList.remove('enter');
     // 把 tool 结果回填到芯片
     for (const m of store.state.messages) if (m.role === 'tool') attachToolResult(m);
     refreshActionVisibility();
@@ -932,10 +935,12 @@ export function mountUI(store, agent) {
     input.value = '';
     if (!file) return;
     try {
+      // 忙判定必须在改 store 之前：旧写法先 importSession 再判忙，
+      // 回合进行中导入会把正在跑的对话数组换掉（半轮丢失 + 状态栏错乱）
+      if (getBusy()) return toast('请等待当前回合结束再导入', 'warn');
       const data = JSON.parse(await file.text());
       const s = store.importSession(data);
       if (!s) return toast('导入失败：文件里没有有效的 messages 数组', 'err');
-      if (getBusy()) return toast('请等待当前回合结束', 'warn');
       agent.loadFiles(store.state.files);
       rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats();
       toast(`已导入会话「${s.title}」（${s.messages.length} 条消息）`, 'ok');
@@ -1075,7 +1080,7 @@ export function mountUI(store, agent) {
       appendMessage(msg);
       refreshActionVisibility();
     },
-    onAssistantStart(m) { appendMessage(m); streamingId = m.id; },
+    onAssistantStart(m) { appendMessage(m); },
     onDelta(m, text) {
       const wrap = msgNodes.get(m.id);
       if (!wrap) return;
@@ -1086,7 +1091,6 @@ export function mountUI(store, agent) {
     onAssistantDone(m) {
       const wrap = msgNodes.get(m.id);
       if (wrap) paintAssistant(wrap, m);
-      streamingId = null;
       scrollToBottom();
       renderSessions(); // 刷新会话记录的轮数/时间
       refreshActionVisibility();

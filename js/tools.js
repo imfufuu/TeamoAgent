@@ -101,9 +101,9 @@ export const TOOL_DEFS = [
   {
     name: 'dispatch_subagent',
     description:
-      '把专业任务委派给子智能体（同模型、专属系统提示词与工具子集，独立上下文）。' +
-      '子智能体看不到对话历史，task 必须自包含（附必要代码/数据/上下文）。返回其文字报告，由你整合后答复。可用子智能体：' +
-      SUBAGENTS.map((a) => `${a.id}=${a.name}(${a.description.split('：')[0].split('，')[0]})`).join('；'),
+      '把专业任务委派给子智能体（同模型、专属系统提示词与工具子集，独立上下文），无需用户点名即可调用。' +
+      '子智能体看不到对话历史，task 必须自包含（附必要代码/数据/上下文）。返回其文字报告，由你整合后答复。' +
+      '互不依赖的子任务可以在同一轮里一次发出多个调用并行委派。完整名录与适用场景见系统提示词的「子智能体委派」一节。',
     parameters: {
       type: 'object',
       properties: {
@@ -115,10 +115,34 @@ export const TOOL_DEFS = [
   },
 ];
 
+// 真正需要「沙箱开关」的只有代码执行（浏览器内 WASM/Worker 与远程编译器）；
+// 文件、生图、时间、子智能体委派都不执行任意代码，关闭沙箱时也应可用 ——
+// 否则「让 Agent 更自主地委派子智能体」会被一个无关开关掐断。
+export const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
+
+/** 按沙箱开关给出本轮可用的工具定义列表（纯过滤，不改原数组） */
+export function toolsFor(sandboxEnabled) {
+  if (sandboxEnabled) return TOOL_DEFS;
+  return TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name));
+}
+
+// 模型给的沙箱路径经常带前导 '/' 或 './'，直接当字典键就会分裂成两套目录树
+// （/data/a.md 与 data/a.md 是两个键）。这里归一，非法路径返回 ''（由调用方反馈纠错）。
+export function normalizeFsPath(p) {
+  const parts = String(p == null ? '' : p).trim().split('/').map((s) => s.trim()).filter((s) => s && s !== '.');
+  if (!parts.length || parts.includes('..') || /[\u0000-\u001f]/.test(parts.join('/'))) return '';
+  return parts.join('/');
+}
+
 // 执行工具并返回字符串结果（会回填进对话）；onUi 用于驱动沙箱面板
 export async function executeTool(name, args, ctx) {
   const { fs, onUi } = ctx;
   const emit = (patch) => onUi && onUi({ name, args, ...patch });
+  // 兜底防线：工具列表按开关过滤过，但缓存错配或旧上下文里的工具调用仍可能打进来
+  if (ctx.sandboxEnabled === false && CODE_TOOL_NAMES.includes(name)) {
+    emit({ status: 'error', error: { message: '代码沙箱已关闭' } });
+    return `沙箱已关闭，${name} 未执行。请让用户打开「沙箱」开关，或改用 read_file / write_file / dispatch_subagent。`;
+  }
 
   try {
     switch (name) {
@@ -146,15 +170,22 @@ export async function executeTool(name, args, ctx) {
         return formatExecResult('C++', out);
       }
       case 'write_file': {
-        fs.write(args.path, args.content ?? '');
-        const msg = `已写入 ${args.path}（${String(args.content ?? '').length} 字符）`;
+        // 路径缺失/非法要在本地挡掉：否则沙箱里会凭空多出「undefined」这种文件，
+        // 而且模型收到「已写入 undefined」还以为成功了（附件同名冲突逻辑也依赖真实路径）
+        const path = normalizeFsPath(args.path);
+        if (!path) return 'write_file 缺少合法的 path 参数（需要形如 data/notes.md 的相对路径，不能是空值或 "/"）。';
+        const content = String(args.content ?? '');
+        fs.write(path, content);
+        const msg = `已写入 ${path}（${content.length} 字符）`;
         emit({ status: 'ok', fsChange: true, note: msg });
         return msg;
       }
       case 'read_file': {
-        const content = fs.read(args.path);
-        emit({ status: 'ok', fsChange: false, note: `读取 ${args.path}` });
-        return `── ${args.path} ──\n${content}`;
+        const path = normalizeFsPath(args.path);
+        if (!path) return 'read_file 缺少合法的 path 参数。可用 list_files 查看现有文件。';
+        const content = fs.read(path);
+        emit({ status: 'ok', fsChange: false, note: `读取 ${path}` });
+        return `── ${path} ──\n${content}`;
       }
       case 'list_files': {
         const list = fs.list();
@@ -233,8 +264,14 @@ export async function executeTool(name, args, ctx) {
                 if (sniff.width) { width = sniff.width; height = sniff.height; }
               } catch { /* 取不到字节就保留远程 URL（仅用于展示） */ }
             }
-            const seq = fs.list().filter((f) => f.path.startsWith('outputs/')).length + 1;
-            const path = `outputs/image-${seq.toString().padStart(3, '0')}.${ext}`;
+            // 序号取「现有最大值 +1」而不是「文件个数 +1」：用户在面板里删过一个文件后，
+            // 按个数计数会算出已占用的序号，把上一张图覆盖掉
+            let last = 0;
+            for (const f of fs.list()) {
+              const m = /^outputs\/image-(\d+)\.[^.]*$/.exec(f.path);
+              if (m) last = Math.max(last, Number(m[1]));
+            }
+            const path = `outputs/image-${String(last + 1).padStart(3, '0')}.${ext}`;
             fs.write(path, dataUrl);
             written.push({ path, dataUrl, mime, ext, width: width || 0, height: height || 0 });
             emit({ status: 'ok', image: dataUrl, imagePath: path, width, height, fsChange: true, note: `已生成 ${path}${width && height ? `（${width}x${height}）` : ''}` });
@@ -274,7 +311,11 @@ function formatExecResult(lang, out) {
     parts.push('── 控制台输出 ──\n' + out.logs.map((l) => `[${l.level}] ${l.text}`).join('\n'));
   }
   if (out.result !== undefined) parts.push(`── 返回值 ──\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2)}`);
-  if (!out.ok) parts.push(`── 错误 ──\n${out.error.message}${out.error.stack ? '\n' + String(out.error.stack).split('\n').slice(1, 4).join('\n') : ''}`);
+  if (!out.ok) {
+    const errMsg = (out.error && out.error.message) || '沙箱未返回错误信息';
+    const stack = out.error && out.error.stack ? String(out.error.stack).split('\n').slice(1, 4).join('\n') : '';
+    parts.push(`── 错误 ──\n${errMsg}${stack ? `\n${stack}` : ''}`);
+  }
   if (!parts.length) parts.push('（执行完成，无输出）');
   parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
   return `[${lang} 沙箱]\n${parts.join('\n')}`;

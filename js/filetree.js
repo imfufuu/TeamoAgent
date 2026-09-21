@@ -37,15 +37,14 @@ function finalize(node) {
   if (node.type === 'dir') {
     for (const c of node.children) finalize(c);
     node.children.sort((a, b) => (a.type === b.type ? collator.compare(a.name, b.name) : a.type === 'dir' ? -1 : 1));
-    let size = 0; let count = 0; let dirs = 0; let depthFiles = 0;
+    let size = 0; let count = 0; let dirs = 0;
     for (const c of node.children) {
       size += c.size || 0;
-      if (c.type === 'dir') { dirs++; count += c.count; depthFiles += c.count; } else { count += 1; depthFiles += 1; }
+      if (c.type === 'dir') { dirs++; count += c.count; } else { count += 1; }
     }
     node.size = size;
     node.count = count;       // 含嵌套的文件总数
     node.dirs = dirs;          // 直接子目录数
-    node.direct = depthFiles;  // 直接子项数（用于折叠时展示）
   }
   delete node.byName;
 }

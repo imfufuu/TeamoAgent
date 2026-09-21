@@ -341,6 +341,9 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
   const normalize = protocol === 'anthropic' ? createAnthropicStream(onEvent) : createOpenAIStream(onEvent);
   const feed = createSSEParser((json) => { if (json !== null) normalize(json); });
 
+  // 某些代理/服务端会以 200 + 空 body 回（如中间层截断）：直接 getReader() 会抛
+  // 一个「reading undefined」的 TypeError，用户看不懂；换成可定位的提示。
+  if (!res.body) throw new Error('网关返回了空响应体（Content-Length 0 或连接被中断），请重试或切换模型');
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   // cancel() 在流已出错时返回 rejected promise，必须显式吞掉，否则产生未处理拒绝

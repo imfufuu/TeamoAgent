@@ -2,6 +2,67 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（全局审查）子智能体自主化 + 缺陷与冗余清理
+
+对整个项目（`js/` 全部模块 + `server.py` + `index.html` + 三层测试）通读审查：修掉 6 个真实缺陷、
+清掉 5 处冗余代码，并把「委派子智能体」从被沙箱开关与提示词措辞双重压制，改成模型可自主、可并行调用。
+
+### 缺陷
+1. **`js/worker-py.js` 调用了不存在的 `pyodide.toJS(...)`**（真实 API 是实例方法 `proxy.toJs({...})`）。
+   它抛出的 TypeError 被 `catch` 静默吞掉，后果是 `execute_python` 的 `result` 全局变量与
+   `FILES` 写入**从来没有回到过对话和虚拟文件系统**（只留下 print 输出）。改为
+   `toJs({ dict_converter: Object.fromEntries })` —— 不指定 `dict_converter` 时 dict 会变成 Map，
+   而 `JSON.stringify(new Map()) === '{}'`，那反而会清空整个 FS。
+   用真实 Pyodide 0.26.4 验证：修复前 `files` 只含输入快照、`result` 为 `undefined`；
+   修复后得到 `out/sum.txt=18` 与 `result={"sum":18,"n":4}`（`tests/pyodide-worker.test.mjs`）。
+2. **常驻 Python Worker 的陈旧全局**：Worker 复用，上一轮的 `result` 不会自己消失，本轮模型没赋值
+   就会把上一轮结果当成本轮输出。执行前 `globals.delete('result')`。
+3. **生图落盘序号会覆盖旧图**：按「`outputs/` 现有文件数 +1」计数，用户在面板删过一个文件后
+   序号就撞车。改为「已有最大序号 +1」。
+4. **`write_file`/`read_file` 不校验 path**：模型漏传参数时沙箱里会凭空多出字面量 `undefined` 文件，
+   工具还回报「已写入 undefined」；前导 `/`、`./` 则会把同一目录裂成两棵树。新增 `normalizeFsPath`，
+   非法路径回可纠错提示。
+5. **导入会话的判忙顺序**：旧代码先 `store.importSession()` 再判 `getBusy()`，回合进行中导入会把正在
+   跑的数组换掉（半轮丢失 + 状态栏错乱）。判忙移到解析之前。
+6. **`200 + 空 body` 直接 `res.body.getReader()`** 抛「reading undefined」；换成可定位的错误文案。
+   顺带给 `formatExecResult` 补了 `out.error` 缺失时的兜底（此前会在 catch 里再抛一次）。
+
+### 冗余与可疑代码
+- 删除无调用方/无读取的：`zip.js` 的 `zipFileMap`、`filetree.js` 的 `node.direct`、`ui.js` 只写不读的
+  `streamingId`、`runLoop({ regenerate })` 未使用的参数、`main.js` 里重复的
+  `agent.fs.import(store.state.files)`（`createAgent` 已用同一份 `state.files` 建 fs，二次 import
+  会把挂载期间被清空的文件复活）。
+- `tests/smoke-tools.mjs`（手抄的一份工具定义）删除，`live-smoke` 直接取 `TOOL_DEFS` 里的真工具，
+  避免测试副本与实现漂移；`live-smoke` 缺 `TEAMO_API_KEY` 时由 `exit(1)` 改为跳过（与 `live-check`
+  一致），`npm run test:live` 现在把「协议层」与「图像/工具循环层」两层真实网关测试串起来。
+- `rebuildMessages()` 每追加一条消息就全量 `querySelectorAll('.msg')`（n²）；改为循环结束后统一去动画。
+- `server.py` 的 `/api/proxy` 响应去掉 `Access-Control-Allow-Origin: *`：调用方永远同源，这个头只是
+  把一个无鉴权中继暴露给任意网页。
+- 空状态示例里点名了网关并不存在的 qwen（点了只会演一遍失败）→ 改为「带 -free 的免费模型」。
+
+### 子智能体：从「劝退委派」改为「自主 + 并行」
+- 此前能力清单里根本没有 `dispatch_subagent`，整段名录只在沙箱开启时附加，且结尾写着
+  「简单任务直接自己处理，不要为了委派而委派；一次委派一个明确的子任务」——模型据此几乎从不主动派。
+  现在：`systemPrompt()` 列出该工具并说明「不要等用户点名」；`subagentGuide()` 改为**触发条件**
+  （交付物含 ≥2 个专业维度、写完代码派 reviewer/debugger 自检、脏活外包保上下文、需要真实计算、
+  用户点名）+ **并行规则**（互不依赖的子任务在同一轮里一次多发）。
+- 沙箱开关不再没收委派能力：开关现在只摘掉 `execute_javascript/python/cpp` 三个代码执行工具，
+  文件读写、生图、时间、子智能体委派始终可用（`toolsFor(sandboxEnabled)`）；子智能体自身的工具集
+  按同一规则取交集，不再一关沙箱就全体退化成纯推理。`executeTool` 加了兜底：即便旧缓存把代码执行
+  请求打回来，也直接拒绝并说明原因。
+- **同一轮的多个 `dispatch_subagent` 并发执行**（上限 3），结果仍按调用顺序写回对话，其余工具保持串行
+  （代码执行会改虚拟文件，交错跑不可复现）。
+- 子智能体现在继承用户选定的生图模型；`apiKey/model/thinking` 改为在回合开始处锁定，
+  中途换模型不再让后续迭代与委派错位。
+
+### 测试
+- 单测 101 → **115**：新增沙箱开关语义、`subagentTools` 交集、并发委派（用总耗时证明并发起）、
+  路径归一、生图序号、空响应体、导入判忙顺序、死代码回归。
+- `tests/app-boot.mjs` 19 → **26**：新增端到端段「关掉代码沙箱仍能自主委派子智能体」（核对请求里的
+  tools 列表、提示词中的名录、委派芯片、报告被整合进回复）。
+- 新增 `tests/pyodide-worker.test.mjs`（5 项，`npm i -D pyodide@0.26.4` 后可跑，未安装自动跳过）：
+  在 Node 里用极薄垫片直接执行真实的 `js/worker-py.js`，锁死 ①② 两个静默失败点。
+
 ## 2026-09-21（严重修复）混版缓存会 brick 发送 —— 视图层故障隔离 + 入口资源版本化
 
 线上反馈「发送提示词后界面没有任何变化」，且看不到新增的任务示例与下载图标。

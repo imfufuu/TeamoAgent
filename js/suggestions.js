@@ -1,6 +1,8 @@
 // ─── 空状态任务示例池（纯函数 + 数据，便于单测）────────────────────────
 // 每次渲染空状态时从池子里随机抽 3 条，覆盖不同能力面（沙箱执行 / 生图改图 /
 // 文件与打包 / 子智能体 / 多模型对比 / 上下文与回滚），让新用户一眼看到「能干什么」。
+// 注意：示例里提到的模型必须是网关真实存在的（此前有一条点名 qwen，而 /v1/models
+// 里根本没有 qwen 系模型，点了只会得到一轮「找不到模型」的失败演示）。
 
 export const SUGGESTIONS = [
   // 代码沙箱
@@ -20,7 +22,7 @@ export const SUGGESTIONS = [
   { text: '派 code-reviewer 审查这段代码的问题：function f(a){for(i=0;i<a.length;i++) if(a[i]==0) return}', tag: '子智能体' },
   { text: '让 security-auditor 与 debugger 协作：先审一段 Express 路由的鉴权漏洞，再修复并给出验证用例', tag: '子智能体' },
   // 多模型 / 网关能力
-  { text: '对比 qwen、deepseek、glm 三家的免费模型：各写一首关于秋天的五言绝句，再点评优劣', tag: '多模型对比' },
+  { text: '对比网关里带 -free 的免费模型（deepseek、glm 等）：各写一首关于秋天的五言绝句，再点评优劣', tag: '多模型对比' },
   { text: '打开「快速」模式（service_tier=fast）跑一次 GPT 模型，告诉我它和默认档的耗时差异', tag: 'Fast mode' },
   { text: 'GET /v1/models 里现在有哪些模型？按供应商分组列出来，并标出支持视觉的', tag: '模型目录' },
   // 上下文 / 回滚

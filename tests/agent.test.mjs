@@ -1485,6 +1485,172 @@ test('index.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () =
 });
 
 
+group('工具可用性：沙箱开关只该管住代码执行');
+test('toolsFor：关闭沙箱只摘掉三个代码执行工具', async () => {
+  const { toolsFor, CODE_TOOL_NAMES } = await import('../js/tools.js');
+  const off = toolsFor(false).map((t) => t.name);
+  const on = toolsFor(true).map((t) => t.name);
+  assert.deepEqual(on, TOOL_DEFS.map((t) => t.name), '开启时应是全部工具');
+  for (const n of CODE_TOOL_NAMES) assert.ok(!off.includes(n), `${n} 应被关掉`);
+  for (const n of ['write_file', 'read_file', 'list_files', 'dispatch_subagent', 'generate_image', 'get_current_time']) {
+    assert.ok(off.includes(n), `${n} 与代码执行无关，关沙箱也要可用`);
+  }
+});
+test('executeTool：沙箱关闭时拒绝执行代码（未显式关闭的旧调用方不受影响）', async () => {
+  const r = await executeTool('execute_javascript', { code: '1+1' }, { fs: createFS(), sandboxEnabled: false });
+  assert.match(r, /沙箱已关闭/, '应给出可纠错的说明而不是悄悄执行');
+  const legacy = await executeTool('list_files', {}, { fs: createFS({ 'a.txt': 'x' }) });
+  assert.match(legacy, /a\.txt/, 'ctx 未标 sandboxEnabled 时不应误伤');
+});
+test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体退化成纯推理', async () => {
+  const { subagentTools } = await import('../js/agent.js');
+  const names = (list) => (list || []).map((t) => t.name);
+  const writer = findSubagent('doc-writer');
+  assert.deepEqual(names(subagentTools(false, writer)).sort(), ['list_files', 'read_file', 'write_file']);
+  const analyst = findSubagent('data-analyst');
+  assert.ok(names(subagentTools(true, analyst)).includes('execute_python'), '开沙箱时该有代码执行');
+  assert.ok(!names(subagentTools(false, analyst)).some((n) => n.startsWith('execute_')), '关沙箱时不该有代码执行');
+  assert.equal(subagentTools(true, findSubagent('code-reviewer')), null, '纯推理子智能体不给工具');
+  for (const a of SUBAGENTS) {
+    assert.ok(!names(subagentTools(true, a)).includes('dispatch_subagent'), `${a.id} 不得再委派（防递归）`);
+  }
+});
+
+group('子智能体自主委派（提示词层）');
+test('systemPrompt 里列出了 dispatch_subagent（不再只靠开关后附加的指引）', async () => {
+  const sys = cfg.systemPrompt();
+  assert.match(sys, /dispatch_subagent/, '能力清单必须包含委派工具');
+  assert.match(sys, /不要等用户点名/, '要写明无需用户点名即可委派');
+  assert.match(sys, /同一轮/, '要允许一轮内并行发起多个工具调用');
+  assert.match(sys, /代码执行工具需要用户开启/, '沙箱开关的作用范围要说清');
+});
+test('subagentGuide 给触发条件与并行规则，而不是劝阻委派', async () => {
+  const g = subagentGuide();
+  for (const key of ['何时应当主动委派', '同一轮', 'task 必须自包含', '不要把冗长报告原样转贴', '报告异常或为空时，自己补做']) {
+    assert.ok(g.includes(key), `指引缺少「${key}」`);
+  }
+  assert.ok(!/不要为了委派而委派/.test(g), '旧措辞会压掉所有主动委派');
+  const ids = SUBAGENTS.map((a) => a.id);
+  for (const id of ids) assert.ok(g.includes(id), `指引应列出 ${id}`);
+});
+test('关闭沙箱时委派指引照样注入（旧写法整段被开关藏起来）', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('你好')], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.sandboxEnabled = false;
+    const agent = createAgent(store, {});
+    await agent.send('随便聊聊');
+    const sys = calls[0].body.messages.find((m) => m.role === 'system');
+    assert.match(sys.content, /子智能体委派（dispatch_subagent）/);
+    assert.ok(calls[0].body.tools.some((t) => t.function.name === 'dispatch_subagent'), '关沙箱也要能委派');
+    assert.ok(!calls[0].body.tools.some((t) => t.function.name === 'execute_python'), '关沙箱不能出现代码执行');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('同一轮的多个 dispatch_subagent 并发执行，结果仍按调用顺序回填', async () => {
+  // 三个子智能体并发委派：靠「总耗时 < 串行耗时」证明它们真的一起跑
+  const seen = [];
+  let mainTurns = 0;
+  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+  globalThis.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    seen.push(body);
+    // 子智能体的请求一定以「你是…体系中的…」作为 system（首轮只有 system+user 两条）
+    const isSub = String((body.messages || [])[0]?.content || '').includes('体系中的');
+    if (isSub) { await delay(140); return openaiTextTurn('子报告'); }
+    if (++mainTurns === 1) {
+      // 主 Agent 第一次回答：同一轮里发出 3 个互不依赖的委派
+      const mk = (i) => sseEv({ choices: [{ delta: { tool_calls: [{ index: i, id: `c${i}`, function: { name: 'dispatch_subagent', arguments: JSON.stringify({ agent: 'explainer', task: `任务${i}` }) } }] } }] });
+      return sseResponse(mk(0) + mk(1) + mk(2) + sseEv({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] }) + sseDone);
+    }
+    return openaiTextTurn('整合完成');
+  };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    const t0 = Date.now();
+    await agent.send('同时找三个专家看看');
+    const ms = Date.now() - t0;
+    const toolMsgs = store.state.messages.filter((m) => m.role === 'tool');
+    assert.equal(toolMsgs.length, 3, '三个委派都要有结果');
+    assert.deepEqual(toolMsgs.map((m) => m.toolCallId), ['c0', 'c1', 'c2'], '结果顺序必须与调用顺序一致');
+    assert.equal(seen.filter((b) => String((b.messages || [])[0]?.content || '').includes('体系中的')).length, 3, '应各发一次子智能体请求');
+    assert.ok(ms < 140 * 2, `三个子智能体应并发跑（串行至少 ${140 * 3}ms，实测 ${ms}ms）`);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+group('本轮审查修掉的真实缺陷');
+test('write_file / read_file 路径归一，非法路径不再造出 undefined 文件', async () => {
+  const { normalizeFsPath } = await import('../js/tools.js');
+  assert.equal(normalizeFsPath('/data/a.md'), 'data/a.md');
+  assert.equal(normalizeFsPath('./notes.txt'), 'notes.txt');
+  assert.equal(normalizeFsPath('a//b.txt'), 'a/b.txt');
+  for (const bad of ['', '   ', '/', '..', 'a/../b', undefined, null]) assert.equal(normalizeFsPath(bad), '', `${bad} 应判非法`);
+  const fs = createFS();
+  assert.match(await executeTool('write_file', { content: 'x' }, { fs }), /缺少合法的 path/);
+  assert.deepEqual(Object.keys(fs.export()), [], '不能写出名为 undefined 的文件');
+  assert.match(await executeTool('read_file', {}, { fs }), /缺少合法的 path/);
+  await executeTool('write_file', { path: '/deep/./x.txt', content: 'ok' }, { fs });
+  assert.equal(fs.read('deep/x.txt'), 'ok', '前导 / 与 ./ 要归一，别分裂成两棵目录树');
+});
+test('generate_image 输出序号按最大值递增（删过文件也不覆盖旧图）', async () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  const fs = createFS({ 'outputs/image-001.png': png, 'outputs/image-002.png': png, 'outputs/image-004.png': png });
+  globalThis.fetch = async () => new Response(JSON.stringify({ data: [{ b64_json: png.split(',')[1] }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const out = await executeTool('generate_image', { prompt: 'p' }, { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2' });
+    assert.match(out, /image-005\.png/, `应接在最大序号后面：${out.split('\n')[2] || out}`);
+    assert.equal(fs.read('outputs/image-001.png'), png, '已有文件不能被覆盖');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('api：200 但响应体为空时给出可读错误，不再抛 reading undefined', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => ({ status: 200, ok: true, body: null, headers: new Map(), text: async () => '' });
+  try {
+    await assert.rejects(
+      api.streamChat({ model: 'gpt-5.6-sol', apiKey: 'k', messages: [{ role: 'user', text: 'hi' }], onEvent() {} }),
+      /空响应体/,
+    );
+  } finally { globalThis.fetch = origFetch; }
+});
+test('沙箱输出被截断只在预算不足时发生（回归：历史轮次工具结果分级收紧）', () => {
+  const long = 'x'.repeat(20000);
+  const msgs = [{ role: 'user', text: 'q' }, { role: 'assistant', text: 'a' }, { role: 'user', text: 'q2' }, { role: 'tool', toolCallId: 'c', name: 'execute_javascript', content: long }];
+  const rich = compactMessages(msgs, 200000);
+  assert.equal(rich.messages[3].content.length, long.length, '预算富余时不得截断');
+  const tight = compactMessages(msgs, 4000);
+  assert.ok(tight.messages[3].content.length < long.length, '预算紧张时才收紧历史工具结果');
+});
+test('导入会话在回合进行中必须先判忙再改 store（防半轮丢失）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const at = src.indexOf("store.importSession(data)");
+  const busy = src.lastIndexOf("if (getBusy())", at);
+  assert.ok(busy > 0 && busy < at, 'getBusy 判定必须排在 importSession 之前');
+});
+test('死代码不再回来：zip 便捷入口 / 文件树 direct 字段 / 双重 import', async () => {
+  const fsp = await import('node:fs');
+  const zip = await import('../js/zip.js');
+  assert.ok(!('zipFileMap' in zip), 'zipFileMap 无调用方，已删除');
+  const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  assert.ok(!/agent\.fs\.import\(store\.state\.files\)/.test(main), 'createAgent 已用同一份 files 建 fs，重复 import 会复活被清空的文件');
+  const tree = await import('../js/filetree.js');
+  const [node] = tree.buildFileTree([{ path: 'a/b.txt', size: 3 }]);
+  assert.ok(!('direct' in node), '无人读取的 direct 字段应删掉');
+});
+test('Worker 侧 Pyodide API 名称与陈旧全局（回归锚点）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/worker-py.js', import.meta.url), 'utf8');
+  assert.ok(!/pyodide\.toJS\s*\(/.test(src), 'Pyodide 只有实例方法 proxy.toJs，没有 pyodide.toJS（调用它会被 catch 静默吞掉）');
+  assert.match(src, /toJs\(\{[^}]*dict_converter: Object\.fromEntries/,'dict 默认转 Map，不指定 dict_converter 会把整个 FS 清空');
+  assert.match(src, /globals\.delete\('result'\)/, '常驻 Worker 必须先清掉上一轮的 result');
+});
+
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
