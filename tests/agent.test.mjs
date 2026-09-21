@@ -1516,6 +1516,14 @@ test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体�
   }
 });
 
+test('agent.js 与 tools.js 的沙箱工具清单一致（本地副本，防 link 期混版）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.ok(!/import\s*\{[^}]*toolsFor/.test(src), 'agent.js 不得 import 新增具名导出（混版缓存会白屏）');
+  const tools = await import('../js/tools.js');
+  const local = /const CODE_TOOL_NAMES = \[([^\]]*)\]/.exec(src)[1].split(',').map((x) => x.trim().replace(/'/g, ''));
+  assert.deepEqual(local, tools.CODE_TOOL_NAMES, '两份清单必须同步');
+});
 group('子智能体自主委派（提示词层）');
 test('systemPrompt 里列出了 dispatch_subagent（不再只靠开关后附加的指引）', async () => {
   const sys = cfg.systemPrompt();

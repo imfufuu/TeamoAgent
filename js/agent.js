@@ -9,11 +9,19 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
-import { TOOL_DEFS, executeTool, toolsFor } from './tools.js';
+import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
+
+// 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
+//（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
+// 跨模块「新增具名导出」在混版缓存下会让整个模块图 link 失败（表现为页面直接白屏），
+// 而 TOOL_DEFS 是新旧两版都存在的导出，用它本地过滤最稳。
+const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
+const toolsFor = (sandboxEnabled) =>
+  sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name));
 
 // 附件落盘文件名：去掉路径分隔与控制字符，避免越权写到 uploads/ 之外
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'file';

@@ -132,6 +132,11 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 入口资源（`css/styles.css`、`js/main.js`）统一带 `?v=APP_VERSION`，侧栏底部显示 `v<版本>` 便于自检；
 `APP_VERSION` 与 index.html 的 `?v=` 由单测强制同步。
 
+同一条纪律也约束模块边界：**不往已有模块加「被别的模块 import 的新具名导出」**。ESM 的具名导入在
+link 期解析，混版时旧模块没有那个导出 → 整张模块图报错、页面白屏，比钩子缺失更严重。所以
+`agent.js` 要按沙箱开关过滤工具时，是在本地用新旧两版都存在的 `TOOL_DEFS` 过滤，而不是
+`import { toolsFor } from './tools.js'`；两处清单的一致性由单测钉住。
+
 ## 目录
 
 ```
