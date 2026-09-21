@@ -6,6 +6,7 @@ import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
+import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -360,13 +361,23 @@ export function mountUI(store, agent) {
       : `${t.getMonth() + 1}/${t.getDate()}`;
     return `${n} 轮 · ${time}`;
   }
+  // 侧栏只列「有内容的」会话：空的「新对话」草稿在用户发出第一条消息之前不进列表
+  //（store.listableSessions 负责过滤，「＋ 新建」也会复用空草稿，不堆 invisible 记录）
   function renderSessions() {
     const box = $('#session-list'); box.innerHTML = '';
-    for (const s of store.sortedSessions()) {
+    const list = store.listableSessions ? store.listableSessions() : store.sortedSessions();
+    if (!list.length) {
+      box.appendChild(el('div', 'sess-empty-hint', '还没有会话记录。<br>直接输入第一条消息，它才会出现在这里。'));
+      return;
+    }
+    for (const s of list) {
       const node = el('div', 'sess-item' + (s.id === store.state.activeSessionId ? ' active' : ''));
-      node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span><button class="sess-del" type="button" title="删除会话" aria-label="删除会话「${esc(s.title || '新对话')}」">✕</button>`;
+      node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span>`
+        + `<button class="sess-rename" type="button" title="重命名会话">${ICON.pencil || ''}</button>`
+        + `<button class="sess-del" type="button" title="删除会话" aria-label="删除会话「${esc(s.title || '新对话')}」">✕</button>`;
       node.addEventListener('click', () => switchToSession(s.id));
-      $('.sess-del', node).addEventListener('click', (e) => {
+      const del = $('.sess-del', node);
+      if (del) del.addEventListener('click', (e) => {
         e.stopPropagation();
         if (getBusy()) return toast('请等待当前回合结束', 'warn');
         if (!confirm(`删除会话「${s.title || '新对话'}」？不可恢复。`)) return;
@@ -376,8 +387,47 @@ export function mountUI(store, agent) {
         rebuildMessages(); renderSessions(); renderFiles(); updateStats(); updateModelBtn();
         toast('会话已删除');
       });
+      const rename = $('.sess-rename', node);
+      if (rename) {
+        rename.addEventListener('click', (e) => { e.stopPropagation(); startRename(node, s); });
+        // 双击标题也进改名（桌面用户的直觉路径）
+        $('.sess-title', node).addEventListener('dblclick', (e) => { e.stopPropagation(); startRename(node, s); });
+      }
       box.appendChild(node);
     }
+  }
+
+  // 就地改名：Enter 提交、Esc 取消、失焦提交；改名后 titleSource='user'，
+  // Agent 的自动总结不再覆盖它
+  function startRename(node, s) {
+    const span = $('.sess-title', node);
+    if (!span || $('.sess-rename-input', node)) return;
+    const input = el('input', 'sess-rename-input');
+    input.type = 'text';
+    input.value = s.title || '';
+    input.maxLength = 48;
+    input.setAttribute('aria-label', '重命名会话');
+    span.replaceWith(input);
+    input.focus(); input.select();
+    let closed = false;
+    const done = (commit) => {
+      if (closed) return;
+      closed = true;
+      const v = input.value.trim();
+      input.replaceWith(span);
+      if (commit && v && v !== (s.title || '') && typeof store.renameSession === 'function') {
+        store.renameSession(s.id, v);
+        toast('会话已重命名', 'ok', 1400);
+      }
+      renderSessions();
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); done(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(false); }
+    });
+    input.addEventListener('blur', () => done(true));
+    input.addEventListener('click', (e) => e.stopPropagation());
   }
   function switchToSession(id) {
     if (id === store.state.activeSessionId) return;
@@ -389,9 +439,24 @@ export function mountUI(store, agent) {
   }
   $('#new-session').addEventListener('click', () => {
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
-    store.createSession();
+    (store.ensureDraft ? store.ensureDraft() : store.createSession());
     agent.loadFiles({});
     rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
+    composer.focus();
+  });
+  // 一键清除所有会话记录（含各自的沙箱文件与检查点）：不可恢复，所以必须确认
+  $('#clear-sessions').addEventListener('click', () => {
+    if (getBusy()) return toast('请等待当前回合结束', 'warn');
+    const n = (store.listableSessions ? store.listableSessions() : store.sortedSessions()).length;
+    if (!n) { toast('当前没有任何会话记录'); return; }
+    if (!confirm(`清除全部 ${n} 条会话记录？所有消息、检查点与沙箱文件都会被删除，且不可恢复。`)) return;
+    if (typeof store.clearAllSessions !== 'function') {
+      return toast('浏览器缓存了旧版本代码，请硬刷新（Ctrl/Cmd + Shift + R）后再用「清空」', 'warn', 5000);
+    }
+    const removed = store.clearAllSessions();
+    agent.loadFiles({});
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
+    toast(`已清除 ${removed || n} 条会话记录`, 'ok');
     composer.focus();
   });
   renderSessions();
@@ -638,7 +703,7 @@ export function mountUI(store, agent) {
     wrap.dataset.id = m.id;
     if (m.role === 'user') {
       wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
-        <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">⤺ 回滚</button></div>`;
+        <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button></div>`;
       $('.act', wrap).addEventListener('click', () => doRollback(m));
     } else {
       // 模型名/头像每轮（一次 user 提问开始的回合）只显示一次：
@@ -653,13 +718,15 @@ export function mountUI(store, agent) {
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-actions">
-          <button class="act" data-act="copy" title="复制">复制</button>
-          <button class="act" data-act="rollback" title="回滚到本轮之前">⤺ 回滚</button>
-          <button class="act act-regen" data-act="regen" title="重新生成" style="display:none">↻ 重新生成</button>
+          <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
+          <button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button>
+          <button class="act act-regen" data-act="regen" title="重新生成本轮回复">${ICON.regen || ''}<span>重新生成</span></button>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         const act = b.dataset.act;
-        if (act === 'copy') { navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200)); }
+        if (act === 'copy') {
+        navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+      }
         if (act === 'rollback') doRollback(m);
         if (act === 'regen') {
           if (getBusy()) return;
@@ -747,24 +814,53 @@ export function mountUI(store, agent) {
       if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
       meta.textContent = parts.join(' · ');
     }
-    // 仅最后一条 assistant 显示重新生成
-    const lastAssistant = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
-    const regen = $('.act-regen', wrap);
-    if (regen) regen.style.display = (lastAssistant && lastAssistant.id === m.id && m.done) ? '' : 'none';
+    // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
+    refreshActionVisibility();
   }
 
-  // 复制/回滚/重新生成按钮每轮只出现一次：仅回合末尾的 assistant 消息显示
+  // 操作条显隐规则：
+  //   ① 复制 / 重新生成 只出现在「本轮末尾」的 assistant 消息上（每轮一次）
+  //   ② 整轮输出没结束（流式、工具执行、子智能体跑着）时，本轮所有按钮一律不显示
+  //      —— 用户要的是「输出完了再动手」，半截输出上点复制/回滚都不是想要的结果
   function refreshActionVisibility() {
-    for (const wrap of $$('.msg-assistant', msgList)) {
-      const idx = store.state.messages.findIndex((x) => x.id === wrap.dataset.id);
+    const msgs = store.state.messages;
+    const busy = getBusy();
+    const turnStartOf = (i) => {
+      while (i > 0 && msgs[i].role !== 'user') i--;
+      return msgs[i] && msgs[i].role === 'user' ? i : -1;
+    };
+    const readyByStart = new Map();
+    const turnReady = (start) => {
+      if (start < 0) return false;
+      if (readyByStart.has(start)) return readyByStart.get(start);
+      let anyAssistant = false, allDone = true;
+      for (let k = start + 1; k < msgs.length && msgs[k].role !== 'user'; k++) {
+        if (msgs[k].role === 'assistant') { anyAssistant = true; if (!msgs[k].done) allDone = false; }
+      }
+      const v = !busy && anyAssistant && allDone;
+      readyByStart.set(start, v);
+      return v;
+    };
+    // 每轮末尾的 assistant（按轮起点记住）+ 整个会话最后一条 assistant（「重新生成」才给）
+    const lastAssistantOfTurn = new Map();
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].role !== 'assistant') continue;
+      const st = turnStartOf(i);
+      if (st >= 0) lastAssistantOfTurn.set(st, msgs[i].id);
+    }
+    const lastOverall = [...msgs].reverse().find((x) => x.role === 'assistant');
+    for (const wrap of $$('.msg-user, .msg-assistant', msgList)) {
+      const idx = msgs.findIndex((x) => x.id === wrap.dataset.id);
       if (idx < 0) continue;
-      const next = store.state.messages[idx + 1];
-      const isTurnEnd = !next || next.role === 'user';
-      const acts = $('.msg-actions', wrap);
-      if (acts) acts.style.display = isTurnEnd ? '' : 'none';
+      const m = msgs[idx];
+      const start = m.role === 'user' ? idx : turnStartOf(idx);
+      const ready = turnReady(start);
+      const show = m.role === 'user' ? ready : ready && lastAssistantOfTurn.get(start) === m.id;
+      wrap.classList.toggle('actions-pending', !show);
+      const regen = $('.act-regen', wrap);
+      if (regen) regen.style.display = show && lastOverall && lastOverall.id === m.id ? '' : 'none';
     }
   }
-
   function appendMessage(m) {
     clearEmpty();
     const wrap = messageNode(m);
@@ -851,6 +947,7 @@ export function mountUI(store, agent) {
         statusText.textContent = label;
       }
     }
+    if (typeof refreshActionVisibility === 'function') refreshActionVisibility();
     sendBtn.classList.toggle('stop-mode', busy);
     $('#send-ico').textContent = busy ? '■' : '↑';
     sendBtn.title = busy ? '停止' : '发送 (Enter)';
@@ -1105,6 +1202,9 @@ export function mountUI(store, agent) {
       renderTimeStats();
     },
     refreshBalance,
+    // 回合结束后给会话起个标题（Agent 总结；用户手改过的不会被覆盖）
+    // 起标题失败绝不能冒泡到回合流程（catch 掉，标题自然退回「首条消息截断」）
+    autoTitle: () => autoTitle(store).then((r) => { if (r && r.ok) renderSessions(); return r; }, () => ({ ok: false, reason: 'view-error' })),
     onToolStart() { scrollToBottom(); },
     onToolResult(call, result) {
       renderFiles();

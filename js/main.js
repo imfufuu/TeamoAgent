@@ -17,7 +17,11 @@ const hooks = {
   onToolStart: (call) => ui && ui.onToolStart(call),
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
-  onTurnEnd: () => { ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); ui && ui.refreshBalance(); },
+  onTurnEnd: () => {
+    ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats(); ui && ui.refreshBalance();
+    // 回合结束后让 Agent 给这次会话起个标题（用户手改过的不会被覆盖；失败静默退回兜底标题）
+    ui && ui.autoTitle && ui.autoTitle();
+  },
   onThinkingFallback: (model) => toast(`${model} 不支持思考参数，本次会话已为其自动关闭思考模式`, 'warn', 5200),
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },

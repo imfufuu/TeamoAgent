@@ -1659,6 +1659,337 @@ test('Worker 侧 Pyodide API 名称与陈旧全局（回归锚点）', async () 
 });
 
 
+
+// ───────────────────────── 会话记录（入列时机 / 自动标题 / 一键清空）─────────────────────────
+const withLS = async (fn) => {
+  const realLS = globalThis.localStorage;
+  const mem = new Map();
+  globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+  try { return await fn(); } finally {
+    if (realLS === undefined) delete globalThis.localStorage; else globalThis.localStorage = realLS;
+  }
+};
+
+group('会话记录：入列时机 / 改名 / 一键清空');
+test('空草稿不进侧栏列表，有第一条消息后才入列', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.createSession();
+  assert.deepEqual(st.listableSessions().map((x) => x.title), [], '空会话不应出现在 listableSessions');
+  assert.ok(st.sortedSessions().length >= 1, 'sortedSessions 仍能看到草稿（切换/复用要用）');
+  st.pushMessage({ role: 'user', text: '把结果写到 out.txt' });
+  assert.equal(st.listableSessions().length, 1, '发出第一条消息后立刻入列');
+  assert.equal(st.state.title || st.listableSessions()[0].title, '把结果写到 out.txt'.slice(0, 24), '入列时先用首条消息截断兜底');
+  await drainSaves();
+}));
+test('ensureDraft 复用空草稿，不堆积 invisible 会话', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  const a = st.ensureDraft();
+  const b = st.ensureDraft();
+  assert.equal(a.id, b.id, '当前已是空会话时不应再造一个');
+  st.pushMessage({ role: 'user', text: '有内容了' });
+  const c = st.ensureDraft();
+  assert.notEqual(c.id, b.id, '已有内容 → 新建');
+  await drainSaves();
+}));
+test('clearAllSessions 只留一个空草稿并返回被删条数', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.pushMessage({ role: 'user', text: '会话一' });
+  st.state.files['a.txt'] = '1';
+  st.createSession();
+  st.pushMessage({ role: 'user', text: '会话二' });
+  const n = st.clearAllSessions();
+  assert.equal(n, 2, '两条有内容的会话被清掉');
+  assert.equal(st.state.sessions.length, 1, '留一个可用草稿');
+  assert.equal(st.state.messages.length, 0, '当前消息清空');
+  assert.deepEqual(st.state.files, {}, '会话记录里的文件也一并清掉');
+  assert.equal(st.listableSessions().length, 0);
+  await drainSaves();
+}));
+test('renameSession 记为 user 并拒绝空标题', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.pushMessage({ role: 'user', text: "「关于沙箱的一些问题」" });
+  const id = st.state.activeSessionId;
+  assert.equal(st.renameSession(id, '  '), false, '空标题不改名');
+  assert.equal(st.renameSession(id, '「沙箱读写」'), true);
+  const s = st.state.sessions.find((x) => x.id === id);
+  assert.equal(s.title, '沙箱读写', 'cleanTitle 去掉书名号');
+  assert.equal(s.titleSource, 'user');
+  assert.equal(s.titled, true);
+  await drainSaves();
+}));
+test('needsTitle 只在「有已完成的回答且没总结过」时为真', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.pushMessage({ role: 'user', text: '问题' });
+  const a = st.pushMessage({ role: 'assistant', text: '输出中', done: false });
+  assert.equal(st.needsTitle(), null, '回答还没结束，先不起标题');
+  st.updateMessage(a.id, { done: true });
+  assert.equal(st.needsTitle()?.question, '问题');
+  st.setAutoTitle(st.state.activeSessionId, '测试总结');
+  assert.equal(st.needsTitle(), null, '一个会话只总结一次');
+  await drainSaves();
+}));
+test('setAutoTitle 不覆盖用户改名，空结果只标记已尝试', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.pushMessage({ role: 'user', text: '问题' });
+  st.pushMessage({ role: 'assistant', text: '回答', done: true });
+  assert.equal(st.setAutoTitle(st.state.activeSessionId, '   '), false, '空标题不改内容');
+  assert.equal(st.state.sessions.find((x) => x.id === st.state.activeSessionId).titled, true, '但标记已尝试，避免每轮重复消耗');
+  const id = st.state.activeSessionId;
+  st.renameSession(id, '我自己起的名字');
+  assert.equal(st.setAutoTitle(id, 'Agent 又总结了'), false, '用户改过的名不许被覆盖');
+  assert.equal(st.state.sessions.find((x) => x.id === id).title, '我自己起的名字');
+  await drainSaves();
+}));
+
+group('titler：Agent 总结标题');
+test('summarizeTitle 只取第一行非空文本', async () => {
+  const t = await import('../js/titler.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => openaiTextTurn('\n\n「虚拟文件系统」\n\n补充说明：这段不该进标题');
+  try {
+    const got = await t.summarizeTitle({ apiKey: 'k', model: 'gpt-5.6-sol', question: 'q', answer: 'a' });
+    assert.equal(got, '「虚拟文件系统」', `实际得到：${JSON.stringify(got)}`);
+  } finally { globalThis.fetch = realFetch; }
+});
+test('autoTitle：无 Key 时不消耗也不标记', async () => withLS(async () => {
+  const t = await import('../js/titler.js');
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.pushMessage({ role: 'user', text: 'q' });
+  st.pushMessage({ role: 'assistant', text: 'a', done: true });
+  const r = await t.autoTitle(st, { summarize: async () => { throw new Error('不该被调用'); } });
+  assert.equal(r.reason, 'no-key');
+  assert.equal(st.needsTitle() !== null, true, '配好 Key 后下一轮还会重试');
+  await drainSaves();
+}));
+test('autoTitle：成功写回 auto 标题；失败标记已尝试', async () => withLS(async () => {
+  const t = await import('../js/titler.js');
+  const { createStore } = await import('../js/state.js?' + Date.now());
+  const st = createStore();
+  st.state.apiKey = 'sk-test';
+  st.state.model = 'gpt-5.6-sol';
+  st.pushMessage({ role: 'user', text: '帮我把π算到小数点后 50 位' });
+  const a = st.pushMessage({ role: 'assistant', text: '结果：3.14…', done: true });
+  let seen = null;
+  const ok = await t.autoTitle(st, { summarize: async (arg) => { seen = arg; return 'π 高精度计算'; } });
+  assert.equal(ok.ok, true);
+  assert.equal(seen.question, '帮我把π算到小数点后 50 位', '总结要拿到本轮问答');
+  assert.equal(st.state.sessions.find((x) => x.id === st.state.activeSessionId).title, 'π 高精度计算');
+  st.setAutoTitle(st.state.activeSessionId, ''); // 复位为「已尝试但无结果」
+  st.state.sessions.find((x) => x.id === st.state.activeSessionId).titled = false;
+  const bad = await t.autoTitle(st, { summarize: async () => { throw new Error('上游 500'); } });
+  assert.match(bad.reason, /failed: 上游 500/);
+  assert.equal(st.needsTitle(), null, '失败也不每轮重试（省 token）');
+  await drainSaves();
+}));
+
+group('net.js：抓取/搜索/git 的分层兜底');
+const htmlDoc = `<html><head><title>Pyodide &#8212; 浏览器里的 Python</title><style>.a{color:red}</style></head>
+<body><script>var x = 1 < 2;</script><h1>标题</h1><p>第一段 &amp; 实体 &#8212; 破折号</p><p>第二段</p><br><div>第三段</div></body></html>`;
+test('htmlToText 去标签/脚本/样式并解实体', async () => {
+  const net = await import('../js/net.js');
+  const txt = net.htmlToText(htmlDoc);
+  assert.ok(txt.includes('第一段 & 实体 — 破折号'), txt);
+  assert.ok(!txt.includes('var x') && !txt.includes('color:red'), 'script/style 内容必须丢掉');
+  assert.ok(!/<[a-z]/i.test(txt), '不应残留标签');
+  assert.equal(net.pageTitle(htmlDoc), 'Pyodide — 浏览器里的 Python');
+});
+test('slugFromUrl 生成安全的落盘名', async () => {
+  const net = await import('../js/net.js');
+  assert.equal(net.slugFromUrl('https://docs.example.com/a/b/c.md?x=1#y'), 'docs.example.com/c.md');
+  assert.match(net.slugFromUrl('not a url'), /^page\/index$/);
+});
+const jsonResponse = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json' } });
+const withNetFetch = async (handler, fn) => {
+  const net = await import('../js/net.js');
+  const real = globalThis.fetch;
+  net.resetRelayProbe();
+  globalThis.fetch = (url, opts) => handler(String(url), opts || {});
+  try { return await fn(net); } finally { globalThis.fetch = real; net.resetRelayProbe(); }
+};
+const NO_RELAY = { '/api/health': () => new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } }) };
+test('无中继时搜索退回 DDG Instant Answer', async () => {
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return NO_RELAY['/api/health']();
+    assert.ok(url.includes('api.duckduckgo.com'), `不该打别的搜索端点：${url}`);
+    return jsonResponse({ Heading: 'Pyodide', RelatedTopics: [{ Text: 'Pyodide 是浏览器里的 Python 运行时', FirstURL: 'https://pyodide.org' }] });
+  }, async (net) => {
+    const r = await net.webSearch({ query: 'Pyodide', count: 5 });
+    assert.equal(r.provider, 'duckduckgo-instant');
+    assert.equal(r.results.length, 1);
+    assert.match(r.note, /本地中继|python3 server\.py/, '降级要说明清楚');
+  });
+});
+test('搜索无结果时不编造，给出下一步建议', async () => {
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({ RelatedTopics: [] })),
+    async (net) => {
+      const r = await net.webSearch({ query: '某个非常冷门的查询' });
+      assert.deepEqual(r.results, []);
+      assert.match(r.note, /fetch_url|python3 server\.py/);
+    });
+});
+test('有中继时搜索走中继（provider/结果透传）', async () => {
+  let hit = '';
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, git: true, search: true });
+    hit = url;
+    return jsonResponse({ provider: 'brave', results: [{ title: 'T1', url: 'https://a.test/1', snippet: 'S1' }], note: '' });
+  }, async (net) => {
+    const r = await net.webSearch({ query: 'x y', count: 3 });
+    assert.equal(r.provider, 'brave');
+    assert.match(hit, /\/api\/search\?q=x%20y&count=3/, hit);
+  });
+});
+test('fetch_url 只接受 http(s) 绝对地址', async () => {
+  await withNetFetch(async () => { throw new Error('不该发请求'); }, async (net) => {
+    for (const bad of ['ftp://x/y', 'example.com', '/etc/passwd', '']) {
+      const r = await net.fetchPage({ url: bad });
+      assert.equal(r.ok, false, `${bad} 应被拒绝`);
+      assert.match(r.error, /只接受 http\(s\) 绝对地址/);
+    }
+  });
+});
+test('fetch_url 直连抓 HTML：去标签 + 长文写入沙箱（savePath 生效）', async () => {
+  const { createFS } = await import('../js/sandbox.js');
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return NO_RELAY['/api/health']();
+    // 1500×5=7500 字符：超过落盘阈值(2000)也超过预览上限(6000)，两个分支一起验
+    return new Response('<html><body><p>' + '正文内容。'.repeat(1500) + '</p></body></html>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+  }, async (net) => {
+    const fs = createFS();
+    const r = await net.fetchPage({ url: 'https://example.com/doc.html', fs, savePath: 'web/自定义/页面.md' });
+    assert.equal(r.ok, true);
+    assert.ok(r.chars > 2000, `字符数应超过阈值：${r.chars}`);
+    assert.equal(r.savedTo, 'web/自定义/页面.md');
+    assert.ok(fs.read('web/自定义/页面.md').includes('正文内容。'), '全文要能在沙箱里读到');
+    assert.match(r.preview, /全文已写入沙箱/, '预览里指出全文落盘位置');
+  });
+});
+test('fetch_url 命中二进制/JS 渲染页面时给出可读原因', async () => {
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return NO_RELAY['/api/health']();
+    return new Response('PK\u0003\u0004', { status: 200, headers: { 'content-type': 'application/zip', 'content-length': '4' } });
+  }, async (net) => {
+    const r = await net.fetchPage({ url: 'https://example.com/a.zip' });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /不是文本/);
+  });
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : new Response('   ', { status: 200, headers: { 'content-type': 'text/html' } })),
+    async (net) => {
+      const r = await net.fetchPage({ url: 'https://example.com/spa' });
+      assert.equal(r.ok, false);
+      assert.match(r.error, /mode="markdown"/, '空页面要提示可换 markdown 模式');
+    });
+});
+test('run_git：无中继明确拒绝（浏览器执行不了外部程序）', async () => {
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({})), async (net) => {
+    const r = await net.gitRun({ command: 'git status' });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /需要本地中继/);
+    assert.match(r.error, /python3 server\.py/);
+  });
+});
+test('run_git：中继回退出码非 0 时算失败但保留输出', async () => {
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, git: true });
+    assert.equal(url, '/api/git');
+    return jsonResponse({ code: 128, cwd: 'workspace', stdout: '', stderr: 'fatal: not a git repository' });
+  }, async (net) => {
+    const r = await net.gitRun({ command: 'git status', repo: 'x' });
+    assert.equal(r.ok, false);
+    assert.equal(r.code, 128);
+    assert.match(r.text, /fatal: not a git repository/);
+  });
+});
+test('run_git：POST 体带 command/repo/timeout 且成功判定看退出码', async () => {
+  let sent = null;
+  await withNetFetch(async (url, opts) => {
+    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, git: true });
+    sent = JSON.parse(opts.body);
+    return jsonResponse({ code: 0, cwd: 'workspace/demo', stdout: 'On branch main', stderr: '' });
+  }, async (net) => {
+    const r = await net.gitRun({ command: 'git status', repo: 'demo', timeoutSec: 8 });
+    assert.equal(r.ok, true);
+    assert.deepEqual(sent, { command: 'git status', repo: 'demo', timeout: 8 });
+    assert.match(r.text, /On branch main/);
+  });
+});
+
+group('工具层：三个新工具的对外契约');
+test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
+  const byName = Object.fromEntries(TOOL_DEFS.map((t) => [t.name, t]));
+  for (const n of ['web_search', 'fetch_url', 'run_git']) assert.ok(byName[n], `缺少工具 ${n}`);
+  assert.deepEqual(byName.web_search.parameters.required, ['query']);
+  assert.deepEqual(byName.fetch_url.parameters.required, ['url']);
+  assert.ok(byName.run_git.parameters.required.includes('command'));
+  assert.ok(/git /.test(byName.run_git.description), '描述里要写清 git 走本地中继');
+  assert.ok(TOOL_DEFS.length >= 12, `工具总数：${TOOL_DEFS.length}`);
+});
+test('系统提示词提到了三个新工具（漂移守卫）', async () => {
+  const sp = cfg.systemPrompt();
+  for (const kw of ['web_search', 'fetch_url', 'run_git']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
+  assert.match(sp, /先查再答|查不到/, '要有「查不到就明说」的自主性规则');
+});
+test('executeTool(web_search) 输出编号列表并回报状态', async () => {
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return jsonResponse({ ok: true, search: true });
+    return jsonResponse({ provider: 'tavily', results: [{ title: 'A', url: 'https://a.test', snippet: 'sa' }, { title: 'B', url: 'https://b.test', snippet: '' }] });
+  }, async () => {
+    const ev = [];
+    const out = await executeTool('web_search', { query: 'x', count: 5 }, { fs: createFS(), onUi: (p) => ev.push(p) });
+    assert.match(out, /^\[搜索结果 · tavily · 2 条\]/, out.slice(0, 60));
+    assert.ok(out.includes('1. A\n   https://a.test\n   sa'), out);
+    assert.equal(ev[0].status, 'running');
+    assert.match(ev[1].note, /2 条结果（tavily）/);
+  });
+});
+test('executeTool(web_search) 缺 query / 无结果都不抛错', async () => {
+  assert.match(await executeTool('web_search', {}, { fs: createFS() }), /缺少 query/);
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({ RelatedTopics: [] })), async () => {
+    let err = null;
+    const out = await executeTool('web_search', { query: '冷门问题' }, { fs: createFS(), onUi: (p) => { if (p.status === 'error') err = p.error; } });
+    assert.match(out, /^\[搜索无结果\] 冷门问题/, out);
+    assert.ok(err && err.message, '芯片要显示错误说明');
+  });
+});
+test('executeTool(fetch_url) 用 save_path 落盘并在芯片里标记 fsChange', async () => {
+  await withNetFetch(async (url) => {
+    if (url.startsWith('/api/health')) return NO_RELAY['/api/health']();
+    return new Response('<h1>Doc</h1>' + '<p>段落</p>'.repeat(700), { status: 200, headers: { 'content-type': 'text/html' } });
+  }, async () => {
+    const fs = createFS();
+    const ev = [];
+    const out = await executeTool('fetch_url', { url: 'https://example.com/d', save_path: 'web/notes.md' }, { fs, onUi: (p) => ev.push(p) });
+    assert.match(out, /^\[抓取完成\] https:\/\/example\.com\/d/, out.slice(0, 80));
+    assert.ok(fs.read('web/notes.md').includes('段落'), 'save_path 必须真的生效');
+    assert.ok(ev.some((p) => p.fsChange === true), '芯片要告知文件面板刷新');
+  });
+});
+test('executeTool(fetch_url) 失败时返回可读原因（不抛）', async () => {
+  const out = await executeTool('fetch_url', { url: 'javascript:alert(1)' }, { fs: createFS(), onUi: () => {} });
+  assert.match(out, /^fetch_url 失败：/, out);
+});
+test('executeTool(run_git) 无中继时返回带修复说明的失败', async () => {
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({})), async () => {
+    const ev = [];
+    const out = await executeTool('run_git', { command: 'git status' }, { fs: createFS(), onUi: (p) => ev.push(p) });
+    assert.match(out, /^run_git 失败：git 命令需要本地中继/, out.slice(0, 40));
+    assert.equal(ev[ev.length - 1].status, 'error');
+    assert.match(ev[ev.length - 1].error.message, /python3 server\.py/);
+  });
+});
+test('三个新工具在关闭沙箱时依然可用（它们不依赖 Worker）', async () => {
+  const names = (await import('../js/tools.js')).toolsFor(false).map((t) => t.name);
+  for (const n of ['web_search', 'fetch_url', 'run_git']) assert.ok(names.includes(n), `关沙箱后 ${n} 不应被摘掉`);
+  assert.ok(!names.includes('execute_python'), '代码执行工具仍应被摘掉');
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }

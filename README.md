@@ -70,7 +70,8 @@ context.js    上下文预算与分级压缩（历史工具结果先收紧，本
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
-**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）。
+**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）、
+`web_search` / `fetch_url`（联网检索与抓取，抓取正文可自动落进虚拟文件系统）、`run_git`（在本地中继的 `workspace/` 内执行 git）。
 
 ## 子智能体（18 个专家，`dispatch_subagent` 委派）
 
@@ -86,6 +87,49 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 | 设计 | software-architect 架构 · api-designer API 设计 · prompt-engineer 提示词 |
 | 数据 | data-analyst 数据分析 · mathematician 数学 · sql-expert SQL · regex-expert 正则 |
 | 内容 | doc-writer 文档 · translator 翻译 · copywriter 文案 · explainer 讲解 · brainstormer 头脑风暴 |
+
+## 网络能力：搜索 / 抓取 / git（`web_search` · `fetch_url` · `run_git`）
+
+浏览器里没有跨域抓取能力，所以这三件事按可用性**分层兜底**，而不是假装能用：
+
+| 层 | 条件 | 效果 |
+| -- | ---- | ---- |
+| ① 本地中继 `server.py` | 同源端口在跑 | `web_search` 走 Brave / Tavily / Serper（配了哪个用哪个），`fetch_url` 抓任意页面（`mode=markdown` 用 `r.jina.ai` 正文抽取器），`run_git` 执行真 git |
+| ② 浏览器直连 | 只有 Pages 静态托管 | `web_search` 退回 DuckDuckGo Instant Answer（`api.duckduckgo.com` 允许跨域，百科/定义类查询有效）；`fetch_url` 直接 `fetch()` 目标 URL（站点须允许 CORS）；`run_git` **不可用**，工具会回一句怎么修 |
+| ③ 全部失败 | — | 返回可读原因 + 修复步骤，绝不返回编造结果 |
+
+```bash
+python3 server.py 8787                 # 默认开启 git（只在 ./workspace 里跑）
+python3 server.py --no-git             # 只留搜索/抓取
+python3 server.py --workspace ~/code   # 换工作区（git 的根，越界一律拒绝）
+TEAMO_BRAVE_KEY=bk-xxx TEAMO_TAVILY_KEY=tvly-xxx python3 server.py   # 任一即可，都没有则退回 DDG
+```
+
+中继端点：`GET /api/health`（前端据此决定走哪层）、`GET /api/search?q=&count=`、
+`GET /api/fetch?url=&mode=text|markdown|raw&max=`、`POST /api/git {command,repo,timeout}`。
+
+安全边界（`tests/server_checks.py` 44 项护栏自检覆盖）：
+
+- 子命令白名单 + 参数黑名单（`-c/--git-dir/--work-tree/--upload-pack/--ext::/…`），
+  `GIT_CEILING_DIRECTORIES` 把仓库定位钉死在 `workspace/` 内，`GIT_TERMINAL_PROMPT=0` 不弹账号密码；
+  `config` 只允许白名单里的本仓库键，`--global/--file/alias.*` 一律拒绝；
+- `/api/search`、`/api/fetch` 与 `/api/git` 的 URL 都过 `guard_public_http_url`：只允许公网 http(s)，
+  loopback / 私网 / 链路本地（含 `169.254.169.254`）直接拒，防中继当 SSRF 跳板；
+- 抓取上限 4 MB（`max` 可再调小），返回文本按 `max_bytes` 截断，`fetch_url` 超过 2000 字符时把全文
+  写进 `web/<host>/<slug>.md`（或模型指定的 `save_path`），对话里只给 6000 字符预览 + 落盘路径。
+
+`workspace/` 已进 `.gitignore`：Agent 在里面 clone / 改文件不会污染本项目仓库。
+
+## 会话记录（自动标题 / 手动改名 / 一键清空）
+
+- **第一条消息发出后才入列**：`store.listableSessions()` 只列有消息的会话；反复点「＋ 新建」会复用
+  当前空草稿（`ensureDraft()`），不会在 localStorage 里堆一串看不见的空会话。
+- **标题由 Agent 总结**：回合结束后 `js/titler.js` 发一次独立的小调用（不带对话历史与工具）起标题，
+  总结期间先用「首条消息截断」兜底。每会话只尝试一次（`titled` 标记），失败也标记，避免每轮重复消耗 token。
+- **用户手改优先**：侧栏 ✎（或双击标题）就地改名 → `titleSource='user'`，自动总结此后不再覆盖。
+- **一键清空**：侧栏「清空」按钮删除全部会话（消息 / 检查点 / 各自的文件系统），带确认框，返回被删条数。
+- **操作条只在输出结束后出现**：复制 / 回滚 / 重新生成在流式与工具执行期间整体隐藏
+  （`.msg.actions-pending`），本轮末尾的 assistant 与对应 user 消息各显示一次；三个按钮统一 SVG + 中文。
 
 ## 思考模式（默认开启）
 
@@ -146,6 +190,8 @@ js/config.js      端点 / 协议路由 / 兜底模型表 / 系统提示词
 js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代理兜底）
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
+js/net.js         搜索 / 抓取 / git 的传输分层（中继 → 直连 → 明确失败）与 HTML→文本纯函数
+js/titler.js      会话标题自动总结（独立小调用，不写进对话历史；新模块避免混版缓存的 link 期白屏）
 js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包 / 单目录下载
 js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总、折叠展开）
 js/config.js      常量与模型目录（含 APP_VERSION：入口资源 ?v= 的单一真源）
@@ -154,11 +200,14 @@ js/icons.js       供应商品牌 Logo + 界面线性图标（currentColor，随
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
-server.py         静态服务 + 流式 API 代理（兜底通道；默认仅绑定 127.0.0.1）
-tests/            agent.test.mjs（116 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 /
+server.py         静态服务 + 流式 API 代理（兜底通道）+ /api/{health,search,fetch,git} 本地中继
+                  （默认仅绑定 127.0.0.1；git 只在 ./workspace 内执行）
+tests/            agent.test.mjs（144 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
                   Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
                   生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义）
-                  dom-smoke.mjs（95 项）· app-boot.mjs（26 项）· pyodide-worker.test.mjs（5 项）
+                  dom-smoke.mjs（122 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局）
+                  app-boot.mjs（36 项）· pyodide-worker.test.mjs（5 项）
+                  server_checks.py（44 项：git 参数白名单 / SSRF / HTML 抽取护栏，纯 stdlib）
 ```
 
 真实网关系统测试（会实际调用 `/v1/images/*` 并产生费用，默认跳过）：
@@ -172,7 +221,7 @@ npm run test:live     # = live-smoke（协议层）+ live-check（图像与工�
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
 `report.json` 输出到 `/tmp/teamo-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
 
-四层离线测试（后三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
+五层离线测试（DOM / app-boot / pyodide 三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
 
 ```bash
 npm test              # tests/agent.test.mjs：解析/状态机/纯函数（无 DOM）
@@ -181,7 +230,8 @@ npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹�
                       #                       → 发送 → 工具调用 → 文件面板目录树 → 关沙箱后委派
 npm run test:pyodide  # tests/pyodide-worker.test.mjs：Node 里用薄垫片直接跑真实 js/worker-py.js
                       # （npm i -D pyodide@0.26.4）：FILES 回写 / result 捕获 / 陈旧全局
-npm run test:all      # 前三连
+npm run test:server   # tests/server_checks.py：中继护栏（git 白名单 / SSRF / HTML 抽取），纯 stdlib 无需 node
+npm run test:all      # 前四连（含 server_checks）
 ```
 
 `test:app` 是唯一覆盖「入口装配 + hook 接线」的一层：混版缓存、hook 缺失这类故障在纯函数

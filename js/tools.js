@@ -3,6 +3,7 @@ import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js'
 import { generateImage, editImage, bytesToDataUrl, sniffImage } from './api.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
+import { webSearch, fetchPage, gitRun } from './net.js';
 
 export const TOOL_DEFS = [
   {
@@ -96,6 +97,54 @@ export const TOOL_DEFS = [
         },
       },
       required: ['prompt'],
+    },
+  },
+  {
+    name: 'web_search',
+    description:
+      '联网搜索关键词，返回标题/链接/摘要列表。用于拿最新信息、找文档出处、确认第三方库版本与行为。' +
+      '优先走本地中继（server.py 的 /api/search，通用搜索引擎结果）；静态托管下会自动降级为 DuckDuckGo Instant Answer' +
+      '（百科/定义/产品概述类效果好，长尾可能为空——为空时请改用 fetch_url 抓你已知的网址）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: '搜索词（尽量具体，可带 site: 或年份等限定词）' },
+        count: { type: 'integer', enum: [1, 3, 5, 6, 8, 10], description: '返回条数，默认 6' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'fetch_url',
+    description:
+      '抓取一个 http(s) 网址并转成正文文本（或 markdown / 原始 HTML）。用于读文档、CHANGELOG、issue、API 响应。' +
+      '长内容会自动写入沙箱 web/ 目录（可用 read_file 续读，也能交给子智能体），返回值给前 6000 字符预览。' +
+      '跨域限制下部分站点必须由本地中继代抓，失败信息里会说明原因。',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '完整网址（含 http:// 或 https://）' },
+        mode: { type: 'string', enum: ['text', 'markdown', 'raw'], description: 'text=去标签正文（默认）；markdown=正文抽取器；raw=原始 HTML/JSON' },
+        max_bytes: { type: 'integer', description: '最多抓取字节数，默认 2000000，上限 4000000' },
+        save_path: { type: 'string', description: '可选：把全文写到沙箱的指定路径（默认 web/<host>/<slug>.md）' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'run_git',
+    description:
+      '在本机工作区（server.py 所在目录的 ./workspace/）里执行 git 命令：可 clone/pull 仓库、status/diff/log 查看、' +
+      'add/commit 提交，也可 push（凭据由本机 git 配置提供，网站不接触）。服务端只允许 git 子命令白名单，' +
+      '不经过 shell，因此不能拼接管道或重定向。需要静态托管环境无法执行外部程序时，工具会明确说明并提示启动本地中继。',
+    parameters: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: '完整 git 命令，如 "git clone https://github.com/x/y.git" 或 "git log --oneline -5"' },
+        repo: { type: 'string', description: '可选：workspace 下的子目录名（仓库目录），默认在 workspace 根执行' },
+        timeout_sec: { type: 'integer', description: '超时秒数，默认 25，最大 120' },
+      },
+      required: ['command'],
     },
   },
   {
@@ -198,6 +247,45 @@ export async function executeTool(name, args, ctx) {
         const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
         emit({ status: 'ok', note: msg });
         return msg;
+      }
+      case 'web_search': {
+        const q = String(args.query || '').trim();
+        if (!q) return 'web_search 缺少 query 参数。';
+        emit({ status: 'running', note: `搜索：${q.slice(0, 40)}` });
+        const r = await webSearch({ query: q, count: Number(args.count) || 6, signal: ctx.signal });
+        if (!r.results.length) {
+          emit({ status: 'error', error: { message: r.note || '无结果' } });
+          return `[搜索无结果] ${q}\n${r.note || ''}`;
+        }
+        emit({ status: 'ok', note: `${r.results.length} 条结果（${r.provider}）` });
+        const lines = r.results.map((x, i) => `${i + 1}. ${x.title}\n   ${x.url}${x.snippet ? `\n   ${x.snippet}` : ''}`);
+        return `[搜索结果 · ${r.provider} · ${r.results.length} 条]\n${lines.join('\n')}${r.note ? `\n\n说明：${r.note}` : ''}\n提示：需要页面正文请用 fetch_url。`;
+      }
+      case 'fetch_url': {
+        emit({ status: 'running', note: `抓取 ${String(args.url || '').slice(0, 50)}` });
+        const r = await fetchPage({
+          url: args.url, mode: args.mode, maxBytes: args.max_bytes, signal: ctx.signal, fs,
+          // 模型指定的落盘路径同样要过路径归一（防 ../ 跑出沙箱语义、吃掉绝对路径）
+          savePath: args.save_path ? normalizeFsPath(args.save_path) : '',
+        });
+        if (!r.ok) {
+          emit({ status: 'error', error: { message: r.error } });
+          return `fetch_url 失败：${r.error}`;
+        }
+        emit({ status: 'ok', fsChange: !!r.savedTo, note: `${r.status || ''} ${(r.chars / 1024).toFixed(1)}K${r.savedTo ? ` → ${r.savedTo}` : ''}` });
+        return `[抓取完成] ${r.url}（HTTP ${r.status || '?'} · ${r.contentType || '未知类型'} · ${r.chars} 字符${r.savedTo ? ` · 全文已存 ${r.savedTo}` : ''}）${r.note ? `\n说明：${r.note}` : ''}\n\n${r.preview}`;
+      }
+      case 'run_git': {
+        emit({ status: 'running', note: String(args.command || 'git').slice(0, 46) });
+        const r = await gitRun({ command: args.command, repo: args.repo, timeoutSec: args.timeout_sec, signal: ctx.signal });
+        if (!r.ok) {
+          const msg = r.error || `git 退出码 ${r.code}\n${r.text}`;
+          emit({ status: 'error', error: { message: String(msg).slice(0, 300) } });
+          return r.error ? `run_git 失败：${r.error}` : `[git 退出码 ${r.code}]（${r.cwd || 'workspace'}）\n${r.text}${r.note ? `\n${r.note}` : ''}`;
+        }
+        emit({ status: 'ok', note: `git 完成（${(r.text || '').length} 字符）` });
+        const body = r.text.length > 8000 ? `${r.text.slice(0, 6000)}\n…（git 输出过长，中间省略 ${r.text.length - 7000} 字符；可加 --oneline/-n 限制）\n${r.text.slice(-1000)}` : r.text;
+        return `[git] ${String(args.command).slice(0, 120)}\n目录：${r.cwd || 'workspace'} · 退出码 0${r.note ? ` · ${r.note}` : ''}\n\n${body}`;
       }
       case 'dispatch_subagent': {
         if (!ctx.dispatch) return '子智能体调度器不可用。';

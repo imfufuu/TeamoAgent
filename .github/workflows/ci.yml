@@ -21,6 +21,8 @@ jobs:
         run: node tests/agent.test.mjs
       - name: 服务端语法检查
         run: python3 -m py_compile server.py
+      - name: 本地中继护栏自检（git 白名单 / SSRF / HTML 抽取）
+        run: python3 tests/server_checks.py
       - name: 前端模块语法检查
         run: |
           for f in js/*.js; do node --check "$f" || exit 1; done

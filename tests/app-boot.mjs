@@ -59,6 +59,12 @@ globalThis.fetch = async (url, opts) => {
   if (!/\/v1\/(chat\/completions|messages)$/.test(u)) {
     return new Response(JSON.stringify({ data: [{ id: 'gpt-5.6-sol' }, { id: 'claude-sonnet-5' }], balance: 12.5, quota: 100, used: 2 }), { status: 200, headers: { 'content-type': 'application/json' } });
   }
+  // 标题总结是独立的小调用（不进对话历史）：桩网关直接回一个标题，避免占用回合计数
+  let isTitleTurn = false;
+  try { isTitleTurn = String(JSON.parse(opts.body).messages?.[0]?.content || '').includes('给下面这轮对话起一个标题'); } catch { /**/ }
+  if (isTitleTurn) {
+    return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: '沙箱算质数与 π' } }] })}\n\ndata: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  }
   const anthropic = u.includes('/v1/messages');
   // 子智能体的首轮请求只有 system+user，system 里一定带「TeamoAgent 体系中的」
   let isSubTurn = false;
@@ -167,8 +173,10 @@ ok('沙箱开关切换生效（按钮回到未激活态）', !$('#sandbox-toggle
 $('#composer-input').value = '让代码审查员看看这段逻辑';
 click($('#send-btn'));
 await tick(1400);
-const subReqs = reqs.slice(2);
-const mainReq = subReqs.find((r) => !String(r.body.messages?.[0]?.content || '').includes('体系中的'));
+// 只挑「主回合」请求：子智能体的请求 system 里有「体系中的」，起标题的小调用只有 1 条消息
+const isMainReq = (r) => (r.body.messages?.length || 0) > 1 && !String(r.body.messages?.[0]?.content || '').includes('体系中的')
+  && !String(r.body.messages?.[0]?.content || '').includes('起一个标题');
+const mainReq = reqs.filter(isMainReq).pop();
 const toolNames = (mainReq.body.tools || []).map((t) => t.function.name);
 ok('关沙箱后请求里仍有 dispatch_subagent', toolNames.includes('dispatch_subagent'), toolNames.join(','));
 ok('关沙箱后不再下发代码执行工具', !toolNames.includes('execute_python') && !toolNames.includes('execute_javascript'), toolNames.join(','));
@@ -178,6 +186,33 @@ ok('委派芯片出现并标记成功', chips2.some((t) => /dispatch_subagent/.t
 const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ');
 ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
 ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
+
+console.log('\n会话记录：入列时机 / 自动标题 / 一键清空');
+ok('第一条消息发出后会话进入侧栏', $$('#session-list .sess-item').length === 1, `${$$('#session-list .sess-item').length} 条`);
+for (let i = 0; i < 40 && $$('#session-list .sess-title')[0]?.textContent !== '沙箱算质数与 π'; i++) await tick(50);
+ok('Agent 自动总结出的标题已上屏（覆盖首条消息截断的兜底名）', $$('#session-list .sess-title')[0]?.textContent === '沙箱算质数与 π', $$('#session-list .sess-title')[0]?.textContent);
+await tick(400); // 持久化是 300ms 防抖，等一下再核对落盘内容
+ok('自动标题写进持久化状态并标记 auto', (() => {
+  const raw = window.localStorage.getItem('teamo-agent-state-v1-v2');
+  const st = raw ? JSON.parse(raw) : null;
+  const sess = st?.sessions?.find((x) => x.id === st.activeSessionId);
+  return sess?.title === '沙箱算质数与 π' && sess?.titleSource === 'auto' && sess?.titled === true;
+})(), JSON.stringify(Object.keys(JSON.parse(window.localStorage.getItem('teamo-agent.state-v2') || '{}'))));
+const titleReq = reqs.find((r) => String(r.body.messages?.[0]?.content || '').includes('起一个标题'));
+ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !titleReq.body.tools && titleReq.body.messages.length === 1, titleReq ? `${titleReq.body.messages.length} 条消息` : '未发起');
+globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis
+click($('#clear-sessions'));
+await tick(30);
+ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
+ok('清空后对话区回到空状态示例', $$('#messages .empty-state .suggest').length === 3 && !$$('#messages .msg-assistant').length);
+
+console.log('\n网络与 git 工具（无中继时的降级说明）');
+{
+  const tools = await import(path.join(ROOT, 'js/tools.js'));
+  const names = tools.TOOL_DEFS.map((t) => t.name);
+  for (const n of ['web_search', 'fetch_url', 'run_git']) ok(`工具已注册：${n}`, names.includes(n));
+  ok('关沙箱也保留网络与 git 工具', tools.toolsFor(false).map((t) => t.name).includes('fetch_url'));
+}
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\n应用装配冒烟全部通过 ✅');
 process.exit(failures ? 1 : 0);

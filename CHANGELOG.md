@@ -2,6 +2,66 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（六项体验与能力）会话记录自动整理 + 联网检索 + 本地 git
+
+按用户提出的 6 点逐条落地：4 项是会话记录与操作条的体验，1 项是能力（搜索 / 抓取 / git），1 项是面板排版。
+
+### 1. 一键清除所有会话记录
+`store.clearAllSessions()` 删掉全部会话（消息 / 检查点 / 各自的虚拟文件系统），只留一个可用草稿，
+返回被删条数；侧栏「会话记录」标题行新增 清空 按钮（SVG 垃圾桶 + 中文），破坏性操作走 `confirm` 并在
+回合进行中拒绝执行。
+
+### 2. 新对话发出第一条消息后才入列
+侧栏改用 `store.listableSessions()`（只列 `messages.length > 0` 的会话），空列表时给一句引导语而不是空白；
+「＋ 新建」换成 `store.ensureDraft()` —— 当前已经是空会话时直接复用，不再往 localStorage 堆一串
+看不见却会累积的空草稿。
+
+### 3. 标题由 Agent 自动总结，也可手动改
+- 每轮结束（`onTurnEnd`）触发一次**独立的小调用**做标题总结：不带对话历史、不带工具、结果不写回消息数组，
+  所以不污染上下文也不占用工具循环预算；总结完成前显示「首条消息截断」的兜底名。
+- 每会话只尝试一次（`titled` 标记）；无 Key 时不消耗、等下一轮再试；调用失败也标记为已尝试，避免每轮重复花钱。
+- 用户改名（侧栏 ✎ 就地编辑，Enter 提交 / Esc 取消，或双击标题）写入 `titleSource='user'`，
+  自动总结此后**永不覆盖**；自动写入的标题标 `titleSource='auto'`。
+- 之所以是新的 `js/titler.js` 而不是给 `api.js` 加一个具名导出再被 `ui.js` import：Pages 对子资源有缓存，
+  「新 ui.js + 旧 api.js」的混版组合会让新增具名导入在 ESM link 期直接报错 → 整页白屏；
+  新文件没有旧缓存可比对，它只 import `api.js` 里早已存在的 `streamChat`。
+
+### 4. 复制 / 回滚 / 重新生成：输出结束才显示，复制补图标
+`refreshActionVisibility()` 重写为「按轮判定」：本轮只要有任一 assistant 消息 `done !== true`，
+或整体仍处于 busy（流式、工具执行、子智能体在跑），该轮的 user 与 assistant 操作条统一加
+`.actions-pending` 隐藏；回合完成（`setStatus('done')` / `onAssistantDone`）时立刻刷新。
+「重新生成」只给整个会话最后一条 assistant。三个按钮统一 SVG + 中文（复制 / 回滚 / 重新生成），
+`copy` 不再是没有图标的纯文字；剪贴板被拒时给可读提示而不是静默失败。
+
+### 5. 联网检索、抓取网页与 git
+新增 3 个工具（`js/net.js` 负责传输，`server.py` 负责中继）：
+
+| 工具 | 中继在跑 | 只有 Pages |
+| ---- | -------- | ---------- |
+| `web_search` | Brave / Tavily / Serper（有哪个用哪个），都没有则 DDG HTML 兜底 | DDG Instant Answer（明确标注覆盖有限） |
+| `fetch_url` | 抓任意 URL，`mode=markdown` 走 r.jina.ai 正文抽取 | 浏览器直连（站点需允许 CORS） |
+| `run_git` | 在 `./workspace/` 内执行真 git | 不假装可用：返回「请先跑 `python3 server.py`」 |
+
+端点：`GET /api/health`、`GET /api/search`、`GET /api/fetch`、`POST /api/git`（`do_OPTIONS` 一律 405，
+不给这个能力开 CORS 预检面）。安全护栏：子命令白名单 + 参数黑名单 + `GIT_CEILING_DIRECTORIES`
+钉死工作区 + `GIT_TERMINAL_PROMPT=0` + `config` 只允许白名单内的本仓库键；URL 侧 `guard_public_http_url`
+拒绝 loopback / 私网 / 链路本地 / 保留地址（防 SSRF 跳板）。系统提示词同步说明三个工具的用法与
+「先查再答、查不到就明说」的自主性规则。抓取全文超 2000 字符自动落盘 `web/<host>/<slug>.md`
+（或模型指定的 `save_path`，路径同样过 `normalizeFsPath`），对话里只回 6000 字符预览 + 路径。
+
+### 6. 虚拟文件系统面板排版
+「X 个文件 · X 个目录 · X K」+ ZIP + 清空 收进第二行（`.files-bar`，左右分布），标题独占第一行，
+统计不再被按钮挤掉；清空按钮补 `title` 说明它清的是文件而不是会话。
+
+### 测试与文档
+单测 116 → **144**（会话入列 / `ensureDraft` / `clearAllSessions` / 改名与 `setAutoTitle` 覆盖规则 /
+`needsTitle` 触发条件 / `htmlToText`·`pageTitle`·`slugFromUrl` / 搜索与抓取的分层兜底与失败文案 /
+`run_git` 中继请求体与退出码判定 / 三个新工具在关沙箱时仍可用 / 提示词漂移守卫），
+DOM 冒烟 95 → **122**，app-boot 26 → **36**（含真实 `main.js` 链路：起标题是独立请求、自动标题落盘、
+一键清空后回到空状态示例），并新增**第五层** `tests/server_checks.py`（**44** 项，纯 stdlib，已进 CI）
+覆盖 git 参数与 SSRF 护栏。README 补「网络能力」「会话记录」两节，`npm run test:all` 变四连。
+入口资源与 `APP_VERSION` 同步升到 `2026.09.21.5`。
+
 ## 2026-09-21（全局审查）子智能体自主化 + 缺陷与冗余清理
 
 对整个项目（`js/` 全部模块 + `server.py` + `index.html` + 三层测试）通读审查：修掉 6 个真实缺陷、

@@ -40,6 +40,16 @@ export const ICON = {
   image: ico('<rect x="3" y="3" width="18" height="18" rx="2.2"/><circle cx="8.8" cy="8.8" r="1.8"/><path d="m4.5 18.5 4.6-4.6a1.8 1.8 0 0 1 2.55 0l5.35 5.35"/><path d="M14.5 14.2l1.7-1.7a1.8 1.8 0 0 1 2.55 0l1.75 1.75"/>'),
   chevRight: ico('<path d="m9.5 5.5 6.5 6.5-6.5 6.5"/>'),
   x: ico('<path d="M6 6 18 18"/><path d="M18 6 6 18"/>'),
+  // 消息操作条 / 侧栏按钮（同一 24 视图 + 1.9 描边，与 pill 一致）
+  copy: ico('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M15 5.5A2.5 2.5 0 0 0 12.5 3H6a3 3 0 0 0-3 3v6.5A2.5 2.5 0 0 0 5.5 15"/>'),
+  rollback: ico('<path d="M4 9h11.5a4.5 4.5 0 0 1 0 9H9"/><path d="m8 5-4 4 4 4"/>'),
+  regen: ico('<path d="M20.5 12a8.5 8.5 0 1 1-2.6-6.1"/><path d="M20.5 4.2V9h-4.8"/>'),
+  pencil: ico('<path d="M4 20h4.2l10-10a2.1 2.1 0 0 0-3-3l-10 10Z"/><path d="m14.5 5.5 4 4"/>'),
+  trash: ico('<path d="M4 7h16"/><path d="M9.5 7V4.8h5V7"/><path d="M6.5 7l.9 12.1A1.5 1.5 0 0 0 8.9 20.4h6.2a1.5 1.5 0 0 0 1.5-1.3L17.5 7"/>'),
+  plus: ico('<path d="M12 5v14"/><path d="M5 12h14"/>'),
+  search: ico('<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>'),
+  globe: ico('<circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/>'),
+  git: ico('<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="12" r="2.5"/><path d="M6.5 9v6"/><path d="M9 6.5h3.5a2 2 0 0 1 2 2v1.5"/><path d="M9 17.5h3.5a2 2 0 0 0 2-2V14"/>'),
 };
 
 export function providerIcon(provider) {

@@ -8,6 +8,9 @@ function newSession(title = '', model = '', imageModel = '') {
   return { id: uid(), title, model, imageModel, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {}, stats: { lastMs: 0, totalMs: 0 } };
 }
 
+const sortByUpdated = (list) => [...(list || [])].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+const cleanTitle = (t) => String(t || '').replace(/[\r\n\t]+/g, ' ').replace(/^[「“"'`\s]+|[」”"'`\s]+$/g, '').replace(/[。.]$/, '').trim().slice(0, 48);
+
 // 会话未记录模型时（历史数据），回退到最后一条 assistant 消息所用的模型
 function sessionModel(s) {
   if (s && s.model) return s.model;
@@ -57,9 +60,11 @@ export function createStore(onChange) {
     s.model = state.model;           // 会话级模型（修复：切换会话后模型名被当前选择覆盖）
     s.imageModel = state.imageModel; // 会话级生图模型
     s.updatedAt = Date.now();
-    if (!s.title) {
+    // 兜底标题（首条消息截断）只在还没有像样标题时生成；
+    // Agent 总结出的（titleSource:'auto'）与用户手改的（'user'）都不覆盖。
+    if (!s.title && s.titleSource !== 'user') {
       const firstUser = s.messages.find((m) => m.role === 'user');
-      if (firstUser && firstUser.text) s.title = firstUser.text.slice(0, 24);
+      if (firstUser && firstUser.text) s.title = cleanTitle(firstUser.text).slice(0, 24) || '新对话';
     }
   };
 
@@ -162,6 +167,13 @@ export function createStore(onChange) {
     save,
 
     // ── 多会话 ──
+    // 空的「新对话」草稿不进侧栏（第一条消息发出后才出现）；反复点「＋ 新建」
+    // 复用同一个草稿，否则 invisible 的空会话会在 localStorage 里越堆越多。
+    ensureDraft() {
+      const cur = sess();
+      if (cur && !(cur.messages || []).length) { hydrate(); notify(); return cur; }
+      return this.createSession();
+    },
     createSession() {
       // 新会话继承当前模型选择，之后各会话独立记忆自己的模型
       const s = newSession('', state.model, state.imageModel);
@@ -193,7 +205,55 @@ export function createStore(onChange) {
       return true;
     },
     sortedSessions() {
-      return [...state.sessions].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+      return sortByUpdated(state.sessions);
+    },
+    // 侧栏只列有内容的会话（导入/历史数据都带消息，正常显示）
+    listableSessions() {
+      return sortByUpdated(state.sessions.filter((s) => (s.messages || []).length > 0));
+    },
+    // 一键清除所有会话记录：全部丢掉，只留一个新的空草稿
+    clearAllSessions() {
+      const removed = state.sessions.filter((x) => (x.messages || []).length > 0).length;
+      const fresh = newSession('', state.model, state.imageModel);
+      state.sessions = [fresh];
+      state.activeSessionId = fresh.id;
+      hydrate();
+      notify();
+      return removed;
+    },
+    // 手动改名（titleSource='user'，Agent 不再覆盖）
+    renameSession(id, title) {
+      const s = state.sessions.find((x) => x.id === id);
+      if (!s) return false;
+      const t = cleanTitle(title);
+      if (!t) return false;
+      s.title = t;
+      s.titleSource = 'user';
+      s.titled = true;
+      s.updatedAt = Date.now();
+      hydrate();
+      notify();
+      return true;
+    },
+    // Agent 总结的标题：只在用户没改过名时生效，且每会话只尝试一次
+    setAutoTitle(id, title) {
+      const s = state.sessions.find((x) => x.id === id);
+      if (!s) return false;
+      s.titled = true;
+      const t = cleanTitle(title);
+      if (!t || s.titleSource === 'user') { notify(); return false; }
+      s.title = t;
+      s.titleSource = 'auto';
+      notify();
+      return true;
+    },
+    needsTitle() {
+      const s = sess();
+      if (!s || s.titled || s.titleSource === 'user') return null;
+      const firstUser = (s.messages || []).find((m) => m.role === 'user');
+      const lastAssistant = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant' && m.done);
+      if (!firstUser || !lastAssistant) return null;
+      return { sessionId: s.id, question: String(firstUser.text || '').slice(0, 600), answer: String(lastAssistant.text || '').slice(0, 600) };
     },
 
     // ── 消息 ──

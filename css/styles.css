@@ -216,12 +216,17 @@ a { color: var(--fg); }
 .sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .sess-title { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sess-meta { font-size: 10px; color: var(--fg-3); font-family: var(--mono); }
-.sess-del {
+.sess-del, .sess-rename {
   flex-shrink: 0; font-size: 10px; color: var(--fg-3); padding: 3px 5px; border-radius: 6px;
   opacity: 0; transition: all .18s var(--ease);
 }
-.sess-item:hover .sess-del { opacity: 1; }
-.sess-del:hover { color: var(--bg); background: var(--fg); }
+.sess-item:hover .sess-del, .sess-item:hover .sess-rename, .sess-item:focus-within .sess-del, .sess-item:focus-within .sess-rename { opacity: 1; }
+.sess-del:hover, .sess-rename:hover { color: var(--bg); background: var(--fg); }
+.sess-del svg, .sess-rename svg { width: 12px; height: 12px; display: block; }
+.sess-rename svg { width: 11px; height: 11px; }
+/* 就地改名：输入框接管标题位置，Enter 提交 / Esc 取消 */
+.sess-rename-input { width: 100%; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--bg); border: 1px solid var(--fg); border-radius: 6px; padding: 1px 5px; }
+.sess-empty-hint { font-size: 11.5px; color: var(--fg-3); line-height: 1.7; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 9px; }
 
 .mini-btn {
   font-size: 11.5px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 7px;
@@ -390,7 +395,10 @@ a { color: var(--fg); }
 /* 消息操作 */
 .msg-actions { display: flex; gap: 4px; margin-top: 8px; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
 .msg:hover .msg-actions { opacity: 1; transform: none; }
-.act { font-size: 11px; color: var(--fg-3); padding: 3px 8px; border-radius: 6px; border: 1px solid transparent; transition: all .2s var(--ease); }
+/* 输出中一律不露出复制/回滚/重新生成：半截结果上点复制或回滚都不是用户想要的 */
+.msg.actions-pending .msg-actions, .msg.actions-pending .msg-actions-user { display: none; }
+.act { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--fg-3); padding: 3px 8px; border-radius: 6px; border: 1px solid transparent; transition: all .2s var(--ease); }
+.act svg { width: 12px; height: 12px; display: block; flex-shrink: 0; }
 .act:hover { color: var(--fg); border-color: var(--line); background: var(--bg-soft); }
 
 /* 空状态 */
@@ -575,8 +583,11 @@ a { color: var(--fg); }
 .agent-desc { font-size: 11.5px; color: var(--fg-2); margin: 4px 0 6px; line-height: 1.55; }
 .agent-tools { font-size: 9.5px; color: var(--fg-3); word-break: break-all; }
 
-.files-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 8px; }
-.files-count { font-size: 10px; color: var(--fg-3); margin-left: auto; white-space: nowrap; }
+.files-toolbar { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.files-toolbar .files-title { border: 0; padding: 0; margin: 0; letter-spacing: .1em; }
+.files-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
+.files-count { font-size: 10px; color: var(--fg-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.side-label-btns { display: flex; align-items: center; gap: 5px; }
 .file-list { display: flex; flex-direction: column; gap: 4px; }
 .file-item, .ft-row {
   display: flex; justify-content: flex-start; align-items: center; gap: 6px;

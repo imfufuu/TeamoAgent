@@ -26,6 +26,10 @@ for (const k of ['document', 'window', 'location', 'navigator', 'HTMLElement', '
 }
 globalThis.self = window;
 globalThis.localStorage = window.localStorage;
+// 破坏性操作都带 confirm()；测试里按需切换返回值
+let confirmAnswer = true;
+window.confirm = () => confirmAnswer;
+globalThis.confirm = window.confirm;
 // jsdom 未实现的浏览器 API 补齐（不影响被测代码路径的正确性）
 if (!window.matchMedia) window.matchMedia = (q) => ({ media: q, matches: false, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {} });
 globalThis.matchMedia = window.matchMedia;
@@ -88,26 +92,66 @@ ok('搜索后生图行仍在末尾', $('#model-menu').lastElementChild.className
 $('#model-search').value = '';
 $('#model-search').dispatchEvent(new window.Event('input', { bubbles: true }));
 
-console.log('\n① 切换会话后模型名恢复该会话自己的模型');
-store.state.model = 'gpt-5.5';
+console.log('\n① 会话记录：第一条消息后才入列 + 切换会话恢复各自模型');
+store.state.model = 'claude-opus-5';
 store.state.imageModel = 'gpt-image-2.5-flare';
 store.notify();
 ui.renderSessions();
+ok('空白的当前会话不进侧栏（显示引导语）', $$('.sess-item').length === 0 && !!$('#session-list .sess-empty-hint'),
+  `${$$('.sess-item').length} 条`);
+store.pushMessage({ role: 'user', text: 'A会话' }); // 第一条消息发出 → 立刻入列
+ui.renderSessions();
+ok('发出第一条消息后会话入列', $$('.sess-title').map((n) => n.textContent).join(',') === 'A会话',
+  $$('.sess-title').map((n) => n.textContent).join(','));
+const sessionsBefore = store.state.sessions.length;
 click($('#new-session'));
-ok('新会话继承当前模型', store.state.model === 'gpt-5.5', store.state.model);
-store.pushMessage({ role: 'user', text: 'B会话' }); // 让 B 有可定位的标题
-store.state.model = 'claude-opus-5';
+ok('「＋ 新建」继承当前模型选择', store.state.model === 'claude-opus-5', store.state.model);
+ok('新草稿仍不进列表（列表只剩 A）', $$('.sess-item').length === 1, `${$$('.sess-item').length} 条`);
+click($('#new-session'));
+ok('反复点「新建」复用同一个空草稿', store.state.sessions.length === sessionsBefore + 1, `${store.state.sessions.length} 个会话`);
+store.pushMessage({ role: 'user', text: 'B会话' });
+store.state.model = 'gpt-5.5';
 store.notify();
 ui.renderSessions();
 const byTitle = (t) => $$('.sess-item').find((n) => n.querySelector('.sess-title').textContent === t);
-ok('侧栏出现两个会话', !!byTitle('B会话') && !!byTitle('新对话'), $$('.sess-title').map((n) => n.textContent).join(','));
-click(byTitle('新对话'));
-ok('切回会话 A 恢复 gpt-5.5', store.state.model === 'gpt-5.5', store.state.model);
-ok('模型按钮文案同步 gpt-5.5', $('#model-btn-name').textContent === 'gpt-5.5', $('#model-btn-name').textContent);
+ok('侧栏出现两个会话', !!byTitle('A会话') && !!byTitle('B会话'), $$('.sess-title').map((n) => n.textContent).join(','));
+click(byTitle('A会话'));
+ok('切到会话 A 恢复 claude-opus-5（互不污染）', store.state.model === 'claude-opus-5', store.state.model);
+ok('按钮文案随之更新', $('#model-btn-name').textContent === 'claude-opus-5', $('#model-btn-name').textContent);
 ok('生图模型下拉同步 gpt-image-2.5-flare', $('#image-model').value === 'gpt-image-2.5-flare', $('#image-model').value);
 click(byTitle('B会话'));
-ok('切到会话 B 恢复 claude-opus-5（互不污染）', store.state.model === 'claude-opus-5', store.state.model);
-ok('按钮文案随之更新', $('#model-btn-name').textContent === 'claude-opus-5', $('#model-btn-name').textContent);
+ok('切回会话 B 恢复 gpt-5.5', store.state.model === 'gpt-5.5', store.state.model);
+
+console.log('\n⑧ 会话改名（Agent 自动总结不覆盖用户手改）');
+const rowB = byTitle('B会话');
+ok('每条会话有改名按钮', !!rowB.querySelector('.sess-rename svg'), rowB.innerHTML.slice(0, 60));
+click(rowB.querySelector('.sess-rename'));
+const input = $('#session-list .sess-rename-input');
+ok('点改名 → 出现就地输入框并带当前标题', !!input && input.value === 'B会话');
+input.value = '手写标题';
+input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+ok('Enter 提交后标题更新', byTitle('手写标题') !== undefined, $$('.sess-title').map((n) => n.textContent).join(','));
+const activeId = store.state.activeSessionId;
+ok('改名写进 store 并标记 titleSource=user', store.state.sessions.find((x) => x.id === activeId).titleSource === 'user');
+ok('手改过的会话不再需要自动标题', store.needsTitle() === null);
+store.state.sessions.find((x) => x.id !== activeId).titled = false; // A 会话仍可自动总结
+ok('未改名的会话仍可被总结', store.needsTitle()?.sessionId !== activeId);
+// A 的自动总结写回（不覆盖 B）
+const aId = store.state.sessions.find((x) => x.id !== activeId).id;
+ok('setAutoTitle 写入并置 titled', store.setAutoTitle(aId, '沙箱计算 π') && store.state.sessions.find((x) => x.id === aId).titleSource === 'auto');
+ok('Agent 不会覆盖用户手改的标题', store.setAutoTitle(activeId, '又被总结了') === false);
+ui.renderSessions();
+ok('A 的标题显示为总结结果', byTitle('沙箱计算 π') !== undefined, $$('.sess-title').map((n) => n.textContent).join(','));
+
+console.log('\n⑨ 一键清除所有会话记录');
+confirmAnswer = false;
+click($('#clear-sessions'));
+ok('确认框取消时不动数据', store.state.sessions.length === 2 && $$('.sess-item').length === 2, `${$$('.sess-item').length} 条`);
+confirmAnswer = true;
+click($('#clear-sessions'));
+ok('确认后所有会话被清空', store.state.sessions.length === 1 && $$('.sess-item').length === 0, `${store.state.sessions.length} / ${$$('.sess-item').length}`);
+ok('清空后回到空状态引导语', !!$('#session-list .sess-empty-hint') && $$('#messages .empty-state').length === 1);
+ok('清空后消息数组也是空的', store.state.messages.length === 0);
 
 console.log('\n③ 连接动画（状态栏 + 顶栏进度条）');
 ui.setStatus('connecting');
@@ -318,6 +362,42 @@ ok('kimi.svg 存在且已精简', (() => {
   const p = path.join(ROOT, 'assets/icons/kimi.svg');
   return fs.existsSync(p) && fs.statSync(p).size < 4096;
 })());
+
+console.log('\n⑩ 操作条：输出结束才出现，复制按钮带 SVG 图标');
+{
+  const { renderMarkdown: _rm } = await import(path.join(ROOT, 'js/ui.js'));
+  store.pushMessage({ role: 'user', text: '请写点东西' });
+  const partial = store.pushMessage({ role: 'assistant', text: '写到一半', model: 'gpt-5.5', done: false });
+  ui.rebuildMessages();
+  const wrapOf = (id) => $(`#messages .msg[data-id="${id}"]`);
+  const userMsg = store.state.messages[store.state.messages.length - 2];
+  ok('流式期间：本轮 user 与 assistant 的操作条都隐藏',
+    wrapOf(userMsg.id).classList.contains('actions-pending') && wrapOf(partial.id).classList.contains('actions-pending'));
+  const cssText2 = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
+  ok('隐藏由 .actions-pending + display:none 实现', /\.msg\.actions-pending \.msg-actions[^{]*\{[^}]*display: none/.test(cssText2));
+  store.updateMessage(partial.id, { done: true });
+  ui.setStatus('done'); // 真实链路：agent 的 onStatus → ui.setStatus → 刷新显隐
+  ui.onAssistantDone(partial);
+  ok('输出完成后操作条出现', !wrapOf(partial.id).classList.contains('actions-pending'));
+  const acts = [...wrapOf(partial.id).querySelectorAll('.act')];
+  ok('复制按钮是 SVG 图标 + 中文文字', acts.some((b) => b.dataset.act === 'copy' && b.querySelector('svg') && /复制/.test(b.textContent)),
+    acts.map((b) => b.innerHTML.slice(0, 24)).join(' | '));
+  ok('回滚/重新生成同样带 SVG（同一视觉语言）',
+    acts.filter((b) => b.dataset.act !== 'copy').every((b) => b.querySelector('svg')));
+  ok('工具图标没有 emoji 残留', !/[⚡⬇◧◨◑⤺↻📄🖼]/.test(acts.map((b) => b.textContent).join('')), acts.map((b) => b.textContent.trim()).join(','));
+  ok('「重新生成」只给最后一条 assistant', acts.find((b) => b.dataset.act === 'regen').style.display === '');
+}
+
+console.log('\n⑪ 沙箱面板头部改成两行（标题一行，统计与按钮一行）');
+{
+  const bar = $('#tab-files .files-bar');
+  ok('第一行是「虚拟文件系统」标题', $('#tab-files .files-toolbar > .files-title')?.textContent.trim() === '虚拟文件系统');
+  ok('第二行含文件统计与 ZIP/清空', !!bar && !!$('#files-count', bar ? undefined : undefined) === true && !!bar.querySelector('#download-zip') && !!bar.querySelector('#clear-files'),
+    bar ? bar.className : 'no .files-bar');
+  const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
+  ok('工具栏为 column 布局（两行）', /\.files-toolbar\s*\{[^}]*flex-direction: column/.test(css));
+  ok('第二行自身是左右分布', /\.files-bar\s*\{[^}]*justify-content: space-between/.test(css));
+}
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');
 process.exit(failures ? 1 : 0);
