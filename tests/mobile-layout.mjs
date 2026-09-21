@@ -253,6 +253,26 @@ async function auditAt(vp) {
 
   // 交互后再量一次（消息多了以后的滚动高度与输入区贴合）
   const tail = await push; await tail('交互后', await checkViewport('after', vp)(page));
+  // 「开关开着却没检索」的提示条 + 重试按钮：真机上这条路径取决于上游是否随机检索，
+  // 所以这里按 ui.js 的同一段结构与文案注入，专门量它在窄屏放不放得下。
+  const hintBox = await page.evaluate(() => {
+    const globe = document.querySelector('#web-toggle')?.innerHTML.match(/<svg[^>]*>[\s\S]*?<\/svg>/)?.[0] || '';
+    const host = document.querySelector('#messages');
+    host.insertAdjacentHTML('beforeend', '<div class="msg msg-assistant"><div class="md-body">'
+      + '<div class="web-note hint"><span class="web-hint">联网开关是开着的，但本轮没有发生检索</span>'
+      + '<span>上游模型自己没调用服务端搜索（网关侧偶发）。需要实时数据的话，点右边的按钮用同一句提问重试（会自动写明「先联网检索再回答」），或换个模型重问一次</span>'
+      + `<button class="act web-act" data-act="web-retry">${globe}<span>重试并联网检索</span></button></div></div></div>`);
+    const n = [...host.querySelectorAll('.web-note.hint')].pop(); const btn = n.querySelector('.web-act');
+    const nr = n.getBoundingClientRect(), br = btn.getBoundingClientRect();
+    return { noteRight: Math.round(nr.right), btnW: Math.round(br.width), btnH: Math.round(br.height),
+      btnRight: Math.round(br.right), fits: br.right <= innerWidth - 4 && br.left >= nr.left - 1,
+      overflowX: document.documentElement.scrollWidth - document.documentElement.clientWidth, tap: br.height >= 32 };
+  });
+  if (!hintBox.fits) problems.push(`[${vp.w}px] 联网提示条里的重试按钮溢出/越界 (${JSON.stringify(hintBox)})`);
+  if (hintBox.overflowX > 1) problems.push(`[${vp.w}px] 注入提示条后页面横向溢出 ${hintBox.overflowX}px`);
+  if (!hintBox.tap) problems.push(`[${vp.w}px] 重试按钮触控高度只有 ${hintBox.btnH}px`);
+  notes.push({ tag: `hint-note ${vp.w}`, ...hintBox });
+
   const metrics = await page.evaluate(() => ({ msgs: document.querySelectorAll('#messages .msg').length,
     webNotes: document.querySelectorAll('.web-note').length, chips: document.querySelectorAll('.chip').length,
     actions: [...document.querySelectorAll('.msg-actions')].filter((a) => getComputedStyle(a).display !== 'none' && a.getBoundingClientRect().height > 0).length,
