@@ -453,6 +453,8 @@ a { color: var(--fg); }
 .web-note.warn { flex-wrap: wrap; } /* 「未见检索事件」提醒：与来源条同形状，颜色交给 .web-fail */
 .web-note.hint { flex-wrap: wrap; } /* 开关开着却没检索：中性提示，别吓人 */
 .web-note.hint .web-hint { color: var(--fg-2); font-weight: 700; }
+.web-note .web-act { margin-left: auto; color: var(--fg-2); border-color: var(--line); background: var(--bg); flex-shrink: 0; }
+.web-note .web-act:hover { color: var(--fg); background: var(--bg-soft); }
 .web-note .web-srcs { display: flex; flex-direction: column; gap: 2px; width: 100%; margin-top: 2px; }
 .web-note .web-src { color: var(--fg-2); text-decoration: none; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 11px; align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .web-note .web-src:hover { color: var(--fg); border-bottom-color: var(--fg); }

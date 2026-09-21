@@ -776,6 +776,23 @@ export function mountUI(store, agent) {
     return wrap;
   }
 
+  // ── 「重试并联网检索」：上游模型偶发不调用服务端搜索（直接回「我上不了网」）时的补救 ──
+  // 真机对照实验里，提问里写明「先联网检索再回答」能明显提高命中率，所以这里一键改写重问；
+  // 不放在通用 .act 处理器里 —— 提示条是在动作条之后才挂上去的，那时监听器已经绑定完了。
+  function doWebRetry(m) {
+    if (getBusy()) return;
+    const i = store.state.messages.findIndex((x) => x.id === m.id);
+    const um = i > 0 ? store.state.messages[i - 1] : null;
+    if (!um || um.role !== 'user') { toast('找不到对应的提问，请手动重新提问', 'err', 2200); return; }
+    if (i !== store.state.messages.length - 1) { toast('这条不是最近一轮，请先「回滚」再重问', 'err', 2400); return; }
+    if (/先联网(检索|查|搜索)/.test(um.text || '')) { toast('这一轮已经要求过「先联网检索」了 —— 建议换个模型（Claude / GPT 系列）再试', 'err', 2800); return; }
+    store.dropLastAssistantTurn();   // 覆盖式重试：别把没检索到的旧回答留在上面
+    store.updateMessage(um.id, { text: '先联网检索再回答：' + (um.text || '') });
+    rebuildMessages();
+    toast('已改写提问（先联网检索再回答），正在重试…', 'ok', 1800);
+    agent.regenerate();
+  }
+
   // ── 工具芯片里的图片输出（generate_image 的结果）─────────────────────
   // 会话内按 callId 缓存：重绘/切换会话回来时仍能直接看到图（刷新页面后与
   // 附件同策略不落盘，避免数 MB data URL 顶穿 localStorage）
@@ -828,8 +845,11 @@ export function mountUI(store, agent) {
     else if (m.done && m.role === 'assistant' && store.state.settings.webEnabled !== false && webRefusal(m.text)) {
       const hint = el('div', 'web-note hint');
       hint.innerHTML = '<span class="web-hint">联网开关是开着的，但本轮没有发生检索</span>'
-        + '<span>上游模型自己没调用服务端搜索（网关侧偶发）。需要实时数据的话，可以在提问里写明「先联网检索再回答」，或换个模型重问一次</span>';
+        + '<span>上游模型自己没调用服务端搜索（网关侧偶发）。需要实时数据的话，点右边的按钮用同一句提问重试（会自动写明「先联网检索再回答」），或换个模型重问一次</span>'
+        + `<button class="act web-act" data-act="web-retry" title="同一句提问重试，并在提问前面写明「先联网检索再回答」">${ICON.globe || ''}<span>重试并联网检索</span></button>`;
       body.appendChild(hint);
+      const wb = $('.web-act', hint);
+      if (wb) wb.addEventListener('click', (e) => { e.preventDefault(); doWebRetry(m); });
     }
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
     // 工具芯片

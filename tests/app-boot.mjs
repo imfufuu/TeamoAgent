@@ -123,6 +123,12 @@ globalThis.fetch = async (url, opts) => {
   }
   // 「开关开着但模型说自己上不了网」测试：桩回拒答、且不发任何检索事件（网关侧实测会发生）
   if (/测试联网拒答/.test(lastUser)) {
+    // 真机实测：同一句提问加上「先联网检索再回答」前缀后模型才真的发起服务端检索，
+    // 桩照这个行为走 —— 用来验证提示条上的「重试」按钮确实能换来真来源条。
+    if (/先联网检索再回答/.test(lastUser)) {
+      const t2 = '根据检索结果：欧元兑人民币中间价 7.9。';
+      return ep === 'anthropic' ? sseRes(anthWeb.join('') + anthTextSse(t2)) : ep === 'responses' ? sseRes(respWeb.join('') + respText(t2)) : chatText(t2);
+    }
     const t = '我无法实时获取该数据，因为我没有联网查询当前金融数据的能力。';
     return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
   }
@@ -330,6 +336,33 @@ console.log('\n诚实性护栏 2：开关开着、模型却回「我上不了网
   const last2 = $$('#messages .msg-assistant').slice(-1)[0];
   ok('开关关掉后不再出现联网提示条', last2.querySelectorAll('.web-note.hint').length === 0,
     last2.textContent.trim().slice(0, 50));
+}
+
+console.log('\n诚实性护栏 3：提示条上的「重试并联网检索」一键改写重问');
+{
+  if (!$('#web-toggle').classList.contains('on')) { click($('#web-toggle')); await tick(40); }
+  $('#composer-input').value = '测试联网拒答：欧元中间价';
+  click($('#send-btn'));
+  await tick(1600);
+  const before = $$('#messages .msg-assistant').length;
+  const hint = $$('#messages .msg-assistant').slice(-1)[0].querySelector('.web-note.hint');
+  const btn = hint && hint.querySelector('.web-act');
+  ok('提示条提供一键重试按钮', !!btn && /重试/.test(btn.textContent), btn ? btn.textContent.trim() : '没有按钮');
+  ok('按钮是 SVG 图标 + 中文（不用 emoji）', !!btn && !!btn.querySelector('svg') && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(btn.textContent));
+  const reqsBefore = reqs.length;
+  click(btn);
+  await tick(1800);
+  const um = [...$$('#messages .msg-user')].slice(-1)[0];
+  ok('重试把提问改写成「先联网检索再回答：…」', /先联网检索再回答/.test(um.textContent) && /欧元中间价/.test(um.textContent), um.textContent.trim().slice(0, 60));
+  ok('拒答那条回答被覆盖，没有并列留下两条', $$('#messages .msg-assistant').length === before, `${before} → ${$$('#messages .msg-assistant').length}`);
+  const retryReq = [...reqs.slice(reqsBefore)].reverse().find((r) => /先联网检索再回答/.test(JSON.stringify(r.body)));
+  ok('重试请求真的带上了改写后的提问', !!retryReq, `${reqs.length - reqsBefore} 个新请求`);
+  ok('重试请求仍带着原生联网工具', !!retryReq && (retryReq.body.tools || []).some((t) => String(t.type).startsWith('web_search')),
+    JSON.stringify((retryReq || {}).body?.tools?.map((t) => t.function?.name || t.name) || []));
+  const after = $$('#messages .msg-assistant').slice(-1)[0];
+  ok('重试后提示条消失、换成真来源条', !after.querySelector('.web-note.hint')
+    && !!after.querySelector('.web-note') && /1 条来源/.test(after.textContent) && after.querySelectorAll('.web-note a').length > 0,
+    after.querySelector('.web-note') ? after.querySelector('.web-note').textContent.trim().slice(0, 60) : '没有来源条');
 }
 
 console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');
