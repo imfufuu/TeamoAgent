@@ -290,8 +290,9 @@ export function createAgent(store, hooks = {}) {
       const copied = copyAttachmentsToFS(fs, attachments);
       if (copied.length) { syncFS(); store.notify(); hooks.onFsChange && hooks.onFsChange(copied); }
       store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
-      store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
-      hooks.onUserMessage && hooks.onUserMessage(userText);
+      const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
+      // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
+      hooks.onUserMessage && hooks.onUserMessage(userText, userMsg);
       await runLoop();
     },
 

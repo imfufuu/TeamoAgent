@@ -2,6 +2,21 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（修复 + 体验）用户消息即时上屏 / 随机任务示例 / Logo 静止
+
+- **修复：发完提示词看不到自己说的话**。`store.pushMessage(user)` 之后只刷新了会话列表与
+  统计，从未把用户气泡 append 到对话区，于是要等模型输出结束、甚至切出会话再切回
+  （触发 `rebuildMessages`）才看到。现在 `agent.send()` 把刚入列的用户消息交给 UI，
+  `ui.onUserMessage(msg)` 立即 `appendMessage`（已渲染过则跳过，避免重复节点）。
+  该用例被验证为「非自证」：还原旧接线后 DOM 冒烟立刻失败。
+- **空状态任务示例**：新增 `js/suggestions.js`（18 条池子 + `pickSuggestions` / `shuffled`
+  纯函数）。每次渲染随机抽 3 条、同轮标签互不重复；卡片带能力小标签；新增「换一批」；
+  点击按 `data-prompt` 回填输入框（此前用 `textContent` 会把标签文字一起塞进去）。
+- **侧栏左上角 Logo 停止自转**：移除 `.logo-mark` 的 `halfspin`（持续转动的标识与品牌位
+  置不符，也属于无谓的动效噪声）；空状态大 Logo 保留极慢转动。
+- `mountUI` 额外导出 `rebuildMessages`，供外部触发整段对话重绘。
+- 测试：单测 95 → 99（示例池/随机性/边界），DOM 冒烟 76 → 90（即时上屏、随机示例、
+  换一批、Logo 无动画）。
 ## 2026-09-21（UI）文件面板目录树 + 按钮图标统一
 
 - **虚拟文件系统支持目录显示**：新增纯函数模块 `js/filetree.js`（`buildFileTree` /

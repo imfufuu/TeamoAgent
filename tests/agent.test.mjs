@@ -1382,6 +1382,52 @@ test('界面图标为 currentColor 线性 SVG（随主题与选中态自动反�
   }
 });
 
+group('空状态任务示例（js/suggestions.js）');
+const sg = await import('../js/suggestions.js');
+test('示例池覆盖多类能力且文案不重复', () => {
+  assert.ok(sg.SUGGESTIONS.length >= 12, `池子应有 ≥12 条，实际 ${sg.SUGGESTIONS.length}`);
+  const texts = sg.SUGGESTIONS.map((x) => x.text);
+  assert.equal(new Set(texts).size, texts.length, '存在重复文案');
+  assert.ok(sg.SUGGESTIONS.every((x) => x.tag && x.tag.length <= 12), '每条都要有简短能力标签');
+  // 覆盖面按「文案 + 标签」一起判定（如子智能体两条只写 agent 名，标签才写「子智能体」）
+  const joined = sg.SUGGESTIONS.map((x) => `${x.text} ${x.tag}`).join('\n');
+  for (const kw of ['沙箱', 'generate_image', 'ZIP', '子智能体', '回滚', 'models']) {
+    assert.ok(joined.includes(kw), `示例应覆盖「${kw}」`);
+  }
+});
+test('pickSuggestions：随机 3 条、不重复、标签互不相同', () => {
+  let seed = 1;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const seen = new Set();
+  for (let i = 0; i < 40; i++) {
+    const picks = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
+    assert.equal(picks.length, 3, `第 ${i} 轮抽到 ${picks.length} 条`);
+    assert.equal(new Set(picks.map((x) => x.text)).size, 3, '同一轮内不应重复');
+    assert.equal(new Set(picks.map((x) => x.tag)).size, 3, `同轮标签应互不相同：${picks.map((x) => x.tag).join('/')}`);
+    picks.forEach((x) => seen.add(x.text));
+  }
+  assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
+  // 不改动原数组顺序（渲染层依赖池子稳定）
+  assert.equal(sg.SUGGESTIONS[0].text, '用沙箱计算：前 100 个斐波那契数中有多少个质数？');
+});
+test('边界：n 超过池子 / 空池 / 脏数据', () => {
+  assert.equal(sg.pickSuggestions([{ text: 'a', tag: 'A' }], 3).length, 1);
+  assert.deepEqual(sg.pickSuggestions([], 3), []);
+  // 契约：不传 list 走默认池（JS 默认参数语义），传空数组才是「没有示例」
+  assert.equal(sg.pickSuggestions(undefined, 3).length, 3);
+  assert.equal(sg.pickSuggestions(null, 3).length, 0, 'null 不套默认值，按空池处理');
+  assert.equal(sg.pickSuggestions([{ text: '' }, null, { text: 'x', tag: 'X' }], 3).length, 1, '空文案与非对象项应被过滤');
+  const small = [{ text: 'a', tag: 'A' }, { text: 'b', tag: 'A' }]; // 标签冲突但池子不够
+  assert.equal(sg.pickSuggestions(small, 3).length, 2, '标签去重后不足时用剩余项补齐');
+});
+test('shuffled 不改动入参且长度守恒', () => {
+  const src = [1, 2, 3, 4, 5];
+  const out = sg.shuffled(src, () => 0.99);
+  assert.deepEqual(src, [1, 2, 3, 4, 5]);
+  assert.equal(out.length, 5);
+  assert.deepEqual([...out].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
+});
+
 
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {

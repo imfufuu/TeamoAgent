@@ -47,8 +47,13 @@ const { createZip } = await import(path.join(ROOT, 'js/zip.js'));
 
 const store = createStore();
 store.state.apiKey = 'sk-teamo-test';
-const agent = createAgent(store, {});
+// 复刻 main.js 的接线（agent hooks → ui 方法），用于验证「用户消息立刻上屏」
+const lateUI = {};
+const agent = createAgent(store, {
+  onUserMessage: (text, msg) => lateUI.onUserMessage && lateUI.onUserMessage(text, msg),
+});
 const ui = mountUI(store, agent);
+lateUI.onUserMessage = (text, msg) => ui.onUserMessage(msg);
 const $ = (s) => window.document.querySelector(s);
 const $$ = (s) => [...window.document.querySelectorAll(s)];
 const click = (n) => n.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -232,6 +237,61 @@ ok('连接中有旋转环元素', !!waitWrap.querySelector('.connect-ring'));
 store.updateMessage(waitMsg.id, { text: '你好！', done: true });
 ui.onAssistantDone(waitMsg);
 ok('收到内容后连接动画消失', !waitWrap.querySelector('.connect-line'));
+
+console.log('\n① 用户消息即时上屏（不必等 AI 输出完）');
+const mainSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
+ok('main.js 已把 onUserMessage 接到 ui.onUserMessage(msg)', /onUserMessage:\s*\(text,\s*msg\)\s*=>\s*\{\s*ui && ui\.onUserMessage\(msg\)/.test(mainSrc), mainSrc.split('\n').find((l) => l.includes('onUserMessage')));
+const origFetch = globalThis.fetch;
+let releaseStream = null;
+globalThis.fetch = () => new Promise((resolve) => { releaseStream = () => resolve(new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } })); });
+const beforeCount = store.state.messages.length;
+const sending = agent.send('这条输入应当立刻可见');
+await Promise.resolve(); // 让 send() 跑到 pushMessage + hook
+const userNodes = $$('#messages .msg-user .bubble').map((n) => n.textContent.trim());
+ok('发送后立即可见用户气泡', userNodes.some((t) => t.includes('这条输入应当立刻可见')), userNodes.join(' | '));
+ok('用户消息已进入 state（其后才是 assistant 占位）', (() => {
+  const list = store.state.messages;
+  const lastUser = [...list].reverse().find((m) => m.role === 'user');
+  return list.length > beforeCount && !!lastUser && lastUser.text.includes('这条输入应当立刻可见');
+})());
+ok('回滚按钮随用户消息一起渲染', !!$('#messages .msg-user .act'));
+if (releaseStream) releaseStream();
+await sending;
+globalThis.fetch = origFetch;
+
+console.log('\n② 空状态随机三条示例 + 换一批');
+const sg = await import(path.join(ROOT, 'js/suggestions.js'));
+ok('示例池 ≥12 条', sg.SUGGESTIONS.length >= 12, `${sg.SUGGESTIONS.length} 条`);
+// 重挂空状态：清空消息后 rebuildMessages 会重新渲染
+const savedMsgs = [...store.state.messages];
+store.state.messages.length = 0;
+ui.rebuildMessages();
+const emptyState = $('#messages .empty-state');
+const cards = emptyState ? [...emptyState.querySelectorAll('.suggest')] : [];
+ok('空状态展示 3 条示例卡片', cards.length === 3, `${cards.length} 张`);
+ok('每条示例带能力标签', cards.every((c) => !!c.querySelector('.suggest-tag') && c.querySelector('.suggest-tag').textContent.length > 0));
+ok('示例文本来自池子且本轮不重复', cards.every((c) => sg.SUGGESTIONS.some((x) => x.text === c.dataset.prompt)) && new Set(cards.map((c) => c.dataset.prompt)).size === 3);
+ok('有「换一批」按钮', !!$('#messages .suggest-shuffle svg'));
+const firstBatch = cards.map((c) => c.dataset.prompt).join('|');
+// 连续重挂若干次，期望至少出现一次不同的组合（随机生效）
+let sawDifferent = false;
+for (let i = 0; i < 12 && !sawDifferent; i++) {
+  click($('#messages .suggest-shuffle'));
+  const now = [...window.document.querySelectorAll('#messages .empty-state .suggest')].map((c) => c.dataset.prompt).join('|');
+  if (now !== firstBatch) sawDifferent = true;
+}
+ok('换一批会换出不同组合', sawDifferent);
+const cardEl = window.document.querySelector('#messages .empty-state .suggest');
+click(cardEl);
+ok('点示例卡填入输入框（用 data-prompt 而非含标签的 textContent）', $('#composer-input').value === cardEl.dataset.prompt && !$('#composer-input').value.includes(cardEl.querySelector('.suggest-tag').textContent), JSON.stringify($('#composer-input').value).slice(0, 60));
+store.state.messages.push(...savedMsgs);
+ui.rebuildMessages();
+
+console.log('\n④ 侧栏 Logo 不再自转');
+const logoRule = /\.logo-mark\s*\{[^}]*\}/.exec(cssText)?.[0] || '';
+ok('.logo-mark 无 animation', !/animation/.test(logoRule), logoRule.trim());
+ok('仅空状态大 Logo 保留慢转', /\.empty-logo svg\s*\{[^}]*animation: halfspin/.test(cssText));
+ok('index.html 侧栏 Logo 无内联动画', !/logo-mark[^>]*style="[^"]*animation/.test(html));
 
 console.log('\n⑥ Kimi 品牌图标');
 const { providerIcon } = await import(path.join(ROOT, 'js/icons.js'));

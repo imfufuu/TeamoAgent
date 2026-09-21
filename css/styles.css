@@ -108,7 +108,9 @@ a { color: var(--fg); }
 .logo-mark svg { width: 21px; height: 21px; display: block; }
 .empty-logo { display: flex; justify-content: center; }
 .empty-logo svg { width: 56px; height: 56px; display: block; animation: halfspin 8s linear infinite; transform-origin: 50% 50%; }
-.logo-mark { font-size: 22px; animation: halfspin 6s linear infinite; display: inline-block; transform-origin: 50% 50%; }
+/* 侧栏顶部 Logo：静态标识（此前 6s 自转会持续吸引视线，且与品牌标识定位不符）；
+   空状态里的大 Logo 仍保留极慢的转动作为欢迎页动效 */
+.logo-mark { font-size: 22px; display: inline-block; }
 @keyframes halfspin { 0%,80% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
 .logo-text { font-weight: 800; letter-spacing: .12em; font-size: 13px; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
@@ -403,6 +405,22 @@ a { color: var(--fg); }
   transition: all .25s var(--ease);
 }
 .suggest:hover { border-color: var(--fg); color: var(--fg); transform: translateY(-2px); box-shadow: var(--shadow); }
+/* 示例卡片的能力标签：小字标注「这是哪类能力」，避免三条示例看起来是同一件事 */
+.suggest-tag {
+  display: inline-block; margin-right: 8px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--fg-3); font-size: 10px; letter-spacing: .02em;
+  vertical-align: 1px; white-space: nowrap;
+}
+.suggest:hover .suggest-tag { color: var(--fg); border-color: var(--fg-3); }
+.suggest-shuffle {
+  margin: 6px auto 0; display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border: 0; background: none; border-radius: 999px;
+  font-size: 11.5px; color: var(--fg-3); cursor: pointer; transition: all .22s var(--ease);
+}
+.suggest-shuffle svg { width: 12px; height: 12px; display: block; }
+.suggest-shuffle:hover { color: var(--fg); background: var(--bg-soft); }
+.suggest-shuffle:hover svg { transform: rotate(90deg); }
+.suggest-shuffle svg { transition: transform .3s var(--ease); }
 
 /* ── 输入区 ──────────────────────────────────────────────────────────── */
 .composer-wrap { padding: 8px 28px 16px; padding-bottom: max(16px, env(safe-area-inset-bottom)); }
@@ -656,7 +674,7 @@ a { color: var(--fg); }
 
 /* 尊重系统「减少动态效果」：停掉无限循环动画，淡入改为直出 */
 @media (prefers-reduced-motion: reduce) {
-  .empty-logo svg, .logo-mark, .icon-btn.spin, .chip-ico, #jump-bottom .jump-ico,
+  .empty-logo svg, .icon-btn.spin, .chip-ico, #jump-bottom .jump-ico,
   .dot.busy, .dot.busy.connecting, .thinking-line .dots, .cursor,
   .connect-ring, .sdots i { animation: none; }
 .turn-bar::after { animation: none; transform: none; background: var(--line-2); }

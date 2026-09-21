@@ -6,6 +6,7 @@ import { fetchModels, getTransport, fetchBalance } from './api.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
+import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -612,16 +613,22 @@ export function mountUI(store, agent) {
   // ── 消息渲染 ──────────────────────────────────────────────────────────
   function renderEmpty() {
     if (store.state.messages.length) return;
+    const picks = pickSuggestions(SUGGESTIONS, 3);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
       <h2>TeamoAgent</h2>
       <p>基于 <span class="mono">api.teamorouter.com</span> 的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
-        <button class="suggest" type="button">用沙箱计算：前 100 个斐波那契数中有多少个质数？</button>
-        <button class="suggest" type="button">写一段 JS 在沙箱里模拟蒙特卡洛估算 π，并验证结果</button>
-        <button class="suggest" type="button">把《静夜思》写入 files/poem.txt，然后读出来翻译成英文</button>
-      </div>`));
-    $$('.suggest', msgList).forEach((b) => b.addEventListener('click', () => { composer.value = b.textContent; composer.focus(); autoGrow(); }));
+        ${picks.map((x) => `<button class="suggest" type="button" data-prompt="${esc(x.text)}"><span class="suggest-tag mono">${esc(x.tag || '')}</span>${esc(x.text)}</button>`).join('')}
+      </div>
+      <button class="suggest-shuffle" type="button" title="换一批任务示例">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>换一批</button>`));
+    $$('.suggest', msgList).forEach((b) => b.addEventListener('click', () => {
+      composer.value = b.dataset.prompt || b.textContent;
+      composer.focus(); autoGrow();
+    }));
+    const shuffle = $('.suggest-shuffle', msgList);
+    if (shuffle) shuffle.addEventListener('click', () => { clearEmpty(); renderEmpty(); });
   }
   function clearEmpty() { const e = $('.empty-state', msgList); if (e) e.remove(); }
 
@@ -1052,6 +1059,13 @@ export function mountUI(store, agent) {
     updateStats,
     renderSessions,
     renderFiles,
+    rebuildMessages, // 外部触发整段对话重绘（会话切换、示例卡刷新等）
+    // 用户消息入列后立刻上屏：否则要等本轮输出完（甚至切出再切回会话）才看得到自己说了什么
+    onUserMessage(m) {
+      if (!m || !m.id || msgNodes.has(m.id)) return;
+      appendMessage(m);
+      refreshActionVisibility();
+    },
     onAssistantStart(m) { appendMessage(m); streamingId = m.id; },
     onDelta(m, text) {
       const wrap = msgNodes.get(m.id);
