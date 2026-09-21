@@ -1928,6 +1928,28 @@ test('按实测结果挑原生格式：只认 Claude 与 GPT', async () => {
   assert.match(web.webCapNote(null), /Claude 或 GPT/);
   assert.match(web.webCapNote(web.webCapFor('claude-sonnet-5')), /web_search_20250305/);
 });
+test('诚实性护栏：正文声称「已联网」但没有检索事件时能被识别', async () => {
+  const yes = [
+    '我已经请求了模型的原生网页搜索功能，今日中间价为 7.28。',
+    '已联网查询：今日美元兑人民币中间价为 7.28。',
+    '已联网检索到 3 条来源。',
+    '根据网络搜索结果，最新版本是 1.2.3。',
+    '我刚上网查到该模型已下线。',
+    'I used web_search to check this.',
+    '刚才调用搜索工具确认过',
+  ];
+  const no = [
+    '当前未联网，无法核实这个实时数据。',
+    '我没有联网，不能给出今天的汇率。',
+    '无法联网检索，建议你自行核实。',
+    '联网开关是关的，所以本轮没有查询。',
+    '这段代码的作用是发起一次 HTTP 请求。',
+    '',
+  ];
+  for (const x of yes) assert.equal(web.claimsWebSearch(x), true, `应判为「声称联网」：${x}`);
+  for (const x of no) assert.equal(web.claimsWebSearch(x), false, `不该判为「声称联网」：${x}`);
+});
+
 test('注入的请求体只加原生字段，不新增任何 host', async () => {
   const a = web.injectWeb({ model: 'claude-sonnet-5', messages: [] }, web.webCapFor('claude-sonnet-5'));
   assert.deepEqual(a.tools, [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }]);

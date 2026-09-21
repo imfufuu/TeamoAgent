@@ -9,6 +9,7 @@ import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { SUBAGENTS } from './subagents.js';
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
+import { claimsWebSearch } from './websearch.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -816,6 +817,13 @@ export function mountUI(store, agent) {
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
     if (m.webSearch) body.appendChild(webNote(m.webSearch));
+    // 诚实性护栏：正文说「已联网搜索」但本轮没有任何服务端检索事件 → 如实提醒，不替模型背书
+    else if (m.done && m.role === 'assistant' && claimsWebSearch(m.text)) {
+      const warn = el('div', 'web-note warn');
+      warn.innerHTML = '<span class="web-fail">未见检索事件</span>'
+        + '<span>本轮没有收到任何网页搜索事件（模型的「已联网」说法无法证实），其中的具体数字请另行核实</span>';
+      body.appendChild(warn);
+    }
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
     // 工具芯片
     const chips = $('.tool-chips', wrap);

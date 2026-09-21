@@ -104,8 +104,25 @@ globalThis.fetch = async (url, opts) => {
       : ep === 'responses' ? respText('结论：先加输入校验，再补边界用例')
         : chatText('结论：先加输入校验，再补边界用例');
   }
+  // 「本轮用户说了什么」——必须看**最后一条 user**，不能拿整个 body 做子串匹配：
+  // 会话历史里留着上一轮的问话，用 hay.includes 会让后面的分组命中前面的分支（真踩过）。
+  const lastUser = (() => {
+    if (ep === 'responses') {
+      const items = body.input || [];
+      for (let i = items.length - 1; i >= 0; i--) if (items[i].type === 'message' && items[i].role === 'user') return (items[i].content || []).map((c) => c.text || '').join('');
+      return '';
+    }
+    const msgs = body.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) if (msgs[i].role === 'user') return typeof msgs[i].content === 'string' ? msgs[i].content : (msgs[i].content || []).map((c) => c.text || '').join('');
+    return '';
+  })();
+  // 诚实性护栏测试：这句问话的回复里模型「声称联网」但桩不发任何检索事件
+  if (/测试联网声明/.test(lastUser)) {
+    const t = '我已经请求了模型的原生网页搜索功能，今日中间价是 7.28。';
+    return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
+  }
   // 「重新生成」测试专用：同一句话问两次，桩回两版不同文本，用来证明旧回答被覆盖而不是并列留下
-  if (hay.includes('重新生成这条测试')) {
+  if (/重新生成这条测试/.test(lastUser)) {
     regenStub.n = (regenStub.n || 0) + 1;
     const t = regenStub.n === 1 ? '初版回答：第一版内容' : '重生成后的回答：界面上只应该有这一版';
     return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
@@ -266,6 +283,20 @@ console.log('\n联网：按模型 API 自带的网页搜索请求格式发请求
   ok('全程零次第三方搜索 host', !/brave|tavily|serper|duckduckgo|jina|mojeek|searx/i.test(allUrls.join(' ')), allUrls.join(' ').slice(0, 160));
   const hosts = [...new Set(allUrls.map((u) => { try { return new URL(u).host; } catch { return u.slice(0, 24); } }))];
   ok('只打网关与本地页面 host', hosts.every((h) => h.includes('teamorouter') || h === 'localhost'), JSON.stringify(hosts));
+}
+
+console.log('\n诚实性护栏：正文说「已联网」但没有任何检索事件');
+{
+  $('#composer-input').value = '测试联网声明：随便答一句';
+  click($('#send-btn'));
+  await tick(1600);
+  const last = $$('#messages .msg-assistant').slice(-1)[0];
+  const warn = last.querySelector('.web-note.warn');
+  ok('出现「未见检索事件」提醒条', !!warn && /未见检索事件/.test(warn.textContent), warn ? warn.textContent.slice(0, 60) : '没有提醒条');
+  ok('提醒条里没有假的来源链接', !!warn && warn.querySelectorAll('a').length === 0);
+  ok('同一轮里不会同时出现来源条与提醒条', last.querySelectorAll('.web-note').length === 1);
+  // 对照：真的检索过的那一轮（前面联网分组）不该出现提醒条
+  ok('真正检索过的回答不会被误报', !$$('#messages .web-note.warn').some((n) => /Pyodide|来源/.test(n.textContent)));
 }
 
 console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');

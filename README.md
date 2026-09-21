@@ -116,6 +116,10 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
   （`server_tool_use` 与名叫 `web_search`/`web_fetch` 的普通 `tool_use`）——后者若按客户端工具处理，
   主循环会去执行一个不存在的工具，所以统一按服务端工具处理、不进客户端累积器；
   ② 请求体里带 `"system": ""` 会让上游整段不返回 thinking 块，空 system 现在不发。
+- **诚实性护栏**：真机实测发现模型有时**不搜索却在正文里声称「已联网查询」**，并给出凭记忆编的实时数字。
+  两道防线：系统提示词要求「只有真的拿到检索结果才可以说联网，否则直说本论没能取得检索结果」；
+  界面上若正文声称联网而这一轮没有任何检索事件，回答下方会显示「未见检索事件 —— 该说法无法证实，
+  具体数字请另行核实」（`websearch.js` 的 `claimsWebSearch()`，含否定句豁免与正反例单测）。
 - 上游检索偶发不可用（Anthropic 会明确回 `web_search_tool_result_error{error_code:"unavailable"}`），
   此时如实显示「联网检索未成功」并给出建议，而不是显示「服务端检索到 0 条来源」。
 - 模型返回的查询词与来源渲染成回答下方的「联网 · 服务端检索到 N 条来源」条（链接 `rel="noopener"`），
@@ -230,13 +234,13 @@ js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持�
 js/ui.js          渲染与交互
 server.py         静态服务 + 流式 API 代理（兜底通道）+ /api/{health,search,fetch,git} 本地中继
                   （默认仅绑定 127.0.0.1；git 只在 ./workspace 内执行）
-tests/            agent.test.mjs（155 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
+tests/            agent.test.mjs（156 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
                   Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
                   生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义 /
                   服务端联网块不进客户端累积器 / 联网失败如实报错）
-                  dom-smoke.mjs（154 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局 /
+                  dom-smoke.mjs（156 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局 /
                   移动端布局源码护栏）
-                  app-boot.mjs（60 项：真实入口整轮对话 + 重新生成覆盖 + 联网形状）
+                  app-boot.mjs（66 项：真实入口整轮对话 + 重新生成覆盖 + 联网形状）
                   live-smoke.mjs / live-web.mjs（拿 key 打真网关：双协议 + 联网能力实测，无 key 自动跳过）
                   mobile-layout.mjs（真 Chrome 量移动端：320/360/390/414/768 无溢出、无重叠、触控 ≥36px；
                   npm run audit:mobile，需先 npm i puppeteer）
