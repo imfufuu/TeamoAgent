@@ -5,6 +5,10 @@
   "description": "Web Agent built on TeamoRouter LLM gateway",
   "scripts": {
     "test": "node tests/agent.test.mjs",
+    "test:dom": "node tests/dom-smoke.mjs",
+    "test:app": "node tests/app-boot.mjs",
+    "test:live": "node tests/live-check.mjs",
+    "test:all": "node tests/agent.test.mjs && node tests/dom-smoke.mjs && node tests/app-boot.mjs",
     "start": "python3 server.py"
   }
 }

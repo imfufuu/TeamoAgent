@@ -161,7 +161,18 @@ TEAMO_API_KEY=sk-teamo-xxx node tests/live-check.mjs
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
 `report.json` 输出到 `/tmp/teamo-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
 
-可选的 DOM 冒烟测试（真实挂载 UI，需 `npm i -D jsdom`；未安装时自动跳过，CI 不依赖）：
+三层测试（后两层需 `npm i -D jsdom`，未安装时自动跳过，CI 不依赖）：
+
+```bash
+npm test              # tests/agent.test.mjs：解析/状态机/纯函数（无 DOM）
+npm run test:dom      # tests/dom-smoke.mjs ：挂载 UI 驱动交互路径
+npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹窗填 Key → 选模型
+                      #                       → 发送 → 工具调用 → 文件面板目录树
+npm run test:all      # 三连
+```
+
+`test:app` 是唯一覆盖「入口装配 + hook 接线」的一层：混版缓存、hook 缺失这类故障在纯函数
+单测与挂载冒烟里都不会露馅，只有从 `main.js` 开始跑才能抓到。
 
 ```bash
 node tests/dom-smoke.mjs

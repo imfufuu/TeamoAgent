@@ -20,6 +20,10 @@ GitHub Pages 对 JS/CSS 子资源有 ~10 分钟 `max-age`，浏览器于是组�
   构建标识（hover 提示强制刷新）；新增单测强制 `?v=` 与 `APP_VERSION` 同步，避免发版漏改。
 - 复现与验证：用**上一版 `ui.js` + 当前 `agent.js`** 实跑，修复前 `TypeError`，修复后
   `send()` 正常收尾（`user` + `assistant` 消息齐全，状态 `done`）；另有「钩子全抛错」单测。
+- **新增 `tests/app-boot.mjs`（`npm run test:app`）**：从真实 `js/main.js` 起步，走「Key 弹窗 →
+  模型菜单 → 输入框 → 发送 → 工具调用 → 文件面板」整条装配链（桩网关按端点分发 SSE/JSON）。
+  本次故障正是"挂载层"问题，前两层测试都抓不到它。`package.json` 补 `test:dom` / `test:app` /
+  `test:all` / `test:live` 脚本。
 - 测试：单测 99 → 101，DOM 冒烟 90 → 95（连续 6 轮 0 失败；顺带修掉一条会误判的
   DOM 断言——示例文案本身包含其能力标签文字，改为比较 `data-prompt` 与 `textContent` 差异）。
 ## 2026-09-21（修复 + 体验）用户消息即时上屏 / 随机任务示例 / Logo 静止
