@@ -121,6 +121,15 @@ globalThis.fetch = async (url, opts) => {
     const t = '我已经请求了模型的原生网页搜索功能，今日中间价是 7.28。';
     return ep === 'anthropic' ? sseRes(anthTextSse(t)) : ep === 'responses' ? respText(t) : chatText(t);
   }
+  // 「停止生成」测试：请求永不响应（模拟网关排队 / 网络卡住），用户随后点停止。
+  // 真机踩过：停止只改了数据、没重绘，屏上会一直留着「正在连接 xxx，等待首个响应…」。
+  if (/测试停止生成/.test(lastUser)) {
+    return new Promise((_resolve, reject) => {
+      const sig = opts && opts.signal;
+      const onAbort = () => reject(new DOMException('Aborted', 'AbortError'));   // DOMException.name 是只读的，直接构造
+      if (sig) { if (sig.aborted) onAbort(); else sig.addEventListener('abort', onAbort); }
+    });
+  }
   // 「开关开着但模型说自己上不了网」测试：桩回拒答、且不发任何检索事件（网关侧实测会发生）
   if (/测试联网拒答/.test(lastUser)) {
     // 真机实测：同一句提问加上「先联网检索再回答」前缀后模型才真的发起服务端检索，
@@ -367,6 +376,24 @@ console.log('\n诚实性护栏 3：提示条上的「重试并联网检索」一
   ok('重试后提示条消失、换成真来源条', !after.querySelector('.web-note.hint')
     && !!after.querySelector('.web-note') && /1 条来源/.test(after.textContent) && after.querySelectorAll('.web-note a').length > 0,
     after.querySelector('.web-note') ? after.querySelector('.web-note').textContent.trim().slice(0, 60) : '没有来源条');
+}
+
+console.log('\n停止生成：停下就是停下，不留「正在连接…」动画');
+{
+  $('#composer-input').value = '测试停止生成：问一句然后马上停';
+  click($('#send-btn'));
+  await tick(700);
+  const live = $$('#messages .msg-assistant').slice(-1)[0];
+  ok('等待首字时确实显示了连接动画（先确认前置状态）', /正在连接/.test(live.innerHTML) && !!live.querySelector('.connect-ring'),
+    live.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
+  click($('#send-btn'));          // busy 时同一个按钮就是「停止」
+  await tick(900);
+  const after = $$('#messages .msg-assistant').slice(-1)[0];
+  ok('停止后连接动画消失', !/正在连接/.test(after.innerHTML) && !after.querySelector('.connect-ring'),
+    after.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
+  ok('停止后标出「已停止」', !!after.querySelector('.cancelled-tag'));
+  ok('停止后状态是「已停止」而不是继续转圈', /已停止/.test($('#status-text').textContent), $('#status-text').textContent);
+  ok('停止后发送按钮回到发送态', !$('#send-btn').classList.contains('stop-mode'));
 }
 
 console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');

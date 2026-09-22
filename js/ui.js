@@ -1,8 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL, APP_VERSION, APP_RELEASE } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport } from './api.js';
+import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { webCapFor, webCapNote } from './websearch.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -10,6 +11,7 @@ import { SUBAGENTS } from './subagents.js';
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
+import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -268,7 +270,7 @@ export function mountUI(store, agent) {
     if (!store.state.apiKey) return openKeyModal();
     $('#refresh-models').classList.add('spin');
     try {
-      const list = await fetchModels(store.state.apiKey);
+      const list = await fetchModels(effectiveApiKey(store.state.apiKey));
       store.state.models = list; store.notify();
       renderModelMenu();
       toast(`已获取 ${list.length} 个模型（GET /v1/models）`, 'ok');
@@ -299,9 +301,8 @@ export function mountUI(store, agent) {
     webToggle.classList.toggle('on', on);
     const cap = webCapFor(store.state.model);
     webToggle.innerHTML = GLOBE_SVG + '联网';
-    webToggle.title = on
-      ? `联网：${cap ? cap.label : '当前模型没有原生联网格式，本轮不会联网'}`
-      : '联网已关闭：模型不再具备实时检索能力';
+    // 文案只在 websearch.js 里维护一份（这里原本内联复写过一遍，webCapNote 成了死导入）
+    webToggle.title = on ? webCapNote(cap) : '联网已关闭：模型不再具备实时检索能力';
   };
   if (webToggle) {
     webToggle.addEventListener('click', () => {
@@ -374,12 +375,38 @@ export function mountUI(store, agent) {
       else if (!e.shiftKey && idx === focusables.length - 1) { e.preventDefault(); focusables[0].focus(); }
     }
   });
-  $('#key-save').addEventListener('click', () => {
-    store.state.apiKey = keyInput.value.trim(); store.notify();
+  $('#key-save').addEventListener('click', async () => {
+    const typed = keyInput.value.trim();
+    // 管理员别名：先用口令解封（解不开就拒绝保存，避免存进去一把用不了的 key）
+    if (isAdminAlias(typed)) {
+      const r = await unlockAdminKey(typed);
+      if (!r.ok) {
+        return toast(r.reason === 'bad-password' ? '管理员口令不正确（admin- 开头的密钥会被当作管理员口令）' : '管理员密钥不可用',
+          'err', 5200);
+      }
+      store.state.apiKey = typed; store.notify();
+      closeKeyModal();
+      toast('管理员密钥已启用：请求会用管理员密钥发出（明文密钥不落盘、不上屏）', 'ok', 4200);
+      updateKeyBtn(); updateTransportBadge();
+      return;
+    }
+    store.state.apiKey = typed; store.notify();
     closeKeyModal();
     toast(store.state.apiKey ? 'API Key 已保存（仅存于浏览器 localStorage）' : 'API Key 已清除', 'ok');
-    updateTransportBadge();
+    updateKeyBtn(); updateTransportBadge();
   });
+  // 底部「API Key」按钮的文案：管理员模式下明确标出来（但不显示密钥任何片段）
+  function updateKeyBtn() {
+    const b = $('#key-btn');
+    if (!b) return;
+    const admin = isAdminAlias(store.state.apiKey);
+    b.textContent = admin ? '管理员' : 'API Key';
+    b.classList.toggle('admin-mode', admin);
+    b.title = admin
+      ? (adminUnlocked() ? '管理员密钥已启用（请求使用管理员密钥，明文不落盘）' : '管理员密钥未解封：点开重新输入口令')
+      : '填入 TeamoRouter API Key（或管理员口令）';
+  }
+  updateKeyBtn();
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
 
   // ── 会话记录（侧栏只做记录与切换；回滚全部在对话区）─────────────────
@@ -717,7 +744,7 @@ export function mountUI(store, agent) {
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
       <h2>TeamoAgent</h2>
-      <p>基于 <span class="mono">api.teamorouter.com</span> 的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
+      <p>基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => `<button class="suggest" type="button" data-prompt="${esc(x.text)}">${esc(x.text)}</button>`).join('')}
       </div>
@@ -1071,9 +1098,28 @@ export function mountUI(store, agent) {
 
   function updateTransportBadge() {
     const b = $('#transport-badge');
-    b.textContent = getTransport() === 'proxy' ? '中继模式' : '直连模式';
-    b.title = getTransport() === 'proxy' ? '浏览器直连失败，已通过本地服务器代理转发' : '浏览器直连 api.teamorouter.com（CORS 已放行）';
+    const proxy = getTransport() === 'proxy';
+    const host = gatewayBase().replace(/^https?:\/\//, '');
+    b.textContent = proxy ? '中继模式' : '直连模式';
+    const by = gatewayChosenBy();
+    const why = by === 'probe' ? '启动探测自动选择' : by === 'failover' ? '直连失败后自动切换' : by === 'manual' ? '手动选择' : by === 'stored' ? '沿用上次选择' : '默认';
+    b.title = proxy
+      ? `浏览器直连失败，已通过本地服务器代理转发（目标 ${host}）`
+      : `浏览器直连 ${host}（${why}）· 点这里可切换到另一个域名（国内网络建议用 api.teamorouter.cn）`;
   }
+  // 点传输徽章 = 手动切换接入点（国内网络下用户可能知道哪个更快）
+  $('#transport-badge').addEventListener('click', () => {
+    const from = gatewayBase();
+    const to = setGatewayBase(null, 'manual');
+    updateTransportBadge();
+    toast(`网关接入点已切换：${to.replace(/^https?:\/\//, '')}（原 ${from.replace(/^https?:\/\//, '')}）`, 'ok', 3200);
+  });
+  // 请求期发生自动切换（直连失败→换域名）时提示一次
+  window.addEventListener('teamo:endpoint-switched', (e) => {
+    updateTransportBadge();
+    const to = e && e.detail && e.detail.to ? e.detail.to.replace(/^https?:\/\//, '') : '';
+    toast(`直连域名不可达，已自动切换到 ${to}`, 'warn', 5000);
+  });
 
   // ── 输出用时（本轮 / 会话累计，随会话持久化）────────────────────────
   const fmtDur = (ms) => {
@@ -1266,6 +1312,7 @@ export function mountUI(store, agent) {
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
   return {
     setStatus,
+    refreshKeyBtn: updateKeyBtn,   // main.js 解封成功后刷新按钮文案
     // 刷新页面后：外置在 IndexedDB 的重数据取回来了 → 重绘消息（附件图片、芯片里的生成图）
     // 与文件面板（沙箱里的图），并把沙箱重新灌进 agent（createAgent 建 fs 时它们还没回来）
     afterHydrate() {
@@ -1329,6 +1376,27 @@ export function mountUI(store, agent) {
       // 同步回填对话流中的工具芯片（状态 ✓/✕ + 展开详情）
       attachToolResult({ toolCallId: call.id, content: result });
     },
+    // 用户点了「停止」：Agent 已把那条消息标成 cancelled+done，但视图不会自己重画 ——
+    // 停止前若首字还没到，屏上会一直留着「正在连接 xxx，等待首个响应…」和转圈。
+    // 这里显式重绘这一条（并收起未完成的工具芯片），保证停下就是停下。
+    onCancelled() {
+      const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.cancelled)
+        || [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
+      if (last) {
+        const wrap = msgNodes.get(last.id);
+        if (wrap) paintAssistant(wrap, last);
+        for (const chip of $$('.chip', wrap || msgList)) {
+          if (!chip.classList.contains('done')) {
+            chip.classList.add('done');
+            const st = $('.chip-state', chip);
+            if (st && st.textContent === '…') { st.textContent = '已停止'; }
+          }
+        }
+      }
+      refreshActionVisibility();
+      scrollToBottom();
+    },
+
     // 沙箱执行进度 → 回写到对应工具芯片的状态位（Pyodide 首次加载 10~30s、
     // C++ 远程编译、子智能体委派都需要可见的进度，否则界面看起来像卡死）
     onToolEvent(call, patch) {

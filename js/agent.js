@@ -11,6 +11,7 @@
 import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
+import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
@@ -243,7 +244,9 @@ export function createAgent(store, hooks = {}) {
   async function runLoop() {
     // 整轮锁定 apiKey/model/settings：中途用户换模型不会让后续迭代与子智能体错位
     //（旧写法一处读 store.state、一处读快照，等于两个来源）
-    const { apiKey, model, settings } = store.state;
+    // 管理员别名（admin-…）在这里换成真密钥：密钥只在内存里，且不进本轮日志/导出
+    const { model, settings } = store.state;
+    const apiKey = effectiveApiKey(store.state.apiKey);
     if (!apiKey) { emit('onNeedKey'); return; }
     if (status === 'connecting' || status === 'streaming' || status === 'thinking' || status === 'executing') return;
 

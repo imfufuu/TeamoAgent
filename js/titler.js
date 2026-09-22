@@ -7,6 +7,7 @@
 // 会让新增的具名导入在 ESM link 期直接报错 → 整页白屏。新文件（本模块）没有旧缓存可比对，
 // 而它只 import api.js 里早已存在的 streamChat，安全。
 import { streamChat } from './api.js';
+import { effectiveApiKey } from './adminkey.js';
 
 const inflight = new Set(); // 正在起标题的会话 id，避免同一会话并发重复调用
 
@@ -38,7 +39,8 @@ export async function autoTitle(store, { summarize = summarizeTitle } = {}) {
   const need = typeof store.needsTitle === 'function' ? store.needsTitle() : null;
   if (!need) return { ok: false, reason: 'not-needed' };
   if (inflight.has(need.sessionId)) return { ok: false, reason: 'inflight' };
-  const { apiKey, model } = store.state;
+  const { model } = store.state;
+  const apiKey = effectiveApiKey(store.state.apiKey);
   if (!apiKey) return { ok: false, reason: 'no-key' }; // 不标记 titled：配好 key 后下一轮还会试
   inflight.add(need.sessionId);
   try {

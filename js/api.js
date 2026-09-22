@@ -2,7 +2,8 @@
 // 协议路由 + SSE 流式解析 + 传输层（浏览器直连 / 服务端代理兜底）
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
-import { BASE_URL, ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
 
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
@@ -24,15 +25,48 @@ function proxyAvailable() {
   return typeof location !== 'undefined' && /^https?:$/.test(location.protocol);
 }
 
-// 统一请求入口：优先直连（TeamoRouter 返回 Access-Control-Allow-Origin: *），
-// 网络/CORS 失败时自动切换到本地服务端代理 /api/proxy 并重放一次。
+// 切换域名后通知界面（只有真的换了才提示一次，避免刷屏）
+let lastSwitchNote = 0;
+export function __resetEndpointForTests() { endpointSwitched = false; }
+let endpointSwitched = false;
+export function endpointSwitchNote() { return lastSwitchNote; }
+function noteSwitch(from, to) {
+  endpointSwitched = true;
+  lastSwitchNote = Date.now();
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('teamo:endpoint-switched', { detail: { from, to } }));
+    }
+  } catch { /* 忽略 */ }
+}
+export function tookEndpointSwitch() { const v = endpointSwitched; endpointSwitched = false; return v; }
+
+// 统一请求入口。三条路，按顺序退化：
+//   ① 直连当前接入点（TeamoRouter 返回 Access-Control-Allow-Origin: *）
+//   ② 网络层失败（域名不可达 / DNS / 连接被拒 / CORS）→ 换另一个域名重放一次
+//      —— 中国大陆网络下 api.teamorouter.com 常常打不开，而 api.teamorouter.cn 正常，
+//         这一步让用户不用手动改配置
+//   ③ 仍失败 → 本地服务端代理 /api/proxy（本地跑 server.py 时可用，能绕开浏览器网络限制）
 async function request(path, { method = 'POST', headers = {}, body, signal } = {}) {
   const tryFetch = (url) => fetch(url, { method, headers, body, signal });
+  const base = gatewayBase();
   try {
     transport = 'direct';
-    return await tryFetch(BASE_URL + path);
+    return await tryFetch(base + path);
   } catch (err) {
     if (signal?.aborted) throw err;
+    if (isNetworkError(err)) {
+      const alt = otherGatewayBase();
+      try {
+        const res = await tryFetch(alt + path);
+        setGatewayBase(alt, 'failover');   // 记住能用的那个
+        noteSwitch(base, alt);
+        return res;
+      } catch (err2) {
+        if (signal?.aborted) throw err2;
+        if (!isNetworkError(err2) || !proxyAvailable()) throw err2;
+      }
+    }
     if (proxyAvailable()) {
       transport = 'proxy';
       return await tryFetch(`/api/proxy?path=${encodeURIComponent(path)}`);

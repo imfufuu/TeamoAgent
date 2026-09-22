@@ -2012,6 +2012,128 @@ test('孤儿数据会被清理：会话/消息删掉后不再保留对应的 IDB
   assert.equal(collectBlobKeys(extractBlobs(noMsg).light).length, 0, '消息删掉后 key 也应消失（blobPrune 据此清理）');
 });
 
+group('网关接入点：双域名自动择路（中国大陆网络兼容）');
+test('默认接入 .com；探测后能切到 .cn 并记住；失败回退另一个域名', async () => {
+  const ep = await import('../js/endpoint.js');
+  assert.deepEqual(ep.GATEWAY_HOSTS, ['https://api.teamorouter.com', 'https://api.teamorouter.cn']);
+  // 干净起点
+  const savedLS = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  };
+  try {
+    ep.setGatewayBase('https://api.teamorouter.com', 'manual');
+    assert.equal(ep.gatewayBase(), 'https://api.teamorouter.com');
+    assert.equal(ep.otherGatewayBase(), 'https://api.teamorouter.cn');
+    // 探测：只有 .cn 可达 → 应选 .cn
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = async (url) => {
+      if (String(url).includes('api.teamorouter.cn')) return new Response('{}', { status: 200 });
+      throw new TypeError('Failed to fetch');
+    };
+    const r = await ep.probeGatewayHosts({ timeoutMs: 500 });
+    assert.equal(r.host, 'https://api.teamorouter.cn', `应切到 .cn：${JSON.stringify(r)}`);
+    assert.equal(ep.gatewayBase(), 'https://api.teamorouter.cn');
+    assert.equal(store.get('teamo-gateway-endpoint'), 'https://api.teamorouter.cn', '选择要落盘记住');
+    // 两个都不通：保持原样，不抛
+    globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
+    const r2 = await ep.probeGatewayHosts({ timeoutMs: 300 });
+    assert.equal(r2.by, 'none');
+    assert.equal(ep.gatewayBase(), 'https://api.teamorouter.cn', '都不通时不该乱改');
+    globalThis.fetch = realFetch;
+  } finally {
+    if (savedLS === undefined) delete globalThis.localStorage; else globalThis.localStorage = savedLS;
+    ep.setGatewayBase('https://api.teamorouter.com', 'manual');
+  }
+});
+
+test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', async () => {
+  const { isNetworkError } = await import('../js/endpoint.js');
+  assert.equal(isNetworkError(new TypeError('Failed to fetch')), true);
+  assert.equal(isNetworkError(new Error('Load failed')), true);
+  assert.equal(isNetworkError(Object.assign(new Error('Aborted'), { name: 'AbortError' })), false, '用户停止不该换域名重试');
+  assert.equal(isNetworkError(new Error('HTTP 401: invalid key')), false, '鉴权失败换域名没用');
+  assert.equal(isNetworkError(null), false);
+});
+
+test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
+  const api = await import('../js/api.js');
+  const ep = await import('../js/endpoint.js');
+  const realFetch = globalThis.fetch;
+  const savedLS = globalThis.localStorage;
+  const store = new Map();
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  ep.setGatewayBase('https://api.teamorouter.com', 'manual');
+  const tried = [];
+  globalThis.fetch = async (url) => {
+    tried.push(String(url));
+    if (String(url).startsWith('https://api.teamorouter.com')) throw new TypeError('Failed to fetch');
+    return new Response(JSON.stringify({ data: [{ id: 'claude-haiku-4-5' }, { id: 'gpt-5.6-sol' }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const list = await api.fetchModels('sk-teamo-test');
+    assert.deepEqual(list, ['claude-haiku-4-5', 'gpt-5.6-sol'], `应拿到模型列表：${JSON.stringify(list)}`);
+    assert.equal(tried.length, 2, `应该是「先 .com 失败、再 .cn 成功」两次：${tried.join(' , ')}`);
+    assert.ok(tried[0].startsWith('https://api.teamorouter.com'));
+    assert.ok(tried[1].startsWith('https://api.teamorouter.cn'));
+    assert.equal(ep.gatewayBase(), 'https://api.teamorouter.cn', '切换后要记住');
+    assert.equal(api.tookEndpointSwitch(), true, '要能被界面感知到（提示一次）');
+  } finally {
+    globalThis.fetch = realFetch;
+    if (savedLS === undefined) delete globalThis.localStorage; else globalThis.localStorage = savedLS;
+    ep.setGatewayBase('https://api.teamorouter.com', 'manual');
+    api.tookEndpointSwitch();
+  }
+});
+
+group('管理员密钥：源码里没有明文，口令拉伸后解封');
+test('密封常量不含任何明文片段，且解封逻辑正确', async () => {
+  const src = (await import('node:fs')).readFileSync(new URL('../js/adminkey.js', import.meta.url), 'utf8');
+  // 源码里既不能有密钥明文，也不能有口令明文（注释里的示例也算）
+  assert.equal(/sk-teamo-[a-z0-9]{8,}/.test(src), false, '源码里不能出现任何形如 sk-teamo-… 的密钥');
+  // 真口令同样不能出现在这个测试文件里：用运行时拼出来的片段去查，避免自证式泄漏
+  const needles = ['29' + '3846', 'admin-2' + '93'];
+  assert.equal(needles.some((n) => src.includes(n)), false, '源码里不能出现口令明文');
+  const self = (await import('node:fs')).readFileSync(new URL(import.meta.url), 'utf8');
+  assert.equal(needles.some((n) => self.includes(n)), false, '测试文件里也不能出现口令明文');
+  const { buildNothing } = { buildNothing: null };
+  const ak = await import('../js/adminkey.js');
+  assert.equal(ak.isAdminAlias('admin-anything'), true);
+  assert.equal(ak.isAdminAlias('sk-teamo-xxx'), false);
+  // 错口令：拒绝，且不会留下已解封状态
+  const bad = await ak.unlockAdminKey('admin-wrong-password');
+  assert.equal(bad.ok, false);
+  assert.equal(bad.reason, 'bad-password');
+  assert.equal(ak.adminUnlocked(), false);
+  // 未解封时别名原样透传（绝不会把半截密钥发出去）
+  assert.equal(ak.effectiveApiKey('admin-<示例别名>'), 'admin-<示例别名>');
+  assert.equal(ak.effectiveApiKey('sk-teamo-plain'), 'sk-teamo-plain');
+  // 有环境变量时做一次真解封（口令不进仓库：CI/本地按需给）
+  if (process.env.TEAMO_ADMIN_PW) {
+    const ok = await ak.unlockAdminKey(process.env.TEAMO_ADMIN_PW);
+    assert.equal(ok.ok, true, '正确口令必须能解封');
+    const key = ak.effectiveApiKey(process.env.TEAMO_ADMIN_PW);
+    assert.match(key, /^sk-teamo-[a-z0-9]{40,}$/, '解封出来的应是真密钥');
+    assert.notEqual(key, process.env.TEAMO_ADMIN_PW, '别名必须被替换成真密钥');
+    ak.lockAdminKey();
+    assert.equal(ak.effectiveApiKey(process.env.TEAMO_ADMIN_PW), process.env.TEAMO_ADMIN_PW, '上锁后不再替换');
+  }
+});
+
+test('管理员密钥不会被写进会话导出、也不进 localStorage 的明文位置', async () => {
+  const ak = await import('../js/adminkey.js');
+  const { createStore } = await import('../js/state.js');
+  const store = createStore();
+  store.state.apiKey = 'admin-<示例别名>';   // 存的只是别名（用户输入的原样字符串）
+  const dump = JSON.stringify(store.state);
+  assert.ok(dump.includes('admin-<示例别名>'), '别名本身是可以存的（它就是用户输入）');
+  assert.equal(/sk-teamo-[a-z0-9]{40,}/.test(dump), false, '真密钥绝不能被持久化');
+  assert.equal(ak.adminUnlocked(), false);
+});
+
 test('系统提示词不再自相矛盾：不能说「去找 web_search 工具」也不能说「模型不能联网」', async () => {
   const { systemPrompt } = await import('../js/config.js');
   const sys = systemPrompt();

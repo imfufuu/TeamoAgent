@@ -3,6 +3,8 @@ import { createStore } from './state.js';
 import { createAgent } from './agent.js';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
+import { probeGatewayHosts } from './endpoint.js';
+import { isAdminAlias, unlockAdminKey } from './adminkey.js';
 
 const store = createStore();
 
@@ -32,7 +34,7 @@ const hooks = {
     ui && ui.onWebFallback && ui.onWebFallback(model, why);
   },
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
-  onCancelled: () => { toast('已停止生成', 'warn'); ui && ui.updateStats(); },
+  onCancelled: () => { ui && ui.onCancelled && ui.onCancelled(); toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onError: (err) => {
     console.error(err);
     const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
@@ -60,6 +62,21 @@ document.addEventListener('visibilitychange', () => {
 // 与其让模型在死路上浪费时间（实测它还会拿 fetch_url 假装联网），不如本轮就不给它这两个工具。
 // 探测结果只影响工具表与系统提示词，不影响任何联网搜索（那走的是模型 API 自带格式）。
 relayAvailable().then((ok) => { store.state.relayOk = ok; }).catch(() => {});
+
+// 刷新后如果存的还是管理员别名，重新解封一次（口令就是别名本身，不需要再问用户）
+if (isAdminAlias(store.state.apiKey)) {
+  unlockAdminKey(store.state.apiKey).then((r) => {
+    if (!r.ok) toast('管理员密钥未解封：请在 API Key 里重新输入口令', 'warn', 5000);
+    else if (ui && ui.refreshKeyBtn) ui.refreshKeyBtn();
+  }).catch(() => {});
+}
+
+// 网关接入点择路（一次性）：国内网络下 api.teamorouter.com 常常打不开，
+// 而 api.teamorouter.cn 正常。并行探测两个域名，把能用的记下来，之后请求都用它。
+probeGatewayHosts().then((r) => {
+  if (r.switched && r.by === 'probe') toast(`网关接入点已自动选择：${r.host}`, 'ok', 4000);
+  if (ui && ui.updateTransportBadge) ui.updateTransportBadge();
+}).catch(() => {});
 
 // 刷新页面后把外置的重数据取回来（附件图片 / 沙箱里的图 / 生成图）：
 // 这些原本存在 localStorage 里，图一多就爆 5MB 配额、被静默丢掉；现在放在 IndexedDB，

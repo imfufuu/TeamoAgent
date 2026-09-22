@@ -8,6 +8,7 @@
 
 端点:
   ANY  /api/proxy?path=/v1/chat/completions  →  https://api.teamorouter.com/v1/... （流式透传）
+                                            第一个上游连不上时自动换 api.teamorouter.cn 重试
   GET  /api/health      →  能力探测（前端据此决定工具走中继还是降级）
   GET  /api/fetch?url=  →  抓取网页并抽取正文（mode=text|raw，禁止指向内网地址）
                         联网搜索不在这里：按用户要求，搜索只用模型 API 自带的请求格式
@@ -34,7 +35,10 @@ import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-UPSTREAM_HOST = "api.teamorouter.com"
+# 上游候选：第一个是文档默认域名，第二个（.cn）在中国大陆网络通常更稳。
+# 逐个尝试，任一可用即透传；也可用环境变量 TEAMO_UPSTREAM 固定。
+UPSTREAM_CANDIDATES = [h for h in [os.environ.get("TEAMO_UPSTREAM"), "api.teamorouter.com", "api.teamorouter.cn"] if h]
+UPSTREAM_HOST = UPSTREAM_CANDIDATES[0]
 WORKSPACE = os.environ.get("TEAMO_WORKSPACE") or os.path.join(ROOT, "workspace")
 UA = "Mozilla/5.0 (X11; Linux x86_64) TeamoAgent-LocalRelay/1.0"
 # git 执行开关：__main__ 里按 --allow-git/--no-git 与监听地址决定
@@ -360,12 +364,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         headers["host"] = UPSTREAM_HOST
 
         ctx = ssl.create_default_context()
-        try:
-            conn = http.client.HTTPSConnection(UPSTREAM_HOST, timeout=TIMEOUT, context=ctx)
-            conn.request(method, path, body=body, headers=headers)
-            res = conn.getresponse()
-        except Exception as exc:  # 上游不可达
-            return self._json(502, {"error": f"upstream unreachable: {exc}"})
+        res = None
+        last_exc = None
+        for cand in UPSTREAM_CANDIDATES:      # 双域名轮询：哪个通就用哪个
+            headers["host"] = cand
+            try:
+                conn = http.client.HTTPSConnection(cand, timeout=TIMEOUT, context=ctx)
+                conn.request(method, path, body=body, headers=headers)
+                res = conn.getresponse()
+                break
+            except Exception as exc:  # 该域名不可达，试下一个
+                last_exc = exc
+                continue
+        if res is None:
+            return self._json(502, {"error": f"upstream unreachable: {last_exc}"})
 
         self.send_response(res.status)
         ctype = res.getheader("Content-Type", "application/json")
