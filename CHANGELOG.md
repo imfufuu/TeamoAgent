@@ -2,6 +2,41 @@
 
 本文件记录 TeamoAgent 的阶段性改进。评估依据与完整问题清单见 [ANALYSIS.md](./ANALYSIS.md)。
 
+## 2026-09-21（主题按钮只留图标 / 顶栏 pill 反色不同步 / 图标居中）
+
+### 1. 主题按钮删掉文字，只留图标
+`#theme-toggle` 去掉「主题」二字，加 `.mini-btn.icon-only`（正方形、图标居中），
+`aria-label="切换明暗主题"` 保留给读屏；触屏层仍保证 33×40（≥32px 宽、≥36px 高）可点。
+
+### 2. 顶栏 pill 按下后「按钮反色、文字不变」——特异度压住了选中态（真 bug）
+先复现：鼠标移到「思考」上按下 → 反色生效，但读出 `文字色 = 背景色 = rgb(10,10,10)`
+（全黑压全黑 = 完全看不见），移开鼠标才变回白色 —— 正是用户描述的「点空白处才会变换」。
+
+根因是 CSS 特异度：`.pill:hover:not(:disabled)` 是 (0,3,0)，`.pill.on` 只有 (0,2,0)。
+按下后指针仍停在按钮上，hover 规则继续生效并覆盖了 `.on` 的文字颜色。
+修法是把反色态与 hover 写进同一条规则：
+
+```css
+.pill.on,
+.pill.on:hover:not(:disabled),
+.pill.on:active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+```
+
+修后同一操作实测对比度 **11.77 : 1**（修前 1.0）。三个开关（思考 / 沙箱 / 联网）
+在 1280 与 390 两个视口都进了回归。
+
+### 3. 刷新模型按钮的图标没居中
+按钮在触屏层被撑成 40×40 的方框，而 `.icon-btn` 还是 inline 排版 + `padding: 2px 6px`，
+实测图标左 6px / 右 20px（明显偏左，且略高于中心线）。改成
+`display: inline-flex; align-items: center; justify-content: center;` 后四边留白
+13/13/13/13，图标严格落在按钮中心点。
+
+测试：`npm run test:touch` 新增 9 项（三个 pill 的悬停反色对比度、刷新图标居中、
+主题按钮只有图标/居中/可点尺寸），共 **34 项**（17 项 × 1280×900 与 390×844 两个视口）；
+dom-smoke 160 → **169**（新增 3 条静态守卫：pill 反色态与 hover 同规则、icon-btn flex 居中、主题按钮 icon-only）；
+单测 161、app-boot 85、server_checks 51 不变。
+`APP_VERSION` / `?v=` / `<meta name="app-version">` 全部 → `2026.09.21.12`。
+
 ## 2026-09-21（触屏密度 / 芯片停转 / 刷新只转箭头 / 空会话提示 / 刷新后不丢数据）
 
 用户报的问题里有两条是同源的：**「网页行间距被拉得很大」其实是触屏媒体查询在带触摸屏的桌面浏览器上命中了**

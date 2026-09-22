@@ -502,6 +502,12 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
   ok('顶栏/侧栏按钮图标全是 SVG（没有 ⟳ ⟨ ☰ ✕ 这类字符）', !/[\u27F3\u27E8\u2630\u2715\u21BB\u2699]/.test(htmlSrc) && /refresh-models[^>]*>\s*<svg/.test(htmlSrc)
     && /sidebar-toggle[^>]*>\s*<svg/.test(htmlSrc) && /sidebar-fab[^>]*>\s*<svg/.test(htmlSrc));
+  // 顶栏 pill 的反色选中态必须与 :hover 写在同一条规则里：分开写时 .pill:hover:not(:disabled)
+  // 特异度更高，会压住 .pill.on → 点开后指针没移开时文字与背景同色（用户报的「点了没反应」）
+  ok('pill 选中态压得住 hover（写进同一条规则）', /\.pill\.on,\s*\n?\.pill\.on:hover:not\(:disabled\)/.test(cssText));
+  ok('icon-btn 用 flex 居中图标', /\.icon-btn\s*\{[^}]*display: inline-flex/.test(cssText) && /\.icon-btn\s*\{[^}]*justify-content: center/.test(cssText));
+  ok('主题按钮只留图标（icon-only + aria-label）', /id="theme-toggle"[^>]*class="mini-btn icon-only"/.test(htmlSrc)
+    && /id="theme-toggle"[^>]*aria-label="切换明暗主题"/.test(htmlSrc) && />主题</.test(htmlSrc) === false);
   ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));
   // 刷新后「对话 + 附件 + 沙箱」都要在：重数据外置到 IndexedDB
   const stateSrc = fs.readFileSync(path.join(ROOT, 'js/state.js'), 'utf8');

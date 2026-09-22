@@ -100,7 +100,8 @@ async function probe(vp, label) {
 
   // ② 左下角四个按钮：单行、等高、不折行
   const foot = await page.evaluate(() => {
-    const btns = [...document.querySelectorAll('.side-footer-btns .mini-btn')];
+    // 只检查带文字的按钮（主题按钮现在只有图标，没有文本节点）
+    const btns = [...document.querySelectorAll('.side-footer-btns .mini-btn')].filter((n) => n.textContent.trim());
     return btns.map((n) => {
       const r = n.getBoundingClientRect(); const c = getComputedStyle(n);
       // 文字那一段的行盒高度：折行会变成两倍 —— 比拿按钮总高去除行高可靠
@@ -146,6 +147,46 @@ async function probe(vp, label) {
   });
   ok('工具芯片图标是 SVG（不是 ⚙ 字符）', !!chip && chip.有svg && chip.文本 === '', JSON.stringify(chip));
   ok('工具跑完后图标停止转动', !!chip && chip.done && chip.动画 === 'none' && chip.状态 === '✓', JSON.stringify(chip));
+
+  // ⑥ 顶栏 pill：选中（反色）后，指针还停在按钮上时文字也必须跟着反色
+  //    （真踩过：.pill:hover:not(:disabled) 特异度更高，压住了 .pill.on → 文字与背景同色）
+  for (const id of ['#thinking-toggle', '#sandbox-toggle', '#web-toggle']) {
+    const state = await page.evaluate((sel) => {
+      const n = document.querySelector(sel);
+      const wasOn = n.classList.contains('on');
+      const box = n.getBoundingClientRect();
+      return { sel, wasOn, x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    }, id);
+    await page.mouse.move(state.x, state.y);
+    await new Promise((r) => setTimeout(r, 120));
+    if (!state.wasOn) { await page.mouse.down(); await page.mouse.up(); await new Promise((r) => setTimeout(r, 260)); }
+    const c = await page.evaluate((sel) => {
+      const n = document.querySelector(sel); const cs = getComputedStyle(n);
+      const lum = (x) => { const m = String(x).match(/[\d.]+/g).map(Number); return (0.2126 * m[0] + 0.7152 * m[1] + 0.0722 * m[2]) / 255; };
+      const a = lum(cs.color), b = lum(cs.backgroundColor); const hi = Math.max(a, b), lo = Math.min(a, b);
+      return { on: n.classList.contains('on'), color: cs.color, bg: cs.backgroundColor, ratio: +(((hi + 0.05) / (lo + 0.05)).toFixed(2)) };
+    }, id);
+    ok(`选中的 pill ${id} 在指针悬停时文字仍与背景反色（对比度 ≥ 4.5）`, c.on && c.ratio >= 4.5, JSON.stringify(c));
+    await page.mouse.move(5, 700); await new Promise((r) => setTimeout(r, 120));
+  }
+
+  // ⑦ 刷新模型按钮：图标要落在按钮中心点（原来 inline 布局 + 触屏方框 → 左 6px / 右 20px）
+  const refresh = await page.evaluate(() => {
+    const btn = document.querySelector('#refresh-models'); const i = btn.querySelector('svg');
+    const r = btn.getBoundingClientRect(), s = i.getBoundingClientRect();
+    return { 左: Math.round(s.left - r.left), 右: Math.round(r.right - s.right), 上: Math.round(s.top - r.top), 下: Math.round(r.bottom - s.bottom) };
+  });
+  ok('刷新模型图标居中（四边留白差 ≤ 1px）', Math.abs(refresh.左 - refresh.右) <= 1 && Math.abs(refresh.上 - refresh.下) <= 1, JSON.stringify(refresh));
+
+  // ⑧ 主题按钮：只留图标（文字删掉、留 aria-label 给读屏）
+  const themeBtn = await page.evaluate(() => {
+    const t = document.querySelector('#theme-toggle'); const r = t.getBoundingClientRect(); const i = t.querySelector('svg').getBoundingClientRect();
+    return { 文本: t.textContent.trim(), aria: t.getAttribute('aria-label'), 宽: Math.round(r.width), 高: Math.round(r.height),
+      左: Math.round(i.left - r.left), 右: Math.round(r.right - i.right), 上: Math.round(i.top - r.top), 下: Math.round(r.bottom - i.bottom) };
+  });
+  ok('主题按钮只有图标、没有文字', themeBtn.文本 === '' && !!themeBtn.aria, JSON.stringify(themeBtn));
+  ok('主题按钮图标居中', Math.abs(themeBtn.左 - themeBtn.右) <= 1 && Math.abs(themeBtn.上 - themeBtn.下) <= 1, JSON.stringify(themeBtn));
+  ok('主题按钮仍是可点尺寸（≥32px 宽、≥36px 高）', themeBtn.宽 >= 32 && themeBtn.高 >= 36, `${themeBtn.宽}x${themeBtn.高}`);
 
   // ⑤ 没有会话记录时的短提示
   await page.evaluate(() => document.querySelector('#clear-sessions').click());
