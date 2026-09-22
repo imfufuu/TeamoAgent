@@ -1,5 +1,9 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
+> **当前版本：Teamo V1.0 正式版**（构建 `2026.09.22.1`）
+> 线上地址：https://imfufuu.github.io/TeamoAgent/ —— 页面上三处能看到版本：侧栏 Logo 旁的 `V1.0` 徽章、侧栏底部的「Teamo V1.0 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
+> V1.0 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
+
 黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 模型原生联网检索 · 输出用时与 token 统计 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
 
 布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次，**「重新生成」只给最近一条回答**（覆盖式重生成，更早的先回滚再问）。顶栏只有「联网」「沙箱」两枚状态胶囊（不再显示账户余额）。移动端另有一层排布（胶囊横滑、触控 ≥40px、输入框 16px），见「移动端布局」一节。
@@ -361,7 +365,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
 - 顶栏「沙箱」开关只决定三个代码执行工具是否下发（文件读写/生图/委派不受影响）；无鉴权中继 `server.py` 因此同源使用，不要暴露到共享网络。
 - JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
-- 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证（详见 `ANALYSIS.md`）。
+- 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证。
 - 本地服务器默认仅监听 `127.0.0.1`（代理通道无鉴权，`--host 0.0.0.0` 显式开放需自担风险）。
 
 ## 许可

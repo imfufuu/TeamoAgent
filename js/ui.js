@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL, APP_VERSION } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, BASE_URL, APP_VERSION, APP_RELEASE } from './config.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport } from './api.js';
@@ -1255,8 +1255,9 @@ export function mountUI(store, agent) {
     //（这正是硬刷新后仍看到旧版本号的机制）。这里直接比对并把原因说出来。
     const entryVer = (document.querySelector('meta[name="app-version"]') || {}).content || '';
     const drifted = !!entryVer && entryVer !== APP_VERSION;
-    stampEl.textContent = drifted ? `v${APP_VERSION} / 入口 ${entryVer}` : `v${APP_VERSION}`;
-    stampEl.title = `构建版本 ${APP_VERSION}${drifted ? `；入口 index.html 是 ${entryVer}（两者应一致）` : ''} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
+    const rel = `Teamo ${APP_RELEASE} 正式版`;
+    stampEl.textContent = drifted ? `${rel} · v${APP_VERSION} / 入口 ${entryVer}` : `${rel} · v${APP_VERSION}`;
+    stampEl.title = `${rel}（构建 ${APP_VERSION}）${drifted ? `；入口 index.html 是 ${entryVer}（两者应一致）` : ''} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
     if (drifted) setTimeout(() => toast(`资源缓存不一致（入口 ${entryVer}，模块 ${APP_VERSION}）：请硬刷新或用无痕窗口打开`, 'warn', 9000), 700);
   }
 

@@ -506,6 +506,13 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   // 特异度更高，会压住 .pill.on → 点开后指针没移开时文字与背景同色（用户报的「点了没反应」）
   ok('pill 选中态压得住 hover（写进同一条规则）', /\.pill\.on,\s*\n?\.pill\.on:hover:not\(:disabled\)/.test(cssText));
   ok('icon-btn 用 flex 居中图标', /\.icon-btn\s*\{[^}]*display: inline-flex/.test(cssText) && /\.icon-btn\s*\{[^}]*justify-content: center/.test(cssText));
+  // V1.0 正式版标识：标题 / meta / 侧栏徽章 / 底部版本戳都要写出来
+  const cfgSrc = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
+  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V1\.0'/.test(cfgSrc) && /APP_VERSION = '/.test(cfgSrc));
+  ok('标题与 meta 标明 V1.0 正式版', /<title>[^<]*V1\.0 正式版[^<]*<\/title>/.test(htmlSrc) && /<meta name="app-release" content="V1\.0"/.test(htmlSrc));
+  ok('侧栏 Logo 旁有 V1.0 徽章', /class="ver-badge"[^>]*>V1\.0</.test(htmlSrc) && /\.ver-badge\s*\{/.test(cssText));
+  ok('底部版本戳用 APP_RELEASE 写明正式版', /Teamo \$\{APP_RELEASE\} 正式版/.test(uiSrc) && /APP_RELEASE\b/.test(uiSrc));
+  ok('控制台横幅也是 V1.0', /TeamoAgent V1\.0 正式版/.test(fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8')));
   ok('主题按钮只留图标（icon-only + aria-label）', /id="theme-toggle"[^>]*class="mini-btn icon-only"/.test(htmlSrc)
     && /id="theme-toggle"[^>]*aria-label="切换明暗主题"/.test(htmlSrc) && />主题</.test(htmlSrc) === false);
   ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));

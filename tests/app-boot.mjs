@@ -167,7 +167,8 @@ await tick();
 console.log('\n挂载与入口资源');
 const cfg = await import(path.join(ROOT, 'js/config.js'));
 ok('main.js 完成挂载（顶栏与对话区就绪）', !!$('#messages') && !!$('#composer-input') && !!$('#send-btn'));
-ok(`侧栏构建标识 = v${cfg.APP_VERSION}`, $('#build-stamp').textContent === `v${cfg.APP_VERSION}`, $('#build-stamp').textContent);
+ok(`侧栏构建标识 = Teamo ${cfg.APP_RELEASE} 正式版 · v${cfg.APP_VERSION}`,
+  $('#build-stamp').textContent === `Teamo ${cfg.APP_RELEASE} 正式版 · v${cfg.APP_VERSION}`, $('#build-stamp').textContent);
 const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
 ok('入口样式/脚本带 ?v=（穿透 Pages 静态资源缓存）', htmlSrc.includes(`css/styles.css?v=${cfg.APP_VERSION}`) && htmlSrc.includes(`js/main.js?v=${cfg.APP_VERSION}`));
 
@@ -407,6 +408,9 @@ ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !t
 globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis
 click($('#clear-sessions'));
 await tick(30);
+ok('侧栏底部写明「Teamo V1.0 正式版」+ 构建号', /Teamo V1\.0 正式版/.test($('#build-stamp').textContent) && /v\d{4}\.\d{2}\.\d{2}\.\d+/.test($('#build-stamp').textContent),
+  $('#build-stamp').textContent.trim());
+ok('侧栏 Logo 旁 V1.0 徽章在界面上', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === 'V1.0');
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
 ok('没有会话记录时只显示一句短提示', $('#session-list .sess-empty-hint').textContent.trim() === '还没有会话记录'
   && $('#session-list .sess-empty-hint').querySelectorAll('br').length === 0, $('#session-list .sess-empty-hint').textContent.trim());

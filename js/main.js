@@ -68,4 +68,4 @@ if (store.hydrateBlobs) {
   store.hydrateBlobs().then((n) => { if (n) ui.afterHydrate(); }).catch(() => {});
 }
 
-console.log('%c◐ TeamoAgent', 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
+console.log('%c◐ TeamoAgent V1.0 正式版', 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
