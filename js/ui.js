@@ -1100,7 +1100,9 @@ export function mountUI(store, agent) {
     const b = $('#transport-badge');
     const proxy = getTransport() === 'proxy';
     const host = gatewayBase().replace(/^https?:\/\//, '');
-    b.textContent = proxy ? '中继模式' : '直连模式';
+    // 徽章要一眼看出「现在走哪个域名」：国内用户最关心的就是这一格（完整域名在悬停提示里）
+    const short = (host.match(/teamorouter\.(com|cn)/) || [])[1] ? '.' + host.match(/teamorouter\.(com|cn)/)[1] : host;
+    b.textContent = `${proxy ? '中继' : '直连'} · ${short}`;
     const by = gatewayChosenBy();
     const why = by === 'probe' ? '启动探测自动选择' : by === 'failover' ? '直连失败后自动切换' : by === 'manual' ? '手动选择' : by === 'stored' ? '沿用上次选择' : '默认';
     b.title = proxy

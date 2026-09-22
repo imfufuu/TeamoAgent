@@ -396,6 +396,15 @@ console.log('\n停止生成：停下就是停下，不留「正在连接…」�
   ok('停止后发送按钮回到发送态', !$('#send-btn').classList.contains('stop-mode'));
 }
 
+console.log('\n顶栏徽章：一眼看出当前走哪个域名');
+{
+  const badge = $('#transport-badge').textContent.trim();
+  ok('徽章文字里带域名后缀（.com / .cn）', /\.(com|cn)\b/.test(badge), badge);
+  ok('徽章说明是直连还是中继', /^(直连|中继)/.test(badge), badge);
+  ok('悬停提示里给了完整域名与切换说明', /teamorouter\.(com|cn)/.test($('#transport-badge').title) && /切换/.test($('#transport-badge').title),
+    $('#transport-badge').title.slice(0, 60));
+}
+
 console.log('\n重新生成：覆盖最近一条回答（更早的只能先回滚再问）');
 {
   $('#composer-input').value = '重新生成这条测试：随便答一句';
