@@ -748,6 +748,9 @@ a { color: var(--fg); }
   .pill { min-height: 40px; }
   /* 触屏层只抬到「够点得中」，不再把字号/内边距一起放大（会被中文标签换行撑成两行高按钮）*/
   .mini-btn { min-height: 40px; padding: 8px 10px; font-size: 12px; white-space: nowrap; }
+  /* 只有图标没有文字的按钮（主题切换、文件行下载键）：触屏层给成 40×40 方框，
+     否则宽度只有 33~34px，移动端审计的「触控目标 ≥36px」不过关 */
+  .mini-btn.icon-only, .mini-btn.file-dl { min-width: 40px; padding: 8px; justify-content: center; }
   .icon-btn { min-width: 40px; min-height: 40px; }
   .suggest { min-height: 52px; }
   .suggest-shuffle { min-height: 40px; padding: 8px 14px; font-size: 12.5px; }

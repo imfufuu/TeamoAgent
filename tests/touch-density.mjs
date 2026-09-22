@@ -186,7 +186,7 @@ async function probe(vp, label) {
   });
   ok('主题按钮只有图标、没有文字', themeBtn.文本 === '' && !!themeBtn.aria, JSON.stringify(themeBtn));
   ok('主题按钮图标居中', Math.abs(themeBtn.左 - themeBtn.右) <= 1 && Math.abs(themeBtn.上 - themeBtn.下) <= 1, JSON.stringify(themeBtn));
-  ok('主题按钮仍是可点尺寸（≥32px 宽、≥36px 高）', themeBtn.宽 >= 32 && themeBtn.高 >= 36, `${themeBtn.宽}x${themeBtn.高}`);
+  ok('主题按钮仍是可点尺寸（宽高都 ≥36px，与移动端审计同一标准）', themeBtn.宽 >= 36 && themeBtn.高 >= 36, `${themeBtn.宽}x${themeBtn.高}`);
 
   // ⑤ 没有会话记录时的短提示
   await page.evaluate(() => document.querySelector('#clear-sessions').click());
