@@ -2840,6 +2840,18 @@ test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () 
   assert.match(sys, /PDF/);
   assert.match(sys, /\.pdf\.txt/);
 });
+test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAMOAGENT', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /class="logo-text">TEAMO<i>AGENT<\/i>/);
+  const logo = css.slice(css.indexOf('.logo-text {'), css.indexOf('.logo-text i'));
+  assert.equal(/text-overflow:\s*ellipsis/.test(logo), false, '品牌名不得裁成省略号');
+  assert.match(css, /\.logo-text \{[^}]*flex-shrink:\s*0/);
+  assert.equal(/\.msg-meta \{ width: 100%; order: 9/.test(css), false, '用量不得再被挤到下一行');
+  assert.match(css, /\.msg-head \{ flex-wrap: nowrap/);
+  assert.match(css, /\.msg-meta \{ flex: 0 0 auto; white-space: nowrap/);
+});
 test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');

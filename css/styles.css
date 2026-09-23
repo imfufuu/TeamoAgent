@@ -93,6 +93,10 @@ a { color: var(--fg); }
   .sidebar.sidebar-open { transform: none; box-shadow: var(--shadow-lg); }
   #sidebar-fab { display: flex; }
   .app:has(.sidebar.sidebar-open) #sidebar-fab { display: none; }
+  /* 抽屉比桌面侧栏窄：收紧 Logo 行，完整显示 TEAMOAGENT，不省略 */
+  .logo { gap: 8px; padding: 16px 10px 12px 14px; }
+  .logo .ver-badge { display: none; }
+  #sidebar-toggle { min-width: 36px; min-height: 36px; padding: 6px; }
 }
 /* 超窄屏：沙箱面板浮层化（更宽时始终并入网格，绝不遮挡） */
 @media (max-width: 760px) {
@@ -133,7 +137,7 @@ a { color: var(--fg); }
    空状态里的大 Logo 仍保留极慢的转动作为欢迎页动效 */
 .logo-mark { font-size: 22px; display: inline-block; }
 @keyframes halfspin { 0%,80% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
-.logo-text { font-weight: 800; letter-spacing: .12em; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.logo-text { font-weight: 800; letter-spacing: .08em; font-size: 13px; flex-shrink: 0; white-space: nowrap; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
 
 .side-section { padding: 6px 14px 12px; min-height: 0; }
@@ -816,9 +820,9 @@ a { color: var(--fg); }
   .messages { padding: 16px 0 8px; }
   .msg { padding: 0 14px; margin-bottom: 20px; max-width: 100%; }
   .msg-user .bubble { max-width: 100%; }
-  .msg-head { flex-wrap: wrap; gap: 6px 8px; margin-bottom: 6px; }
-  .msg-model { overflow-wrap: anywhere; }
-  .msg-meta { width: 100%; order: 9; } /* 用量/传输信息单独一行，别把模型名挤掉 */
+  .msg-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 6px; }
+  .msg-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
+  .msg-meta { flex: 0 0 auto; white-space: nowrap; } /* 与模型名同一行：↑tok · 直连 */
   .md-body { font-size: 14.5px; line-height: 1.72; }
   .md-body pre { font-size: 12px; -webkit-overflow-scrolling: touch; }
   .md-body table { display: block; overflow-x: auto; }
