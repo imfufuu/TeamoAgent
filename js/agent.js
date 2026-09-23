@@ -1,7 +1,14 @@
-// ─── Agent 核心：工具调用循环（ReAct 式状态机）────────────────────────
+// ─── Agent 核心：工具调用循环（Hermes 式回合生命周期）────────────────
 // idle → thinking → streaming → tool_executing → (loop) → done / error / cancelled
 //
+// 回合（对齐 hermes-agent conversation_loop）：
+//   1. 追加 user  2. Jev System-1（fail-open）  3. 装配/复用 cached 系统提示
+//   4. 预检压缩（>50% 窗口）  5. 注入 ephemeral（Jev / 技能正文 / 预算）
+//   6. 可中断流式调用  7. 有 tool_calls → 并行安全工具并发，写回，回到 5
+//   8. 终态：蒸馏会话技能；压缩丢轮前已把用户问题写入 memory
+//
 // 架构要点：
+//   · 提示词稳定：身份+技能目录不随时间/Jev/沙箱快照抖动（见 js/prompt.js）
 //   · 上下文管理：按模型预算压缩历史（整轮丢弃，绝不产生孤儿 tool 消息）
 //   · 健壮性：HTTP 层与流层双重重试；工具参数 JSON 解析失败自动反馈纠错
 //   · 可观测：usage 归一、传输通道标记、工具结果截断保护上下文
@@ -16,6 +23,9 @@ import { compactMessages, contextBudgetFor, truncateToolContent } from './contex
 import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
 import { planTurn } from './jev.js';
+import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
+import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
+import { formatMemory, upsertFacts, factsFromDigest } from './memory.js';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -129,6 +139,35 @@ const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
 const DISPATCH_CONCURRENCY = 3;
+// 只读 / 无共享可变状态的工具可以并发（Hermes ThreadPoolExecutor 的浏览器等价物）。
+// 写沙箱、跑代码、生图、git 仍串行，避免交错后说不清基于哪一版文件。
+export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'get_current_time', 'fetch_url']);
+const hasBadArgs = (call) => !!(call && call.args && typeof call.args === 'object' && '__raw' in call.args);
+
+export function batchToolCalls(calls) {
+  const batches = [];
+  let i = 0;
+  const list = calls || [];
+  while (i < list.length) {
+    if (list[i].name === 'dispatch_subagent' && !hasBadArgs(list[i])) {
+      let j = i;
+      while (j < list.length && list[j].name === 'dispatch_subagent' && !hasBadArgs(list[j])) j++;
+      batches.push({ kind: 'dispatch', start: i, end: j });
+      i = j;
+      continue;
+    }
+    if (PARALLEL_TOOLS.has(list[i].name) && !hasBadArgs(list[i])) {
+      let j = i;
+      while (j < list.length && PARALLEL_TOOLS.has(list[j].name) && !hasBadArgs(list[j])) j++;
+      batches.push({ kind: 'parallel', start: i, end: j });
+      i = j;
+      continue;
+    }
+    batches.push({ kind: 'serial', start: i, end: i + 1 });
+    i++;
+  }
+  return batches;
+}
 
 export function createAgent(store, hooks = {}) {
   const fs = createFS(store.state.files);
@@ -155,20 +194,44 @@ export function createAgent(store, hooks = {}) {
 
   // lockModel：本轮锁定的模型（runLoop 开头取的快照），保证预算与提示词不会因
   // 用户中途切换模型而和本轮上下文错位
-  // jevNote：本轮 System-1（Jev）写进系统提示的短约束；空字符串表示本轮没跑/失败
-  function buildMessages(lockModel, relayOk = true, jevNote = '') {
+  // cached 前缀（身份 + 技能目录 + 子智能体指引）按用户回合复用；
+  // volatile（记忆/沙箱/时间/联网）每轮迭代重建；ephemeral 只放 Jev/技能正文/预算。
+  let cachedPrefix = null;
+  function buildMessages(lockModel, relayOk = true, jevNote = '', plan = null, iteration = 1) {
     const { messages } = store.state;
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
-    const { messages: compacted, droppedCount } = compactMessages(messages, budget);
-    // subagentGuide 无条件注入：委派子智能体不依赖代码沙箱开关（开关只决定子智能体
-    // 自己能用的工具集合），旧写法把整段名录藏在开关后面，关掉沙箱就等于没有子智能体。
-    const sys = [{ role: 'system', text: systemPrompt(new Date(), { webEnabled: store.state.settings.webEnabled !== false }) + fsNote()
-      + (store.state.settings.webEnabled !== false ? WEB_ON_NOTE : WEB_OFF_NOTE)
-      + (relayOk ? '' : RELAY_OFF_NOTE) + subagentGuide()
-      + (jevNote || '') }];
-    if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
-    return [...sys, ...compacted];
+    const { messages: compacted, droppedCount, droppedDigest } = compactMessages(messages, budget, { preflight: true });
+    if (droppedDigest) {
+      store.state.memory = upsertFacts(store.state.memory, factsFromDigest(droppedDigest));
+    }
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const webOn = store.state.settings.webEnabled !== false;
+    if (!cachedPrefix) {
+      cachedPrefix = assembleSystemLayers({
+        identity: systemPrompt(new Date(), { webEnabled: webOn }),
+        skillsIndex: formatSkillsIndex(store.state.learnedSkills),
+        contextFiles: subagentGuide(),
+      }).cached;
+    }
+    const layers = assembleSystemLayers({
+      identity: cachedPrefix,
+      memory: formatMemory(store.state.memory),
+      runtime: formatRuntime({
+        now: new Date(),
+        model,
+        filesNote: fsNote(),
+        webNote: webOn ? WEB_ON_NOTE : WEB_OFF_NOTE,
+        relayNote: relayOk ? '' : RELAY_OFF_NOTE,
+      }),
+      ephemeral: [
+        jevNote || '',
+        selectSkillBodies(plan, lastUser && lastUser.text, store.state.learnedSkills),
+        droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
+        formatBudgetNote(iteration, TOOL_LOOP_MAX),
+      ].filter((s) => s && String(s).trim()).join('\n\n'),
+    });
+    return [...layers.messages, ...compacted];
   }
 
   function fsNote() {
@@ -208,36 +271,31 @@ export function createAgent(store, hooks = {}) {
     };
   }
 
-  const badArgs = (call) => !!(call.args && typeof call.args === 'object' && '__raw' in call.args);
-
-  // 同一轮里的多个 dispatch_subagent 并发执行（子智能体上下文彼此不可见，天然独立），
-  // 其余工具保持串行：沙箱代码会改虚拟文件，交错跑就说不清「基于哪一版文件」。
+  // 同一轮里：dispatch_subagent 并发；只读工具并发；写/执行串行。
   // 结果仍按调用原顺序写回对话，两种协议的 tool_use/tool_result 配对都不受影响。
   async function runToolCalls(calls, turn) {
     const out = new Array(calls.length);
     const runOne = async (call) => {
       if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit('onToolStart', call);
-      if (badArgs(call)) {
-        // 参数 JSON 解析失败 → 不执行，反馈模型自行纠错（成熟的工具循环必备）
+      if (hasBadArgs(call)) {
         emit('onToolEvent', call, { status: 'error', note: '参数解析失败' });
         return `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
       }
       return executeTool(call.name, call.args, toolCtxFor(call, turn));
     };
-    let i = 0;
-    while (i < calls.length) {
-      const delegating = calls[i].name === 'dispatch_subagent' && !badArgs(calls[i]);
-      if (!delegating) { out[i] = await runOne(calls[i]); i++; continue; }
-      let j = i;
-      while (j < calls.length && calls[j].name === 'dispatch_subagent' && !badArgs(calls[j])) j++;
-      for (let k = i; k < j; k += DISPATCH_CONCURRENCY) {
+    for (const b of batchToolCalls(calls)) {
+      if (b.kind === 'serial') {
+        out[b.start] = await runOne(calls[b.start]);
+        continue;
+      }
+      const limit = b.kind === 'dispatch' ? DISPATCH_CONCURRENCY : (b.end - b.start);
+      for (let k = b.start; k < b.end; k += limit) {
         const group = [];
-        for (let n = k; n < Math.min(k + DISPATCH_CONCURRENCY, j); n++) group.push(n);
+        for (let n = k; n < Math.min(k + limit, b.end); n++) group.push(n);
         const rs = await Promise.all(group.map((n) => runOne(calls[n])));
         group.forEach((n, m) => { out[n] = rs[m]; });
       }
-      i = j;
     }
     return out;
   }
@@ -268,8 +326,11 @@ export function createAgent(store, hooks = {}) {
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
     };
     let iterations = 0;
+    cachedPrefix = null;
     // Jev 只在本轮开头跑一次（工具循环里不再打），失败则 jevNote 为空、对话照常。
     let jevNote = '';
+    let turnPlan = null;
+    const usedTools = [];
 
     try {
       if (settings.jevEnabled !== false) {
@@ -281,6 +342,7 @@ export function createAgent(store, hooks = {}) {
           attachments: lastUser && lastUser.attachments,
         });
         if (plan && plan.ok && plan.note) {
+          turnPlan = plan;
           jevNote = '\n\n' + plan.note;
           if (lastUser) {
             store.updateMessage(lastUser.id, {
@@ -319,7 +381,7 @@ export function createAgent(store, hooks = {}) {
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
-              messages: buildMessages(model, relayOk, jevNote),
+              messages: buildMessages(model, relayOk, jevNote, turnPlan, iterations),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {
@@ -419,6 +481,7 @@ export function createAgent(store, hooks = {}) {
         const results = await runToolCalls(toolCalls, turn);
         for (const [i, call] of toolCalls.entries()) {
           const result = results[i];
+          usedTools.push(call.name);
           syncFS();
           store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: truncateToolContent(result, 8000) });
           emit('onToolResult', call, result);
@@ -440,6 +503,12 @@ export function createAgent(store, hooks = {}) {
       }
     } finally {
       abortController = null;
+      // 只在正常结束时蒸馏技能：取消/报错的轨迹不能写成可复用规程
+      if (status === 'done') {
+        const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
+        const learned = distillSkill({ userText: lastUser && lastUser.text, toolNames: usedTools, iterations });
+        if (learned) store.state.learnedSkills = rememberSkill(store.state.learnedSkills, learned);
+      }
       syncFS();
       store.notify();
       emit('onTurnTiming', Math.round(performance.now() - t0)); // emit 内部已吞掉视图层异常

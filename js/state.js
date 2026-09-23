@@ -319,6 +319,8 @@ export function createStore(onChange) {
       Object.assign(state, parsed);
       // 旧快照里没有的开关要补上默认值（整块 settings 被 parsed 覆盖时不能留下 undefined）
       state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true, jevEnabled: true }, state.settings || {});
+      if (!Array.isArray(state.memory)) state.memory = [];
+      if (!Array.isArray(state.learnedSkills)) state.learnedSkills = [];
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
       if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
     } else {

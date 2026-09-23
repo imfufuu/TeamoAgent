@@ -85,29 +85,36 @@ function fitBudget(msgs, budget) {
 //   ④ 仍超预算 → 从最早开始整轮丢弃（user 消息边界），
 //      保证 tool 消息永远与其 assistant(tool_use) 同进同出，两种协议都不会 400
 //   ⑤ 兜底 → 收缩最后一条消息本身，硬保证不超预算
-export function compactMessages(msgs, budget) {
-  const src = (msgs || []).slice();
+export function compactMessages(msgs, budget, opts) {
+  let src = (msgs || []).slice();
+  const preflight = !!(opts && opts.preflight);
+
+  // Hermes 预检：超过窗口 50% 时先收紧历史工具结果（本轮完整），还不丢轮次。
+  if (preflight && budget > 0 && estimateTokens(src) > budget * 0.5) {
+    src = mapBefore(src, turnStart(src), truncTool(8000));
+  }
 
   // ① 快路径：此前此处无条件截断到 1500 字符，导致沙箱输出与子智能体报告在预算
   //    富余时也被砍掉约 75%，且 UI 展示的是完整版本 —— 模型看到的与用户看到的不一致。
-  if (estimateTokens(src) <= budget) return { messages: src, droppedCount: 0 };
+  if (estimateTokens(src) <= budget) return { messages: src, droppedCount: 0, droppedDigest: '' };
 
   const at = turnStart(src);
 
   // ② 历史工具结果逐级收紧（保留尽可能多的轮次，只牺牲历史细节）
   for (const cap of [8000, 3000, 1000, 300]) {
     const out = mapBefore(src, at, truncTool(cap));
-    if (estimateTokens(out) <= budget) return { messages: out, droppedCount: 0 };
+    if (estimateTokens(out) <= budget) return { messages: out, droppedCount: 0, droppedDigest: '' };
   }
   // ③ 历史正文逐级收紧
   for (const cap of [8000, 2000, 500]) {
     const out = mapBefore(mapBefore(src, at, truncTool(300)), at, truncBody(cap));
-    if (estimateTokens(out) <= budget) return { messages: out, droppedCount: 0 };
+    if (estimateTokens(out) <= budget) return { messages: out, droppedCount: 0, droppedDigest: '' };
   }
 
   // ④ 整轮丢弃：在 user 消息边界切分，绝不产生孤儿 tool 消息
   let out = src.map(truncTool(200));
   let droppedCount = 0;
+  const droppedUsers = [];
   while (estimateTokens(out) > budget) {
     if (out.length <= 2) break;
     let j = -1;
@@ -115,12 +122,19 @@ export function compactMessages(msgs, budget) {
       if (out[i].role === 'user') { j = i; break; }
     }
     if (j < 0) break; // 没有可切的轮次边界（如单条巨型消息）→ 交给 ⑤
+    for (const m of out.slice(0, j)) {
+      if (m.role === 'user' && m.text) droppedUsers.push(String(m.text).replace(/\s+/g, ' ').trim().slice(0, 160));
+    }
     out = out.slice(j);
     droppedCount += j;
   }
 
   // ⑤ 兜底：保证返回值一定不超预算
-  return { messages: fitBudget(out, budget), droppedCount };
+  return {
+    messages: fitBudget(out, budget),
+    droppedCount,
+    droppedDigest: droppedUsers.filter(Boolean).slice(0, 12).join(' · '),
+  };
 }
 
 // 工具结果回填模型前的长度保护（头 60% + 尾 20%）

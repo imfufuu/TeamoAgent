@@ -2721,6 +2721,105 @@ test('paintAssistant：光标必须叠上忙碌状态（导入后去不掉的根
   assert.equal(paint.includes("if (!m.done && !noOutputYet) html += '<span class=\"cursor\""), false, '旧条件会让导入会话的每条回复一直闪光标');
 });
 
+group('Hermes 式 harness（提示词分层 / 技能 / 记忆 / 并行工具）');
+test('assembleSystemLayers：stable→context→volatile 在 cached，ephemeral 单独一条', async () => {
+  const { assembleSystemLayers, formatRuntime, formatBudgetNote } = await import('../js/prompt.js');
+  const layers = assembleSystemLayers({
+    identity: 'IDENTITY',
+    skillsIndex: 'SKILLS',
+    contextFiles: 'CONTEXT',
+    memory: 'MEMORY',
+    runtime: formatRuntime({ now: new Date('2026-09-23T00:00:00Z'), model: 'claude-sonnet-5' }),
+    ephemeral: 'JEV-NOTE',
+  });
+  assert.equal(layers.messages.length, 2);
+  assert.equal(layers.messages[0].cache, true);
+  assert.match(layers.cached, /IDENTITY[\s\S]*SKILLS[\s\S]*CONTEXT[\s\S]*MEMORY/);
+  assert.ok(layers.cached.indexOf('IDENTITY') < layers.cached.indexOf('MEMORY'), '记忆在 volatile，排在身份之后');
+  assert.equal(layers.messages[1].text, 'JEV-NOTE');
+  assert.ok(!layers.cached.includes('JEV-NOTE'), 'Jev 不得污染 cached 前缀');
+  assert.match(layers.cached, /2026-09-23T00:00:00.000Z/);
+  assert.equal(formatBudgetNote(1, 8), '');
+  assert.match(formatBudgetNote(7, 8), /最后一次/);
+});
+test('skills：目录进稳定层；匹配才加载正文；蒸馏有门槛', async () => {
+  const sk = await import('../js/skills.js');
+  const idx = sk.formatSkillsIndex();
+  assert.match(idx, /<available_skills>/);
+  assert.match(idx, /web-research/);
+  assert.equal(sk.BUNDLED_SKILLS.length, 5);
+  const searchBody = sk.selectSkillBodies({ route: 'search', needSearch: 0.9 }, '今天汇率');
+  assert.match(searchBody, /Skill: web-research/);
+  assert.ok(!/Skill: image-generation/.test(searchBody), '不应把无关技能正文全塞进去');
+  assert.equal(sk.distillSkill({ userText: 'hi', toolNames: ['read_file'], iterations: 1 }), null);
+  const learned = sk.distillSkill({ userText: '把仓库 clone 下来再跑测试', toolNames: ['run_git', 'execute_python', 'read_file'], iterations: 3 });
+  assert.ok(learned && learned.id.startsWith('learned-'));
+  const list = sk.rememberSkill([], learned);
+  assert.equal(list[0].id, learned.id);
+});
+test('memory：压缩摘要蒸馏为跨会话事实，去重封顶', async () => {
+  const mem = await import('../js/memory.js');
+  const facts = mem.upsertFacts([], mem.factsFromDigest('用户偏好 Python 3.12 · 正在做 atlas 项目 · 短'));
+  assert.ok(facts.some((f) => /Python 3.12/.test(f.text)));
+  assert.ok(!facts.some((f) => f.text === '短'), '太短的不配进 MEMORY');
+  const block = mem.formatMemory(facts);
+  assert.match(block, /Persistent Memory/);
+  const dup = mem.upsertFacts(facts, facts);
+  assert.equal(dup.length, facts.length, '相同事实去重');
+});
+test('compactMessages：丢轮时带回 droppedDigest；preflight 在 50% 收紧历史工具结果', () => {
+  const msgs = buildRounds(30);
+  const tight = compactMessages(msgs, 3000);
+  assert.ok(tight.droppedCount > 0);
+  assert.ok(typeof tight.droppedDigest === 'string' && tight.droppedDigest.includes('问题'), `digest=${tight.droppedDigest}`);
+  const tool = '结果行\n'.repeat(2000);
+  const one = [
+    { role: 'user', text: '旧问' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c1', name: 'execute_python', args: {} }] },
+    { role: 'tool', toolCallId: 'c1', content: tool },
+    { role: 'user', text: '新问' },
+  ];
+  const budget = estimateTokens(one) + 10; // 刚好够，未过 100%
+  const raw = compactMessages(one, budget);
+  assert.equal(raw.messages[2].content.length, tool.length, '无 preflight 时预算内零截断');
+  const pf = compactMessages(one, Math.floor(estimateTokens(one) * 0.9), { preflight: true });
+  assert.ok(pf.messages[2].content.length < tool.length, 'preflight 超过 50% 应收紧历史工具结果');
+  assert.equal(pf.messages[3].text, '新问', '本轮用户消息必须保留');
+});
+test('batchToolCalls：只读工具打成 parallel，写入仍 serial，委派单独成批', async () => {
+  const { batchToolCalls } = await import('../js/agent.js');
+  const b = batchToolCalls([
+    { name: 'read_file', args: { path: 'a' } },
+    { name: 'list_files', args: {} },
+    { name: 'write_file', args: { path: 'b', content: 'x' } },
+    { name: 'dispatch_subagent', args: { agent: 'explainer', task: 't' } },
+    { name: 'dispatch_subagent', args: { agent: 'explainer', task: 'u' } },
+  ]);
+  assert.deepEqual(b.map((x) => [x.kind, x.start, x.end]), [
+    ['parallel', 0, 2],
+    ['serial', 2, 3],
+    ['dispatch', 3, 5],
+  ]);
+});
+test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('拆层成功')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('随便聊聊');
+    const sys = (calls[0].body.messages || []).filter((m) => m.role === 'system');
+    assert.ok(sys.length >= 1);
+    assert.match(sys[0].content, /TeamoAgent/);
+    assert.match(sys[0].content, /available_skills/);
+    assert.match(sys[0].content, /子智能体委派（dispatch_subagent）/);
+    const joined = sys.map((m) => m.content).join('\n');
+    assert.match(joined, /本轮未联网/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
