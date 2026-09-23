@@ -2840,19 +2840,17 @@ test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () 
   assert.match(sys, /PDF/);
   assert.match(sys, /\.pdf\.txt/);
 });
-test('窄屏抽屉展开后可收回：面板开关刷新遮罩，并有面板关闭键', async () => {
+test('窄屏沙箱面板自底部全屏滑入，面板内关闭键可收回', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
-  const panelFn = ui.slice(ui.indexOf('function setPanelCollapsed'), ui.indexOf('function setSidebarOpen'));
-  assert.match(panelFn, /updateBackdrop\(\)/, '打开沙箱面板必须亮遮罩，否则浮层盖住顶栏后无法点「面板」收回');
   assert.match(ui, /#panel-close/, '面板内要有关闭键');
   assert.match(html, /id="panel-close"/);
-  assert.match(css, /overlay-backdrop \{[\s\S]*z-index:\s*45/, '遮罩低于抽屉，点抽屉外才能关');
-  assert.match(css, /\.sidebar[\s\S]{0,200}z-index:\s*48/);
-  assert.match(css, /#sandbox-panel[\s\S]{0,180}z-index:\s*46/);
-  assert.match(css, /#sandbox-panel \{[^}]*78vw/, '面板不能铺满屏宽，左侧要留出可点遮罩');
+  assert.match(css, /#sandbox-panel\.collapsed \{ transform: translateY\(105%\)/, '窄屏面板垂直滑入/滑出，不是侧滑半宽');
+  assert.match(css, /#sandbox-panel \{[\s\S]*?width:\s*100%/, '窄屏面板铺满屏宽');
+  assert.match(css, /height:\s*100dvh/, '窄屏面板铺满视口高度');
+  assert.match(css, /z-index:\s*52/, '全屏面板盖住顶栏，关闭靠面板内 ✕');
 });
 test('模型列表不再标「原生」；底部提示为 AI 生成免责声明', async () => {
   const fsp = await import('node:fs');
