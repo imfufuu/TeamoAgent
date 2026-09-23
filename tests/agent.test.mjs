@@ -2840,6 +2840,19 @@ test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () 
   assert.match(sys, /PDF/);
   assert.match(sys, /\.pdf\.txt/);
 });
+test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const top = html.slice(html.indexOf('class="topbar"'), html.indexOf('class="messages"'));
+  assert.match(top, /id="sidebar-fab"/, '汉堡必须在顶栏内，和本轮/思考并排而不是盖上去');
+  assert.equal(html.indexOf('id="sidebar-fab"') < html.indexOf('id="overlay-backdrop"'), true);
+  assert.match(html, /class="topbar"[\s\S]*id="sidebar-fab"[\s\S]*id="time-stats"/);
+  const fabBlock = css.slice(css.indexOf('#sidebar-fab {'), css.indexOf('#sidebar-fab:hover'));
+  assert.equal(/position:\s*fixed/.test(fabBlock), false, '把手不能 position:fixed');
+  assert.match(css, /\.app:has\(\.sidebar\.collapsed\) #sidebar-fab/);
+  assert.equal(css.includes('.app:has(.sidebar.collapsed) ~ #sidebar-fab'), false);
+});
 test('窄屏沙箱面板自底部全屏滑入，面板内关闭键可收回', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');

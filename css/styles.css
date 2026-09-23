@@ -70,17 +70,17 @@ a { color: var(--fg); }
 .app:has(.sidebar.collapsed) { --sbw: 0px; }
 .app:has(#sandbox-panel.collapsed) { --pnw: 0px; }
 
-/* 侧栏收起把手：宽屏侧栏收起时 / 窄屏时浮现 */
+/* 侧栏展开把手：放进顶栏文档流，避免 fixed 盖住「本轮」耗时 / 移动端「思考」胶囊 */
 #sidebar-fab {
-  display: none; position: fixed; left: 12px; top: 14px; z-index: 47;
+  display: none; flex-shrink: 0;
   width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--line);
-  background: var(--bg); box-shadow: var(--shadow); font-size: 14px;
+  background: var(--bg); font-size: 14px;
   align-items: center; justify-content: center;
   transition: all .25s var(--ease);
 }
-#sidebar-fab:hover { border-color: var(--fg); transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+#sidebar-fab:hover { border-color: var(--fg); }
 #sidebar-fab .ico { width: 18px; height: 18px; display: block; }
-.app:has(.sidebar.collapsed) ~ #sidebar-fab { display: flex; }
+.app:has(.sidebar.collapsed) #sidebar-fab { display: flex; }
 
 /* 窄屏：侧栏抽屉化 */
 @media (max-width: 860px) {
@@ -92,7 +92,7 @@ a { color: var(--fg); }
   }
   .sidebar.sidebar-open { transform: none; box-shadow: var(--shadow-lg); }
   #sidebar-fab { display: flex; }
-  .app:has(.sidebar.sidebar-open) ~ #sidebar-fab { display: none; }
+  .app:has(.sidebar.sidebar-open) #sidebar-fab { display: none; }
 }
 /* 超窄屏：沙箱面板浮层化（更宽时始终并入网格，绝不遮挡） */
 @media (max-width: 760px) {
@@ -283,10 +283,10 @@ a { color: var(--fg); }
 /* ── 主区 ────────────────────────────────────────────────────────────── */
 .main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
 .topbar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; gap: 10px;
   padding: 12px 24px; border-bottom: 1px solid var(--line);
 }
-.status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-2); }
+.status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-2); flex: 1; min-width: 0; }
 /* 顶栏不确定进度条：本轮请求进行中（连接 / 生成 / 沙箱执行）*/
 .turn-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; z-index: 41; overflow: hidden; opacity: 0; transition: opacity .35s var(--ease); pointer-events: none; }
 .turn-bar.on { opacity: 1; }
