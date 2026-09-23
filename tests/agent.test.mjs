@@ -2840,6 +2840,15 @@ test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () 
   assert.match(sys, /PDF/);
   assert.match(sys, /\.pdf\.txt/);
 });
+test('模型列表不再标「原生」；底部提示为 AI 生成免责声明', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.equal(/badge ghost">原生/.test(ui), false, 'Claude 行不应再挂「原生」标签');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.match(html, /内容由AI生成，请仔细甄别/);
+  assert.equal(html.includes('网关提供路由'), false);
+  assert.equal(html.includes('Claude 走'), false);
+});
 
 group('PDF 正文提取（客户端，无 pdf.js）');
 const makePdf = (contentStream) => {
