@@ -7,6 +7,7 @@
 //   · 图片编辑（GPT Image）:       POST /v1/images/edits  (multipart/form-data: image + prompt)
 //   · 图生文（多模态 / vision）: 各协议原生 content 块（见 api.js 构建逻辑）
 //   · 生图模型不作为对话模型直接选择，统一由主智能体通过 generate_image 工具调用
+//   · Jev 决策（TypeSafe）: POST /v1/systemone  model="jev"（见 js/jev.js，不是聊天模型）
 //   · 模型列表:           GET  /v1/models
 //   · 官方建议: Claude 模型务必走 Anthropic 原生协议，其余模型走 OpenAI 兼容协议
 
@@ -16,7 +17,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.4';
+export const APP_VERSION = '2026.09.22.6';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）

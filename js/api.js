@@ -456,7 +456,22 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
         err.status = r.status; err.retryable = true;
         throw err;
       }
-      // ② 联网字段被拒（模型或上游不认这套原生格式）→ 剥离后重试一次，并记住这个模型
+      // ② 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）。
+      // 必须排在联网降级前面：上游文案常是 "thinking is not supported"，会同时命中
+      // 联网分支那条过于宽泛的 /not support/ —— 旧顺序会把思考 400 误判成联网被拒。
+      // 通过 onThinkingFallback 告知上层，避免「思考被静默关闭」用户无感知。
+      if (r.status === 400 && bodyThinking && /thinking|reasoning|extended/i.test(text)) {
+        thinkingUnsupported.add(model);
+        try { onThinkingFallback && onThinkingFallback(model); } catch { /* noop */ }
+        // 只去掉思考参数，联网字段必须原样保留（旧写法 buildBody(false) 把 withWeb 默认为假，
+        // 思考 400 会把本轮联网一并关掉，表现为「开了思考的模型突然不会检索」）。
+        body = buildBody(false, bodyWeb);
+        bodyThinking = false;
+        const err = new Error(httpErrorMessage(r.status, text));
+        err.status = 400; err.retryable = true;
+        throw err;
+      }
+      // ③ 联网字段被拒（模型或上游不认这套原生格式）→ 剥离后重试一次，并记住这个模型
       if (r.status === 400 && bodyWeb && /web_search|search_parameters|search_context|builtin_function|\$web_search|unsupported|not support|unknown|invalid|tool|include|instructions/i.test(text)) {
         webUnsupported.add(model);
         bodyWeb = false;
@@ -464,17 +479,6 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
         noteWebFallback(`该模型拒绝原生联网字段，已按无联网重试：${String(text).slice(0, 160)}`);
         const err = new Error(httpErrorMessage(r.status, text));
         err.status = r.status; err.retryable = true;
-        throw err;
-      }
-      // ③ 思考参数不被该模型支持 → 记录并去掉思考参数重试（对模型家族级降级）。
-      // 通过 onThinkingFallback 告知上层，避免「思考被静默关闭」用户无感知
-      if (r.status === 400 && bodyThinking && /thinking|reasoning|extended/i.test(text)) {
-        thinkingUnsupported.add(model);
-        try { onThinkingFallback && onThinkingFallback(model); } catch { /* noop */ }
-        body = buildBody(false);
-        bodyThinking = false;
-        const err = new Error(httpErrorMessage(r.status, text));
-        err.status = 400; err.retryable = true;
         throw err;
       }
       const err = new Error(httpErrorMessage(r.status, text));

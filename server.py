@@ -98,9 +98,19 @@ def guard_public_http_url(raw):
     return url
 
 
+class GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """每一跳重定向都重新过 SSRF 护栏。urllib 默认会跟着 302 走，
+    只校验起始 URL 的话 `http://evil.example` → `http://169.254.169.254/` 就能打到元数据。"""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        guard_public_http_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def http_get_text(url, limit=MAX_FETCH_BYTES, timeout=FETCH_TIMEOUT):
     req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*", "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8"})
-    with urllib.request.urlopen(req, timeout=timeout) as res:  # noqa: S310 - 目标已经过 guard_public_http_url 校验
+    opener = urllib.request.build_opener(GuardedRedirectHandler)
+    with opener.open(req, timeout=timeout) as res:  # noqa: S310 - 目标与每一跳重定向都经过 guard_public_http_url
         ctype = res.headers.get("Content-Type", "")
         data = res.read(limit + 1)
         return res.status, ctype, data[:limit].decode("utf-8", "replace")
@@ -174,6 +184,20 @@ def validate_git_config_args(rest):
     return None
 
 
+def validate_git_remote_url(raw):
+    """git clone/fetch/pull/push 的远程地址：只放行公网 http(s)，拒绝 ssh/file/内网。"""
+    url = str(raw or "").strip()
+    if url.startswith("http://") or url.startswith("https://"):
+        try:
+            guard_public_http_url(url)
+        except ValueError as exc:
+            return f"远程地址被拒绝：{exc}"
+        return None
+    if "://" in url or url.startswith("git@"):
+        return f"只允许 http(s) 远程地址，已拒绝「{url[:80]}」"
+    return None
+
+
 def validate_git_argv(argv):
     if not argv or argv[0] != "git":
         return "只允许以 git 开头的命令"
@@ -190,6 +214,11 @@ def validate_git_argv(argv):
         for bad in GIT_DENIED_SUBSTR:
             if bad in a:
                 return f"参数里含有被禁止的片段「{bad}」"
+        # clone/fetch/pull/push/remote 会带 URL：必须过 SSRF 护栏（README 写了，实现原先漏了）
+        if sub in {"clone", "fetch", "pull", "push", "ls-remote", "remote"}:
+            err = validate_git_remote_url(a)
+            if err:
+                return err
     return None
 
 

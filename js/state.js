@@ -1,6 +1,7 @@
 // ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
 // 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
 import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js';
+import { isJevModel } from './jev.js';
 import { blobsSupported, blobPut, blobGet, blobPrune } from './blobstore.js';
 
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2));
@@ -39,17 +40,25 @@ export function collectBlobKeys(state) {
 }
 
 /** 把重数据抽出来：返回 { light（可安全写 localStorage 的快照）, blobs: [[key, value]] } */
-export function extractBlobs(state) {
+export function extractBlobs(state, { ready = false } = {}) {
   const blobs = [];
   const sessions = (state.sessions || []).map((s) => {
     const sid = s.id;
     const files = { ...(s.files || {}) };
     const blobFiles = { ...(s.blobFiles || {}) };
+    const originalPaths = new Set(Object.keys(s.files || {}));
     for (const [path, val] of Object.entries(files)) {
       if (typeof val === 'string' && val.length > FILE_KEEP) {
         const key = `f:${sid}:${path}`;
         blobFiles[path] = key; blobs.push([key, val]); delete files[path];
       } else if (blobFiles[path]) delete blobFiles[path]; // 变回普通文本/已删除 → 不再外置
+    }
+    // 水合完成之后，files 是真相：索引里多出来、内存里已经没有的路径 = 用户删了，该丢掉。
+    // 水合完成之前绝不能走这条 —— 那时大文件本来就不在 files 里，丢掉索引等于刷新后图全没。
+    if (ready) {
+      for (const path of Object.keys(blobFiles)) {
+        if (!originalPaths.has(path)) delete blobFiles[path];
+      }
     }
     const messages = (s.messages || []).map((m) => {
       const out = { ...m };
@@ -66,9 +75,14 @@ export function extractBlobs(state) {
             blobAtts[i] = key; blobs.push([key, a.text]);
             return { ...a, text: String(a.text).slice(0, ATT_TEXT_KEEP), stripped: true, textTruncated: true };
           }
+          // 还没从 IDB 取回来：dataUrl 是空的、stripped 占位。必须保留索引，否则下一次
+          // save()（启动后 300ms 内任何 notify）会把 blobAtts 抹掉，紧接着 blobPrune([]) 清空 IDB。
+          if (blobAtts[i] && (a.stripped || a.textTruncated || (a.kind === 'image' && !a.dataUrl))) return a;
           delete blobAtts[i];
           return a;
         });
+      } else if (ready) {
+        for (const i of Object.keys(blobAtts)) delete blobAtts[i];
       }
       const blobChips = { ...(m.blobChips || {}) };
       if (m.toolCalls && m.toolCalls.length) {
@@ -79,9 +93,12 @@ export function extractBlobs(state) {
             blobChips[c.id] = key; blobs.push([key, c.image]);
             return { ...c, image: undefined, imageStripped: true };
           }
+          if (blobChips[c.id] && (c.imageStripped || !c.image)) return c;
           delete blobChips[c.id];
           return c;
         });
+      } else if (ready) {
+        for (const id of Object.keys(blobChips)) delete blobChips[id];
       }
       if (Object.keys(blobAtts).length) out.blobAtts = blobAtts; else delete out.blobAtts;
       if (Object.keys(blobChips).length) out.blobChips = blobChips; else delete out.blobChips;
@@ -89,12 +106,14 @@ export function extractBlobs(state) {
     });
     const out = { ...s, messages };
     if (Object.keys(blobFiles).length) { out.files = files; out.blobFiles = blobFiles; }
+    else { out.files = files; delete out.blobFiles; }
     return out;
   });
   const active = sessions.find((s) => s.id === state.activeSessionId) || sessions[0] || { messages: [], files: {} };
   const light = { ...state, sessions, messages: active.messages, files: active.files };
+  delete light._blobsReady; // 运行时标记，不进快照
   if (active.blobFiles) light.blobFiles = active.blobFiles; else delete light.blobFiles;
-  return { light, blobs, keys: blobs.map(([k]) => k) };
+  return { light, blobs, keys: collectBlobKeys(light) };
 }
 
 /** 把 IDB 里取回的重数据填回状态（原地修改 state，返回填了几处） */
@@ -140,7 +159,7 @@ export function createStore(onChange) {
     models: [],
     // webEnabled：联网开关。开着时按当前模型 API 自带的网页搜索请求格式发请求
     // （见 js/websearch.js）—— 没有第三方搜索接口，所以模型没有原生格式就等于不联网。
-    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true },
+    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true, jevEnabled: true },
     sessions: [newSession()],
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
@@ -159,7 +178,7 @@ export function createStore(onChange) {
     // 模型属于会话属性：切换会话时恢复该会话自己的模型，而不是沿用全局当前选择
     state.model = sessionModel(s) || state.model;
     // 生图模型只能由 generate_image 工具调用：历史数据若存着它，回落到默认对话模型
-    if (isImageModel(state.model)) state.model = DEFAULT_CHAT_MODEL;
+    if (isImageModel(state.model) || isJevModel(state.model)) state.model = DEFAULT_CHAT_MODEL;
     s.model = state.model;
     // 生图模型同样按会话记忆；缺失或非法值回落到默认
     const wantImage = s.imageModel || state.imageModel;
@@ -234,12 +253,17 @@ export function createStore(onChange) {
       // 有 IndexedDB：重数据外置，localStorage 只存轻量状态（不再有 4MB 天花板）
       let entries = [], keep = [];
       try {
-        const ex = extractBlobs(state);
-        entries = ex.blobs; keep = ex.keys;
+        const ex = extractBlobs(state, { ready: !!state._blobsReady });
+        entries = ex.blobs;
+        // 必须按「轻量快照里还引用着的 key」来 prune，而不是「这一轮新抽出的 key」。
+        // 水合完成前 extractBlobs.blobs 经常是空的（大文件还不在内存里），旧逻辑 keep=[]
+        // 会把 IDB 里已有的图全部删掉 —— 刷新后再刷新，附件和沙箱图就没了。
+        keep = ex.keys;
         localStorage.setItem(KEY, JSON.stringify(ex.light));
       } catch {
         try { localStorage.setItem(KEY, JSON.stringify(slimState())); } catch { /* 放弃本次持久化 */ }
       }
+      const afterPut = () => blobPrune(keep);
       if (entries.length) {
         blobPut(entries)
           // 落库失败（隐私模式 / 配额）：退回把完整状态塞进 localStorage，至少别丢
@@ -247,10 +271,10 @@ export function createStore(onChange) {
             console.warn('[persist] IndexedDB 写入失败，退回 localStorage：', e && e.message);
             try { localStorage.setItem(KEY, JSON.stringify(state)); } catch { /* 放不下就算了 */ }
           })
-          .then(() => blobPrune(keep))
+          .then(afterPut)
           .catch((e) => console.warn('[persist] 清理孤儿数据失败：', e && e.message));
       } else {
-        blobPrune(keep).catch(() => {}); // 会话/消息删掉后不留孤儿
+        blobPrune(keep).catch(() => {}); // 会话/消息删掉后不留孤儿；有引用的 key 会被保留
       }
       return;
     }
@@ -276,15 +300,16 @@ export function createStore(onChange) {
   // 刷新页面后把外置的重数据（附件图片 / 沙箱里的图 / 芯片预览图）从 IDB 取回来。
   // 失败或环境不支持时返回 0，界面按「已省略」渲染，不阻塞启动。
   async function hydrateBlobs() {
-    if (!blobsSupported()) return 0;
+    const done = (n) => { state._blobsReady = true; return n; };
+    if (!blobsSupported()) return done(0);
     const keys = collectBlobKeys(state);
-    if (!keys.length) return 0;
+    if (!keys.length) return done(0);
     try {
       const map = await blobGet(keys);
       const n = applyBlobs(state, map);
       if (n) hydrate();
-      return n;
-    } catch { return 0; }
+      return done(n);
+    } catch { return done(0); }
   }
 
   try {
@@ -293,7 +318,7 @@ export function createStore(onChange) {
       const parsed = JSON.parse(raw);
       Object.assign(state, parsed);
       // 旧快照里没有的开关要补上默认值（整块 settings 被 parsed 覆盖时不能留下 undefined）
-      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true }, state.settings || {});
+      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true, jevEnabled: true }, state.settings || {});
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
       if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
     } else {
@@ -488,6 +513,11 @@ export function createStore(onChange) {
             content: typeof m.content === 'string' ? m.content : (m.content || ''),
             model: m.model, // 保留每条消息实际使用的模型（会话头展示用）
             toolCalls: m.toolCalls, toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts,
+            // 导出 JSON 经常不带 done。缺省当成已经结束，否则 paintAssistant 会给每条回复画一个去不掉的光标。
+            done: m.done !== false,
+            cancelled: !!m.cancelled,
+            reasoning: m.reasoning,
+            webSearch: m.webSearch,
             ...(atts.length ? { attachments: atts } : {}),
           };
         });

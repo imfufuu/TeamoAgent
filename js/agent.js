@@ -15,6 +15,7 @@ import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
+import { planTurn } from './jev.js';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -102,8 +103,6 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     for (const c of calls) {
       // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
       const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
-      // 中继工具真跑通了 → 记下「本会话中继可用」，后续回合把 fetch_url / run_git 放回工具表
-      if (RELAY_ONLY_TOOLS.has(c.name) && res && res.ok) store.state.relayOk = true;
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
     }
   }
@@ -156,7 +155,8 @@ export function createAgent(store, hooks = {}) {
 
   // lockModel：本轮锁定的模型（runLoop 开头取的快照），保证预算与提示词不会因
   // 用户中途切换模型而和本轮上下文错位
-  function buildMessages(lockModel, relayOk = true) {
+  // jevNote：本轮 System-1（Jev）写进系统提示的短约束；空字符串表示本轮没跑/失败
+  function buildMessages(lockModel, relayOk = true, jevNote = '') {
     const { messages } = store.state;
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
@@ -165,7 +165,8 @@ export function createAgent(store, hooks = {}) {
     // 自己能用的工具集合），旧写法把整段名录藏在开关后面，关掉沙箱就等于没有子智能体。
     const sys = [{ role: 'system', text: systemPrompt(new Date(), { webEnabled: store.state.settings.webEnabled !== false }) + fsNote()
       + (store.state.settings.webEnabled !== false ? WEB_ON_NOTE : WEB_OFF_NOTE)
-      + (relayOk ? '' : RELAY_OFF_NOTE) + subagentGuide() }];
+      + (relayOk ? '' : RELAY_OFF_NOTE) + subagentGuide()
+      + (jevNote || '') }];
     if (droppedCount) sys.push({ role: 'system', text: `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` });
     return [...sys, ...compacted];
   }
@@ -267,8 +268,29 @@ export function createAgent(store, hooks = {}) {
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
     };
     let iterations = 0;
+    // Jev 只在本轮开头跑一次（工具循环里不再打），失败则 jevNote 为空、对话照常。
+    let jevNote = '';
 
     try {
+      if (settings.jevEnabled !== false) {
+        setStatus('thinking');
+        const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
+        const plan = await planTurn({
+          apiKey, model, settings, signal,
+          text: lastUser ? lastUser.text : '',
+          attachments: lastUser && lastUser.attachments,
+        });
+        if (plan && plan.ok && plan.note) {
+          jevNote = '\n\n' + plan.note;
+          if (lastUser) {
+            store.updateMessage(lastUser.id, {
+              jev: { summary: plan.summary, route: plan.route, needSearch: plan.needSearch, difficulty: plan.difficulty },
+            });
+            emit('onJevPlan', lastUser, plan);
+          }
+        }
+      }
+
       while (iterations < TOOL_LOOP_MAX) {
         iterations++;
         setStatus('thinking');
@@ -297,7 +319,7 @@ export function createAgent(store, hooks = {}) {
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
-              messages: buildMessages(model, relayOk),
+              messages: buildMessages(model, relayOk, jevNote),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {

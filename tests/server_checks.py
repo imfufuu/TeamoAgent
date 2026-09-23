@@ -56,6 +56,9 @@ def main():
         ("git config credential.helper store", False),
         ("git init --separate-git-dir=/home/user/.git", False),  # 等号形式也要拦住
         ("git status --git-dir=/home/user/.git", False),
+        ("git clone http://127.0.0.1/repo.git", False),    # clone 内网 = SSRF
+        ("git clone http://169.254.169.254/latest", False),
+        ("git fetch git@github.com:x/y.git", False),        # 只允许 http(s)
         ("git clone ext::sh:ls x", False),                 # ext 传输 = 任意执行
         ("git clone --upload-pack=evil https://x", False),  # 借 clone 执行远端程序
         ("git clone --config=credential.helper=cat x", False),
@@ -91,6 +94,15 @@ def main():
         check("域名可用时放行", True)
     except ValueError as exc:
         check("域名可用时放行（离线环境下允许解析失败）", "解析失败" in str(exc), str(exc))
+
+    print("\n重定向 SSRF（GuardedRedirectHandler）")
+    check("存在 GuardedRedirectHandler", hasattr(m, "GuardedRedirectHandler"))
+    # 直接调用 guard：重定向目标若是内网，必须拒绝（不发真实网络）
+    try:
+        m.guard_public_http_url("http://127.0.0.1/steal")
+        check("重定向目标 127.0.0.1 被拒绝", False, "居然放行了")
+    except ValueError:
+        check("重定向目标 127.0.0.1 被拒绝", True)
 
     print("\nHTML 抽取（html_to_text / html_title）")
     doc = ('<html><head><title>标题 &amp; 实体 &#8212; ok</title><style>p{color:red}</style></head>'

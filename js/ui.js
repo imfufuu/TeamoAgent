@@ -1,5 +1,6 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, protocolOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js';
+import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport } from './api.js';
@@ -172,9 +173,9 @@ export function mountUI(store, agent) {
   // 直接选中会绕过工具循环、破坏 Agent 特性；网关 /v1/models 里带它们时也照样隐藏）
   function mergedModels() {
     const map = new Map();
-    for (const m of FALLBACK_MODELS) if (!isImageModel(m.id)) map.set(m.id, { ...m });
+    for (const m of FALLBACK_MODELS) if (!isImageModel(m.id) && !isJevModel(m.id)) map.set(m.id, { ...m });
     for (const id of store.state.models || []) {
-      if (!map.has(id) && !isImageModel(id)) map.set(id, { id, provider: providerOf(id) });
+      if (!map.has(id) && !isImageModel(id) && !isJevModel(id)) map.set(id, { id, provider: providerOf(id) });
     }
     return [...map.values()];
   }
@@ -764,6 +765,7 @@ export function mountUI(store, agent) {
     wrap.dataset.id = m.id;
     if (m.role === 'user') {
       wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
+        ${m.jev && m.jev.summary ? `<div class="jev-chip" title="TypeSafe Jev 对本轮的校准分类">Jev · ${esc(m.jev.summary)}</div>` : ''}
         <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button></div>`;
       $('.act', wrap).addEventListener('click', () => doRollback(m));
     } else {
@@ -847,17 +849,20 @@ export function mountUI(store, agent) {
     const body = $('.md-body', wrap);
     let html = '';
     const noOutputYet = !m.text && !m.reasoning && !(m.toolCalls && m.toolCalls.length);
+    // 光标/连接动画只属于「正在跑的这一条」。导入的历史回复没有 done 字段，
+    // 不能靠 !m.done 一直闪烁 —— 必须叠上本轮忙碌状态。
+    const live = !m.done && getBusy();
     // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
     if (m.done && m.reasoning) {
       html += `<details class="reasoning"><summary>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (!m.done && m.reasoning && !m.text) {
+    } else if (live && m.reasoning && !m.text) {
       html += '<div class="thinking-line">深度思考中<span class="dots">…</span></div>';
-    } else if (!m.done && noOutputYet) {
+    } else if (live && noOutputYet) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
       html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
     html += renderMarkdown(m.text || '');
-    if (!m.done && !noOutputYet) html += '<span class="cursor"></span>';
+    if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
     if (m.webSearch) body.appendChild(webNote(m.webSearch));
@@ -1156,6 +1161,7 @@ export function mountUI(store, agent) {
       messages: store.state.messages.map((m) => ({
         role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
         toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
+        done: m.done !== false, cancelled: !!m.cancelled,
         attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
       })),
     };
@@ -1333,6 +1339,19 @@ export function mountUI(store, agent) {
       if (!msg || !msg.id || msgNodes.has(msg.id)) return;
       appendMessage(msg);
       refreshActionVisibility();
+    },
+    onJevPlan(m) {
+      const wrap = m && m.id ? msgNodes.get(m.id) : null;
+      if (!wrap || !m.jev || !m.jev.summary) return;
+      if ($('.jev-chip', wrap)) {
+        $('.jev-chip', wrap).textContent = `Jev · ${m.jev.summary}`;
+        return;
+      }
+      const chip = el('div', 'jev-chip', `Jev · ${esc(m.jev.summary)}`);
+      chip.title = 'TypeSafe Jev 对本轮的校准分类';
+      const bubble = $('.bubble', wrap);
+      if (bubble) bubble.after(chip);
+      else wrap.appendChild(chip);
     },
     onAssistantStart(m) { appendMessage(m); },
     onDelta(m, text) {

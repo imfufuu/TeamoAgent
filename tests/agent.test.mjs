@@ -19,7 +19,8 @@ import { createAgent, copyAttachmentsToFS } from '../js/agent.js';
 // 联网开关在本轮改动里默认是开的（走模型 API 自带格式），而下面这些既有用例只校验
 // /v1/chat/completions 与 /v1/messages 两条端点的解析与循环 —— 统一关掉，避免它们改道 /v1/responses。
 // 联网本身有独立的用例组（见「联网：模型 API 自带请求格式」）。
-const storeNoWeb = (st) => { st.state.settings.webEnabled = false; return st; };
+// 单测默认关掉联网与 Jev：Jev 会先打 /v1/systemone，否则会吃掉 mock 队列里给聊天用的那一格。
+const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.settings.jevEnabled = false; return st; };
 
 // 排空上一用例遗留的持久化防抖定时器（state.save 用 300ms setTimeout），
 // 避免它的写入串进下一个用例的 localStorage 桩
@@ -2421,6 +2422,7 @@ test('Agent 回合：联网来源写进消息（切会话后还在），提示�
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'claude-sonnet-5';
     store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
     const agent = createAgent(store, { onWebSearch: (m, w) => { seen = w; } });
     await agent.send('今天有什么新闻');
     assert.equal(seen.results, 1, 'UI 要收到「检索到 1 条来源」');
@@ -2486,6 +2488,237 @@ test('抓取与 git 工具在关闭沙箱时依然可用（它们不依赖 Worke
   const names = (await import('../js/tools.js')).toolsFor(false).map((t) => t.name);
   for (const n of ['fetch_url', 'run_git']) assert.ok(names.includes(n), `关沙箱后 ${n} 不应被摘掉`);
   assert.ok(!names.includes('execute_python'), '代码执行工具仍应被摘掉');
+});
+
+test('思考参数 400 降级时不得把联网字段一并剥掉', async () => {
+  api.__resetThinkingFallbackForTests();
+  api.__resetWebFallbackForTests();
+  const calls = [];
+  mockFetch([
+    sseResponse(JSON.stringify({ error: { message: 'thinking is not supported for this model' } }), 400),
+    sseResponse(
+      sseEv({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+      + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '仍联网' } })
+      + sseEv({ type: 'message_stop' }) + sseDone,
+    ),
+  ], calls);
+  try {
+    let got = '';
+    await api.streamChat({
+      model: 'claude-sonnet-5', apiKey: 'k', thinking: true, webEnabled: true,
+      messages: [{ role: 'user', text: '今天新闻' }],
+      onEvent: (ev) => { if (ev.type === 'text') got += ev.text; },
+    });
+    assert.equal(got, '仍联网');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].body.thinking, '首次应带思考参数');
+    assert.ok((calls[0].body.tools || []).some((t) => t.type === 'web_search_20250305'), '首次应带联网工具');
+    assert.equal(calls[1].body.thinking, undefined, '重试去掉思考');
+    assert.ok((calls[1].body.tools || []).some((t) => t.type === 'web_search_20250305'),
+      `思考降级不能误关联网，实际 tools=${JSON.stringify(calls[1].body.tools)}`);
+  } finally {
+    globalThis.fetch = realFetch;
+    api.__resetThinkingFallbackForTests();
+    api.__resetWebFallbackForTests();
+  }
+});
+
+test('extractBlobs：未水合的 stripped 附件必须保留 IDB 索引（否则 prune 会清空图）', async () => {
+  const { extractBlobs, collectBlobKeys } = await import('../js/state.js');
+  const light = {
+    activeSessionId: 's1',
+    sessions: [{
+      id: 's1',
+      blobFiles: { 'outputs/a.png': 'f:s1:outputs/a.png' },
+      files: {}, // 水合前大文件不在内存
+      messages: [{
+        id: 'm1', role: 'user',
+        attachments: [{ kind: 'image', name: 'a.png', stripped: true }],
+        blobAtts: { 0: 'a:s1:m1:0' },
+      }, {
+        id: 'm2', role: 'assistant',
+        toolCalls: [{ id: 'c1', name: 'generate_image', args: {}, imageStripped: true }],
+        blobChips: { c1: 'c:s1:c1' },
+      }],
+    }],
+    messages: [], files: {},
+  };
+  const ex = extractBlobs(light); // ready 默认 false = 水合前
+  assert.equal(ex.light.sessions[0].messages[0].blobAtts[0], 'a:s1:m1:0', '附件索引不能丢');
+  assert.equal(ex.light.sessions[0].messages[1].blobChips.c1, 'c:s1:c1', '芯片索引不能丢');
+  assert.equal(ex.light.sessions[0].blobFiles['outputs/a.png'], 'f:s1:outputs/a.png', '沙箱索引不能丢');
+  assert.equal(ex.blobs.length, 0, '内存里没有大对象，不应再写一份');
+  const keep = collectBlobKeys(ex.light);
+  assert.equal(keep.length, 3, `prune 白名单应保住 3 个 key，实际 ${JSON.stringify(keep)}`);
+  assert.deepEqual(keep.sort(), ['a:s1:m1:0', 'c:s1:c1', 'f:s1:outputs/a.png']);
+  // 水合完成后删掉文件：索引应被清掉
+  const hydrated = {
+    activeSessionId: 's1',
+    sessions: [{ id: 's1', blobFiles: { 'outputs/a.png': 'f:s1:outputs/a.png' }, files: {}, messages: [] }],
+    messages: [], files: {},
+  };
+  const gone = extractBlobs(hydrated, { ready: true });
+  assert.equal(gone.light.sessions[0].blobFiles, undefined, '水合后内存里没这文件 = 用户删了');
+  assert.equal(collectBlobKeys(gone.light).length, 0);
+});
+
+test('runSubagent 源码不得引用未定义的 store（子智能体跑 fetch_url 会 ReferenceError）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const fn = /export async function runSubagent[\s\S]*?^export function createAgent/m.exec(src)
+    || /export async function runSubagent[\s\S]*?^export function createAgent/.exec(src)
+    || [];
+  const body = src.slice(src.indexOf('export async function runSubagent'), src.indexOf('export function createAgent'));
+  assert.equal(/\bstore\.state\b/.test(body), false, 'runSubagent 作用域里没有 store');
+});
+
+group('Jev（TypeSafe System One）');
+test('isJevModel：只认决策模型，不误伤对话模型', async () => {
+  const jev = await import('../js/jev.js');
+  assert.equal(jev.isJevModel('jev'), true);
+  assert.equal(jev.isJevModel('jev-latest'), true);
+  assert.equal(jev.isJevModel('typesafe-ai/jev'), true);
+  assert.equal(jev.isJevModel('claude-sonnet-5'), false);
+  assert.equal(jev.isJevModel('gpt-5.6-sol'), false);
+  assert.equal(jev.isJevModel(''), false);
+});
+test('buildSystemOneBody：严格按文档，不含聊天协议字段', async () => {
+  const jev = await import('../js/jev.js');
+  const body = jev.buildSystemOneBody({
+    state: 'I was charged twice.',
+    questions: { department: jev.choice('Which team?', { billing: 'charges', other: 'else' }) },
+  });
+  assert.equal(body.model, 'jev');
+  assert.equal(body.state, 'I was charged twice.');
+  assert.equal(body.questions.department.type, 'choice');
+  assert.equal('messages' in body, false);
+  assert.equal('stream' in body, false);
+  assert.equal('temperature' in body, false);
+  assert.equal('max_tokens' in body, false);
+  assert.equal(jev.JEV_PATH, '/v1/systemone');
+});
+test('noul/choice/score 解析与 plan 提示词', async () => {
+  const jev = await import('../js/jev.js');
+  const answers = {
+    need_search: { type: 'noul', noul: 0.98 },
+    need_code: { type: 'noul', noul: 0.05 },
+    need_image: { type: 'noul', noul: 0.01 },
+    need_dispatch: { type: 'noul', noul: 0.12 },
+    route: { type: 'choice', choice: 'search', confidence: 0.96, probabilities: { search: 0.97, chat: 0.02 } },
+    difficulty: { type: 'score', score: 3.2, confidence: 0.8 },
+  };
+  assert.equal(jev.noulOf(answers, 'need_search'), 0.98);
+  assert.equal(jev.choiceOf(answers, 'route'), 'search');
+  assert.equal(jev.scoreOf(answers, 'difficulty'), 3.2);
+  const note = jev.formatPlanNote(answers, { webEnabled: true, sandboxEnabled: true });
+  assert.match(note, /【Jev 决策】/);
+  assert.match(note, /服务端网页搜索/);
+  assert.match(note, /不要说「已联网」/);
+  const summary = jev.summarizePlan(answers);
+  assert.match(summary, /search/);
+  assert.match(summary, /检索/);
+});
+test('askJev：POST /v1/systemone + Bearer，读 answers.choice / noul', async () => {
+  const jev = await import('../js/jev.js');
+  const realFetch = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    calls.push({ url: String(url), headers: opts.headers, body: JSON.parse(opts.body) });
+    return new Response(JSON.stringify({
+      model: 'typesafe-ai/jev',
+      answers: {
+        need_search: { type: 'noul', noul: 0.98 },
+        route: { type: 'choice', choice: 'search', confidence: 0.96 },
+      },
+      usage: { input_tokens: 40, output_tokens: 8 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const r = await jev.askJev({
+      apiKey: 'sk-teamo-test',
+      state: '今天美元兑人民币中间价是多少？',
+      questions: jev.TURN_QUESTIONS,
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.answers.route.choice, 'search');
+    assert.equal(calls.length, 1);
+    assert.match(calls[0].url, /\/v1\/systemone$/);
+    assert.equal(calls[0].headers.Authorization, 'Bearer sk-teamo-test');
+    assert.equal(calls[0].body.model, 'jev');
+    assert.equal('stream' in calls[0].body, false);
+    assert.equal(calls[0].body.questions.need_search.type, 'noul');
+    assert.equal(calls[0].body.questions.route.type, 'choice');
+    assert.equal(calls[0].body.questions.difficulty.type, 'score');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('askJev：非 JSON 响应 fail-open，不把 SSE 当决策', async () => {
+  const jev = await import('../js/jev.js');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('data: {"choices":[]}\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  try {
+    const r = await jev.askJev({ apiKey: 'k', state: 'hi', questions: jev.TURN_QUESTIONS });
+    assert.equal(r.ok, false);
+    assert.equal(r.reason, 'not-json');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('Agent：Jev 结论写入系统提示；失败时对话照常', async () => {
+  const calls = [];
+  mockFetch([
+    new Response(JSON.stringify({
+      model: 'jev',
+      answers: {
+        need_search: { type: 'noul', noul: 0.1 },
+        need_code: { type: 'noul', noul: 0.05 },
+        need_image: { type: 'noul', noul: 0.02 },
+        need_dispatch: { type: 'noul', noul: 0.08 },
+        route: { type: 'choice', choice: 'chat', confidence: 0.9 },
+        difficulty: { type: 'score', score: 1 },
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } }),
+    openaiTextTurn('直接答'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = false;
+    store.state.settings.jevEnabled = true;
+    const agent = createAgent(store, {});
+    await agent.send('你好');
+    assert.equal(store.state.messages.find((m) => m.role === 'user').jev.route, 'chat');
+    assert.ok(calls[0].url.includes('/v1/systemone'), `第一枪应是 Jev：${calls[0].url}`);
+    const sys = (calls[1].body.messages || []).filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+    assert.match(sys, /【Jev 决策】/);
+    assert.match(sys, /可以直接回答/);
+    assert.equal(store.state.messages[store.state.messages.length - 1].text, '直接答');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('Agent：Jev 挂了不能挡住聊天（fail-open）', async () => {
+  const calls = [];
+  mockFetch([
+    new Response(JSON.stringify({ error: { message: 'nope' } }), { status: 500, headers: { 'content-type': 'application/json' } }),
+    openaiTextTurn('照样答'),
+  ], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = false;
+    store.state.settings.jevEnabled = true;
+    const agent = createAgent(store, {});
+    await agent.send('还在吗');
+    assert.equal(agent.getStatus(), 'done');
+    assert.equal(store.state.messages[store.state.messages.length - 1].text, '照样答');
+    assert.equal(store.state.messages.find((m) => m.role === 'user').jev, undefined, '失败时不要写假计划');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('paintAssistant：光标必须叠上忙碌状态（导入后去不掉的根因）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const paint = src.slice(src.indexOf('function paintAssistant'), src.indexOf('function webNote'));
+  assert.match(paint, /const live = !m\.done && getBusy\(\)/, '历史消息缺 done 时不能只靠 !m.done 画光标');
+  assert.match(paint, /live && !noOutputYet.*cursor/, '光标只在 live 时出现');
+  assert.equal(paint.includes("if (!m.done && !noOutputYet) html += '<span class=\"cursor\""), false, '旧条件会让导入会话的每条回复一直闪光标');
 });
 
 // ── 顺序执行（async 测试逐个 await）──
