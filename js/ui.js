@@ -563,12 +563,23 @@ export function mountUI(store, agent) {
     btn.classList.toggle('on', !v);
     btn.setAttribute('aria-pressed', v ? 'false' : 'true');
     btn.title = v ? '沙箱面板已收起（文件树 / 下载 / 清空）：点开' : '沙箱面板已展开：点此收起';
+    // 窄屏面板是浮层：打开时必须亮遮罩，否则盖住顶栏「面板」键后无法收回。
+    if (!v && mqSidebar.matches) sidebar.classList.remove('sidebar-open');
+    updateBackdrop();
   }
   function setSidebarOpen(open) {
     sidebar.classList.toggle('sidebar-open', open);
-    updateBackdrop();
+    const t = $('#sidebar-toggle');
+    if (t) {
+      t.title = mqSidebar.matches ? '关闭侧栏' : '收起侧栏';
+      t.setAttribute('aria-label', t.title);
+      t.setAttribute('aria-expanded', mqSidebar.matches ? String(open) : String(!sidebar.classList.contains('collapsed')));
+    }
+    if (open && mqPanel.matches && !panel.classList.contains('collapsed')) setPanelCollapsed(true);
+    else updateBackdrop();
   }
   $('#panel-toggle').addEventListener('click', () => setPanelCollapsed(!panel.classList.contains('collapsed')));
+  $('#panel-close')?.addEventListener('click', () => setPanelCollapsed(true));
   $('#sidebar-toggle').addEventListener('click', () => {
     if (mqSidebar.matches) setSidebarOpen(false);
     else sidebar.classList.add('collapsed');
@@ -577,10 +588,19 @@ export function mountUI(store, agent) {
     if (mqSidebar.matches) setSidebarOpen(!sidebar.classList.contains('sidebar-open'));
     else sidebar.classList.remove('collapsed');
   });
-  backdrop.addEventListener('click', () => {
+  const dismissDrawers = () => {
     setSidebarOpen(false);
     if (mqPanel.matches) setPanelCollapsed(true);
-    updateBackdrop();
+    else updateBackdrop();
+  };
+  backdrop.addEventListener('click', dismissDrawers);
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (keyModal.classList.contains('open')) return;
+    if (sidebar.classList.contains('sidebar-open') || (mqPanel.matches && !panel.classList.contains('collapsed'))) {
+      e.preventDefault();
+      dismissDrawers();
+    }
   });
   let resizeTimer = null;
   window.addEventListener('resize', () => {
@@ -593,8 +613,8 @@ export function mountUI(store, agent) {
   // 初始：面板默认收起；侧栏宽屏展开、窄屏隐藏（由 fab 打开）
   setPanelCollapsed(true);
   updateBackdrop();
-  $$('#panel-tabs button').forEach((b) => b.addEventListener('click', () => {
-    $$('#panel-tabs button').forEach((x) => x.classList.remove('active'));
+  $$('#panel-tabs button[data-tab]').forEach((b) => b.addEventListener('click', () => {
+    $$('#panel-tabs button[data-tab]').forEach((x) => x.classList.remove('active'));
     b.classList.add('active');
     for (const tab of ['files', 'agents']) {
       $(`#tab-${tab}`).style.display = b.dataset.tab === tab ? '' : 'none';
