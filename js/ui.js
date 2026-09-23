@@ -879,9 +879,9 @@ export function mountUI(store, agent) {
     const live = !m.done && getBusy();
     // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
     if (m.done && m.reasoning) {
-      html += `<details class="reasoning"><summary>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
+      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
     } else if (live && m.reasoning && !m.text) {
-      html += '<div class="thinking-line">深度思考中<span class="dots">…</span></div>';
+      html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
     } else if (live && noOutputYet) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
       html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;

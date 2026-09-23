@@ -1393,7 +1393,7 @@ test('treeStats：目录不重复计数', () => {
 });
 test('界面图标为 currentColor 线性 SVG（随主题与选中态自动反色）', async () => {
   const { ICON } = await import('../js/icons.js');
-  for (const k of ['bolt', 'download', 'folder', 'folderOpen', 'file', 'image', 'chevRight', 'x']) {
+  for (const k of ['bolt', 'download', 'folder', 'folderOpen', 'file', 'image', 'chevRight', 'x', 'thinking', 'tool']) {
     assert.ok(ICON[k].startsWith('<svg') && ICON[k].includes('stroke="currentColor"') && !ICON[k].includes('#'), `${k} 应为 currentColor 单色 SVG`);
     assert.ok(/fill="none"/.test(ICON[k]), `${k} 线性描边而非填充`);
   }
@@ -2851,6 +2851,20 @@ test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAM
   assert.equal(/\.msg-meta \{ width: 100%; order: 9/.test(css), false, '用量不得再被挤到下一行');
   assert.match(css, /\.msg-head \{ flex-wrap: nowrap/);
   assert.match(css, /\.msg-meta \{ flex: 0 0 auto; white-space: nowrap/);
+  assert.equal(/\.msg-model \{[^}]*flex:\s*1 1 auto/.test(css), false, '模型名不得撑满把 tok 顶到右侧');
+});
+test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const { ICON } = await import('../js/icons.js');
+  const chip = css.slice(css.indexOf('.chip {'), css.indexOf('.chip:hover'));
+  assert.match(chip, /border:\s*none/, '工具芯片不要边框');
+  const reason = css.slice(css.indexOf('.reasoning {'), css.indexOf('.reasoning summary {'));
+  assert.match(reason, /border:\s*none/, '思考块不要虚线框');
+  assert.ok(ICON.thinking.includes('stroke="currentColor"'));
+  assert.match(ui, /ICON\.thinking/, '深度思考提示要带思考图标');
+  assert.match(ui, /class="think-ico"/);
 });
 test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
   const fsp = await import('node:fs');

@@ -428,20 +428,20 @@ a { color: var(--fg); }
 /* 工具芯片 */
 .tool-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
 .chip {
-  border: 1px solid var(--line); border-radius: 10px; padding: 6px 12px;
+  border: none; background: transparent; padding: 4px 0;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
-  font-size: 12px; transition: all .25s var(--ease); background: var(--bg-soft);
+  font-size: 12px; color: var(--fg-2); transition: color .2s var(--ease);
 }
-.chip:hover { border-color: var(--line-2); transform: translateY(-1px); box-shadow: var(--shadow); }
+.chip:hover { color: var(--fg); }
 .chip-ico { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; color: var(--fg-3); flex-shrink: 0; }
 .chip-ico svg { width: 100%; height: 100%; display: block; }
 /* 只在「还没跑完」时转：跑完了就停下（用户明确要求「调用完后停止转动」） */
 .chip:not(.done) .chip-ico { animation: spin 1.2s linear infinite; }
 .chip.done .chip-ico { animation: none; color: var(--fg-2); }
 .chip-name { font-weight: 600; }
-.chip.running { border-style: dashed; }
+.chip.running { opacity: .85; }
 .chip-state {
-  margin-left: auto; color: var(--fg-3); font-family: var(--mono);
+  color: var(--fg-3); font-family: var(--mono);
   max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .chip.running .chip-state { color: var(--fg-2); font-family: var(--font); }
@@ -449,7 +449,7 @@ a { color: var(--fg); }
 .chip-detail { display: none; width: 100%; font-size: 11.5px; color: var(--fg-2); }
 .chip.expanded .chip-detail { display: block; animation: fadeUp .25s var(--ease) both; }
 .chip-args { margin: 4px 0; word-break: break-all; }
-.chip-result { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; }
+.chip-result { background: var(--bg-soft); border: none; border-radius: 8px; padding: 8px 10px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; }
 
 /* 消息操作 */
 .msg-actions { display: flex; gap: 4px; margin-top: 8px; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
@@ -564,13 +564,20 @@ a { color: var(--fg); }
 .msg-user .att-file { color: var(--fg); }
 
 /* 思考过程折叠块 */
-.reasoning { margin-bottom: 10px; border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 12px; }
-.reasoning summary { cursor: pointer; font-size: 11.5px; color: var(--fg-3); letter-spacing: .08em; user-select: none; transition: color .2s; }
+.reasoning { margin-bottom: 10px; border: none; padding: 0; }
+.reasoning summary {
+  cursor: pointer; font-size: 12px; color: var(--fg-3); user-select: none; transition: color .2s;
+  display: inline-flex; align-items: center; gap: 6px; list-style: none;
+}
+.reasoning summary::-webkit-details-marker { display: none; }
 .reasoning summary:hover { color: var(--fg); }
-.reasoning[open] summary { margin-bottom: 6px; }
-.reasoning > div { font-size: 12.5px; color: var(--fg-2); border-left: 2px solid var(--line); padding-left: 10px; }
-.thinking-line { font-size: 12.5px; color: var(--fg-3); }
+.reasoning[open] summary { margin-bottom: 6px; color: var(--fg-2); }
+.reasoning > div { font-size: 12.5px; color: var(--fg-2); padding-left: 20px; }
+.thinking-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-3); }
 .thinking-line .dots { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
+.think-ico { display: inline-flex; width: 14px; height: 14px; color: var(--fg-3); flex-shrink: 0; }
+.think-ico svg { width: 100%; height: 100%; display: block; }
+.thinking-line .think-ico { animation: pulse 1.2s ease-in-out infinite; }
 
 /* 会话统计 */
 .conv-stats { font-size: 10.5px; color: var(--fg-3); font-family: var(--mono); letter-spacing: .02em; }
@@ -820,9 +827,9 @@ a { color: var(--fg); }
   .messages { padding: 16px 0 8px; }
   .msg { padding: 0 14px; margin-bottom: 20px; max-width: 100%; }
   .msg-user .bubble { max-width: 100%; }
-  .msg-head { flex-wrap: nowrap; gap: 6px; margin-bottom: 6px; }
-  .msg-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1 1 auto; }
-  .msg-meta { flex: 0 0 auto; white-space: nowrap; } /* 与模型名同一行：↑tok · 直连 */
+  .msg-head { flex-wrap: nowrap; justify-content: flex-start; gap: 6px; margin-bottom: 6px; }
+  .msg-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+  .msg-meta { flex: 0 0 auto; white-space: nowrap; margin-left: 0; } /* 紧跟模型名，不要右对齐 */
   .md-body { font-size: 14.5px; line-height: 1.72; }
   .md-body pre { font-size: 12px; -webkit-overflow-scrolling: touch; }
   .md-body table { display: block; overflow-x: auto; }
@@ -836,7 +843,7 @@ a { color: var(--fg); }
 
   /* 工具芯片 / 联网来源条 */
   .tool-chips { gap: 8px; }
-  .chip { padding: 8px 10px; font-size: 12px; }
+  .chip { padding: 4px 0; font-size: 12px; }
   .web-note { padding: 9px 11px; font-size: 12px; line-height: 1.6; }
   .web-note .web-src { white-space: normal; overflow-wrap: anywhere; }
 
