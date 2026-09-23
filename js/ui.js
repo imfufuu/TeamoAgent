@@ -13,6 +13,8 @@ import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
 import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
+import { SANDBOX_STORAGE_CAP, filesCountLabel, resolveStorageQuota } from './storagefmt.js';
+import { extractPdfText, formatExtractedPdf, pdfTextName } from './pdf.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -667,6 +669,11 @@ export function mountUI(store, agent) {
     return new TextEncoder().encode(str).length;
   };
 
+  let storageQuota = SANDBOX_STORAGE_CAP;
+  resolveStorageQuota(SANDBOX_STORAGE_CAP).then((q) => {
+    if (q > 0 && q !== storageQuota) { storageQuota = q; renderFiles(); }
+  }).catch(() => {});
+
   function renderFiles() {
     const box = $('#file-list'); box.innerHTML = '';
     const files = agent.fs.list().map((f) => {
@@ -678,9 +685,8 @@ export function mountUI(store, agent) {
     const stat = treeStats(tree);
     const countEl = $('#files-count');
     if (countEl) {
-      countEl.textContent = stat.files
-        ? `${stat.files} 个文件${stat.dirs ? ` · ${stat.dirs} 个目录` : ''} · ${fmtSize(stat.size)}`
-        : '';
+      countEl.textContent = filesCountLabel(stat, storageQuota);
+      countEl.title = `沙箱已用 ${filesCountLabel({ size: stat.size }, storageQuota)}（上限取本地存储配额，缺省 120MB）`;
     }
     if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
     const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
@@ -1199,7 +1205,8 @@ export function mountUI(store, agent) {
   // ── 附件（按钮 / 拖拽 / 粘贴）────────────────────────────────────────
   const IMG_RE = /^image\/(png|jpeg|jpg|gif|webp)$/;
   const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|py|json|jsonl|csv|tsv|log|html?|css|scss|xml|ya?ml|sh|bash|zsh|sql|ini|toml|env|conf|cfg|c|h|cpp|hpp|java|go|rs|rb|php|swift|kt|vue|svelte)$/i;
-  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_FILES = 6;
+  const PDF_RE = /\.pdf$/i;
+  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 8 * 1024 * 1024, MAX_FILES = 6;
   let pending = [];
   const attachChips = $('#attach-chips');
   const fileInput = $('#attach-input');
@@ -1220,11 +1227,28 @@ export function mountUI(store, agent) {
         if (IMG_RE.test(f.type)) {
           if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: f.type, size: f.size, dataUrl: await readAs('dataURL', f) });
+        } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
+          if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 8MB`, 'err'); continue; }
+          const buf = await f.arrayBuffer();
+          const got = await extractPdfText(buf);
+          const text = formatExtractedPdf(f.name, got);
+          pending.push({
+            id: Math.random().toString(36).slice(2),
+            kind: 'text',
+            name: pdfTextName(f.name),
+            mime: 'text/plain',
+            size: text.length,
+            text,
+            source: 'pdf',
+            originalName: f.name,
+          });
+          if (!got.ok) toast(`${f.name}：${got.error}`, 'warn', 5200);
+          else toast(`${f.name}：已提取文字${got.pages ? `（约 ${got.pages} 页）` : ''}，将写入沙箱 uploads/`, 'ok', 3200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
         } else {
-          toast(`不支持的文件类型：${f.name}（支持图片与文本/代码文件）`, 'err');
+          toast(`不支持的文件类型：${f.name}（支持图片、PDF 与文本/代码文件）`, 'err');
         }
       } catch (err) { toast(err.message, 'err'); }
     }
@@ -1239,7 +1263,7 @@ export function mountUI(store, agent) {
       chip.innerHTML = (a.kind === 'image'
         ? `<img src="${a.dataUrl}" alt="">`
         : `<span class="attach-chip-ico">📄</span>`)
-        + `<span class="attach-chip-name mono">${esc(a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
+        + `<span class="attach-chip-name mono">${esc(a.originalName || a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
       $('.attach-chip-x', chip).addEventListener('click', () => {
         pending = pending.filter((x) => x.id !== a.id);
         renderAttachChips();

@@ -2820,6 +2820,84 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
   } finally { globalThis.fetch = realFetch; }
 });
 
+group('沙箱占用展示 {已用}/{上限}');
+test('fmtMB / filesCountLabel：一位小数 MB，空沙箱仍显示 0.0MB/120.0MB', async () => {
+  const s = await import('../js/storagefmt.js');
+  assert.equal(s.SANDBOX_STORAGE_CAP, 120 * 1024 * 1024);
+  assert.equal(s.fmtMB(0), '0.0MB');
+  assert.equal(s.fmtMB(2.7 * 1048576), '2.7MB');
+  assert.equal(s.sandboxQuotaLabel(2.7 * 1048576), '2.7MB/120.0MB');
+  assert.equal(s.filesCountLabel({ files: 0, dirs: 0, size: 0 }), '0.0MB/120.0MB');
+  assert.equal(s.filesCountLabel({ files: 3, dirs: 3, size: 2.7 * 1048576 }), '3 个文件 · 3 个目录 · 2.7MB/120.0MB');
+  const q = await s.resolveStorageQuota(s.SANDBOX_STORAGE_CAP);
+  assert.ok(q > 0);
+});
+test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () => {
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('application/pdf') && html.includes('.pdf,'), 'attach-input accept 应含 PDF');
+  const sys = cfg.systemPrompt();
+  assert.match(sys, /PDF/);
+  assert.match(sys, /\.pdf\.txt/);
+});
+
+group('PDF 正文提取（客户端，无 pdf.js）');
+const makePdf = (contentStream) => {
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj',
+    `4 0 obj << /Length ${contentStream.length} >>\nstream\n${contentStream}\nendstream\nendobj`,
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
+  ];
+  return new TextEncoder().encode('%PDF-1.1\n' + objects.join('\n') + '\n%%EOF\n');
+};
+test('未压缩内容流：Tj 抽出正文', async () => {
+  const pdf = await import('../js/pdf.js');
+  assert.equal(pdf.isPdfBytes(new Uint8Array([1, 2, 3])), false);
+  const bytes = makePdf('BT /F1 12 Tf 10 100 Td (Hello PDF) Tj ET');
+  assert.equal(pdf.isPdfBytes(bytes), true);
+  const got = await pdf.extractPdfText(bytes);
+  assert.equal(got.ok, true, got.error);
+  assert.match(got.text, /Hello PDF/);
+  assert.equal(pdf.pdfTextName('报告.PDF'), '报告.PDF.txt');
+  assert.match(pdf.formatExtractedPdf('a.pdf', got), /Hello PDF/);
+});
+test('FlateDecode 流也能解出文字', async () => {
+  const zlib = await import('node:zlib');
+  const pdf = await import('../js/pdf.js');
+  const inner = Buffer.from('BT /F1 12 Tf 72 720 Td (Flate Hello) Tj ET', 'latin1');
+  const deflated = zlib.deflateSync(inner);
+  const payload = Buffer.from(deflated).toString('latin1');
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Contents 4 0 R >> endobj',
+    `4 0 obj << /Length ${deflated.length} /Filter /FlateDecode >>\nstream\n${payload}\nendstream\nendobj`,
+  ];
+  const bytes = Buffer.from('%PDF-1.1\n' + objects.join('\n') + '\n%%EOF\n', 'latin1');
+  const got = await pdf.extractPdfText(bytes);
+  assert.equal(got.ok, true, got.error);
+  assert.match(got.text, /Flate Hello/);
+});
+test('提取结果作为文本附件落入 uploads/*.pdf.txt', async () => {
+  const pdf = await import('../js/pdf.js');
+  const fs = createFS();
+  const got = await pdf.extractPdfText(makePdf('BT (Meeting Notes) Tj ET'));
+  const name = pdf.pdfTextName('notes.pdf');
+  const text = pdf.formatExtractedPdf('notes.pdf', got);
+  const written = copyAttachmentsToFS(fs, [{ kind: 'text', name, text }]);
+  assert.deepEqual(written, ['uploads/notes.pdf.txt']);
+  assert.match(fs.read('uploads/notes.pdf.txt'), /Meeting Notes/);
+});
+test('非 PDF 字节给出可读失败，不抛', async () => {
+  const pdf = await import('../js/pdf.js');
+  const got = await pdf.extractPdfText(new TextEncoder().encode('not a pdf'));
+  assert.equal(got.ok, false);
+  assert.match(got.error, /不是 PDF/);
+  assert.match(pdf.formatExtractedPdf('x.pdf', got), /提取失败/);
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }

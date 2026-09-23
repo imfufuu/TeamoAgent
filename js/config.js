@@ -17,7 +17,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.7';
+export const APP_VERSION = '2026.09.22.8';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -235,7 +235,8 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '',
     '## 附件',
     '- 用户消息可能附带图片（多模态模型可直接识图；若模型不支持视觉，请说明并建议切换模型）。',
-    '- 所有附件（文本与图片）都会自动复制到沙箱 uploads/ 目录：文本可 read_file 读取全文；图片以 data URL 形式存放，可作为 generate_image 的 reference_paths 传入以编辑原图。',
+    '- PDF 会在浏览器本地解析出正文，以 `.pdf.txt` 文本附件形式出现（并写入沙箱 uploads/）。请基于提取的文字回答；扫描件/加密文档可能提不出字，那时要如实说明，不要假装看见了版式或图片。',
+    '- 所有附件（文本、提取后的 PDF、图片）都会自动复制到沙箱 uploads/ 目录：文本可 read_file 读取全文；图片以 data URL 形式存放，可作为 generate_image 的 reference_paths 传入以编辑原图。',
     '',
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',

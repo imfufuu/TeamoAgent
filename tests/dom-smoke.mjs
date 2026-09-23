@@ -67,6 +67,7 @@ ok('mountUI 返回 hooks 对象', ui && typeof ui.setStatus === 'function');
 ok('生图模型下拉已填充 3 项', $('#image-model').options.length === 3, `实际 ${$('#image-model').options.length}`);
 ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
 ok('文件面板 ZIP 按钮存在', !!$('#download-zip'));
+ok('空沙箱工具栏仍显示 0.0MB/上限', /0\.0MB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
 
 console.log('\n② 生图模型不作为对话模型出现');
 click($('#model-btn'));
@@ -199,6 +200,7 @@ ok('每行有下载按钮（目录行只有 ZIP）', $$('#file-list .file-dl').l
 ok('目录行有打包按钮', $$('#file-list .ft-zip').length === 3, `${$$('#file-list .ft-zip').length} 个`);
 ok('目录/文件图标为内联 SVG', $$('#file-list .ft-ico').every((n) => !!n.querySelector('svg')));
 ok('工具栏摘要含文件与目录计数', /3 个文件 · 3 个目录/.test($('#files-count').textContent), $('#files-count').textContent);
+ok('工具栏摘要含已用/上限（X.XMB/120.0MB）', /\d+\.\dMB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
 
 // 折叠：点目录行收起整棵子树
 const uploadsRow = () => $$('#file-list .ft-dir').find((n) => rowPath(n) === 'uploads');
