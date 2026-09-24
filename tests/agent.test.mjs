@@ -2978,6 +2978,9 @@ test('用户气泡表格不用 --bg-soft（避免白底白字），代码块相�
   assert.match(hl, /\[data-theme="dark"\] \.msg-user \.bubble\.md-body \.hljs-keyword/);
   assert.match(hl, /#c4b5fd/, '浅色主题黑气泡用亮色 token');
   assert.match(hl, /#6d28d9/, '深色主题浅气泡用深色 token');
+  assert.match(hl, /\.msg-user \.bubble\.md-body \.code-block \{\s*background:\s*transparent/);
+  assert.match(hl, /\.msg-user \.bubble\.md-body pre code/);
+  assert.match(hl, /:not\(pre\) > code/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

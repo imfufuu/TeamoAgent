@@ -65,17 +65,17 @@
 }
 .msg-user .bubble.md-body ul, .msg-user .bubble.md-body ol { padding-left: 1.3em; }
 
-.msg-user .bubble.md-body code {
+.msg-user .bubble.md-body :not(pre) > code {
   background: color-mix(in srgb, var(--bg) 14%, transparent);
   border-color: color-mix(in srgb, var(--bg) 28%, transparent);
   color: var(--bg);
 }
 .msg-user .bubble.md-body .code-block {
-  background: color-mix(in srgb, var(--bg) 12%, var(--fg));
+  background: transparent;
   border: 1px solid color-mix(in srgb, var(--bg) 32%, transparent);
 }
 .msg-user .bubble.md-body .code-head {
-  background: color-mix(in srgb, var(--bg) 8%, var(--fg));
+  background: transparent;
   border-bottom: 1px solid color-mix(in srgb, var(--bg) 24%, transparent);
 }
 .msg-user .bubble.md-body .code-lang { color: color-mix(in srgb, var(--bg) 62%, transparent); }
@@ -89,9 +89,13 @@
   background: color-mix(in srgb, var(--bg) 16%, transparent);
 }
 .msg-user .bubble.md-body .code-block pre,
-.msg-user .bubble.md-body pre {
-  background: transparent; border: none; color: var(--bg);
+.msg-user .bubble.md-body pre,
+.msg-user .bubble.md-body pre code,
+.msg-user .bubble.md-body .code-block code,
+.msg-user .bubble.md-body .hljs {
+  background: none; border: none; color: inherit;
 }
+.msg-user .bubble.md-body pre { color: var(--bg); }
 
 /* 表格：覆盖 styles.css 里 th/even 的 --bg-hover/--bg-soft，字色跟气泡走 */
 .msg-user .bubble.md-body table th,
