@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt } from './config.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
@@ -13,7 +13,8 @@ import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
 import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
-import { SANDBOX_STORAGE_CAP, filesCountLabel, resolveStorageQuota } from './storagefmt.js';
+import { SANDBOX_STORAGE_CAP, filesCountLabel } from './storagefmt.js';
+import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { extractPdfText, formatExtractedPdf, pdfTextName } from './pdf.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -229,15 +230,7 @@ export function mountUI(store, agent) {
             ${isFreeModel(m.id) ? '<span class="badge">FREE</span>' : ''}
             ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
           </span>`;
-        item.addEventListener('click', () => {
-          store.state.model = m.id; store.notify();
-          if (typeof syncWeb === 'function') syncWeb(); // 换了模型要重说「联网按哪个原生格式走」
-          updateModelBtn(); closeMenu();
-          $('#fast-toggle').disabled = !supportsFastMode(m.id);
-          if (store.state.settings.fastMode && !supportsFastMode(m.id)) {
-            store.state.settings.fastMode = false; $('#fast-toggle').classList.remove('on');
-          }
-        });
+        item.addEventListener('click', () => selectModel(m.id));
         g.appendChild(item);
       }
       ddMenu.appendChild(g);
@@ -245,6 +238,23 @@ export function mountUI(store, agent) {
     if (!order.length) ddMenu.appendChild(el('div', 'dd-empty', '无匹配模型'));
     const foot = $('.dd-foot', ddMenu);
     if (foot) ddMenu.appendChild(foot); // 生图模型行始终排在分组之后（sticky bottom 生效）
+  }
+  function selectModel(id) {
+    if (!id) return;
+    store.state.model = id; store.notify();
+    if (typeof syncWeb === 'function') syncWeb();
+    updateModelBtn(); closeMenu();
+    const fast = $('#fast-toggle');
+    if (fast) {
+      fast.disabled = !supportsFastMode(id);
+      if (store.state.settings.fastMode && !supportsFastMode(id)) {
+        store.state.settings.fastMode = false; fast.classList.remove('on');
+      }
+    }
+    syncCapLine();
+  }
+  function chatModels() {
+    return mergedModels();
   }
   function updateModelBtn() {
     $('#model-btn-icon').innerHTML = providerIcon(providerOf(store.state.model));
@@ -309,7 +319,7 @@ export function mountUI(store, agent) {
 
   // ── 开关 ──
   const sandboxToggle = $('#sandbox-toggle');
-  const syncSandbox = () => sandboxToggle.classList.toggle('on', store.state.settings.sandboxEnabled);
+  const syncSandbox = () => { sandboxToggle.classList.toggle('on', store.state.settings.sandboxEnabled); syncCapLine(); };
   sandboxToggle.addEventListener('click', () => {
     store.state.settings.sandboxEnabled = !store.state.settings.sandboxEnabled;
     syncSandbox(); store.notify();
@@ -333,6 +343,7 @@ export function mountUI(store, agent) {
       webToggle.classList.remove('on');
       webToggle.innerHTML = GLOBE_SVG + '联网';
       webToggle.title = 'GitHub Pages / 无本地中继：原生网页搜索已下线，联网不可用';
+      syncCapLine();
       return;
     }
     webToggle.disabled = true; // 原生网页搜索已下线，任何环境都不再注入
@@ -340,6 +351,7 @@ export function mountUI(store, agent) {
     webToggle.classList.remove('on');
     webToggle.innerHTML = GLOBE_SVG + '联网';
     webToggle.title = '原生网页搜索已下线（各模型不稳定）。本地中继可用 fetch_url 抓具体网址。';
+    syncCapLine();
   };
   if (webToggle) {
     webToggle.addEventListener('click', () => {
@@ -351,7 +363,7 @@ export function mountUI(store, agent) {
 
   // 思考模式（默认开启；按模型家族自动映射协议参数，不支持的模型 400 自动降级）
   const thinkingToggle = $('#thinking-toggle');
-  const syncThinking = () => thinkingToggle.classList.toggle('on', store.state.settings.thinking !== false);
+  const syncThinking = () => { thinkingToggle.classList.toggle('on', store.state.settings.thinking !== false); syncCapLine(); };
   thinkingToggle.addEventListener('click', () => {
     store.state.settings.thinking = !(store.state.settings.thinking !== false);
     syncThinking(); store.notify();
@@ -539,6 +551,7 @@ export function mountUI(store, agent) {
     const n = (store.listableSessions ? store.listableSessions() : store.sortedSessions()).length;
     if (!n) { toast('当前没有任何会话记录'); return; }
     if (!confirm(`清除全部 ${n} 条会话记录？所有消息、检查点与沙箱文件都会被删除，且不可恢复。`)) return;
+    if (!confirm('再次确认：此操作不可恢复。确定清空全部会话？')) return;
     if (typeof store.clearAllSessions !== 'function') {
       return toast('浏览器缓存了旧版本代码，请硬刷新（Ctrl/Cmd + Shift + R）后再用「清空」', 'warn', 5000);
     }
@@ -593,6 +606,7 @@ export function mountUI(store, agent) {
     btn.classList.toggle('on', !v);
     btn.setAttribute('aria-pressed', v ? 'false' : 'true');
     btn.title = v ? '沙箱面板已收起（文件树 / 下载 / 清空）：点开' : '沙箱面板已展开：点此收起';
+    if (typeof syncCapLine === 'function') syncCapLine();
     // 窄屏面板全屏盖住顶栏：打开时关掉侧栏；关闭靠面板内 ✕ / Esc，不依赖遮罩。
     if (!v && mqSidebar.matches) sidebar.classList.remove('sidebar-open');
     updateBackdrop();
@@ -697,14 +711,24 @@ export function mountUI(store, agent) {
     const { bytes, mime } = fileBytesFromValue(raw);
     return { name: withExtension(p, mime && mime.startsWith('image/') ? mime : ''), bytes };
   });
+  let filesZippedOnce = false;
   function saveZip(entries, base) {
     if (!entries.length) return toast('没有可打包的文件', 'warn');
     const blob = createZip(entries);
     saveBlob(`${base}-${stampName()}.zip`, blob);
+    filesZippedOnce = true;
     toast(`已打包 ${entries.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
   }
   $('#download-zip').addEventListener('click', () => saveZip(zipEntriesOf(Object.keys(agent.fs.export())), 'teamo-sandbox'));
-  $('#clear-files').addEventListener('click', () => { agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空'); });
+  $('#clear-files').addEventListener('click', () => {
+    const n = Object.keys(agent.fs.export()).length;
+    if (!n) return toast('沙箱里没有文件');
+    if (!filesZippedOnce) {
+      if (!confirm('尚未打包 ZIP。清空后文件无法恢复，仍要清空沙箱？')) return;
+    } else if (!confirm('清空虚拟文件系统里的全部文件？此操作不可恢复。')) return;
+    if (!confirm('再次确认：确定清空沙箱文件？')) return;
+    agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空');
+  });
 
   // 目录折叠状态：本次页面会话内记住（沙箱是路径即结构，没有真实目录节点）
   const collapsedDirs = new Set();
@@ -718,10 +742,7 @@ export function mountUI(store, agent) {
     return new TextEncoder().encode(str).length;
   };
 
-  let storageQuota = SANDBOX_STORAGE_CAP;
-  resolveStorageQuota(SANDBOX_STORAGE_CAP).then((q) => {
-    if (q > 0 && q !== storageQuota) { storageQuota = q; renderFiles(); }
-  }).catch(() => {});
+  const storageQuota = SANDBOX_STORAGE_CAP; // 产品上限 120MB，不用 navigator.storage 那种 39321.6MB
 
   function renderFiles() {
     const box = $('#file-list'); box.innerHTML = '';
@@ -735,7 +756,16 @@ export function mountUI(store, agent) {
     const countEl = $('#files-count');
     if (countEl) {
       countEl.textContent = filesCountLabel(stat, storageQuota);
-      countEl.title = `沙箱已用 ${filesCountLabel({ size: stat.size }, storageQuota)}（上限取本地存储配额，缺省 120MB）`;
+      countEl.title = `沙箱已用 ${filesCountLabel({ size: stat.size }, storageQuota)}（上限 120MB）`;
+    }
+    const bar = $('#quota-bar');
+    const fill = $('#quota-bar-fill');
+    if (bar && fill) {
+      const pct = Math.min(100, Math.round((Number(stat.size) || 0) / storageQuota * 100));
+      fill.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', String(pct));
+      bar.classList.toggle('warn', pct >= 70 && pct < 90);
+      bar.classList.toggle('hot', pct >= 90);
     }
     if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
     const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
@@ -802,7 +832,10 @@ export function mountUI(store, agent) {
       <h2>TeamoAgent</h2>
       <p>基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
-        ${picks.map((x) => `<button class="suggest" type="button" data-prompt="${esc(x.text)}">${esc(x.text)}</button>`).join('')}
+        ${picks.map((x) => {
+          const shown = mqPanel.matches ? shortSuggest(x.text) : x.text;
+          return `<button class="suggest" type="button" data-prompt="${esc(x.text)}">${esc(shown)}</button>`;
+        }).join('')}
       </div>
       <button class="suggest-shuffle" type="button" title="换一批任务示例">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/></svg>换一批</button>`));
@@ -948,7 +981,7 @@ export function mountUI(store, agent) {
           const chip = el('div', 'chip');
           chip.dataset.callId = t.id;
           // 图标用 SVG（线性扳手），未完成时缓慢转动、完成后停下（.done 由 attachToolResult 打上）
-          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-state">…</span>`;
+          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
           chip.addEventListener('click', () => chip.classList.toggle('expanded'));
           const detail = el('div', 'chip-detail mono');
           chip.appendChild(detail);
@@ -988,9 +1021,11 @@ export function mountUI(store, agent) {
     const meta = $('.msg-meta', wrap);
     if (meta) {
       const parts = [];
-      if (m.usage) parts.push(`↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok`);
+      if (m.usage) parts.push(`<button type="button" class="tok-btn" title="本条 API 用量">↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok</button>`);
       if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
-      meta.textContent = parts.join(' · ');
+      meta.innerHTML = parts.join(' · ');
+      const tb = $('.tok-btn', meta);
+      if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(); });
     }
     // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
     refreshActionVisibility();
@@ -1098,10 +1133,15 @@ export function mountUI(store, agent) {
     const ok = !toolMsg.content.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(toolMsg.content);
     const dm = /执行耗时 (\d+)ms/.exec(String(toolMsg.content || ''));
     const dur = dm ? fmtSpan(Number(dm[1])) : '';
-    $('.chip-state', chip).innerHTML = `${ok ? '✓' : '✕'}${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+    const errTxt = String(toolMsg.content || '').slice(0, 400);
+    $('.chip-state', chip).innerHTML = ok
+      ? `✓${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
+      : `<span class="chip-fail" title="${esc(errTxt)}"></span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
     $('.chip-state', chip).classList.toggle('bad', !ok);
+    $('.chip-state', chip).title = ok ? '' : errTxt;
     chip.classList.add('done');        // 图标停止转动（含刷新页面后重建的芯片）
     chip.classList.remove('running');
+    chip._out = String(toolMsg.content || '');
     chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(String(toolMsg.content).slice(0, 3000))}</pre>`;
     chip._renderedArgs = true;
   }
@@ -1180,6 +1220,7 @@ export function mountUI(store, agent) {
     b.title = proxy
       ? `浏览器直连失败，已通过本地服务器代理转发（目标 ${host}）`
       : `浏览器直连 ${host}（${why}）· 点这里可切换到另一个域名（国内网络建议用 api.teamorouter.cn）`;
+    syncCapLine();
   }
   // 点传输徽章 = 手动切换接入点（国内网络下用户可能知道哪个更快）
   $('#transport-badge').addEventListener('click', () => {
@@ -1208,15 +1249,30 @@ export function mountUI(store, agent) {
   }
 
   // ── 会话统计 & 导出 ───────────────────────────────────────────────────
+  function showTokBreak() {
+    const box = $('#tok-break');
+    const stats = $('#conv-stats');
+    const sysTok = estimateTokens([{ role: 'system', text: systemPrompt(new Date(), { webEnabled: false }) }]);
+    const b = tokenBreakdown(store.state.messages, estimateTokens, sysTok);
+    const line = formatTokBreak(b);
+    if (box) {
+      const hide = !box.hidden && box.textContent === line;
+      box.hidden = hide;
+      box.textContent = line;
+    }
+    if (stats) stats.title = line + '（再点一次收起）';
+  }
   function updateStats() {
     const msgs = store.state.messages;
     const n = msgs.filter((m) => m.role !== 'tool').length;
     const stats = $('#conv-stats');
-    if (!n) { stats.textContent = ''; return; }
+    const box = $('#tok-break');
+    if (!n) { stats.textContent = ''; if (box) box.hidden = true; return; }
     const tk = estimateTokens(msgs);
     const budget = contextBudgetLabel(store.state.model);
     stats.textContent = `${n} 条 · ~${tk >= 1000 ? (tk / 1000).toFixed(1) + 'k' : tk} tok / ${budget}`;
-    stats.title = '估算上下文占用（含系统提示词外的消息体）';
+    stats.title = '点击查看 token 构成（系统 / 历史 / 工具结果 / 本轮）';
+    if (box && !box.hidden) showTokBreak();
   }
   $('#export-btn').addEventListener('click', () => {
     if (!store.state.messages.length) return toast('暂无可导出的对话');
@@ -1382,12 +1438,145 @@ export function mountUI(store, agent) {
     navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = '已复制'; setTimeout(() => (btn.textContent = '复制'), 1500); });
   });
 
+
+  function syncCapLine() {
+    const eln = $('#cap-line');
+    if (!eln) return;
+    const bits = [store.state.model];
+    if (store.state.settings.thinking !== false) bits.push('思考');
+    if (store.state.settings.sandboxEnabled) bits.push('沙箱');
+    bits.push(getTransport() === 'proxy' ? '中继' : '直连');
+    const panelOpen = $('#sandbox-panel') && !$('#sandbox-panel').classList.contains('collapsed');
+    if (panelOpen) bits.push('面板');
+    eln.textContent = bits.join('  ·  ');
+  }
+
+  const statsEl = $('#conv-stats');
+  if (statsEl) {
+    statsEl.addEventListener('click', showTokBreak);
+    statsEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTokBreak(); } });
+  }
+
+  function syncComposerPh() {
+    if (!composer) return;
+    composer.placeholder = mqPanel.matches
+      ? '输入消息，可粘贴或拖入附件…'
+      : '输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…';
+  }
+  syncComposerPh();
+  if (mqPanel.addEventListener) mqPanel.addEventListener('change', () => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
+
+  // 复制工具入参/出参 JSON（不触发展开）
+  msgList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.chip-copy');
+    if (!btn) return;
+    e.preventDefault(); e.stopPropagation();
+    const chip = btn.closest('.chip');
+    if (!chip) return;
+    const which = btn.dataset.which;
+    const payload = which === 'out' ? (chip._out || $('.chip-result', chip)?.textContent || '') : JSON.stringify(chip._args ?? {}, null, 2);
+    navigator.clipboard.writeText(String(payload || '')).then(() => {
+      const prev = btn.textContent; btn.textContent = '已复制'; setTimeout(() => (btn.textContent = prev), 1200);
+    }).catch(() => toast('复制失败', 'warn'));
+  });
+
+  // ⌘K 命令面板
+  const pal = $('#cmd-palette');
+  const palInput = $('#cmd-input');
+  const palList = $('#cmd-list');
+  let palItems = [];
+  let palIdx = 0;
+  function collectCmds() {
+    const items = [];
+    chatModels().forEach((m, i) => items.push({
+      group: '模型', id: 'm:' + m.id, label: m.id, hint: m.provider || '',
+      kbd: i < 9 ? '⌃' + (i + 1) : '',
+      run: () => selectModel(m.id),
+    }));
+    try {
+      for (const f of agent.fs.list()) {
+        items.push({ group: '文件', id: 'f:' + f.path, label: f.path, run: () => {
+          setPanelCollapsed(false);
+          const tab = $$('#panel-tabs button[data-tab]').find((b) => b.dataset.tab === 'files');
+          if (tab) tab.click();
+          openFileViewer(f.path);
+        } });
+      }
+    } catch { /* fs 未就绪 */ }
+    for (const a of SUBAGENTS) {
+      items.push({ group: '子智能体', id: 'a:' + a.id, label: a.name + ' · ' + a.id, hint: a.tag || '', run: () => {
+        setPanelCollapsed(false);
+        const tab = $$('#panel-tabs button[data-tab]').find((b) => b.dataset.tab === 'agents');
+        if (tab) tab.click();
+        toast(`子智能体 ${a.name}：由主 Agent 通过 dispatch_subagent 委派`, 'ok');
+      } });
+    }
+    items.push({ group: '操作', id: 'p:panel', label: '打开 / 收起沙箱面板', kbd: '⌘B', run: () => setPanelCollapsed(!$('#sandbox-panel').classList.contains('collapsed')) });
+    items.push({ group: '操作', id: 'p:new', label: '新建会话', run: () => $('#new-session').click() });
+    return items;
+  }
+  function paintPal() {
+    if (!palList) return;
+    const vis = filterCmds(palInput ? palInput.value : '', palItems);
+    palList.innerHTML = vis.map((it, i) => `<button type="button" class="cmd-item${i === palIdx ? ' active' : ''}" data-i="${i}" role="option"><span class="cmd-g">${esc(it.group)}</span><span class="cmd-l">${esc(it.label)}</span>${it.kbd ? `<span class="cmd-k">${esc(it.kbd)}</span>` : ''}</button>`).join('')
+      || '<div class="empty-hint">无匹配</div>';
+    palList._vis = vis;
+  }
+  function openPal() {
+    if (!pal) return;
+    palItems = collectCmds();
+    palIdx = 0;
+    pal.hidden = false;
+    if (palInput) { palInput.value = ''; palInput.focus(); }
+    paintPal();
+  }
+  function closePal() {
+    if (pal) pal.hidden = true;
+  }
+  function runPal(it) {
+    closePal();
+    if (it && typeof it.run === 'function') it.run();
+  }
+  if (palInput) palInput.addEventListener('input', () => { palIdx = 0; paintPal(); });
+  if (palList) palList.addEventListener('click', (e) => {
+    const row = e.target.closest('.cmd-item');
+    if (!row) return;
+    const vis = palList._vis || [];
+    runPal(vis[+row.dataset.i]);
+  });
+  if (pal) pal.addEventListener('click', (e) => { if (e.target === pal) closePal(); });
+
+  document.addEventListener('keydown', (e) => {
+    const meta = e.metaKey || e.ctrlKey;
+    const inPal = pal && !pal.hidden;
+    if (inPal) {
+      const vis = palList && palList._vis || [];
+      if (e.key === 'Escape') { e.preventDefault(); closePal(); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); palIdx = Math.min(vis.length - 1, palIdx + 1); paintPal(); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); palIdx = Math.max(0, palIdx - 1); paintPal(); return; }
+      if (e.key === 'Enter') { e.preventDefault(); runPal(vis[palIdx]); return; }
+    }
+    if (e.key === 'Escape' && pal && !pal.hidden) { e.preventDefault(); closePal(); return; }
+    if (meta && (e.key === 'k' || e.key === 'K')) { e.preventDefault(); inPal ? closePal() : openPal(); return; }
+    if (meta && (e.key === 'b' || e.key === 'B')) {
+      e.preventDefault();
+      setPanelCollapsed(!$('#sandbox-panel').classList.contains('collapsed'));
+      return;
+    }
+    if ((e.ctrlKey || e.altKey) && /^[1-9]$/.test(e.key)) {
+      const mods = chatModels();
+      const pick = mods[+e.key - 1];
+      if (pick) { e.preventDefault(); selectModel(pick.id); toast(`模型 ${pick.id}`, 'ok', 1800); }
+    }
+  });
+
   // ── 初次渲染 ──
   rebuildMessages();
   setStatus('idle');
   updateTransportBadge();
   updateStats();
   renderTimeStats();
+  syncCapLine();
   // 构建标识：静态站点无法靠响应头保证刷新即最新，先把版本号亮出来便于自检
   const stampEl = $('#build-stamp');
   if (stampEl) {
@@ -1481,7 +1670,7 @@ export function mountUI(store, agent) {
     onToolResult(call, result) {
       renderFiles();
       updateStats();
-      // 同步回填对话流中的工具芯片（状态 ✓/✕ + 展开详情）
+      // 同步回填对话流中的工具芯片（成功 ✓ / 失败红点 + 展开详情）
       attachToolResult({ toolCallId: call.id, content: result });
     },
     // 用户点了「停止」：Agent 已把那条消息标成 cancelled+done，但视图不会自己重画 ——
@@ -1519,7 +1708,9 @@ export function mountUI(store, agent) {
         state.classList.remove('bad');
       } else if (patch.status === 'error') {
         chip.classList.remove('running');
-        state.textContent = patch.note || '✕';
+        const errTxt = String((patch.error && patch.error.message) || patch.note || '工具失败').slice(0, 400);
+        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}"></span>`;
+        state.title = errTxt;
         state.classList.add('bad');
       } else if (patch.status === 'ok') {
         chip.classList.remove('running');

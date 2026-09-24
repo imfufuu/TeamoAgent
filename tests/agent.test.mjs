@@ -2913,6 +2913,59 @@ test('execute_python schema 含 packages', async () => {
   assert.ok(py.parameters.properties.packages);
 });
 
+
+group('2026.09.22.16 语义 / 键盘 / 容量');
+test('命令面板过滤与 token 构成', async () => {
+  const cmd = await import('../js/commands.js');
+  const items = [
+    { group: '模型', label: 'claude-sonnet-5', hint: 'Anthropic' },
+    { group: '文件', label: 'uploads/a.png' },
+    { group: '子智能体', label: '代码审查员 · code-reviewer', id: 'code-reviewer' },
+  ];
+  assert.equal(cmd.filterCmds('', items).length, 3);
+  assert.equal(cmd.filterCmds('claude', items).map((x) => x.label).join(), 'claude-sonnet-5');
+  assert.equal(cmd.filterCmds('审查', items)[0].id, 'code-reviewer');
+  const { estimateTokens } = await import('../js/context.js');
+  const b = cmd.tokenBreakdown([
+    { role: 'user', text: '你好' },
+    { role: 'assistant', text: '先写文件', toolCalls: [{ id: 'c1', name: 'write_file', args: { path: 'a.txt' } }] },
+    { role: 'tool', toolCallId: 'c1', content: '已写入 ' + 'x'.repeat(40) },
+    { role: 'user', text: '下一问' },
+    { role: 'assistant', text: '好' },
+  ], estimateTokens, 80);
+  assert.ok(b.system === 80 && b.history > 0 && b.tools > 0 && b.current > 0);
+  assert.match(cmd.formatTokBreak(b), /系统/);
+  assert.equal(cmd.shortSuggest('短'), '短');
+  assert.ok(cmd.shortSuggest('用沙箱计算：前 100 个斐波那契数中有多少个质数？').endsWith('…'));
+});
+test('失败态用红点而不是 ×；清空是危险色；占用条上限 120MB', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(ui, /chip-fail/);
+  assert.equal(ui.includes("state.textContent = patch.note || '✕'"), false);
+  assert.match(html, /id="clear-sessions"[^>]*class="mini-btn danger"/);
+  assert.match(html, /id="clear-files"[^>]*class="mini-btn danger"/);
+  assert.match(ui, /再次确认/);
+  assert.match(html, /id="quota-bar"/);
+  assert.match(css, /\.quota-bar/);
+  assert.match(ui, /产品上限 120MB/);
+  assert.equal(/resolveStorageQuota\(SANDBOX_STORAGE_CAP\)\.then/.test(ui), false);
+  assert.match(html, /id="cmd-palette"/);
+  assert.match(ui, /metaKey \|\| e\.ctrlKey/);
+  assert.match(ui, /e\.key === 'b'/);
+  assert.match(ui, /chip-copy/);
+  assert.match(html, /id="cap-line"/);
+  assert.match(ui, /可粘贴或拖入附件/);
+});
+test('清空会话要二次 confirm', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const n = (ui.match(/confirm\(/g) || []).length;
+  assert.ok(n >= 4, `confirm 次数 ${n}`);
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
