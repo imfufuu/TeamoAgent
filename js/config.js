@@ -17,7 +17,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.14';
+export const APP_VERSION = '2026.09.22.15';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -166,17 +166,16 @@ export function isFreeModel(modelId) {
 
 // 多模态（图片输入）支持判断：Claude 全系 / GPT-4o·4.1·5·6 / Gemini 全系 /
 // 带 vision·vl·4v·4.5v 字样的型号；其余（如 deepseek-v4、glm-5.x 文本系）不标记
-export function supportsVision(modelId) {
-  const id = String(modelId || '').toLowerCase();
-  return /^claude-/.test(id) || /^gpt-(4o|4\.1|5|6)/.test(id) || /^gemini-/.test(id)
-    || /vision|(^|-)vl(-|$)|4v\b|4\.5v/.test(id);
+export function supportsVision(_modelId) {
+  // 对话通道一律纯文本。识图统一走 analyze_image 工具。
+  return false;
 }
 
-// 文生图模型判断（GPT Image 2 / 2.5 系列）：按 IMAGE_MODELS 目录或 id 模式识别
-// 这类模型不支持对话/工具调用，不能作为聊天模型直接选中（由 generate_image 工具调用）
 export function isImageModel(modelId) {
   if (isImageGenModel(modelId)) return true;
   const m = String(modelId || '').toLowerCase();
+  // 识图实验模型只给 analyze_image 工具用，不进对话选择器
+  if (m === 'deepseek-v4-flash-vision-exp' || /flash-vision/.test(m)) return true;
   return /(^|-)image(-|$)/.test(m);
 }
 
@@ -218,23 +217,19 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '## 能力',
     '你可以调用以下工具（其中三个代码执行工具需要用户开启「沙箱」开关，其余始终可用）：',
     '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。沙箱内提供 console（输出会被捕获）与 files 对象（虚拟文件系统，可直接读写键值，改动会同步回文件列表），支持顶层 await。适合计算、数据处理、算法验证。',
-    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典（虚拟文件系统，改动同样同步回文件列表），将结果赋给全局变量 result 可被捕获。运行时常驻，仅会话首次调用需下载（10-30 秒）。',
+    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip），已装库刷新页面后仍会重装。将结果赋给 result 可被捕获。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
-    '- write_file / read_file / list_files：操作会话级虚拟文件系统。',
+    '- write_file / read_file / list_files：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。',
     '- generate_image：调用文生图模型生成图片（模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare，走 POST /v1/images/generations）；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
-    webOn
-      ? '- 「联网搜索」由**模型服务端**执行，不需要你手写工具调用：顶栏「联网」开关打开时，本轮请求已经带上'
-        + '当前模型 API 自带的网页搜索字段（Claude → web_search_20250305 服务器工具；GPT → Responses 的 web_search），'
-        + '服务端会自己检索并把结果与引用回注进上下文（详见下方【联网】）。你要做的就是正常提问、并在回答里带上来源；'
-        + '遇到需要最新信息的问题**优先依赖这条通道**，不要因为工具表里没有名为 web_search 的客户端工具就说自己不能联网。'
-      : '- 本轮「联网搜索」是关闭的（顶栏开关）：不要声称查过实时信息，涉及时效性内容请说明未联网并建议用户打开开关。',
+    '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',
+    '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。',
     '- run_git：在本机工作区 ./workspace/ 执行 git 命令（clone / status / diff / log / add / commit / push 等，服务端白名单校验、不经 shell）。用户提到仓库、提交、分支、PR 前的准备时用它在真实目录里干活；写操作前先 status/diff 确认。',
     '- dispatch_subagent：把任务委派给专业子智能体（同模型 + 专属提示词 + 工具子集 + 独立上下文）。这是你放大能力的主要手段，遇到需要专业视角的活儿主动派，不要等用户点名；名录与触发条件见下方「子智能体委派」。',
     '',
     '## 附件',
-    '- 用户消息可能附带图片（多模态模型可直接识图；若模型不支持视觉，请说明并建议切换模型）。',
+    '- 用户消息可能附带图片：对话模型是纯文本，不能直接看图。必须调用 analyze_image（内部使用 deepseek-v4-flash-vision-exp）。沙箱 uploads/ 与 outputs/ 里的图随时可以再分析。',
     '- PDF 会在浏览器本地解析出正文，以 `.pdf.txt` 文本附件形式出现（并写入沙箱 uploads/）。请基于提取的文字回答；扫描件/加密文档可能提不出字，那时要如实说明，不要假装看见了版式或图片。',
     '- 所有附件（文本、提取后的 PDF、图片）都会自动复制到沙箱 uploads/ 目录：文本可 read_file 读取全文；图片以 data URL 形式存放，可作为 generate_image 的 reference_paths 传入以编辑原图。',
     '',
@@ -243,7 +238,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。',
     '- 多步任务先想清楚「哪几步可以并行委派/并行执行」，在同一轮里一次发出多个互不依赖的工具调用，不要一步一等。',
     '- 委派子智能体不需要用户同意或点名；判断该派就派，判断不该派就直接答。',
-    '- 涉及「最新/当前/版本号/是否还存在」的事实：联网开着就直接联网核实，没开就用 fetch_url（有中继时）或直接说明无法核实；不要凭记忆编 URL、版本号或 API 细节，查不到就明说没查到。',
+    '- 涉及「最新/当前/版本号/是否还存在」的事实：有本地中继就用 fetch_url 抓来源页；没有中继就直说无法核实。不要凭记忆编 URL、版本号或 API 细节，也不要声称已经搜过网页。',
     '',
     OUTPUT_SPEC,
   ].join('\n');

@@ -41,6 +41,24 @@ function renderAttachments(atts) {
   return `<div class="att-row">${items}</div>`;
 }
 
+const LANG_ALIAS = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', zsh: 'bash', csharp: 'csharp', 'c#': 'csharp', 'c++': 'cpp', cc: 'cpp', htm: 'xml', html: 'xml', yml: 'yaml', rs: 'rust', rb: 'ruby', kt: 'kotlin', m: 'matlab' };
+function highlightCode(code, lang, escapeFn) {
+  const raw = String(code || '').replace(/\n$/, '');
+  const L = LANG_ALIAS[(lang || '').toLowerCase()] || (lang || '').toLowerCase();
+  if (typeof hljs !== 'undefined') {
+    try {
+      if (L && hljs.getLanguage && hljs.getLanguage(L)) return hljs.highlight(raw, { language: L, ignoreIllegals: true }).value;
+      return hljs.highlightAuto(raw).value;
+    } catch { /* 回退纯文本 */ }
+  }
+  return escapeFn(raw);
+}
+function fenceHtml(lang, code, escapeFn) {
+  const L = (lang || 'text').trim() || 'text';
+  const body = highlightCode(code, L, escapeFn);
+  return `<div class="code-block"><div class="code-head"><span class="code-lang">${escapeFn(L)}</span><button class="copy-code" type="button">复制</button></div><pre data-lang="${escapeFn(L)}"><code class="hljs">${body}</code></pre></div>`;
+}
+
 // ── Markdown 渲染：markdown-it（本地打包 assets/md/，完整 CommonMark + GFM 表格）
 //    + KaTeX 公式；两者任一未加载时回退到内置精简渲染器（先转义再解析，无 XSS 面）──
 let mdEngine; // undefined=未初始化 null=不可用
@@ -57,7 +75,7 @@ function getMd() {
       md.renderer.rules.fence = (tokens, idx) => {
         const tk = tokens[idx];
         const lang = (tk.info || '').trim().split(/\s+/)[0] || 'text';
-        return `<pre data-lang="${md.utils.escapeHtml(lang)}"><button class="copy-code" type="button">复制</button><code>${md.utils.escapeHtml(tk.content.replace(/\n$/, ''))}</code></pre>\n`;
+        return fenceHtml(lang, tk.content, md.utils.escapeHtml);
       };
       // GFM 任务列表（markdown-it 核心不含）：[ ] / [x] 开头的列表项 → checkbox
       md.core.ruler.after('inline', 'task-lists', (state) => {
@@ -108,7 +126,7 @@ export function renderMarkdown(src) {
 
   const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
     const { lang, code } = codeBlocks[+i];
-    return `<pre data-lang="${esc(lang || 'text')}"><button class="copy-code" type="button">复制</button><code>${esc(code.replace(/\n$/, ''))}</code></pre>`;
+    return fenceHtml(lang, code, esc);
   });
   const restoreMath = (html) => html.replace(/\uE000M(\d+)\uE000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
 
@@ -149,6 +167,15 @@ export function toast(msg, type = 'info', ms = 2600) {
 }
 
 // ── 主 UI ───────────────────────────────────────────────────────────────
+function fmtSpan(ms) {
+  const n = Math.max(0, Math.round(Number(ms) || 0));
+  if (n < 1000) return n + 'ms';
+  if (n < 60000) return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 's';
+  const min = Math.floor(n / 60000);
+  const sec = Math.round((n % 60000) / 1000);
+  return sec ? `${min}min ${sec}s` : `${min}min`;
+}
+
 export function mountUI(store, agent) {
   const msgList = $('#messages');
   const composer = $('#composer-input');
@@ -297,24 +324,27 @@ export function mountUI(store, agent) {
   //  Kimi/GLM/Grok → Chat Completions 的对应原生字段）。本项目不调用任何第三方搜索 API。
   const GLOBE_SVG = '<svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>';
   const webToggle = $('#web-toggle');
+  const pagesNoRelay = () => store.state.relayOk === false;
   const syncWeb = () => {
     if (!webToggle) return;
-    const on = store.state.settings.webEnabled !== false;
-    webToggle.classList.toggle('on', on);
-    const cap = webCapFor(store.state.model);
+    if (pagesNoRelay()) {
+      store.state.settings.webEnabled = false;
+      webToggle.disabled = true;
+      webToggle.classList.remove('on');
+      webToggle.innerHTML = GLOBE_SVG + '联网';
+      webToggle.title = 'GitHub Pages / 无本地中继：原生网页搜索已下线，联网不可用';
+      return;
+    }
+    webToggle.disabled = true; // 原生网页搜索已下线，任何环境都不再注入
+    store.state.settings.webEnabled = false;
+    webToggle.classList.remove('on');
     webToggle.innerHTML = GLOBE_SVG + '联网';
-    // 文案只在 websearch.js 里维护一份（这里原本内联复写过一遍，webCapNote 成了死导入）
-    webToggle.title = on ? webCapNote(cap) : '联网已关闭：模型不再具备实时检索能力';
+    webToggle.title = '原生网页搜索已下线（各模型不稳定）。本地中继可用 fetch_url 抓具体网址。';
   };
   if (webToggle) {
     webToggle.addEventListener('click', () => {
-      store.state.settings.webEnabled = !(store.state.settings.webEnabled !== false);
-      store.notify(); syncWeb();
-      const on = store.state.settings.webEnabled !== false;
-      const cap = webCapFor(store.state.model);
-      if (on && !cap) toast('联网已开启，但当前模型没有原生联网格式 —— 本轮仍不会联网（可换 Claude / GPT / Kimi / GLM / Grok）', 'warn', 6000);
-      else if (on) toast(`联网已开启：${cap.label}`, 'ok', 4000);
-      else toast('联网已关闭：不再联网，时效性问题会明确说明无法核实');
+      toast('原生网页搜索已下线。本地跑 server.py 时可用 fetch_url 抓网页。', 'warn', 5000);
+      syncWeb();
     });
     syncWeb();
   }
@@ -542,13 +572,13 @@ export function mountUI(store, agent) {
 
   // ── 侧栏 & 沙箱面板收起体系 ───────────────────────────────────────────
   // 宽屏：两者都并入网格（收起=列宽归零，展开=挤压布局，绝不遮挡内容）
-  // 窄屏：侧栏抽屉化（≤860px）+ 遮罩；面板自底部全屏滑入（≤760px），✕ / Esc 收回
+  // 窄屏：侧栏抽屉化与面板自底部全屏滑入（均 ≤860px），✕ / Esc 收回
   const sidebar = $('.sidebar');
   const panel = $('#sandbox-panel');
   const backdrop = $('#overlay-backdrop');
   const fab = $('#sidebar-fab');
   const mqSidebar = window.matchMedia('(max-width: 860px)');
-  const mqPanel = window.matchMedia('(max-width: 760px)');
+  const mqPanel = window.matchMedia('(max-width: 860px)');
 
   function updateBackdrop() {
     const show = (mqSidebar.matches && sidebar.classList.contains('sidebar-open'))
@@ -789,7 +819,7 @@ export function mountUI(store, agent) {
     const wrap = el('div', `msg msg-${m.role} enter`);
     wrap.dataset.id = m.id;
     if (m.role === 'user') {
-      wrap.innerHTML = `<div class="bubble">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
+      wrap.innerHTML = `<div class="bubble md-body">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
         ${m.jev && m.jev.summary ? `<div class="jev-chip" title="TypeSafe Jev 对本轮的校准分类">Jev · ${esc(m.jev.summary)}</div>` : ''}
         <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button></div>`;
       $('.act', wrap).addEventListener('click', () => doRollback(m));
@@ -879,7 +909,7 @@ export function mountUI(store, agent) {
     const live = !m.done && getBusy();
     // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
     if (m.done && m.reasoning) {
-      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
+      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
     } else if (live && m.reasoning && !m.text) {
       html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
     } else if (live && noOutputYet) {
@@ -944,6 +974,16 @@ export function mountUI(store, agent) {
         if (shot) paintChipImage(chip, shot);
       }
     }
+    const edited = (m.toolCalls || []).filter((c) => c.name === 'write_file' && c.args && c.args.path);
+    let ed = $('.edited-files', wrap);
+    if (edited.length) {
+      if (!ed) {
+        ed = el('details', 'edited-files');
+        chips.after(ed);
+      }
+      const paths = [...new Set(edited.map((c) => String(c.args.path)))];
+      ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>Edited file(s) ${paths.length}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+    } else if (ed) ed.remove();
     // meta（无 msg-head 的续消息没有该节点）
     const meta = $('.msg-meta', wrap);
     if (meta) {
@@ -1056,7 +1096,9 @@ export function mountUI(store, agent) {
     const chip = $(`.chip[data-call-id="${CSS.escape(toolMsg.toolCallId)}"]`, msgList);
     if (!chip) return;
     const ok = !toolMsg.content.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(toolMsg.content);
-    $('.chip-state', chip).textContent = ok ? '✓' : '✕';
+    const dm = /执行耗时 (\d+)ms/.exec(String(toolMsg.content || ''));
+    const dur = dm ? fmtSpan(Number(dm[1])) : '';
+    $('.chip-state', chip).innerHTML = `${ok ? '✓' : '✕'}${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
     $('.chip-state', chip).classList.toggle('bad', !ok);
     chip.classList.add('done');        // 图标停止转动（含刷新页面后重建的芯片）
     chip.classList.remove('running');
@@ -1334,7 +1376,9 @@ export function mountUI(store, agent) {
   msgList.addEventListener('click', (e) => {
     const btn = e.target.closest('.copy-code');
     if (!btn) return;
-    const code = btn.parentElement.querySelector('code');
+    const block = btn.closest('.code-block') || btn.parentElement;
+    const code = block.querySelector('code');
+    if (!code) return;
     navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = '已复制'; setTimeout(() => (btn.textContent = '复制'), 1500); });
   });
 
@@ -1479,7 +1523,9 @@ export function mountUI(store, agent) {
         state.classList.add('bad');
       } else if (patch.status === 'ok') {
         chip.classList.remove('running');
-        if (patch.image) { state.textContent = patch.note || '✓'; state.classList.remove('bad'); }
+        const dur = patch.durationMs != null ? fmtSpan(patch.durationMs) : '';
+        state.innerHTML = `${patch.note || '✓'}${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+        state.classList.remove('bad');
       }
       if (patch.image) {
         chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath, width: patch.width, height: patch.height });
@@ -1501,5 +1547,6 @@ export function mountUI(store, agent) {
       if (paths && paths.length) toast(`附件已复制到沙箱：${paths.join('、')}`, 'ok', 4200);
     },
     scrollToBottom: () => scrollToBottom(true),
+    syncWeb,
   };
 }

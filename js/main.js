@@ -62,7 +62,7 @@ document.addEventListener('visibilitychange', () => {
 // 本地中继探测（一次）：静态托管上没有 server.py —— fetch_url / run_git 调到必然失败，
 // 与其让模型在死路上浪费时间（实测它还会拿 fetch_url 假装联网），不如本轮就不给它这两个工具。
 // 探测结果只影响工具表与系统提示词，不影响任何联网搜索（那走的是模型 API 自带格式）。
-relayAvailable().then((ok) => { store.state.relayOk = ok; }).catch(() => {});
+relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {});
 
 // 刷新后如果存的还是管理员别名，重新解封一次（口令就是别名本身，不需要再问用户）
 if (isAdminAlias(store.state.apiKey)) {

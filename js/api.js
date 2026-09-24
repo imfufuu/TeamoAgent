@@ -291,12 +291,14 @@ function attachmentNote(a) {
 }
 
 function userTextParts(m) {
-  // OpenAI 兼容协议：文本 + image_url（data URL）多模态 parts
+  // 对话通道纯文本：图片不进 image_url，改成提示调用 analyze_image
   const parts = [];
   if (m.text) parts.push({ type: 'text', text: m.text });
   for (const a of m.attachments || []) {
-    if (a.kind === 'image' && a.dataUrl) parts.push({ type: 'image_url', image_url: { url: a.dataUrl } });
-    else if (a.kind === 'text' && a.text != null) parts.push({ type: 'text', text: `【附件：${a.name}】\n${a.text}` });
+    if (a.kind === 'image') {
+      const hint = a.name ? `uploads/${a.name}` : 'uploads/';
+      parts.push({ type: 'text', text: `【图片附件「${a.name || 'image'}」已写入沙箱 ${hint}。对话模型是纯文本，请调用 analyze_image 工具查看。】` });
+    } else if (a.kind === 'text' && a.text != null) parts.push({ type: 'text', text: `【附件：${a.name}】\n${a.text}` });
     else parts.push({ type: 'text', text: attachmentNote(a) });
   }
   return parts;
@@ -338,10 +340,9 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
         const content = [];
         if (m.text) content.push({ type: 'text', text: m.text });
         for (const a of m.attachments) {
-          if (a.kind === 'image' && a.dataUrl) {
-            const match = /^data:(.+?);base64,(.*)$/s.exec(a.dataUrl);
-            if (match) content.push({ type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } });
-            else content.push({ type: 'text', text: attachmentNote(a) });
+          if (a.kind === 'image') {
+            const hint = a.name ? `uploads/${a.name}` : 'uploads/';
+            content.push({ type: 'text', text: `【图片附件「${a.name || 'image'}」已写入沙箱 ${hint}。对话模型是纯文本，请调用 analyze_image 工具查看。】` });
           } else if (a.kind === 'text' && a.text != null) {
             content.push({ type: 'text', text: `【附件：${a.name}】\n${a.text}` });
           } else {
@@ -387,7 +388,8 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
   const wantThinking = thinking && !thinkingUnsupported.has(model);
   // 联网 = 只往请求体里塞模型 API 自带的网页搜索字段（能力表见 js/websearch.js）。
   // 没有原生格式的模型（DeepSeek 等）就是「本轮不联网」，绝不改道去调第三方搜索 API。
-  const webCap = webEnabled && !webUnsupported.has(model) ? webCapFor(model) : null;
+  // 原生网页搜索已下线（各模型不稳定）；webEnabled 不再注入任何服务端搜索字段
+  const webCap = null;
   let endpoint = webCap && webCap.endpoint === 'responses' && !responsesUnsupported.has(model) ? 'responses'
     : (protocol === 'anthropic' ? 'messages' : 'chat');
 

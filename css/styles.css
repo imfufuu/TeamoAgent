@@ -99,7 +99,7 @@ a { color: var(--fg); }
   #sidebar-toggle { min-width: 36px; min-height: 36px; padding: 6px; }
 }
 /* 超窄屏：沙箱面板浮层化（更宽时始终并入网格，绝不遮挡） */
-@media (max-width: 760px) {
+@media (max-width: 860px) {
   .app { --pnw: 0px; }
   /* 窄屏：沙箱面板自底部垂直滑入，铺满视口（不再半宽侧滑）。关闭靠面板内 ✕ / Esc。 */
   #sandbox-panel {
@@ -343,8 +343,8 @@ a { color: var(--fg); }
 .topbar-right { display: flex; gap: 8px; }
 
 /* 消息区（min-height:0 保证 flex 子项可收缩，滚动被限制在本区域） */
-.messages { flex: 1; min-height: 0; overflow-y: auto; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
-.msg { max-width: 760px; margin: 0 auto 26px; padding: 0 28px; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
+.msg { max-width: 760px; margin: 0 auto 26px; padding: 0 28px; overflow-x: hidden; max-width: min(760px, 100%); }
 .msg.enter { animation: fadeUp .45s var(--ease) both; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
@@ -412,13 +412,7 @@ a { color: var(--fg); }
   content: attr(data-lang); position: absolute; top: 7px; right: 52px;
   font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--fg-3); font-family: var(--mono);
 }
-.copy-code {
-  position: absolute; top: 6px; right: 8px; font-size: 10.5px; color: var(--fg-3);
-  border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px;
-  opacity: 0; transition: all .2s var(--ease); background: var(--bg);
-}
-.md-body pre:hover .copy-code { opacity: 1; }
-.copy-code:hover { color: var(--fg); border-color: var(--fg); }
+.md-body pre::before { content: none; } /* 语言标签改到 .code-head，避免和复制按钮重叠 */
 
 .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--fg); vertical-align: text-bottom; margin-left: 2px; animation: blink .9s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
@@ -781,8 +775,9 @@ a { color: var(--fg); }
 /* ── 触屏设备通用（含平板）：可点区域 ≥40px ─────────────────────────────
    与宽度无关 —— 手指粗细不随屏幕变。窄屏（≤720px）另有更密的排布规则。 */
 @media (hover: none), (max-width: 720px) {
-  .act { min-height: 40px; padding: 10px 14px; font-size: 12.5px; }
-  .act svg { width: 14px; height: 14px; }
+  .act { min-height: 0; padding: 3px 8px; font-size: 11px; }
+  .act svg { width: 12px; height: 12px; }
+  .msg-actions { opacity: 1; transform: none; }
   #attach-btn, #send-btn { width: 40px; height: 40px; }
   .pill { min-height: 40px; }
   /* 触屏层只抬到「够点得中」，不再把字号/内边距一起放大（会被中文标签换行撑成两行高按钮）*/
@@ -815,9 +810,9 @@ a { color: var(--fg); }
   #status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
   .time-stats { display: none; } /* 窄屏优先保证胶囊可点，耗时在消息头里还能看到 */
   .topbar-right {
-    flex: 1 1 auto; justify-content: flex-start; flex-wrap: nowrap;
+    flex: 0 1 auto; margin-left: auto; justify-content: flex-end; flex-wrap: nowrap;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch;
-    padding: 4px 2px; margin: -4px -2px; /* 给触控留出上下 4px，滚动时不裁阴影 */
+    padding: 4px 2px; margin-top: -4px; margin-bottom: -4px; max-width: min(72vw, 100%);
   }
   .topbar-right::-webkit-scrollbar { display: none; }
   .pill { flex: 0 0 auto; padding: 8px 12px; font-size: 12.5px; min-height: 40px; gap: 6px; }
@@ -837,9 +832,9 @@ a { color: var(--fg); }
   .md-body a { overflow-wrap: anywhere; }
 
   /* 操作条：换行 + 40px 触控高度（原来 11px 字号 / 3px 内边距在手机上点不中） */
-  .msg-actions { flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-  .act { min-height: 40px; padding: 10px 14px; font-size: 12.5px; border-color: var(--line); }
-  .act svg { width: 14px; height: 14px; }
+  .msg-actions { flex-wrap: nowrap; gap: 4px; margin-top: 8px; opacity: 1; transform: none; overflow-x: auto; }
+  .act { min-height: 0; padding: 3px 8px; font-size: 11px; border-color: transparent; }
+  .act svg { width: 12px; height: 12px; }
 
   /* 工具芯片 / 联网来源条 */
   .tool-chips { gap: 8px; }
@@ -882,7 +877,7 @@ a { color: var(--fg); }
   .pill { padding: 8px 10px; font-size: 12px; }
   .pill-ico { display: none; } /* 只有图标文字同挤时，保留文字（中文标签更可读） */
   .msg { padding: 0 12px; }
-  .act { padding: 10px 12px; }
+  .act { padding: 3px 8px; }
 }
 
 /* 尊重系统「减少动态效果」：停掉无限循环动画，淡入改为直出 */
@@ -895,3 +890,13 @@ a { color: var(--fg); }
   .file-viewer.open { animation-duration: .01ms; animation-iteration-count: 1; }
   * { scroll-behavior: auto; }
 }
+
+.edited-files { margin-top: 8px; font-size: 12px; color: var(--fg-3); border: none; }
+.edited-files summary {
+  cursor: pointer; display: inline-flex; align-items: center; gap: 6px; list-style: none; user-select: none;
+}
+.edited-files summary::-webkit-details-marker { display: none; }
+.edited-files summary:hover { color: var(--fg); }
+.edited-files ul { margin: 4px 0 0 20px; padding: 0; }
+.edited-files li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); }
+.chip-time { color: var(--fg-3); font-family: var(--mono); font-size: 10.5px; }

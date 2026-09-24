@@ -1,6 +1,7 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
 import { generateImage, editImage, bytesToDataUrl, sniffImage } from './api.js';
+import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
 import { fetchPage, gitRun } from './net.js';
@@ -19,11 +20,12 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。注意：无网络、无本地磁盘。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。可用 micropip / loadPackage 安装第三方库（numpy、pandas 等），已装库名会记在本机，刷新页面后自动重装。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {
         code: { type: 'string', description: '要执行的 Python 代码' },
+        packages: { type: 'array', items: { type: 'string' }, description: '可选：先安装的 PyPI / Pyodide 包名，如 ["numpy","pandas"]。代码里的 import 也会自动尝试安装。' },
       },
       required: ['code'],
     },
@@ -41,14 +43,17 @@ export const TOOL_DEFS = [
   },
   {
     name: 'write_file',
-    description: '向会话虚拟文件系统写入/覆盖一个文本文件。文件对沙箱代码可见。',
+    description: '向会话虚拟文件系统写入文本。mode=overwrite（默认整文件覆盖）、append（末尾追加）、replace（把 old_text 换成 new_text，局部修改）。文件对沙箱代码可见。',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: '文件路径，如 data/notes.md' },
-        content: { type: 'string', description: '文件完整内容' },
+        content: { type: 'string', description: 'overwrite/append 时的内容；replace 时可用 new_text 代替' },
+        mode: { type: 'string', enum: ['overwrite', 'append', 'replace'], description: 'overwrite 覆盖整文件（默认）；append 追加；replace 局部替换' },
+        old_text: { type: 'string', description: 'replace 模式：要被替换的原文片段' },
+        new_text: { type: 'string', description: 'replace 模式：替换后的新片段' },
       },
-      required: ['path', 'content'],
+      required: ['path'],
     },
   },
   {
@@ -97,6 +102,20 @@ export const TOOL_DEFS = [
         },
       },
       required: ['prompt'],
+    },
+  },
+  {
+    name: 'analyze_image',
+    description:
+      '分析一张图片（OCR、描述画面、读图表）。对话模型本身是纯文本，不能直接看图：必须调用本工具。' +
+      `内部固定使用 ${VISION_TOOL_MODEL}，不要把该模型当对话模型选。` +
+      'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；也可以不传 path 而分析用户本轮刚上传的图。Agent 随时可以查看沙箱里的图像。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '沙箱图片路径，如 uploads/photo.png 或 outputs/image-001.png' },
+        prompt: { type: 'string', description: '分析要求，如「读出图中全部文字」或「描述这张架构图」；缺省为全面描述' },
+      },
     },
   },
   {
@@ -194,7 +213,8 @@ export async function executeTool(name, args, ctx) {
           return msg;
         }
         emit({ status: 'running', lang: 'python', note: '执行中…' });
-        const out = await runPython(args.code || '', fs, (note) => emit({ status: 'running', lang: 'python', note }));
+        const extraPkgs = Array.isArray(args.packages) ? args.packages.map((p) => String(p || '').trim()).filter(Boolean) : [];
+        const out = await runPython(args.code || '', fs, (note) => emit({ status: 'running', lang: 'python', note }), extraPkgs);
         emit({ status: out.ok ? 'ok' : 'error', lang: 'python', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
         return formatExecResult('Python', out);
       }
@@ -210,9 +230,28 @@ export async function executeTool(name, args, ctx) {
         const path = normalizeFsPath(args.path);
         if (!path) return 'write_file 缺少合法的 path 参数（需要形如 data/notes.md 的相对路径，不能是空值或 "/"）。';
         const content = String(args.content ?? '');
-        fs.write(path, content);
-        const msg = `已写入 ${path}（${content.length} 字符）`;
-        emit({ status: 'ok', fsChange: true, note: msg });
+        const mode = String(args.mode || 'overwrite').toLowerCase();
+        let msg;
+        if (mode === 'append') {
+          let prev = '';
+          try { prev = fs.read(path); } catch { prev = ''; }
+          fs.write(path, prev + content);
+          msg = `已追加 ${path}（+${content.length} 字符，现 ${prev.length + content.length} 字符）`;
+        } else if (mode === 'replace') {
+          const oldText = String(args.old_text ?? '');
+          const newText = args.new_text != null ? String(args.new_text) : content;
+          if (!oldText) return 'write_file replace 模式需要 old_text（要被替换的原文片段）。';
+          let prev;
+          try { prev = fs.read(path); } catch { return `write_file replace 失败：文件不存在 ${path}`; }
+          if (!prev.includes(oldText)) return `write_file replace 失败：在 ${path} 中找不到指定片段。`;
+          const next = prev.replace(oldText, newText);
+          fs.write(path, next);
+          msg = `已局部修改 ${path}（${prev.length} → ${next.length} 字符）`;
+        } else {
+          fs.write(path, content);
+          msg = `已写入 ${path}（${content.length} 字符）`;
+        }
+        emit({ status: 'ok', fsChange: true, editedPath: path, note: msg });
         return msg;
       }
       case 'read_file': {
@@ -354,6 +393,38 @@ export async function executeTool(name, args, ctx) {
           emit({ status: 'error', error: { message: err.message } });
           const hint = picked.unknown ? `（模型名「${picked.input}」无法识别）` : '';
           return `图像模型调用失败（${model}）${hint}：${err.message}${note ? `\n${note}` : ''}`;
+        }
+      }
+      case 'analyze_image': {
+        if (!ctx.apiKey) {
+          emit({ status: 'error', error: { message: '未配置 API Key' } });
+          return '未配置 TeamoRouter API Key，无法调用识图模型。';
+        }
+        let path = normalizeFsPath(args.path);
+        const listImgs = () => fs.list().filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f.path)).map((f) => f.path);
+        if (!path) {
+          const imgs = listImgs();
+          if (imgs.length === 1) path = imgs[0];
+          else if (!imgs.length) return 'analyze_image 缺少 path：沙箱里还没有图片（用户上传会进 uploads/）。';
+          else return `analyze_image 缺少 path。沙箱中的图片：${imgs.join('、')}`;
+        }
+        let dataUrl = '';
+        try { dataUrl = fs.read(path); } catch { return `analyze_image 失败：找不到 ${path}（现有图片：${listImgs().join('、') || '无'}）`; }
+        if (!/^data:image\//i.test(dataUrl) && !/^https?:\/\//i.test(dataUrl)) {
+          return `analyze_image 失败：${path} 不是图片 data URL（当前是文本文件？）。`;
+        }
+        const prompt = String(args.prompt || '').trim();
+        emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · ${path}）…` });
+        try {
+          const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          const text = await analyzeImage({ apiKey: ctx.apiKey, prompt, dataUrl, signal: ctx.signal });
+          const ms = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0);
+          emit({ status: 'ok', note: `已分析 ${path}`, durationMs: ms });
+          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${path}\n\n${text}`;
+        } catch (err) {
+          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
+          emit({ status: 'error', error: { message: err.message } });
+          return `analyze_image 失败：${err.message}`;
         }
       }
       default:

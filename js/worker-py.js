@@ -1,12 +1,32 @@
 // TeamoAgent · Python 沙箱 Worker（Pyodide / WebAssembly，独立同源文件）
-// 关键：经典 Worker 中 importScripts 加载后，loadPyodide 必须显式传 indexURL，
-// 否则无法定位 pyodide.asm.wasm（这是官方文档明确要求的）。
-// Worker 常驻复用：运行时只加载一次，后续执行秒级启动。
+// 关键：经典 Worker 中 importScripts 加载后，loadPyodide 必须显式传 indexURL。
+// 第三方库：micropip.install；已装包名由主线程记到 localStorage，刷新后重装。
 const PY_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 let loaded = null;
+const installed = new Set();
+
+const IMPORT_ALIAS = {
+  numpy: 'numpy', np: 'numpy', pandas: 'pandas', pd: 'pandas',
+  PIL: 'Pillow', pillow: 'Pillow', cv2: 'opencv-python', sklearn: 'scikit-learn',
+  scipy: 'scipy', matplotlib: 'matplotlib', requests: 'requests',
+  bs4: 'beautifulsoup4', yaml: 'pyyaml', lxml: 'lxml',
+  sympy: 'sympy', networkx: 'networkx', dateutil: 'python-dateutil',
+};
+
+function pkgsFromCode(code) {
+  const found = [];
+  const re = /(?:^|\n)\s*(?:import|from)\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+  let m;
+  while ((m = re.exec(String(code || '')))) {
+    const raw = m[1];
+    if (['os', 'sys', 'json', 're', 'math', 'time', 'random', 'itertools', 'functools', 'collections', 'typing', 'pathlib', 'io', 'csv', 'datetime', 'string', 'struct', 'hashlib', 'base64', 'copy', 'operator', 'statistics', 'decimal', 'fractions', 'unicodedata', 'textwrap', 'pprint', 'enum', 'dataclasses', 'abc', 'contextlib', 'traceback', 'warnings', 'ast'].includes(raw)) continue;
+    found.push(IMPORT_ALIAS[raw] || raw);
+  }
+  return found;
+}
 
 self.onmessage = async (e) => {
-  const { code, files } = e.data;
+  const { code, files, packages } = e.data;
   const logs = [];
   try {
     if (!loaded) {
@@ -18,23 +38,36 @@ self.onmessage = async (e) => {
     const pyodide = loaded;
     pyodide.setStdout({ batched: (s) => logs.push({ level: 'log', text: String(s) }) });
     pyodide.setStderr({ batched: (s) => logs.push({ level: 'error', text: String(s) }) });
+
+    const want = [...new Set([...(packages || []), ...pkgsFromCode(code)])].filter(Boolean);
+    const missing = want.filter((p) => !installed.has(p));
+    if (missing.length) {
+      self.postMessage({ __progress: `正在安装 Python 库：${missing.join(', ')}…` });
+      try { await pyodide.loadPackage('micropip'); } catch { /* 已装 */ }
+      const micropip = pyodide.pyimport('micropip');
+      for (const p of missing) {
+        try {
+          try { await pyodide.loadPackage(p); }
+          catch { await micropip.install(p); }
+          installed.add(p);
+        } catch (err) {
+          logs.push({ level: 'error', text: `安装 ${p} 失败：${err && err.message ? err.message : err}` });
+        }
+      }
+    }
+
     let fs = {};
     try { fs = JSON.parse(JSON.stringify(files || {})); } catch { fs = {}; }
     pyodide.globals.set('FILES', pyodide.toPy(fs));
-    // Worker 常驻复用：上一轮赋的 result 不会自己消失，不清掉就会把旧结果当成本轮输出
     try { pyodide.globals.delete('result'); } catch { /* 无该全局时忽略 */ }
     await pyodide.runPythonAsync(code);
-    // 注意 API 名称：Pyodide 只有 proxy.toJs({...})（实例方法），没有 pyodide.toJS；
-    // 写成 toJS 会抛 TypeError 并被 catch 吞掉 —— 表现是 Python 里写的 FILES
-    // 与 result「静默丢失」。dict_converter 必须给：dict 默认转成 Map，
-    // JSON.stringify(Map) === {}，那样反而会清空整个虚拟文件系统。
     let outFiles = fs;
     try {
       const f = pyodide.globals.get('FILES');
       if (f !== undefined && f !== null) {
         const js = f.toJs({ dict_converter: Object.fromEntries, create_pyproxies: false });
         outFiles = JSON.parse(JSON.stringify(js));
-        if (typeof f.destroy === 'function') f.destroy(); // 释放 PyProxy，避免内存泄漏
+        if (typeof f.destroy === 'function') f.destroy();
       }
     } catch { outFiles = fs; }
     let result;
@@ -50,8 +83,8 @@ self.onmessage = async (e) => {
         if (typeof r.destroy === 'function') r.destroy();
       }
     } catch { result = undefined; }
-    self.postMessage({ ok: true, logs, files: outFiles, result });
+    self.postMessage({ ok: true, logs, files: outFiles, result, installed: [...installed] });
   } catch (err) {
-    self.postMessage({ ok: false, logs, files: files || {}, error: { message: String((err && err.message) || err) } });
+    self.postMessage({ ok: false, logs, files: files || {}, error: { message: String((err && err.message) || err) }, installed: [...installed] });
   }
 };

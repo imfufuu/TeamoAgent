@@ -46,9 +46,8 @@ export const WEB_CAPS = [
 ];
 
 /** 当前模型有没有原生联网格式（没有就返回 null，让上层明确告知用户） */
-export function webCapFor(model) {
-  const m = String(model || '');
-  return WEB_CAPS.find((c) => c.match(m)) || null;
+export function webCapFor(_model) {
+  return null; // 原生网页搜索已下线（各模型不稳定）
 }
 
 /** 把原生联网字段注入请求体（就地修改并返回 body；cap 为 null 时原样返回） */

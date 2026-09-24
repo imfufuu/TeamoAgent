@@ -26,6 +26,14 @@ export function createFS(initial = {}) {
 let pyodideBroken = false; // CDN 加载失败后不再尝试
 export function pythonAvailable() { return !pyodideBroken; }
 
+const PY_PKG_KEY = 'teamo-py-packages';
+function loadPyPkgs() {
+  try { return JSON.parse(localStorage.getItem(PY_PKG_KEY) || '[]'); } catch { return []; }
+}
+function savePyPkgs(list) {
+  try { localStorage.setItem(PY_PKG_KEY, JSON.stringify([...new Set((list || []).filter(Boolean))])); } catch { /* 隐私模式 */ }
+}
+
 // ── Worker 创建：同源文件优先，blob 兜底 ───────────────────────────────
 // 背景：部分宿主页面（如预览 iframe）的 CSP 不允许 blob: Worker，
 // 直接 new Worker(blobURL) 会触发 onerror（message 为空、瞬间失败）。
@@ -99,11 +107,12 @@ export async function runJavaScript(code, fsObj) {
 let pyWorker = null;
 let pyBlobTried = false;
 
-export async function runPython(code, fsObj, onProgress) {
+export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   if (pyodideBroken) {
     return { ok: false, logs: [], error: { message: 'Pyodide 运行时不可用（CDN 加载失败），请改用 execute_javascript' }, durationMs: 0 };
   }
   const files = fsObj.export();
+  const packages = [...new Set([...loadPyPkgs(), ...(Array.isArray(extraPkgs) ? extraPkgs : [])])];
   const t0 = performance.now();
 
   const attempt = (useBlob) => new Promise((resolve) => {
@@ -161,6 +170,7 @@ export async function runPython(code, fsObj, onProgress) {
     out.error.message += '（已标记 Python 沙箱不可用，本次会话内请使用 execute_javascript）';
   }
   if (out.files && !out.timedOut) { fsObj.clear(); fsObj.import(out.files); }
+  if (out.installed) savePyPkgs(out.installed);
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }
 

@@ -38,8 +38,8 @@ const toolsFor = (sandboxEnabled) =>
 // 实测后果：模型会拿 fetch_url 去「联网」，失败后要么编数字、要么说一堆环境限制，
 // 而真正可用的服务器网页搜索就在同一份请求里。没有中继时直接不提供，别给死路。
 const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'run_git']);
-const RELAY_OFF_NOTE = '\n\n【工具可用性】本环境没有本地中继（server.py 未运行），因此 fetch_url 与 run_git '
-  + '本轮不在工具表里。要查资料就用上面说的「服务器网页搜索工具」，不要试图用其它办法抓网页，也不要因此说不能联网。';
+const RELAY_OFF_NOTE = '\n\n【工具可用性】本环境没有本地中继（GitHub Pages / 未运行 server.py），因此 fetch_url 与 run_git '
+  + '本轮不在工具表里，顶栏「联网」也不可用。不要声称已经搜过网页。';
 
 // 附件落盘文件名：去掉路径分隔与控制字符，避免越权写到 uploads/ 之外
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'file';
@@ -122,16 +122,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
 // 联网开关的提示词：联网用的是模型 API 自带的网页搜索请求格式，所以这里不挂我们自己的搜索工具，
 // 只告诉模型「能力从哪来」。文本放在本模块内而不是给 config.js 新增具名导出再 import —— 那会在
 // 「新 agent.js + 旧 config.js」的混版缓存下触发 ESM link 错误（整页白屏），历史上真踩过。
-const WEB_ON_NOTE = '\n\n【联网】本轮已按当前模型的原生格式开启服务端网页搜索'
-  + '（Claude：/v1/messages 的 tools:[{type:"web_search_20250305"}]；GPT：/v1/responses 的 tools:[{type:"web_search"}]；'
-  + '其它厂商经实测没有可用的原生格式，本轮不联网）。搜索由模型服务端自己完成，结果带引用回流进本轮上下文：'
-  + '遇到「最新/当下/版本号/今天/价格/汇率/近期」这类光靠权重参数答不了的问题就直接联网，不必等用户点名；'
-  + '回答里给出来源链接。要抓某个具体网页的正文用 fetch_url（走本地中继，没开中继时它会直接失败），需要 git 用 run_git。\n'
-  + '\n【优先用它】要联网查资料时，直接用本轮已开启的服务器网页搜索工具，不要拿 fetch_url 去代替：'
-  + 'fetch_url 需要本地中继（网页版没有中继时必然失败），服务器搜索不需要任何本地依赖。'
-  + '\n【硬性要求】只有当你这一轮**真的**调用了网页搜索工具、并拿到结果时，才可以说「已联网查询 / 搜索到」；'
-  + '没有拿到检索结果时，绝不允许用「我已经联网搜索了」这类说法给记忆里的数字背书 —— 那样用户会当真。'
-  + '这种情况请直说「本轮没能取得检索结果」，并说明数字仅供记忆参考或建议用户手动核实。';
+const WEB_ON_NOTE = '\n\n【联网】原生网页搜索已下线。有本地中继时用 fetch_url 抓具体网址；GitHub Pages 无法联网搜索。不要声称已经搜过网页。';
 const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第三方搜索接口）。不要声称自己能查实时信息：'
   + '涉及时效性问题就直说「当前未联网，无法核实」，或建议用户打开顶栏的「联网」开关；'
   + '确定的知识可以直接答，但别把记忆包装成「刚查到的」。';
@@ -361,6 +352,7 @@ export function createAgent(store, hooks = {}) {
         const acc = createToolCallAccumulator();
         let tb = createThinkingTracker(); // Anthropic 思考块（含 signature），随消息持久化并在下一轮回传
         let text = '', reasoning = '';
+        let reasonT0 = 0;
         let sawToolDelta = false, lastChipPaint = 0;
         let web = null; // 服务端联网进度：{status, queries, sources, results}
         const usage = {};
@@ -391,6 +383,7 @@ export function createAgent(store, hooks = {}) {
                     emit('onDelta', assistantMsg, text);
                     break;
                   case 'reasoning':
+                    if (!reasonT0) reasonT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
                     reasoning += ev.text;
                     tb.delta(ev.index, ev.text);
                     store.updateMessage(assistantMsg.id, { reasoning });
@@ -467,6 +460,7 @@ export function createAgent(store, hooks = {}) {
           text, reasoning: reasoning || undefined, toolCalls: toolCalls.length ? toolCalls : undefined,
           // 思考块（含 signature）随消息持久化：下一轮请求需原样回传（P0-2）
           thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
+          reasoningMs: reasonT0 ? Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - reasonT0) : undefined,
           usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
           finishReason, done: true, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,

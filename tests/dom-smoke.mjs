@@ -74,7 +74,7 @@ click($('#model-btn'));
 const ddItems = () => $$('#model-menu .dd-item-id').map((n) => n.textContent);
 ok('模型菜单已渲染分组', $$('#model-menu .dd-group').length >= 5, `分组 ${$$('#model-menu .dd-group').length}`);
 ok('菜单中没有 gpt-image 系列', !ddItems().some((i) => i.includes('gpt-image')), ddItems().filter((i) => i.includes('image')).join(','));
-ok('菜单含 deepseek-v4-flash-vision-exp（图生文）', ddItems().includes('deepseek-v4-flash-vision-exp'));
+ok('菜单不含识图专用模型 deepseek-v4-flash-vision-exp', !ddItems().includes('deepseek-v4-flash-vision-exp'));
 ok('菜单不含已下线的 gemini-3.1-flash-lite-preview', !ddItems().includes('gemini-3.1-flash-lite-preview'));
 ok('生图模型行在搜索框之后（DOM 顺序）', (() => {
   const kids = [...$('#model-menu').children].map((c) => c.className.split(' ')[0]);
@@ -403,44 +403,24 @@ console.log('\n⑪ 沙箱面板头部改成两行（标题一行，统计与按�
   ok('第二行自身是左右分布', /\.files-bar\s*\{[^}]*justify-content: space-between/.test(css));
 }
 
-console.log('\n⑫ 联网开关（模型 API 自带格式，无第三方搜索）');
+console.log('\n⑫ 联网开关（原生网页搜索已下线）');
 {
   const web = await import(path.join(ROOT, 'js/websearch.js'));
   const pill = $('#web-toggle');
   ok('顶栏有「联网」pill（SVG + 中文）', !!pill && !!pill.querySelector('svg') && /联网/.test(pill.textContent), pill ? pill.textContent : '缺失');
-  ok('默认开启', pill.classList.contains('on') && store.state.settings.webEnabled !== false);
-  // 提示语必须跟着「当前模型」走：先点模型列表选 GPT，pill 要立刻改成 Responses 原生格式的说法
-  const before = pill.title;
-  // 提示语必须跟着「当前模型」走：从模型菜单选 GPT，pill 要立刻改成 Responses 原生格式的说法
-  const titleBefore = pill.title;
-  click($('#model-btn'));
-  const item = $$('#model-menu .dd-item').find((n) => /gpt-5\.5/.test(n.textContent));
-  ok('模型菜单里有 GPT 这一项', !!item, $$('#model-menu .dd-item').length + ' 项');
-  click(item);
-  ok('菜单点完即关闭', !$('#model-menu').classList.contains('open'));
-  ok('切模型后 store 里确实是这个模型', store.state.model === 'gpt-5.5', store.state.model);
-  const capGpt = web.webCapFor('gpt-5.5');
-  const capClaude = web.webCapFor('claude-opus-5');
-  ok('pill 的提示语跟着换成该模型的原生格式',
-    pill.title.includes(capGpt.label) && !pill.title.includes(capClaude.label) && pill.title !== titleBefore,
-    pill.title);
+  ok('默认关闭且 disabled', pill.disabled && !pill.classList.contains('on') && store.state.settings.webEnabled === false);
+  ok('webCapFor 恒为 null', web.webCapFor('gpt-5.5') == null && web.webCapFor('claude-opus-5') == null);
+  ok('提示语说明已下线', /原生网页搜索已下线/.test(pill.title), pill.title);
   click(pill);
-  ok('点一下即关闭并写回 settings', store.state.settings.webEnabled === false && !$('#web-toggle').classList.contains('on'));
-  click($('#web-toggle'));
-  ok('再点恢复开启', store.state.settings.webEnabled === true);
-  // 联网来源条：由消息上的 webSearch 渲染（切会话/重开页面后同样能重建）
+  ok('点击也不能打开', store.state.settings.webEnabled === false && !$('#web-toggle').classList.contains('on'));
   const m = store.pushMessage({
     role: 'assistant', text: '根据来源回答', model: store.state.model, done: true,
     webSearch: { status: 'done', results: 2, queries: ['pyodide 0.26 版本'], sources: [{ url: 'https://pyodide.org/docs', title: 'Pyodide 文档' }, { url: 'https://a.test/b', title: 'B' }] },
   });
   ui.rebuildMessages();
   const note = $('#messages .msg[data-id="' + m.id + '"] .web-note');
-  ok('回答下方出现联网来源条（含条数与查询词）', !!note && /服务端检索到 2 条来源/.test(note.textContent) && /pyodide 0.26 版本/.test(note.textContent), note ? note.textContent : '缺失');
+  ok('历史来源条仍可渲染', !!note && /服务端检索到 2 条来源/.test(note.textContent) && /pyodide 0.26 版本/.test(note.textContent), note ? note.textContent : '缺失');
   ok('来源渲染成可点外链且带 noopener', [...note.querySelectorAll('a.web-src')].length === 2 && String(note.querySelector('a').getAttribute('rel')).includes('noopener') && note.querySelector('a').target === '_blank');
-  const m2 = store.pushMessage({ role: 'assistant', text: 'x', done: true, webSearch: { status: 'searching', sources: [], results: 0, queries: [] } });
-  ui.rebuildMessages();
-  ok('检索中显示进度而不是一片空白', !!$('#messages .msg[data-id="' + m2.id + '"] .web-note .web-dot'));
-  ok('没有 webSearch 的消息不画来源条', $$('#messages .msg-user .web-note').length === 0);
 }
 
 console.log('\n⑬ 余额显示已删除');

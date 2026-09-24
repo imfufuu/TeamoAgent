@@ -1,0 +1,72 @@
+/* TeamoAgent 代码高亮：浅色 / 深色两套克制配色，跟黑白主界面不抢 */
+.code-block {
+  margin: .7em 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-soft);
+  max-width: 100%;
+}
+.code-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 6px 10px; border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+.code-lang {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--fg-3);
+}
+.code-block pre {
+  margin: 0; padding: 12px 14px;
+  background: transparent; border: none; border-radius: 0;
+  overflow-x: auto; max-width: 100%;
+}
+.code-block pre code { background: none; border: none; padding: 0; font-size: .85em; line-height: 1.6; }
+.copy-code {
+  font-size: 10.5px; color: var(--fg-3);
+  border: 1px solid var(--line); border-radius: 6px; padding: 2px 8px;
+  background: var(--bg); opacity: 1; flex-shrink: 0;
+  transition: all .2s var(--ease);
+}
+.copy-code:hover { color: var(--fg); border-color: var(--fg); }
+
+.hljs { color: var(--fg); background: transparent; }
+.hljs-comment, .hljs-quote { color: #8a8a8a; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-addition { color: #6d28d9; }
+.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: #c2410c; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #0f766e; }
+.hljs-title, .hljs-section, .hljs-attribute, .hljs-built_in, .hljs-name { color: #1d4ed8; }
+.hljs-variable, .hljs-template-variable, .hljs-attr { color: #0369a1; }
+.hljs-type, .hljs-class .hljs-title, .hljs-selector-class, .hljs-selector-id { color: #9f1239; }
+.hljs-meta, .hljs-doctag { color: #57534e; }
+.hljs-tag { color: #9f1239; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 700; }
+
+[data-theme="dark"] .hljs-comment, [data-theme="dark"] .hljs-quote { color: #8a8a8a; }
+[data-theme="dark"] .hljs-keyword, [data-theme="dark"] .hljs-selector-tag { color: #c4b5fd; }
+[data-theme="dark"] .hljs-number, [data-theme="dark"] .hljs-literal { color: #fdba74; }
+[data-theme="dark"] .hljs-string, [data-theme="dark"] .hljs-regexp { color: #5eead4; }
+[data-theme="dark"] .hljs-title, [data-theme="dark"] .hljs-built_in, [data-theme="dark"] .hljs-name { color: #93c5fd; }
+[data-theme="dark"] .hljs-variable, [data-theme="dark"] .hljs-attr { color: #7dd3fc; }
+[data-theme="dark"] .hljs-type, [data-theme="dark"] .hljs-class .hljs-title, [data-theme="dark"] .hljs-tag { color: #fda4af; }
+[data-theme="dark"] .hljs-meta { color: #a3a3a3; }
+
+/* 用户气泡（反色）里的 Markdown */
+.msg-user .bubble.md-body { text-align: left; overflow-x: auto; max-width: min(640px, 100%); }
+.msg-user .bubble.md-body a { color: var(--bg); text-decoration: underline; text-underline-offset: 2px; }
+.msg-user .bubble.md-body code {
+  background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.25); color: var(--bg);
+}
+.msg-user .bubble.md-body .code-block {
+  background: rgba(0,0,0,.18); border-color: rgba(255,255,255,.22);
+}
+.msg-user .bubble.md-body .code-head { background: rgba(0,0,0,.12); border-color: rgba(255,255,255,.18); }
+.msg-user .bubble.md-body .code-lang { color: rgba(255,255,255,.55); }
+.msg-user .bubble.md-body .copy-code { color: var(--bg); border-color: rgba(255,255,255,.35); background: transparent; }
+.msg-user .bubble.md-body .hljs { color: var(--bg); }
+.msg-user .bubble.md-body table th,
+.msg-user .bubble.md-body table td { border-color: rgba(255,255,255,.28); }
+.msg-user .bubble.md-body table th { background: rgba(255,255,255,.1); }
+.msg-user .bubble.md-body ul, .msg-user .bubble.md-body ol { padding-left: 1.3em; }
+.msg-user .bubble.md-body blockquote { border-left-color: rgba(255,255,255,.45); color: rgba(255,255,255,.82); }

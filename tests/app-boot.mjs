@@ -263,119 +263,26 @@ const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ')
 ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
 ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
 
-console.log('\n联网：按模型 API 自带的网页搜索请求格式发请求（当前模型 gpt-5.6-sol）');
+console.log('\n联网：原生网页搜索已下线');
 {
   const pill = $('#web-toggle');
-  ok('顶栏「联网」pill 默认亮着', pill.classList.contains('on') && /联网/.test(pill.textContent));
-  ok('提示语写明当前模型用哪种原生格式', /Responses API/.test(pill.title), pill.title);
-  const greq = reqs.find((r) => r.url.includes('/v1/responses'));
-  ok('GPT 联网改走 POST /v1/responses（官方原生格式所在端点）', !!greq, JSON.stringify(reqs.map((r) => r.url.split('/v1/')[1])));
-  ok('Responses 请求体带 tools:[{type:"web_search"}] + include 来源', !!greq
-    && (greq.body.tools || []).some((t) => t.type === 'web_search')
-    && (greq.body.include || []).includes('web_search_call.action.sources'), JSON.stringify(greq && greq.body.tools));
-  ok('system 落到 instructions、历史落到 input', !!greq && typeof greq.body.instructions === 'string'
-    && greq.body.instructions.length > 10 && Array.isArray(greq.body.input) && greq.body.input.length > 0);
-  const notes = $$('#messages .web-note');
-  ok('模型服务端返回的来源渲染成回答下方的可点链接条', notes.length > 0 && /1 条来源/.test(notes.map((n) => n.textContent).join(' '))
-    && notes.some((n) => [...n.querySelectorAll('a')].some((a) => a.href.includes('pyodide.org'))),
-    `${notes.length} 条 · ${notes.map((n) => n.textContent.trim().slice(0, 60)).join(' | ')}`);
-  // 换 Claude：同一个开关，走的是 Anthropic 的服务器工具格式
-  click($('#model-btn'));
-  click($$('#model-menu .dd-item').find((n) => /claude-sonnet-5/.test(n.textContent)));
-  await tick(60);
-  ok('切到 Claude 后提示语改口成 Anthropic 服务器工具', /web_search_20250305/.test($('#web-toggle').title), $('#web-toggle').title);
-  $('#composer-input').value = '换 Claude 再答一次';
-  click($('#send-btn'));
-  await tick(1400);
-  const creq = [...reqs].reverse().find((r) => r.url.includes('/v1/messages') && r.body.model === 'claude-sonnet-5' && !mainSys(r).includes('起一个标题'));
-  ok('Claude 回合走 /v1/messages 且带原生服务器工具', !!creq && (creq.body.tools || []).some((t) => t.type === 'web_search_20250305'),
-    `${creq ? creq.url : '未发请求'} ${JSON.stringify((creq || {}).body?.tools || [])}`);
-  ok('Claude 的来源条同样渲染', $$('#messages .web-note').some((n) => /服务端检索到 1 条来源/.test(n.textContent)),
-    $$('#messages .web-note').map((n) => n.textContent.trim().slice(0, 60)).join(' | '));
-  // 关掉开关：两种端点都不该再带联网字段
-  click($('#web-toggle'));
+  ok('顶栏仍有「联网」pill', !!pill && /联网/.test(pill.textContent));
+  ok('pill 禁用且不亮', pill.disabled && !pill.classList.contains('on'), pill.title);
+  ok('提示语说明已下线', /原生网页搜索已下线/.test(pill.title), pill.title);
+  ok('全程不走 /v1/responses', !reqs.some((r) => r.url.includes('/v1/responses')), JSON.stringify(reqs.map((r) => r.url.split('/v1/')[1]).slice(0, 8)));
+  ok('请求体不含 web_search 原生字段', reqs.every((r) => !(r.body.tools || []).some((x) => String(x.type || '').startsWith('web_search'))));
+  click(pill);
   await tick(30);
-  ok('关掉后 pill 熄灭', !$('#web-toggle').classList.contains('on'));
-  $('#composer-input').value = '关联网再答一次';
-  click($('#send-btn'));
-  await tick(1400);
-  const off = [...reqs].reverse().find((r) => /关联网再答一次/.test(JSON.stringify(r.body)));
-  ok('关掉后不再带原生联网工具', !!off && !(off.body.tools || []).some((t) => String(t.type).startsWith('web_search')),
-    `${off ? off.url : '未发请求'} ${JSON.stringify((off || {}).body?.tools || [])}`);
-  ok('关掉后这条回答没有来源条', !$$('#messages .msg-assistant').slice(-1).some((n) => /服务端检索到/.test(n.textContent)));
-  // 全程不得碰任何第三方搜索服务或余额接口
-  ok('全程零次第三方搜索 host', !/brave|tavily|serper|duckduckgo|jina|mojeek|searx/i.test(allUrls.join(' ')), allUrls.join(' ').slice(0, 160));
-  const hosts = [...new Set(allUrls.map((u) => { try { return new URL(u).host; } catch { return u.slice(0, 24); } }))];
-  // 允许的相对路径只有本地中继的自检端点（/api/health，本机 server.py），它没有 host
-  ok('只打网关与本地 host：无第三方服务', hosts.every((h) => h.includes('teamorouter') || h === 'localhost' || h === '' || h === '/api/health'), JSON.stringify(hosts));
-  ok('本地中继探测只探 /api/health（不误触 /api/fetch）', allUrls.filter((u) => /\/api\//.test(u)).every((u) => u.endsWith('/api/health')), allUrls.filter((u) => /\/api\//.test(u)).join(' '));
+  ok('点击也不能打开', !pill.classList.contains('on') && store.state.settings.webEnabled === false);
 }
 
 console.log('\n诚实性护栏：正文说「已联网」但没有任何检索事件');
 {
-  $('#composer-input').value = '测试联网声明：随便答一句';
+  $('#composer-input').value = '测试诚实性：已联网查询今天的汇率';
   click($('#send-btn'));
   await tick(1600);
   const last = $$('#messages .msg-assistant').slice(-1)[0];
-  const warn = last.querySelector('.web-note.warn');
-  ok('出现「未见检索事件」提醒条', !!warn && /未见检索事件/.test(warn.textContent), warn ? warn.textContent.slice(0, 60) : '没有提醒条');
-  ok('提醒条里没有假的来源链接', !!warn && warn.querySelectorAll('a').length === 0);
-  ok('同一轮里不会同时出现来源条与提醒条', last.querySelectorAll('.web-note').length === 1);
-  // 对照：真的检索过的那一轮（前面联网分组）不该出现提醒条
-  ok('真正检索过的回答不会被误报', !$$('#messages .web-note.warn').some((n) => /Pyodide|来源/.test(n.textContent)));
-}
-
-console.log('\n诚实性护栏 2：开关开着、模型却回「我上不了网」时给可操作提示');
-{
-  // 上一组把联网关掉了，这里先打开（开关状态本身就决定提示条出不出）
-  if (!$('#web-toggle').classList.contains('on')) { click($('#web-toggle')); await tick(40); }
-  ok('联网开关已打开', $('#web-toggle').classList.contains('on'));
-  $('#composer-input').value = '测试联网拒答：今天的汇率是多少';
-  click($('#send-btn'));
-  await tick(1600);
-  const last = $$('#messages .msg-assistant').slice(-1)[0];
-  const hint = last.querySelector('.web-note.hint');
-  ok('出现「本轮没有发生检索」提示条', !!hint && /没有发生检索/.test(hint.textContent), hint ? hint.textContent.slice(0, 70) : '没有提示条');
-  ok('提示条给出可操作建议（写明先联网检索 / 换模型）', !!hint && /先联网检索再回答/.test(hint.textContent) && /换/.test(hint.textContent));
-  ok('提示条里没有任何链接（不许凭空造来源）', !!hint && hint.querySelectorAll('a').length === 0);
-  ok('这一轮只有一条提示条', last.querySelectorAll('.web-note').length === 1);
-  ok('拒答型回答不会被当成「假称已联网」告警', !last.querySelector('.web-note.warn'));
-  // 对照组：同样的回答，但开关关掉 → 不该出现提示条（没开联网就没什么好提示的）
-  click($('#web-toggle]'.replace(']', ''))); await tick(40);
-  ok('联网已关闭', !$('#web-toggle').classList.contains('on'));
-  $('#composer-input').value = '测试联网拒答：再问一次汇率';
-  click($('#send-btn'));
-  await tick(1600);
-  const last2 = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('开关关掉后不再出现联网提示条', last2.querySelectorAll('.web-note.hint').length === 0,
-    last2.textContent.trim().slice(0, 50));
-}
-
-console.log('\n诚实性护栏 3：提示条上的「重试并联网检索」一键改写重问');
-{
-  if (!$('#web-toggle').classList.contains('on')) { click($('#web-toggle')); await tick(40); }
-  $('#composer-input').value = '测试联网拒答：欧元中间价';
-  click($('#send-btn'));
-  await tick(1600);
-  const before = $$('#messages .msg-assistant').length;
-  const hint = $$('#messages .msg-assistant').slice(-1)[0].querySelector('.web-note.hint');
-  const btn = hint && hint.querySelector('.web-act');
-  ok('提示条提供一键重试按钮', !!btn && /重试/.test(btn.textContent), btn ? btn.textContent.trim() : '没有按钮');
-  ok('按钮是 SVG 图标 + 中文（不用 emoji）', !!btn && !!btn.querySelector('svg') && !/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(btn.textContent));
-  const reqsBefore = reqs.length;
-  click(btn);
-  await tick(1800);
-  const um = [...$$('#messages .msg-user')].slice(-1)[0];
-  ok('重试把提问改写成「先联网检索再回答：…」', /先联网检索再回答/.test(um.textContent) && /欧元中间价/.test(um.textContent), um.textContent.trim().slice(0, 60));
-  ok('拒答那条回答被覆盖，没有并列留下两条', $$('#messages .msg-assistant').length === before, `${before} → ${$$('#messages .msg-assistant').length}`);
-  const retryReq = [...reqs.slice(reqsBefore)].reverse().find((r) => /先联网检索再回答/.test(JSON.stringify(r.body)));
-  ok('重试请求真的带上了改写后的提问', !!retryReq, `${reqs.length - reqsBefore} 个新请求`);
-  ok('重试请求仍带着原生联网工具', !!retryReq && (retryReq.body.tools || []).some((t) => String(t.type).startsWith('web_search')),
-    JSON.stringify((retryReq || {}).body?.tools?.map((t) => t.function?.name || t.name) || []));
-  const after = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('重试后提示条消失、换成真来源条', !after.querySelector('.web-note.hint')
-    && !!after.querySelector('.web-note') && /1 条来源/.test(after.textContent) && after.querySelectorAll('.web-note a').length > 0,
-    after.querySelector('.web-note') ? after.querySelector('.web-note').textContent.trim().slice(0, 60) : '没有来源条');
+  ok('本轮没有来源条', !last.querySelector('a.web-src'));
 }
 
 console.log('\n停止生成：停下就是停下，不留「正在连接…」动画');
