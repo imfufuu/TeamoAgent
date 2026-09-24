@@ -2966,6 +2966,20 @@ test('清空会话要二次 confirm', async () => {
   assert.ok(n >= 4, `confirm 次数 ${n}`);
 });
 
+
+group('2026.09.22.17 用户气泡 Markdown 反色');
+test('用户气泡表格不用 --bg-soft（避免白底白字），代码块相对气泡叠色', async () => {
+  const fsp = await import('node:fs');
+  const hl = fsp.readFileSync(new URL('../assets/hljs/teamo.css', import.meta.url), 'utf8');
+  assert.match(hl, /\.msg-user \.bubble\.md-body tbody tr:nth-child\(even\)/);
+  assert.equal(/\.msg-user[\s\S]{0,400}nth-child\(even\)[\s\S]{0,80}var\(--bg-soft\)/.test(hl), false, '斑马纹不能再用页面底色');
+  assert.match(hl, /color-mix\(in srgb, var\(--bg\)/);
+  assert.match(hl, /\[data-theme="light"\] \.msg-user \.bubble\.md-body \.hljs-keyword/);
+  assert.match(hl, /\[data-theme="dark"\] \.msg-user \.bubble\.md-body \.hljs-keyword/);
+  assert.match(hl, /#c4b5fd/, '浅色主题黑气泡用亮色 token');
+  assert.match(hl, /#6d28d9/, '深色主题浅气泡用深色 token');
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }

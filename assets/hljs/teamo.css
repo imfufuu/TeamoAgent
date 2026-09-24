@@ -52,21 +52,97 @@
 [data-theme="dark"] .hljs-type, [data-theme="dark"] .hljs-class .hljs-title, [data-theme="dark"] .hljs-tag { color: #fda4af; }
 [data-theme="dark"] .hljs-meta { color: #a3a3a3; }
 
-/* 用户气泡（反色）里的 Markdown */
+/* 用户气泡是 background:var(--fg); color:var(--bg) 反色面。
+   表格斑马 / 代码块 / 高亮不能再用页面的 --bg-soft（浅色主题会白底白字，
+   深色主题会浅底浅字；代码块在黑气泡里几乎看不见边界）。
+   一律相对气泡文字色 var(--bg) 做半透明叠层。 */
 .msg-user .bubble.md-body { text-align: left; overflow-x: auto; max-width: min(640px, 100%); }
 .msg-user .bubble.md-body a { color: var(--bg); text-decoration: underline; text-underline-offset: 2px; }
+.msg-user .bubble.md-body hr { border-top-color: color-mix(in srgb, var(--bg) 28%, transparent); }
+.msg-user .bubble.md-body blockquote {
+  border-left-color: color-mix(in srgb, var(--bg) 45%, transparent);
+  color: color-mix(in srgb, var(--bg) 82%, transparent);
+}
+.msg-user .bubble.md-body ul, .msg-user .bubble.md-body ol { padding-left: 1.3em; }
+
 .msg-user .bubble.md-body code {
-  background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.25); color: var(--bg);
+  background: color-mix(in srgb, var(--bg) 14%, transparent);
+  border-color: color-mix(in srgb, var(--bg) 28%, transparent);
+  color: var(--bg);
 }
 .msg-user .bubble.md-body .code-block {
-  background: rgba(0,0,0,.18); border-color: rgba(255,255,255,.22);
+  background: color-mix(in srgb, var(--bg) 12%, var(--fg));
+  border: 1px solid color-mix(in srgb, var(--bg) 32%, transparent);
 }
-.msg-user .bubble.md-body .code-head { background: rgba(0,0,0,.12); border-color: rgba(255,255,255,.18); }
-.msg-user .bubble.md-body .code-lang { color: rgba(255,255,255,.55); }
-.msg-user .bubble.md-body .copy-code { color: var(--bg); border-color: rgba(255,255,255,.35); background: transparent; }
-.msg-user .bubble.md-body .hljs { color: var(--bg); }
+.msg-user .bubble.md-body .code-head {
+  background: color-mix(in srgb, var(--bg) 8%, var(--fg));
+  border-bottom: 1px solid color-mix(in srgb, var(--bg) 24%, transparent);
+}
+.msg-user .bubble.md-body .code-lang { color: color-mix(in srgb, var(--bg) 62%, transparent); }
+.msg-user .bubble.md-body .copy-code {
+  color: var(--bg);
+  border-color: color-mix(in srgb, var(--bg) 38%, transparent);
+  background: color-mix(in srgb, var(--bg) 10%, transparent);
+}
+.msg-user .bubble.md-body .copy-code:hover {
+  color: var(--bg); border-color: var(--bg);
+  background: color-mix(in srgb, var(--bg) 16%, transparent);
+}
+.msg-user .bubble.md-body .code-block pre,
+.msg-user .bubble.md-body pre {
+  background: transparent; border: none; color: var(--bg);
+}
+
+/* 表格：覆盖 styles.css 里 th/even 的 --bg-hover/--bg-soft，字色跟气泡走 */
 .msg-user .bubble.md-body table th,
-.msg-user .bubble.md-body table td { border-color: rgba(255,255,255,.28); }
-.msg-user .bubble.md-body table th { background: rgba(255,255,255,.1); }
-.msg-user .bubble.md-body ul, .msg-user .bubble.md-body ol { padding-left: 1.3em; }
-.msg-user .bubble.md-body blockquote { border-left-color: rgba(255,255,255,.45); color: rgba(255,255,255,.82); }
+.msg-user .bubble.md-body table td {
+  color: var(--bg);
+  border-color: color-mix(in srgb, var(--bg) 28%, transparent);
+  background: transparent;
+}
+.msg-user .bubble.md-body table th {
+  background: color-mix(in srgb, var(--bg) 14%, transparent);
+  font-weight: 700;
+}
+.msg-user .bubble.md-body tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg) 10%, transparent);
+}
+.msg-user .bubble.md-body tbody tr:nth-child(odd) { background: transparent; }
+
+/* 浅色页面 → 黑气泡：用暗色语法色，避免 #0f766e 这类深色 token 糊在黑底上 */
+[data-theme="light"] .msg-user .bubble.md-body .hljs { color: #f4f4f4; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-comment,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-quote { color: #a3a3a3; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-keyword,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-selector-tag { color: #c4b5fd; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-number,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-literal { color: #fdba74; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-string,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-regexp { color: #5eead4; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-title,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-built_in,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-name { color: #93c5fd; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-variable,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-attr { color: #7dd3fc; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-type,
+[data-theme="light"] .msg-user .bubble.md-body .hljs-tag { color: #fda4af; }
+[data-theme="light"] .msg-user .bubble.md-body .hljs-meta { color: #d4d4d4; }
+
+/* 深色页面 → 浅气泡：用亮色语法色（页面暗色 token 会糊在浅底上） */
+[data-theme="dark"] .msg-user .bubble.md-body .hljs { color: #0a0a0a; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-comment,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-quote { color: #737373; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-keyword,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-selector-tag { color: #6d28d9; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-number,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-literal { color: #c2410c; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-string,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-regexp { color: #0f766e; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-title,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-built_in,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-name { color: #1d4ed8; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-variable,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-attr { color: #0369a1; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-type,
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-tag { color: #9f1239; }
+[data-theme="dark"] .msg-user .bubble.md-body .hljs-meta { color: #57534e; }
