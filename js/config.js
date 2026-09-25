@@ -5,6 +5,7 @@
 //   · OpenAI 兼容协议:    POST /v1/chat/completions (Authorization: Bearer)
 //   · 文生图（GPT Image 2 / 2.5）: POST /v1/images/generations (Bearer)，响应 data[].b64_json
 //   · 图片编辑（GPT Image）:       POST /v1/images/edits  (multipart/form-data: image + prompt)
+//   · Nano Banana 2（gemini-3.1-flash-image）: POST /v1beta/models/{model}:generateContent（Gemini 原生，非 Images 端点）
 //   · 图生文（多模态 / vision）: 各协议原生 content 块（见 api.js 构建逻辑）
 //   · 生图模型不作为对话模型直接选择，统一由主智能体通过 generate_image 工具调用
 //   · Jev 决策（TypeSafe）: POST /v1/systemone  model="jev"（见 js/jev.js，不是聊天模型）
@@ -17,7 +18,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.20';
+export const APP_VERSION = '2026.09.22.21';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -80,14 +81,15 @@ export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM
 // 不可作为对话模型直接选择：统一由主智能体通过 generate_image 工具调用，
 // 保留 Agent 的工具循环特性（生成→写沙箱→可继续编辑/下载）。
 export const IMAGE_MODELS = [
+  { id: 'gemini-3.1-flash-image', label: 'Nano Banana 2',          note: 'Gemini 3.1 Flash Image' },
   { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', note: '高质感写实' },
   { id: 'gpt-image-2.5-flare',    label: 'GPT Image 2.5 Flare',    note: '风格化/插画' },
   { id: 'gpt-image-2',            label: 'GPT Image 2',            note: '均衡·默认' },
 ];
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 export const DEFAULT_CHAT_MODEL = 'claude-sonnet-5';
-// 尺寸（宽x高，像素）：最大边 ≤3840、宽高均为 16 的倍数、长宽比 ≤3:1、总像素 655,360–8,294,400
-export const IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536', '2048x2048'];
+// GPT Image：宽x高像素。Nano Banana 另认 16:9 / 1K / 2K 等（见 api.js nanoImageConfig）
+export const IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536', '2048x2048', '16:9', '9:16', '4:3', '3:4', '1K', '2K', '4K'];
 export const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'];
 export const IMAGE_FORMATS = ['png', 'jpeg', 'webp'];
 export const IMAGE_BACKGROUNDS = ['auto', 'transparent', 'opaque'];
@@ -121,6 +123,12 @@ const IMAGE_MODEL_ALIASES = (() => {
     const tail = idKey.split(' ').filter(Boolean).pop();
     if (tail && !/^[\d.]+$/.test(tail)) put(tail, m.id); // sunburst / flare（避免 2 撞车）
   }
+  // Nano Banana 2 口语别名（文档名 / 简称）
+  put('nano banana', 'gemini-3.1-flash-image');
+  put('nano banana 2', 'gemini-3.1-flash-image');
+  put('nanobanana', 'gemini-3.1-flash-image');
+  put('nanobanana2', 'gemini-3.1-flash-image');
+  put('banana', 'gemini-3.1-flash-image');
   return map;
 })();
 
@@ -221,7 +229,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。',
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP（zip_files 写入 archives/ 等路径；unzip_file 解到指定目录）。用户上传的 .zip 会自动解开。',
-    '- generate_image：调用文生图模型生成图片（模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare，走 POST /v1/images/generations）；传 reference_paths 指向沙箱内图片时转为「图片编辑」（POST /v1/images/edits）。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
+    '- generate_image：调用文生图模型生成图片。模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare（POST /v1/images/generations；编辑 POST /v1/images/edits）或 gemini-3.1-flash-image（Nano Banana 2，别名 nano banana / banana；走 Gemini 原生 POST /v1beta/models/gemini-3.1-flash-image:generateContent，不要发到 /v1/images/*）。传 reference_paths 指向沙箱内图片时转为「图片编辑」。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',

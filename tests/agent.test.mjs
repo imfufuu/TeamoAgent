@@ -881,11 +881,11 @@ test('中断：流式中途 abort() → 状态 cancelled、消息标记 cancelle
   } finally { globalThis.fetch = realFetch; }
 });
 
-group('生图模型目录（GPT Image 2 / 2.5 系列）');
+group('生图模型目录（GPT Image 2 / 2.5 系列 · Nano Banana 2）');
 test('生图模型可被识别，且不出现在对话模型兜底列表中', () => {
   const { IMAGE_MODELS, isImageModel, isImageGenModel, FALLBACK_MODELS, DEFAULT_IMAGE_MODEL } = cfg;
   const ids = IMAGE_MODELS.map((m) => m.id);
-  for (const want of ['gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']) {
+  for (const want of ['gemini-3.1-flash-image', 'gpt-image-2', 'gpt-image-2.5-sunburst', 'gpt-image-2.5-flare']) {
     assert.ok(ids.includes(want), `目录应包含 ${want}`);
   }
   for (const id of ids) {
@@ -1017,6 +1017,71 @@ test('未配置 Key / 缺 prompt：不发请求并返回可读错误', async () 
     const noPrompt = await executeTool('generate_image', {}, { fs, apiKey: 'k', onUi: () => {} });
     assert.ok(noPrompt.includes('prompt'), '缺 prompt 应提示参数');
     assert.equal(called, 0, '两种情况都不应发起网络请求');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('Nano Banana 生成：POST /v1beta/models/…:generateContent，遍历 parts 取 inlineData', async () => {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  const b64 = Buffer.from('fake-png-bytes').toString('base64');
+  globalThis.fetch = async (url, opts) => {
+    captured = { url: String(url), headers: opts.headers, body: JSON.parse(opts.body) };
+    return new Response(JSON.stringify({
+      candidates: [{
+        content: {
+          parts: [
+            { text: 'here you go' },
+            { inlineData: { mimeType: 'image/png', data: b64 } },
+          ],
+        },
+      }],
+    }), { status: 200 });
+  };
+  try {
+    const fs = createFS();
+    const events = [];
+    const res = await executeTool('generate_image',
+      { prompt: '一只在键盘上打字的橘猫', size: '16:9', model: 'nano banana' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2', onUi: (p) => events.push(p) });
+    assert.match(captured.url, /\/v1beta\/models\/gemini-3\.1-flash-image:generateContent$/, '应走 Gemini 原生端点');
+    assert.ok(!/\/v1\/images\//.test(captured.url), '禁止落到 OpenAI Images 端点');
+    assert.equal(captured.headers.Authorization, 'Bearer sk-teamo-test');
+    assert.deepEqual(captured.body.generationConfig.responseModalities, ['IMAGE']);
+    assert.equal(captured.body.generationConfig.imageConfig.aspectRatio, '16:9');
+    assert.equal(captured.body.generationConfig.imageConfig.imageSize, '1K');
+    assert.equal(captured.body.contents[0].role, 'user');
+    assert.equal(captured.body.contents[0].parts[0].text, '一只在键盘上打字的橘猫');
+    assert.ok(/outputs\/image-001\.png/.test(res));
+    assert.equal(fs.read('outputs/image-001.png'), `data:image/png;base64,${b64}`);
+    const ok = events.find((e) => e.status === 'ok' && e.image);
+    assert.ok(ok, 'onUi 应回传 ok + 图片');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('Nano Banana 编辑：同端点，parts 含指令 + inlineData（无 data: 前缀）', async () => {
+  const realFetch = globalThis.fetch;
+  let captured = null;
+  const outB64 = Buffer.from('edited-nano-bytes').toString('base64');
+  globalThis.fetch = async (url, opts) => {
+    captured = { url: String(url), headers: opts.headers, body: JSON.parse(opts.body) };
+    return new Response(JSON.stringify({
+      candidates: [{ content: { parts: [{ inline_data: { mime_type: 'image/png', data: outB64 } }] } }],
+    }), { status: 200 });
+  };
+  try {
+    const origin = Buffer.from('origin-png-bytes').toString('base64');
+    const fs = createFS({ 'uploads/cat.png': `data:image/png;base64,${origin}` });
+    const res = await executeTool('generate_image',
+      { prompt: '把背景换成雪山', reference_paths: ['uploads/cat.png'], size: '1024x1024' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gemini-3.1-flash-image', onUi: () => {} });
+    assert.match(captured.url, /\/v1beta\/models\/gemini-3\.1-flash-image:generateContent$/);
+    assert.ok(!(captured.body instanceof FormData), '编辑也是 JSON generateContent，不是 multipart Images');
+    const parts = captured.body.contents[0].parts;
+    assert.equal(parts[0].text, '把背景换成雪山');
+    assert.equal(parts[1].inlineData.mimeType, 'image/png');
+    assert.equal(parts[1].inlineData.data, origin, 'base64 不得带 data: 前缀');
+    assert.ok(!String(parts[1].inlineData.data).startsWith('data:'));
+    assert.equal(captured.body.generationConfig.imageConfig.aspectRatio, '1:1');
+    assert.equal(captured.body.generationConfig.imageConfig.imageSize, '1K');
+    assert.ok(/outputs\/image-001\.png/.test(res));
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -1159,6 +1224,9 @@ test('显示名 / 大小写 / 代号简写都解析为网关真实 ID', () => {
   assert.equal(r('gpt-image-2.5-flare').id, 'gpt-image-2.5-flare', '已经是 ID 时保持不变');
   assert.equal(r('GPT-Image-2').id, 'gpt-image-2');
   assert.equal(r('flare').id, 'gpt-image-2.5-flare', '只给代号也能定位');
+  assert.equal(r('nano banana').id, 'gemini-3.1-flash-image', 'Nano Banana 口语别名');
+  assert.equal(r('Nano Banana 2').id, 'gemini-3.1-flash-image');
+  assert.equal(r('banana').id, 'gemini-3.1-flash-image');
   assert.equal(r('  2.5-SUNBURST  ').id, 'gpt-image-2.5-sunburst', '前后空格与大小写容错');
   assert.equal(r('gpt-image-2.5-flare').corrected, false, '规范输入不算“被纠正”');
   assert.equal(r('2.5 Sunburst').corrected, true, '别名输入要标记为已纠正，便于告知模型');
@@ -1169,8 +1237,11 @@ test('缺省沿用会话选定模型；非法名退回默认而不是把垃圾�
   const bad = cfg.resolveImageModel('最新的图片模型', 'gpt-image-2');
   assert.equal(bad.id, 'gpt-image-2', '中文描述串不应透传');
   assert.equal(bad.unknown, true, '要标记 unknown，工具层据此提示模型改用 ID');
-  const foreign = cfg.resolveImageModel('gemini-3.1-flash-image', 'gpt-image-2');
-  assert.equal(foreign.id, 'gemini-3.1-flash-image', '形状像网关 ID 的透传，便于使用 /v1/models 里的其它生图模型');
+  const cataloged = cfg.resolveImageModel('gemini-3.1-flash-image', 'gpt-image-2');
+  assert.equal(cataloged.id, 'gemini-3.1-flash-image', '目录内 ID 精确命中，不再当透传');
+  assert.equal(cataloged.passthrough, undefined);
+  const foreign = cfg.resolveImageModel('imagen-4.0-generate', 'gpt-image-2');
+  assert.equal(foreign.id, 'imagen-4.0-generate', '形状像网关 ID 的透传，便于使用 /v1/models 里的其它生图模型');
   assert.equal(foreign.passthrough, true);
   assert.equal(cfg.resolveImageModel('2.5', 'nope').id, cfg.DEFAULT_IMAGE_MODEL, '兜底值非法时用默认');
   assert.ok(cfg.IMAGE_MODEL_IDS.every((id) => cfg.isImageGenModel(id)));
@@ -1182,6 +1253,7 @@ test('工具 Schema 用 enum 限定模型 ID，提示词给出可选值', () => 
   assert.ok(/不要传/.test(m.description), '描述里要明确“不要传显示名”');
   const sys = cfg.systemPrompt();
   assert.ok(/gpt-image-2\.5-sunburst/.test(sys), '系统提示词列出真实 ID');
+  assert.ok(/gemini-3\.1-flash-image/.test(sys), '系统提示词列出 Nano Banana 真实 ID');
   assert.ok(/不要传「2.5 Sunburst」/.test(sys), '系统提示词包含反例');
   assert.ok(sys.indexOf('gpt-image-2.5-sunburst') < sys.indexOf('## 规则'), 'ID 说明位于工具清单内');
   assert.notEqual(sys, cfg.systemPrompt.toString(), '断言的是提示词正文而非函数源码（防止自证）');

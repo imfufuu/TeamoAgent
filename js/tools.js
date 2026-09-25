@@ -83,8 +83,9 @@ export const TOOL_DEFS = [
   {
     name: 'generate_image',
     description:
-      '调用文生图模型生成图片（POST /v1/images/generations）。' +
-      '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则自动切换为「图片编辑」模式（POST /v1/images/edits），按 prompt 指令修改原图。' +
+      '调用文生图模型生成图片。GPT Image 走 POST /v1/images/generations；给了 reference_paths 则走 /v1/images/edits。' +
+      'gemini-3.1-flash-image（Nano Banana 2）走 Gemini 原生 generateContent，不要发到 /v1/images/*。' +
+      '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则进入「图片编辑」模式，按 prompt 指令修改原图。' +
       '结果以 data URL 写入沙箱 outputs/ 目录（可下载/打包/继续编辑），并在对话中直接展示。' +
       '生图耗时较长（实测 30–65 秒，超时上限 300 秒）。需要出图时请调用本工具，不要只用文字描述画面。',
     parameters: {

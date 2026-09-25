@@ -775,11 +775,122 @@ function sleepRetry(ms, signal) {
   });
 }
 
+// Nano Banana 2（gemini-3.1-flash-image）：Gemini 原生 generateContent，禁止走 /v1/images/*
+const NANO_ASPECT = new Set(['1:1', '1:4', '1:8', '2:3', '3:2', '3:4', '4:1', '4:3', '4:5', '5:4', '8:1', '9:16', '16:9', '21:9']);
+function isNanoImageModel(id) {
+  const m = String(id || '').toLowerCase();
+  return m === 'gemini-3.1-flash-image' || /nano[-_ ]?banana/.test(m);
+}
+function nanoImageConfig(size, quality) {
+  let aspectRatio = '1:1';
+  let imageSize = '1K';
+  const s = String(size || 'auto').trim();
+  if (s && s !== 'auto') {
+    if (NANO_ASPECT.has(s)) aspectRatio = s;
+    else if (/^512$/i.test(s)) imageSize = '512';
+    else if (/^(1K|2K|4K)$/i.test(s)) imageSize = s.toUpperCase();
+    else if (s === '1024x1024') { aspectRatio = '1:1'; imageSize = '1K'; }
+    else if (s === '2048x2048') { aspectRatio = '1:1'; imageSize = '2K'; }
+    else if (s === '1536x1024') { aspectRatio = '3:2'; imageSize = '1K'; }
+    else if (s === '1024x1536') { aspectRatio = '2:3'; imageSize = '1K'; }
+    else {
+      const dim = s.match(/^(\d+)\s*[x×]\s*(\d+)$/i);
+      if (dim) {
+        const w = Number(dim[1]); const h = Number(dim[2]);
+        const ratio = w / h;
+        let best = '1:1'; let bestD = Infinity;
+        for (const a of NANO_ASPECT) {
+          const [aw, ah] = a.split(':').map(Number);
+          const d = Math.abs(ratio - aw / ah);
+          if (d < bestD) { bestD = d; best = a; }
+        }
+        aspectRatio = best;
+        const edge = Math.max(w, h);
+        imageSize = edge >= 3000 ? '4K' : edge >= 1800 ? '2K' : edge <= 640 ? '512' : '1K';
+      }
+    }
+  } else if (quality === 'low') imageSize = '512';
+  else if (quality === 'high') imageSize = '2K';
+  return { aspectRatio, imageSize };
+}
+function parseGeminiImage(json, format = 'png') {
+  if (json && json.error) {
+    const m = json.error.message || JSON.stringify(json.error);
+    const err = new Error(`Nano Banana 报错：${String(m).slice(0, 300)}`);
+    err.retryable = false;
+    throw err;
+  }
+  const cand = json && Array.isArray(json.candidates) ? json.candidates[0] : null;
+  const parts = (cand && cand.content && Array.isArray(cand.content.parts)) ? cand.content.parts : [];
+  const want = IMAGE_MIME[format] || IMAGE_MIME.png;
+  const images = [];
+  for (const part of parts) {
+    if (!part || typeof part !== 'object') continue;
+    const d = part.inlineData || part.inline_data;
+    if (!d || !d.data) continue;
+    const raw = String(d.data);
+    let mime = d.mimeType || d.mime_type || want;
+    let ext = /jpeg|jpg/i.test(mime) ? 'jpg' : /webp/i.test(mime) ? 'webp' : 'png';
+    let dataUrl = `data:${mime};base64,${raw}`;
+    let width = 0; let height = 0;
+    try {
+      const sniffed = sniffImage(dataUrlToBytes(dataUrl).bytes);
+      if (sniffed.mime) { mime = sniffed.mime; ext = sniffed.ext; dataUrl = `data:${mime};base64,${raw}`; }
+      if (sniffed.width) width = sniffed.width;
+      if (sniffed.height) height = sniffed.height;
+    } catch { /* 非法 base64 时按声明 MIME 落地 */ }
+    images.push({ dataUrl, mime, ext, width, height, revisedPrompt: '' });
+  }
+  if (!images.length) {
+    const reason = cand && (cand.finishReason || cand.finish_reason);
+    const err = new Error(`Nano Banana 未返回图片${reason ? `（finishReason=${reason}）` : ''}`);
+    err.retryable = false;
+    throw err;
+  }
+  return { images, ...images[0], created: 0, usage: json.usageMetadata || json.usage || null };
+}
+async function generateNanoImage({ model, apiKey, prompt, size, quality, images, n, signal, timeoutMs, format, onRetry }) {
+  const { aspectRatio, imageSize } = nanoImageConfig(size, quality);
+  const parts = [{ text: String(prompt || '') }];
+  for (const img of images || []) {
+    if (!img || !img.dataUrl) continue;
+    const { bytes, mime } = dataUrlToBytes(img.dataUrl);
+    const packed = bytesToDataUrl(bytes, mime || 'image/png');
+    const data = packed.slice(packed.indexOf(',') + 1);
+    parts.push({ inlineData: { mimeType: mime || 'image/png', data } });
+  }
+  const body = {
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      responseModalities: ['IMAGE'],
+      imageConfig: { aspectRatio, imageSize },
+    },
+  };
+  const mid = String(model || 'gemini-3.1-flash-image');
+  const path = `/v1beta/models/${encodeURIComponent(mid)}:generateContent`;
+  const count = Number(n);
+  const times = Number.isFinite(count) && count > 1 ? Math.min(4, Math.floor(count)) : 1;
+  const collected = [];
+  let usage = null;
+  for (let i = 0; i < times; i++) {
+    const parsed = await postImageWithRetry(path, { apiKey, body: JSON.stringify(body), signal, timeoutMs, format }, {
+      signal, onRetry, parse: (j) => parseGeminiImage(j, format),
+    });
+    collected.push(...parsed.images);
+    usage = parsed.usage || usage;
+  }
+  if (!collected.length) throw new Error('Nano Banana 未返回图片');
+  return { images: collected, ...collected[0], created: 0, usage };
+}
+
 // 文生图：size 为像素尺寸（16 的倍数、最大边 ≤3840、长宽比 ≤3:1），auto/缺省交给模型
 // n>1 时网关在 data[] 内返回多张，全部落地（不要只取第一张而丢掉其余）
 export async function generateImage({ model, apiKey, prompt, size, quality, background, format = 'png', n, signal, timeoutMs = IMAGE_TIMEOUT_MS, onRetry } = {}) {
+  if (isNanoImageModel(model)) {
+    return generateNanoImage({ model, apiKey, prompt, size, quality, n, signal, timeoutMs, format, onRetry });
+  }
   const body = { model, prompt, output_format: format };
-  if (size && size !== 'auto') body.size = size;
+  if (size && size !== 'auto' && /^\d+x\d+$/i.test(size)) body.size = size;
   if (quality && quality !== 'auto') body.quality = quality;
   if (background && background !== 'auto') body.background = background;
   const count = Number(n);
@@ -792,11 +903,14 @@ export async function generateImage({ model, apiKey, prompt, size, quality, back
 // 图片编辑：images = [{ name?, dataUrl }]（沙箱内图片读出即为 data URL）；mask 可选
 export async function editImage({ model, apiKey, prompt, images = [], mask, size, quality, inputFidelity, format = 'png', n, signal, timeoutMs = IMAGE_TIMEOUT_MS, onRetry } = {}) {
   if (!images.length) throw new Error('图片编辑需要至少一张原图（reference_paths）');
+  if (isNanoImageModel(model)) {
+    return generateNanoImage({ model, apiKey, prompt, size, quality, images, n, signal, timeoutMs, format, onRetry });
+  }
   const fd = new FormData();
   fd.append('model', model);
   fd.append('prompt', String(prompt || ''));
   fd.append('output_format', format);
-  if (size && size !== 'auto') fd.append('size', size);
+  if (size && size !== 'auto' && /^\d+x\d+$/i.test(size)) fd.append('size', size);
   if (quality && quality !== 'auto') fd.append('quality', quality);
   if (inputFidelity && inputFidelity !== 'auto') fd.append('input_fidelity', inputFidelity);
   const count = Number(n);
