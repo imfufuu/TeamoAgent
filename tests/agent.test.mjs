@@ -3005,6 +3005,8 @@ test('createZip → unpackZip 往返文本与防 zip-slip', async () => {
   const evilBuf = new Uint8Array(await evil.arrayBuffer());
   const bad = await un.unpackZip(evilBuf);
   assert.ok(!bad.files.some((f) => f.path.includes('..') || f.path.startsWith('/')), JSON.stringify(bad.files));
+  const src = (await import('node:fs')).readFileSync(new URL('../js/unzip.js', import.meta.url), 'utf8');
+  assert.match(src, /maxFiles = 128/);
 });
 test('zip_files / unzip_file 工具读写沙箱', async () => {
   const fs = createFS();

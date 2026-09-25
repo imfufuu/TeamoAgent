@@ -79,7 +79,7 @@ function sniffEntry(path, bytes) {
 /**
  * @returns {Promise<{ok:boolean, files:{path:string, kind:string, content:string}[], error?:string}>}
  */
-export async function unpackZip(bytes, { maxFiles = 80, maxUncompressed = 24 * 1024 * 1024 } = {}) {
+export async function unpackZip(bytes, { maxFiles = 128, maxUncompressed = 24 * 1024 * 1024 } = {}) {
   const u8 = toU8(bytes);
   if (!isZipBytes(u8)) return { ok: false, files: [], error: '不是 ZIP 文件' };
   const eocd = findEocd(u8);
