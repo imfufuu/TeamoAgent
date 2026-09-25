@@ -83,7 +83,8 @@ export const TOOL_DEFS = [
   {
     name: 'generate_image',
     description:
-      '调用文生图模型生成图片。GPT Image 走 POST /v1/images/generations；给了 reference_paths 则走 /v1/images/edits。' +
+      '调用文生图模型生成图片。不要传 model：一律用用户在模型菜单选定的生图模型（会话 runtime 会写明当前 ID）。' +
+      'GPT Image 走 POST /v1/images/generations；给了 reference_paths 则走 /v1/images/edits。' +
       'gemini-3.1-flash-image（Nano Banana 2）走 Gemini 原生 generateContent，不要发到 /v1/images/*。' +
       '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则进入「图片编辑」模式，按 prompt 指令修改原图。' +
       '结果以 data URL 写入沙箱 outputs/ 目录（可下载/打包/继续编辑），并在对话中直接展示。' +
@@ -101,7 +102,7 @@ export const TOOL_DEFS = [
         model: {
           type: 'string',
           enum: IMAGE_MODEL_IDS,
-          description: `可选：本次使用的生图模型 ID，只能是 ${IMAGE_MODEL_IDS.join(' / ')} 之一（只传 ID，不要传「2.5 Sunburst」这类显示名）；缺省沿用用户在模型菜单选定的生图模型（默认 ${DEFAULT_IMAGE_MODEL}）`,
+          description: `不要传。生图模型由用户在菜单选定（runtime 里的「生图模型」）。若仍传入，会被忽略并改用会话选定值。可选 ID 仅供识别：${IMAGE_MODEL_IDS.join(' / ')}（不要传「2.5 Sunburst」这类显示名）`,
         },
       },
       required: ['prompt'],
@@ -339,10 +340,10 @@ export async function executeTool(name, args, ctx) {
         }
         const prompt = String(args.prompt || '').trim();
         if (!prompt) return 'generate_image 缺少 prompt 参数。';
-        // 模型名归一：对话模型常把显示名（"2.5 Sunburst"）当 ID 传入，网关会直接 400
-        const wantModel = String(args.model || ctx.imageModel || DEFAULT_IMAGE_MODEL);
-        const picked = resolveImageModel(wantModel, ctx.imageModel || DEFAULT_IMAGE_MODEL);
-        const model = picked.id;
+        // 会话菜单选定的生图模型优先：对话模型常在 args.model 里填 gpt-image-2，
+        // 会把用户刚选的 Nano Banana 盖掉。args.model 只作纠错提示，不覆盖菜单。
+        const session = resolveImageModel(ctx.imageModel || DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_MODEL);
+        const model = session.id;
         const format = IMAGE_FORMATS.includes(args.output_format) ? args.output_format : 'png';
         const size = IMAGE_SIZES.includes(args.size) ? args.size : 'auto';
         const quality = IMAGE_QUALITIES.includes(args.quality) ? args.quality : 'auto';
@@ -358,9 +359,10 @@ export async function executeTool(name, args, ctx) {
           emit({ status: 'error', error: { message: msg } });
           return `图像调用在发起前失败：${msg}`;
         }
-        const note = picked.unknown
-          ? `注意：模型名「${picked.input}」不是合法的生图模型 ID，已改用会话选定的 ${model}。下次请直接传 ${IMAGE_MODEL_IDS.join(' / ')} 之一。`
-          : (picked.corrected && picked.input ? `已把模型名「${picked.input}」解析为 ${model}。` : '');
+        const argModel = args.model != null && String(args.model).trim() ? resolveImageModel(String(args.model), model) : null;
+        const note = argModel && argModel.id !== model
+          ? `已使用会话选定的生图模型 ${model}（忽略工具参数里的「${argModel.input}」）。下次不要传 model。`
+          : (argModel && argModel.corrected && argModel.input ? `已把模型名「${argModel.input}」解析为 ${model}。` : '');
         const onRetry = (_err, attempt) => emit({ status: 'running', note: `图像接口抖动，第 ${attempt} 次重试中…` });
         try {
           let out;
@@ -417,8 +419,7 @@ export async function executeTool(name, args, ctx) {
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });
-          const hint = picked.unknown ? `（模型名「${picked.input}」无法识别）` : '';
-          return `图像模型调用失败（${model}）${hint}：${err.message}${note ? `\n${note}` : ''}`;
+          return `图像模型调用失败（${model}）：${err.message}${note ? `\n${note}` : ''}`;
         }
       }
       case 'analyze_image': {

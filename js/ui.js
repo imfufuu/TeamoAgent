@@ -983,7 +983,10 @@ export function mountUI(store, agent) {
           chip.dataset.callId = t.id;
           // 图标用 SVG（线性扳手），未完成时缓慢转动、完成后停下（.done 由 attachToolResult 打上）
           chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
-          chip.addEventListener('click', () => chip.classList.toggle('expanded'));
+          chip.addEventListener('click', (e) => {
+            if (e.target.closest('.chip-copy')) return; // 入参/出参只复制，不展开详情
+            chip.classList.toggle('expanded');
+          });
           const detail = el('div', 'chip-detail mono');
           chip.appendChild(detail);
           chip._detail = detail;
@@ -1131,16 +1134,22 @@ export function mountUI(store, agent) {
   function attachToolResult(toolMsg) {
     const chip = $(`.chip[data-call-id="${CSS.escape(toolMsg.toolCallId)}"]`, msgList);
     if (!chip) return;
-    const ok = !toolMsg.content.startsWith('工具执行失败') && !/── 错误 ──|不是合法 JSON/.test(toolMsg.content);
-    const dm = /执行耗时 (\d+)ms/.exec(String(toolMsg.content || ''));
+    const body = String(toolMsg.content || '');
+    const ok = !body.startsWith('工具执行失败')
+      && !body.startsWith('图像模型调用失败')
+      && !body.startsWith('图像调用在发起前失败')
+      && !/── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(body);
+    const dm = /执行耗时 (\d+)ms/.exec(body);
     const dur = dm ? fmtSpan(Number(dm[1])) : '';
-    const errTxt = String(toolMsg.content || '').slice(0, 400);
+    const errTxt = body.slice(0, 400);
     $('.chip-state', chip).innerHTML = ok
-      ? `✓${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
-      : `<span class="chip-fail" title="${esc(errTxt)}"></span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+      ? `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
+      : `<span class="chip-fail" title="${esc(errTxt)}">✗</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
     $('.chip-state', chip).classList.toggle('bad', !ok);
     $('.chip-state', chip).title = ok ? '' : errTxt;
     chip.classList.add('done');        // 图标停止转动（含刷新页面后重建的芯片）
+    chip.classList.toggle('ok', ok);
+    chip.classList.toggle('fail', !ok);
     chip.classList.remove('running');
     chip._out = String(toolMsg.content || '');
     chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(String(toolMsg.content).slice(0, 3000))}</pre>`;
@@ -1742,14 +1751,19 @@ export function mountUI(store, agent) {
         state.classList.remove('bad');
       } else if (patch.status === 'error') {
         chip.classList.remove('running');
+        chip.classList.add('fail');
+        chip.classList.remove('ok');
         const errTxt = String((patch.error && patch.error.message) || patch.note || '工具失败').slice(0, 400);
-        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}"></span>`;
+        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗</span>`;
         state.title = errTxt;
         state.classList.add('bad');
       } else if (patch.status === 'ok') {
         chip.classList.remove('running');
+        chip.classList.add('ok');
+        chip.classList.remove('fail');
         const dur = patch.durationMs != null ? fmtSpan(patch.durationMs) : '';
-        state.innerHTML = `${patch.note || '✓'}${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+        state.innerHTML = `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+        state.title = patch.note || '';
         state.classList.remove('bad');
       }
       if (patch.image) {

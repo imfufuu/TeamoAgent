@@ -211,6 +211,7 @@ export function createAgent(store, hooks = {}) {
       runtime: formatRuntime({
         now: new Date(),
         model,
+        imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
         filesNote: fsNote(),
         webNote: webOn ? WEB_ON_NOTE : WEB_OFF_NOTE,
         relayNote: relayOk ? '' : RELAY_OFF_NOTE,

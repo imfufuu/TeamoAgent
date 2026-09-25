@@ -18,7 +18,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.21';
+export const APP_VERSION = '2026.09.22.22';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -229,7 +229,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。',
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP（zip_files 写入 archives/ 等路径；unzip_file 解到指定目录）。用户上传的 .zip 会自动解开。',
-    '- generate_image：调用文生图模型生成图片。模型 ID：gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare（POST /v1/images/generations；编辑 POST /v1/images/edits）或 gemini-3.1-flash-image（Nano Banana 2，别名 nano banana / banana；走 Gemini 原生 POST /v1beta/models/gemini-3.1-flash-image:generateContent，不要发到 /v1/images/*）。传 reference_paths 指向沙箱内图片时转为「图片编辑」。model 参数只能是上述 ID 原文（不要传「2.5 Sunburst」这类显示名）。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
+    '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',

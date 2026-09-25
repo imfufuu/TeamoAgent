@@ -1040,8 +1040,8 @@ test('Nano Banana 生成：POST /v1beta/models/…:generateContent，遍历 part
     const fs = createFS();
     const events = [];
     const res = await executeTool('generate_image',
-      { prompt: '一只在键盘上打字的橘猫', size: '16:9', model: 'nano banana' },
-      { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2', onUi: (p) => events.push(p) });
+      { prompt: '一只在键盘上打字的橘猫', size: '16:9', model: 'gpt-image-2' },
+      { fs, apiKey: 'sk-teamo-test', imageModel: 'gemini-3.1-flash-image', onUi: (p) => events.push(p) });
     assert.match(captured.url, /\/v1beta\/models\/gemini-3\.1-flash-image:generateContent$/, '应走 Gemini 原生端点');
     assert.ok(!/\/v1\/images\//.test(captured.url), '禁止落到 OpenAI Images 端点');
     assert.equal(captured.headers.Authorization, 'Bearer sk-teamo-test');
@@ -1054,6 +1054,7 @@ test('Nano Banana 生成：POST /v1beta/models/…:generateContent，遍历 part
     assert.equal(fs.read('outputs/image-001.png'), `data:image/png;base64,${b64}`);
     const ok = events.find((e) => e.status === 'ok' && e.image);
     assert.ok(ok, 'onUi 应回传 ok + 图片');
+    assert.match(res, /忽略工具参数/, '菜单选定优先于工具参数里的 GPT');
   } finally { globalThis.fetch = realFetch; }
 });
 test('Nano Banana 编辑：同端点，parts 含指令 + inlineData（无 data: 前缀）', async () => {
@@ -1254,7 +1255,7 @@ test('工具 Schema 用 enum 限定模型 ID，提示词给出可选值', () => 
   const sys = cfg.systemPrompt();
   assert.ok(/gpt-image-2\.5-sunburst/.test(sys), '系统提示词列出真实 ID');
   assert.ok(/gemini-3\.1-flash-image/.test(sys), '系统提示词列出 Nano Banana 真实 ID');
-  assert.ok(/不要传「2.5 Sunburst」/.test(sys), '系统提示词包含反例');
+  assert.ok(/不要传 model/.test(sys), '系统提示词禁止用工具参数覆盖菜单选定');
   assert.ok(sys.indexOf('gpt-image-2.5-sunburst') < sys.indexOf('## 规则'), 'ID 说明位于工具清单内');
   assert.notEqual(sys, cfg.systemPrompt.toString(), '断言的是提示词正文而非函数源码（防止自证）');
 });
@@ -1356,7 +1357,7 @@ test('空 data 触发重试（网关偶发吞掉上游结果）', async () => {
 });
 
 group('generate_image 端到端（真实代码路径 + 桩网关）');
-test('model 传显示名时被纠正，且请求体里是真实 ID', async () => {
+test('会话选定的生图模型优先于工具参数 model', async () => {
   const realFetch = globalThis.fetch;
   let sent = null;
   const b64 = Buffer.from('cube').toString('base64');
@@ -1369,8 +1370,8 @@ test('model 传显示名时被纠正，且请求体里是真实 ID', async () =>
     const res = await executeTool('generate_image',
       { prompt: 'a red cube', model: '2.5 Sunburst' },
       { fs, apiKey: 'sk-teamo-test', imageModel: 'gpt-image-2' });
-    assert.equal(sent.model, 'gpt-image-2.5-sunburst', '不再把 "2.5 Sunburst" 发给网关（实测会 400）');
-    assert.match(res, /已把模型名「2.5 Sunburst」解析为 gpt-image-2.5-sunburst/, '文案里说明纠正，便于模型学习');
+    assert.equal(sent.model, 'gpt-image-2', '菜单选定覆盖工具参数里的显示名/其它 ID');
+    assert.match(res, /忽略工具参数/, '文案里说明忽略，便于模型下次不要传 model');
   } finally { globalThis.fetch = realFetch; }
 });
 test('n>1 时多张图全部写入沙箱', async () => {
@@ -3013,12 +3014,16 @@ test('命令面板过滤与 token 构成', async () => {
   assert.equal(cmd.shortSuggest('短'), '短');
   assert.ok(cmd.shortSuggest('用沙箱计算：前 100 个斐波那契数中有多少个质数？').endsWith('…'));
 });
-test('失败态用红点而不是 ×；清空是危险色；占用条上限 120MB', async () => {
+test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空是危险色；占用条上限 120MB', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(ui, /chip-ok/);
   assert.match(ui, /chip-fail/);
+  assert.match(ui, /✗/);
+  assert.match(css, /\.chip-ok/);
+  assert.match(ui, /closest\('\.chip-copy'\)/);
   assert.equal(ui.includes("state.textContent = patch.note || '✕'"), false);
   assert.match(html, /id="clear-sessions"[^>]*class="mini-btn danger"/);
   assert.match(html, /id="clear-files"[^>]*class="mini-btn danger"/);

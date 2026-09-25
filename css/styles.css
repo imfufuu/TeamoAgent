@@ -916,13 +916,16 @@ a { color: var(--fg); }
 .quota-bar.hot > i { background: #b42318; }
 .quota-bar.warn > i { background: #c2410c; }
 
-/* 工具失败：红点，hover 看原文（不用 ×，避免和「关闭」撞车） */
+/* 工具结果：成功绿 ✓ / 失败红 ✗（hover 看出参摘要） */
+.chip-ok { color: #16a34a; font-weight: 700; font-family: var(--font); }
 .chip-fail {
-  width: 8px; height: 8px; border-radius: 50%; background: #dc2626;
-  display: inline-block; flex-shrink: 0; box-shadow: 0 0 0 2px rgba(220, 38, 38, .18);
+  color: #dc2626; font-weight: 700; font-family: var(--font);
+  width: auto; height: auto; border-radius: 0; background: none; box-shadow: none;
+  display: inline; flex-shrink: 0;
 }
-.chip-state.bad { font-weight: 500; color: #b42318; display: inline-flex; align-items: center; gap: 6px; }
-[data-theme="dark"] .chip-fail { background: #f87171; }
+.chip-state.bad { font-weight: 500; color: #dc2626; display: inline-flex; align-items: center; gap: 6px; }
+[data-theme="dark"] .chip-ok { color: #4ade80; }
+[data-theme="dark"] .chip-fail { color: #f87171; background: none; }
 [data-theme="dark"] .chip-state.bad { color: #f87171; }
 .chip-json { display: none; align-items: center; gap: 4px; margin-left: 4px; }
 .chip.done .chip-json { display: inline-flex; }

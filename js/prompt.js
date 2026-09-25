@@ -25,10 +25,11 @@ export function assembleSystemLayers({
   return { messages, stable, context, volatile, cached, ephemeral: eph };
 }
 
-export function formatRuntime({ now, model, filesNote, webNote, relayNote } = {}) {
+export function formatRuntime({ now, model, imageModel, filesNote, webNote, relayNote } = {}) {
   const lines = ['# TeamoAgent runtime'];
   if (now) lines.push(`当前时间：${now instanceof Date ? now.toISOString() : String(now)}`);
   if (model) lines.push(`Session model: ${model}`);
+  if (imageModel) lines.push(`生图模型：${imageModel}（generate_image 必须用这个 ID，不要传 model 参数）`);
   const extra = join([filesNote, webNote, relayNote]);
   return extra ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n');
 }
