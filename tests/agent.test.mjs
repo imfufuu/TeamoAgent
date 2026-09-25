@@ -2760,13 +2760,16 @@ test('fmtMB / filesCountLabel：一位小数 MB，空沙箱仍显示 0.0MB/120.0
   const q = await s.resolveStorageQuota(s.SANDBOX_STORAGE_CAP);
   assert.ok(q > 0);
 });
-test('index.html 附件 accept 含 PDF；提示词说明本地提取', async () => {
+test('index.html 附件 accept 含 PDF 与 ZIP；提示词说明转图片再识别', async () => {
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.ok(html.includes('application/pdf') && html.includes('.pdf,'), 'attach-input accept 应含 PDF');
+  assert.ok(html.includes('application/pdf') && html.includes('.pdf'), 'attach-input accept 应含 PDF');
+  assert.ok(html.includes('application/zip') && html.includes('.zip'), 'accept 应含 ZIP');
   const sys = cfg.systemPrompt();
-  assert.match(sys, /PDF/);
-  assert.match(sys, /\.pdf\.txt/);
+  assert.match(sys, /analyze_image/);
+  assert.match(sys, /逐页渲染成 JPEG|转成图片|页图/);
+  assert.match(sys, /zip_files/);
+  assert.equal(/\.pdf\.txt/.test(sys), false);
 });
 test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAMOAGENT', async () => {
   const fsp = await import('node:fs');
@@ -2981,6 +2984,43 @@ test('用户气泡表格不用 --bg-soft（避免白底白字），代码块相�
   assert.match(hl, /\.msg-user \.bubble\.md-body \.code-block \{\s*background:\s*transparent/);
   assert.match(hl, /\.msg-user \.bubble\.md-body pre code/);
   assert.match(hl, /:not\(pre\) > code/);
+});
+
+
+group('ZIP 解压与压缩工具');
+test('createZip → unpackZip 往返文本与防 zip-slip', async () => {
+  const zip = await import('../js/zip.js');
+  const un = await import('../js/unzip.js');
+  const hello = new TextEncoder().encode('hello zip');
+  const blob = zip.createZip([{ name: 'dir/a.txt', bytes: hello }]);
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  assert.equal(un.isZipBytes(buf), true);
+  const got = await un.unpackZip(buf);
+  assert.equal(got.ok, true, got.error);
+  assert.equal(got.files.length, 1);
+  assert.equal(got.files[0].path, 'dir/a.txt');
+  assert.equal(got.files[0].kind, 'text');
+  assert.equal(got.files[0].content, 'hello zip');
+  const evil = zip.createZip([{ name: '../etc/passwd', bytes: hello }]);
+  const evilBuf = new Uint8Array(await evil.arrayBuffer());
+  const bad = await un.unpackZip(evilBuf);
+  assert.ok(!bad.files.some((f) => f.path.includes('..') || f.path.startsWith('/')), JSON.stringify(bad.files));
+});
+test('zip_files / unzip_file 工具读写沙箱', async () => {
+  const fs = createFS();
+  fs.write('notes.md', '# hi');
+  const packed = await executeTool('zip_files', { paths: ['notes.md'], out: 'archives/n.zip' }, { fs, onUi: () => {} });
+  assert.match(packed, /archives\/n\.zip/);
+  assert.ok(fs.read('archives/n.zip').startsWith('data:application/zip;base64,'));
+  const out = await executeTool('unzip_file', { path: 'archives/n.zip', dest: 'out' }, { fs, onUi: () => {} });
+  assert.match(out, /out\//);
+  assert.equal(fs.read('out/notes.md'), '# hi');
+});
+test('pdfToImages 在无 Canvas 环境给出可读失败', async () => {
+  const { pdfToImages } = await import('../js/pdfpages.js');
+  const got = await pdfToImages(new Uint8Array([1, 2, 3]));
+  assert.equal(got.ok, false);
+  assert.match(got.error, /不是 PDF|Canvas|渲染/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

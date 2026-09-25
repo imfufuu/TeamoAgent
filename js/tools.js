@@ -5,6 +5,8 @@ import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
 import { fetchPage, gitRun } from './net.js';
+import { createZip, fileBytesFromValue } from './zip.js';
+import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 
 export const TOOL_DEFS = [
   {
@@ -116,6 +118,29 @@ export const TOOL_DEFS = [
         path: { type: 'string', description: '沙箱图片路径，如 uploads/photo.png 或 outputs/image-001.png' },
         prompt: { type: 'string', description: '分析要求，如「读出图中全部文字」或「描述这张架构图」；缺省为全面描述' },
       },
+    },
+  },
+  {
+    name: 'zip_files',
+    description: '把沙箱文件打成 ZIP 写入虚拟文件系统（STORE 容器，图片保持原字节）。paths 省略则打包全部文件。用户要压缩/打包时用这个，不要只口述。',
+    parameters: {
+      type: 'object',
+      properties: {
+        paths: { type: 'array', items: { type: 'string' }, description: '要打包的沙箱路径；省略=全部' },
+        out: { type: 'string', description: '输出路径，默认 archives/bundle.zip' },
+      },
+    },
+  },
+  {
+    name: 'unzip_file',
+    description: '解压沙箱中的 ZIP 到目标目录（支持 STORE 与 DEFLATE）。用户上传的 .zip 也会自动解到 uploads/。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'ZIP 路径，如 uploads/src.zip 或 archives/bundle.zip' },
+        dest: { type: 'string', description: '解压目录，默认 extracted/' },
+      },
+      required: ['path'],
     },
   },
   {
@@ -427,6 +452,52 @@ export async function executeTool(name, args, ctx) {
           return `analyze_image 失败：${err.message}`;
         }
       }
+      case 'zip_files': {
+        const listed = fs.list().map((f) => f.path);
+        const paths = Array.isArray(args.paths) && args.paths.length
+          ? args.paths.map((p) => normalizeFsPath(p)).filter(Boolean)
+          : listed;
+        if (!paths.length) return 'zip_files：沙箱里没有文件可打包。';
+        const entries = [];
+        const missing = [];
+        for (const p of paths) {
+          try {
+            const { bytes } = fileBytesFromValue(fs.read(p));
+            entries.push({ name: p, bytes });
+          } catch { missing.push(p); }
+        }
+        if (!entries.length) return `zip_files 失败：找不到 ${missing.join('、') || '指定文件'}`;
+        const blob = createZip(entries);
+        const buf = new Uint8Array(await blob.arrayBuffer());
+        const out = normalizeFsPath(args.out) || 'archives/bundle.zip';
+        fs.write(out, `data:application/zip;base64,${u8ToB64(buf)}`);
+        emit({ status: 'ok', fsChange: true, editedPath: out, note: `已打包 ${entries.length} → ${out}` });
+        const miss = missing.length ? `\n未找到：${missing.join('、')}` : '';
+        return `已写入 ${out}（${entries.length} 个文件，${buf.length} 字节）${miss}`;
+      }
+      case 'unzip_file': {
+        const path = normalizeFsPath(args.path);
+        if (!path) return 'unzip_file 缺少 path。';
+        let raw;
+        try { raw = fs.read(path); } catch { return `unzip_file 失败：找不到 ${path}`; }
+        const destRoot = normalizeFsPath(args.dest) || 'extracted';
+        const got = typeof raw === 'string' && raw.startsWith('data:')
+          ? await unpackZipFromDataUrl(raw)
+          : await unpackZip(typeof raw === 'string' ? new TextEncoder().encode(raw) : raw);
+        if (!got.ok) {
+          emit({ status: 'error', error: { message: got.error } });
+          return `unzip_file 失败：${got.error}`;
+        }
+        const written = [];
+        for (const f of got.files) {
+          const dest = normalizeFsPath(`${destRoot}/${f.path}`);
+          if (!dest) continue;
+          fs.write(dest, f.content);
+          written.push(dest);
+        }
+        emit({ status: 'ok', fsChange: true, note: `解压 ${written.length} 个文件 → ${destRoot}/` });
+        return `已解压 ${path} → ${destRoot}/（${written.length} 个文件）\n${written.slice(0, 40).join('\n')}${written.length > 40 ? '\n…' : ''}`;
+      }
       default:
         return `未知工具: ${name}`;
     }
@@ -451,4 +522,11 @@ function formatExecResult(lang, out) {
   if (!parts.length) parts.push('（执行完成，无输出）');
   parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
   return `[${lang} 沙箱]\n${parts.join('\n')}`;
+}
+
+function u8ToB64(u8) {
+  const chunk = 0x8000;
+  let s = '';
+  for (let i = 0; i < u8.length; i += chunk) s += String.fromCharCode(...u8.subarray(i, i + chunk));
+  return btoa(s);
 }

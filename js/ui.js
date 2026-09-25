@@ -15,7 +15,8 @@ import { claimsWebSearch, webRefusal } from './websearch.js';
 import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
 import { SANDBOX_STORAGE_CAP, filesCountLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
-import { extractPdfText, formatExtractedPdf, pdfTextName } from './pdf.js';
+import { pdfToImages } from './pdfpages.js';
+import { unpackZip } from './unzip.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -1323,7 +1324,8 @@ export function mountUI(store, agent) {
   const IMG_RE = /^image\/(png|jpeg|jpg|gif|webp)$/;
   const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|py|json|jsonl|csv|tsv|log|html?|css|scss|xml|ya?ml|sh|bash|zsh|sql|ini|toml|env|conf|cfg|c|h|cpp|hpp|java|go|rs|rb|php|swift|kt|vue|svelte)$/i;
   const PDF_RE = /\.pdf$/i;
-  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 8 * 1024 * 1024, MAX_FILES = 6;
+  const ZIP_RE = /\.zip$/i;
+  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 12 * 1024 * 1024, MAX_ZIP = 12 * 1024 * 1024, MAX_FILES = 8;
   let pending = [];
   const attachChips = $('#attach-chips');
   const fileInput = $('#attach-input');
@@ -1345,27 +1347,59 @@ export function mountUI(store, agent) {
           if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: f.type, size: f.size, dataUrl: await readAs('dataURL', f) });
         } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
-          if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 8MB`, 'err'); continue; }
+          if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
+          toast(`${f.name}：正在把每一页转成图片…`, 'ok', 2400);
           const buf = await f.arrayBuffer();
-          const got = await extractPdfText(buf);
-          const text = formatExtractedPdf(f.name, got);
+          const got = await pdfToImages(buf, { name: f.name });
+          if (!got.ok || !got.images.length) {
+            toast(`${f.name}：${got.error || '无法渲染 PDF'}`, 'err', 6000);
+            continue;
+          }
+          for (const img of got.images) {
+            pending.push({
+              id: Math.random().toString(36).slice(2),
+              kind: 'image',
+              name: img.name,
+              mime: 'image/jpeg',
+              size: Math.round((img.dataUrl.length * 3) / 4),
+              dataUrl: img.dataUrl,
+              source: 'pdf',
+              originalName: `${f.name} · 第 ${img.page} 页`,
+            });
+          }
+          const more = got.truncated ? `（共 ${got.pages} 页，已渲染前 ${got.images.length} 页）` : `（${got.images.length} 页）`;
+          toast(`${f.name}：已转成图片${more}，发送后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
+        } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
+          if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
+          const buf = await f.arrayBuffer();
+          const got = await unpackZip(buf);
+          if (!got.ok) { toast(`${f.name}：${got.error}`, 'err', 5200); continue; }
+          const stem = String(f.name || 'archive').replace(/\.zip$/i, '').replace(/[\\/:*?"<>|]+/g, '_') || 'archive';
+          const dest = `uploads/${stem}`;
+          const written = [];
+          for (const ent of got.files) {
+            const path = `${dest}/${ent.path}`;
+            try { agent.fs.write(path, ent.content); written.push(path); } catch { /* */ }
+          }
+          try { store.state.files = agent.fs.export(); store.notify(); renderFiles(); } catch { /* */ }
+          const listing = written.slice(0, 40).map((p) => `- ${p}`).join('\n');
+          const note = `已解压 ZIP「${f.name}」到 ${dest}/（${written.length} 个文件）。\n${listing}${written.length > 40 ? '\n…' : ''}\n文本用 read_file，图片用 analyze_image。`;
           pending.push({
             id: Math.random().toString(36).slice(2),
             kind: 'text',
-            name: pdfTextName(f.name),
+            name: `${stem}.zip.txt`,
             mime: 'text/plain',
-            size: text.length,
-            text,
-            source: 'pdf',
+            size: note.length,
+            text: note,
+            source: 'zip',
             originalName: f.name,
           });
-          if (!got.ok) toast(`${f.name}：${got.error}`, 'warn', 5200);
-          else toast(`${f.name}：已提取文字${got.pages ? `（约 ${got.pages} 页）` : ''}，将写入沙箱 uploads/`, 'ok', 3200);
+          toast(`${f.name}：已解压 ${written.length} 个文件到 ${dest}/`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
         } else {
-          toast(`不支持的文件类型：${f.name}（支持图片、PDF 与文本/代码文件）`, 'err');
+          toast(`不支持的文件类型：${f.name}（支持图片、PDF、ZIP 与文本/代码文件）`, 'err');
         }
       } catch (err) { toast(err.message, 'err'); }
     }
