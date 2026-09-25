@@ -7,6 +7,7 @@ import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE
 import { fetchPage, gitRun } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
+import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 
 export const TOOL_DEFS = [
   {
@@ -78,6 +79,67 @@ export const TOOL_DEFS = [
     parameters: {
       type: 'object',
       properties: { timezone: { type: 'string', description: 'IANA 时区名，如 Asia/Tokyo，缺省为 Asia/Shanghai' } },
+    },
+  },
+  {
+    name: 'regex',
+    description:
+      '在本地用 JavaScript 正则处理文本（无需沙箱）。action=match 列出全部匹配与捕获组/命名组及偏移；test 只判断是否匹配；replace 替换（支持 $1 $& $<name>）；split 分割；explain 解释 pattern。' +
+      'flags 为 JS 正则标志（gimsuvyd）。Unicode 属性如 \\p{L}、\\p{Script=Han} 需带 u 或 v。text 或 path（沙箱文件）二选一。写正则、抽字段、改文本时用本工具，不要口算。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['match', 'test', 'replace', 'split', 'explain'], description: '默认 match' },
+        pattern: { type: 'string', description: '正则源码，不要写成 /foo/g 这种字面量，flags 单独传' },
+        flags: { type: 'string', description: 'g i m s u v y d 的组合，可空' },
+        text: { type: 'string', description: '待处理文本' },
+        path: { type: 'string', description: '可选：从沙箱读取文本，代替 text' },
+        replacement: { type: 'string', description: 'replace 时的替换串' },
+        limit: { type: 'integer', description: '最多返回多少处匹配，默认 250' },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
+    name: 'hash',
+    description: '计算哈希/校验和（本地，无需沙箱）：md5 / sha1 / sha256 / sha384 / sha512 / crc32。text 或 path（沙箱文件；图片 data URL 按原字节）。安全场景用 sha256。',
+    parameters: {
+      type: 'object',
+      properties: {
+        algorithm: { type: 'string', enum: ['md5', 'sha1', 'sha256', 'sha384', 'sha512', 'crc32'], description: '默认 sha256' },
+        text: { type: 'string', description: '要哈希的文本（UTF-8）' },
+        path: { type: 'string', description: '可选：哈希沙箱文件字节' },
+      },
+    },
+  },
+  {
+    name: 'codec',
+    description:
+      '本地编解码：base64 / base64url / hex / url（percent-encoding）/ html 实体；action=encode 或 decode。' +
+      'action=uuid 生成 UUID v4。format=jwt 且 decode 时拆 JWT header/payload（不校验签名）。不要为这些小事去开沙箱。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['encode', 'decode', 'uuid'], description: '默认 encode' },
+        format: { type: 'string', enum: ['base64', 'base64url', 'hex', 'url', 'html', 'jwt'], description: '默认 base64；uuid 动作可省略' },
+        text: { type: 'string', description: '输入文本' },
+        path: { type: 'string', description: '可选：从沙箱读入' },
+      },
+    },
+  },
+  {
+    name: 'unicode',
+    description:
+      '查询/转换 Unicode：inspect 逐码位给出 U+XXXX、UTF-8、General_Category、Script、区块提示；from_codes 把 U+XXXX / 0xNN / 十进制码位拼成字符串；normalize（NFC/NFD/NFKC/NFKD）；escape / unescape（\\u / \\u{…}）。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['inspect', 'from_codes', 'normalize', 'escape', 'unescape'], description: '默认 inspect' },
+        text: { type: 'string', description: '待分析或转换的文本；from_codes 也可把码位写在这里' },
+        path: { type: 'string', description: '可选：从沙箱读入' },
+        form: { type: 'string', enum: ['NFC', 'NFD', 'NFKC', 'NFKD'], description: 'normalize 时的正规化形式，默认 NFC' },
+        codes: { type: 'string', description: 'from_codes 的码位串，如 U+4F60 0x41 128512' },
+      },
     },
   },
   {
@@ -215,6 +277,16 @@ export function normalizeFsPath(p) {
   return parts.join('/');
 }
 
+function readToolText(args, fs) {
+  if (args && args.path) {
+    const p = normalizeFsPath(args.path);
+    if (!p) return { error: '非法 path' };
+    try { return { text: String(fs.read(p)), label: p }; }
+    catch { return { error: `沙箱中找不到 ${args.path}` }; }
+  }
+  return { text: args && args.text != null ? String(args.text) : '', label: 'text' };
+}
+
 // 执行工具并返回字符串结果（会回填进对话）；onUi 用于驱动沙箱面板
 export async function executeTool(name, args, ctx) {
   const { fs, onUi } = ctx;
@@ -299,6 +371,55 @@ export async function executeTool(name, args, ctx) {
         const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
         emit({ status: 'ok', note: msg });
         return msg;
+      }
+      case 'regex': {
+        emit({ status: 'running', note: '正则…' });
+        const src = readToolText(args, fs);
+        if (src.error) { emit({ status: 'error', error: { message: src.error } }); return src.error; }
+        const out = runRegex({ ...args, text: src.text });
+        emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? '正则完成' : out.error, error: out.ok ? undefined : { message: out.error } });
+        return out.text;
+      }
+      case 'hash': {
+        emit({ status: 'running', note: `哈希 ${args.algorithm || 'sha256'}…` });
+        let bytes; let label = '';
+        if (args.path) {
+          const p = normalizeFsPath(args.path);
+          if (!p) { emit({ status: 'error', error: { message: '非法 path' } }); return 'hash：非法 path'; }
+          let val;
+          try { val = fs.read(p); } catch { emit({ status: 'error', error: { message: `找不到 ${args.path}` } }); return `hash：沙箱中找不到 ${args.path}`; }
+          bytes = fileBytesFromValue(val).bytes;
+          label = p;
+        } else {
+          bytes = new TextEncoder().encode(String(args.text == null ? '' : args.text));
+        }
+        const out = await runHash({ algorithm: args.algorithm, bytes, label });
+        emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? '哈希完成' : out.error, error: out.ok ? undefined : { message: out.error } });
+        return out.text;
+      }
+      case 'codec': {
+        emit({ status: 'running', note: `codec ${args.action || 'encode'}…` });
+        let text = args.text;
+        if (args.path && args.action !== 'uuid') {
+          const src = readToolText(args, fs);
+          if (src.error) { emit({ status: 'error', error: { message: src.error } }); return src.error; }
+          text = src.text;
+        }
+        const out = runCodec({ ...args, text });
+        emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? '编解码完成' : out.error, error: out.ok ? undefined : { message: out.error } });
+        return out.text;
+      }
+      case 'unicode': {
+        emit({ status: 'running', note: 'Unicode…' });
+        let text = args.text;
+        if (args.path) {
+          const src = readToolText(args, fs);
+          if (src.error) { emit({ status: 'error', error: { message: src.error } }); return src.error; }
+          text = src.text;
+        }
+        const out = runUnicode({ ...args, text });
+        emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? 'Unicode 完成' : out.error, error: out.ok ? undefined : { message: out.error } });
+        return out.text;
       }
       case 'fetch_url': {
         emit({ status: 'running', note: `抓取 ${String(args.url || '').slice(0, 50)}` });

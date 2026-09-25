@@ -132,7 +132,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const DISPATCH_CONCURRENCY = 3;
 // 只读 / 无共享可变状态的工具可以并发（Hermes ThreadPoolExecutor 的浏览器等价物）。
 // 写沙箱、跑代码、生图、git 仍串行，避免交错后说不清基于哪一版文件。
-export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'get_current_time', 'fetch_url']);
+export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'get_current_time', 'fetch_url', 'regex', 'hash', 'codec', 'unicode']);
 const hasBadArgs = (call) => !!(call && call.args && typeof call.args === 'object' && '__raw' in call.args);
 
 export function batchToolCalls(calls) {

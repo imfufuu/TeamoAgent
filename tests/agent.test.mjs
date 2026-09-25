@@ -3102,6 +3102,95 @@ test('pdfToImages 在无 Canvas 环境给出可读失败', async () => {
   assert.match(got.error, /不是 PDF|Canvas|渲染/);
 });
 
+group('本地代码小工具（regex / hash / codec / unicode）');
+test('工具已注册，关闭沙箱仍可用，提示词点名', () => {
+  const names = TOOL_DEFS.map((t) => t.name);
+  for (const n of ['regex', 'hash', 'codec', 'unicode']) {
+    assert.ok(names.includes(n), `应注册 ${n}`);
+    const d = TOOL_DEFS.find((t) => t.name === n);
+    assert.ok(d.parameters && d.parameters.properties, `${n} 要有参数表`);
+  }
+  assert.ok(!cfg.systemPrompt().includes('execute_javascript：') || /regex \/ hash \/ codec \/ unicode/.test(cfg.systemPrompt()));
+  assert.match(cfg.systemPrompt(), /regex \/ hash \/ codec \/ unicode/);
+  const re = TOOL_DEFS.find((t) => t.name === 'regex');
+  assert.ok(re.parameters.required.includes('pattern'));
+});
+test('regex：match 捕获组 / replace / explain / 非法 flags', async () => {
+  const fs = createFS({ 'notes/a.txt': 'foo1 foo22 bar' });
+  const m = await executeTool('regex', { action: 'match', pattern: 'foo(\\d+)', flags: 'g', text: 'foo1 foo22 bar' }, { fs, onUi: () => {} });
+  assert.match(m, /2 处/);
+  assert.match(m, /\$1="1"/);
+  assert.match(m, /\$1="22"/);
+  const named = await executeTool('regex', { pattern: '(?<num>\\d+)', flags: 'g', text: 'a12' }, { fs, onUi: () => {} });
+  assert.match(named, /\$<num>="12"/);
+  const rep = await executeTool('regex', { action: 'replace', pattern: 'foo(\\d+)', flags: 'g', text: 'foo1 x foo2', replacement: '[$1]' }, { fs, onUi: () => {} });
+  assert.match(rep, /\[1\] x \[2\]/);
+  const fromFile = await executeTool('regex', { action: 'test', pattern: 'foo22', path: 'notes/a.txt' }, { fs, onUi: () => {} });
+  assert.match(fromFile, /匹配/);
+  const ex = await executeTool('regex', { action: 'explain', pattern: '(?<id>\\d+)', flags: 'gi' }, { fs, onUi: () => {} });
+  assert.match(ex, /命名组：id/);
+  const bad = await executeTool('regex', { pattern: 'a', flags: 'z' }, { fs, onUi: () => {} });
+  assert.match(bad, /非法 flags/);
+});
+test('hash：sha256 / md5 / crc32 标准向量；沙箱文件按字节', async () => {
+  const fs = createFS();
+  const sha = await executeTool('hash', { algorithm: 'sha256', text: 'abc' }, { fs, onUi: () => {} });
+  assert.match(sha, /ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/);
+  const md = await executeTool('hash', { algorithm: 'md5', text: '' }, { fs, onUi: () => {} });
+  assert.match(md, /d41d8cd98f00b204e9800998ecf8427e/);
+  const crc = await executeTool('hash', { algorithm: 'crc32', text: '123456789' }, { fs, onUi: () => {} });
+  assert.match(crc, /cbf43926/i);
+  fs.write('k.bin', 'abc');
+  const fileSha = await executeTool('hash', { algorithm: 'sha256', path: 'k.bin' }, { fs, onUi: () => {} });
+  assert.match(fileSha, /ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad/);
+});
+test('codec：base64 往返、url、html、uuid、jwt 解码', async () => {
+  const fs = createFS();
+  const encd = await executeTool('codec', { action: 'encode', format: 'base64', text: '你好' }, { fs, onUi: () => {} });
+  assert.match(encd, /5L2g5aW9/);
+  const decd = await executeTool('codec', { action: 'decode', format: 'base64', text: '5L2g5aW9' }, { fs, onUi: () => {} });
+  assert.match(decd, /你好/);
+  const url = await executeTool('codec', { action: 'encode', format: 'url', text: 'a b' }, { fs, onUi: () => {} });
+  assert.match(url, /a%20b/);
+  const html = await executeTool('codec', { action: 'encode', format: 'html', text: '<a>' }, { fs, onUi: () => {} });
+  assert.match(html, /&lt;a&gt;/);
+  const id = await executeTool('codec', { action: 'uuid' }, { fs, onUi: () => {} });
+  assert.match(id, /[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
+  const jwt = await executeTool('codec', {
+    action: 'decode', format: 'jwt',
+    text: 'eyJhbGciOiJub25lIn0.eyJzdWIiOiIxMjMifQ.sig',
+  }, { fs, onUi: () => {} });
+  assert.match(jwt, /"alg": "none"/);
+  assert.match(jwt, /"sub": "123"/);
+});
+test('unicode：inspect 码位、from_codes、normalize', async () => {
+  const fs = createFS();
+  const ins = await executeTool('unicode', { action: 'inspect', text: '你A😀' }, { fs, onUi: () => {} });
+  assert.match(ins, /U\+4F60/);
+  assert.match(ins, /U\+41\b|U\+0041/);
+  assert.match(ins, /U\+1F600/);
+  assert.match(ins, /Han/);
+  const from = await executeTool('unicode', { action: 'from_codes', codes: 'U+4F60 0x41' }, { fs, onUi: () => {} });
+  assert.match(from, /你A/);
+  const nf = await executeTool('unicode', { action: 'normalize', form: 'NFC', text: 'e\u0301' }, { fs, onUi: () => {} });
+  assert.match(nf, /é|é/);
+});
+test('关闭沙箱仍能跑 regex；可与只读工具并行', async () => {
+  const fs = createFS();
+  const out = await executeTool('regex', { action: 'test', pattern: 'a', text: 'a' }, { fs, sandboxEnabled: false, onUi: () => {} });
+  assert.match(out, /匹配/);
+  const { batchToolCalls } = await import('../js/agent.js');
+  const b = batchToolCalls([
+    { name: 'regex', args: { pattern: 'a', text: 'a' } },
+    { name: 'hash', args: { text: 'x' } },
+    { name: 'write_file', args: { path: 'a', content: '1' } },
+  ]);
+  assert.deepEqual(b.map((x) => [x.kind, x.start, x.end]), [
+    ['parallel', 0, 2],
+    ['serial', 2, 3],
+  ]);
+});
+
 // ── 顺序执行（async 测试逐个 await）──
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }

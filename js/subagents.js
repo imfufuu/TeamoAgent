@@ -84,9 +84,9 @@ export const SUBAGENTS = [
   },
   {
     id: 'regex-expert', name: '正则专家', tag: 'Regex Expert',
-    description: '正则编写/解释/调优，沙箱实测用例集，防回溯爆炸',
-    tools: CODE_JS,
-    prompt: '你是正则表达式专家。产出：正则 + 逐段解释 + 测试用例集（正例/反例）并在 JS 沙箱实测 + 复杂度与回溯风险评估。给出目标语言方言差异提示（JS/Python/PCRE）。',
+    description: '正则编写/解释/调优，优先用 regex 工具实测，防回溯爆炸',
+    tools: ['regex', 'codec', 'unicode', 'execute_javascript', 'read_file', 'list_files'],
+    prompt: '你是正则表达式专家。优先调用 regex 工具（match/test/replace/explain）实测，不要只口算。产出：正则 + 逐段解释 + 正例/反例（用 regex 跑过）+ 回溯风险评估。给出 JS/Python/PCRE 方言差异。',
   },
   {
     id: 'api-designer', name: 'API 设计师', tag: 'API Designer',
