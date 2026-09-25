@@ -2186,7 +2186,7 @@ test('密封常量不含任何明文片段，且解封逻辑正确', async () =>
   // 源码里既不能有密钥明文，也不能有口令明文（注释里的示例也算）
   assert.equal(/sk-teamo-[a-z0-9]{8,}/.test(src), false, '源码里不能出现任何形如 sk-teamo-… 的密钥');
   // 真口令同样不能出现在这个测试文件里：用运行时拼出来的片段去查，避免自证式泄漏
-  const needles = ['29' + '3846', 'admin-2' + '93'];
+  const needles = ['29' + '3846', 'admin-2' + '93', 'k9' + 'M2x7', 'admin-k' + '9M2'];
   assert.equal(needles.some((n) => src.includes(n)), false, '源码里不能出现口令明文');
   const self = (await import('node:fs')).readFileSync(new URL(import.meta.url), 'utf8');
   assert.equal(needles.some((n) => self.includes(n)), false, '测试文件里也不能出现口令明文');
@@ -3038,6 +3038,9 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(ui, /chip-copy/);
   assert.match(html, /id="cap-line"/);
   assert.match(ui, /可粘贴或拖入附件/);
+  assert.equal(ui.includes('slice(0, 3000)'), false, '工具出参芯片应展示全文，不要截成 3000 字');
+  assert.match(ui, /m.cancelled/);
+  assert.match(css, /.msg.cancelled .chip .chip-ico/);
 });
 test('清空会话要二次 confirm', async () => {
   const fsp = await import('node:fs');
@@ -3100,6 +3103,10 @@ test('pdfToImages 在无 Canvas 环境给出可读失败', async () => {
   const got = await pdfToImages(new Uint8Array([1, 2, 3]));
   assert.equal(got.ok, false);
   assert.match(got.error, /不是 PDF|Canvas|渲染/);
+  const src = (await import('node:fs')).readFileSync(new URL('../js/pdfpages.js', import.meta.url), 'utf8');
+  assert.ok(src.includes('BASE_SCALE = 2.4'), '页图栅格精度应明显高于 1.35');
+  assert.ok(src.includes('JPEG_QUALITY = 0.92'));
+  assert.ok(src.includes("intent: 'print'"));
 });
 
 group('本地代码小工具（regex / hash / codec / unicode）');

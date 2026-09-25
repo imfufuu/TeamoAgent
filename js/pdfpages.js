@@ -2,7 +2,9 @@
 // 按需加载 assets/pdfjs/（Mozilla pdf.js 3.11，主线程 + 同源 worker）。
 
 const MAX_PAGES = 8;
-const SCALE = 1.35;
+const BASE_SCALE = 2.4;       // 提高栅格精度，方便 OCR / 读表
+const JPEG_QUALITY = 0.92;
+const MAX_EDGE = 4096;        // 单边像素上限，避免超大 Canvas 撑爆内存
 
 function toU8(bytes) {
   if (!bytes) return new Uint8Array(0);
@@ -71,16 +73,23 @@ export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'documen
   try {
     for (let i = 1; i <= n; i++) {
       const page = await doc.getPage(i);
-      const viewport = page.getViewport({ scale: SCALE });
+      const base = page.getViewport({ scale: 1 });
+      const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2.5) : 1;
+      let scale = BASE_SCALE * dpr;
+      const edge = Math.max(base.width, base.height) * scale;
+      if (edge > MAX_EDGE) scale *= MAX_EDGE / edge;
+      const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.floor(viewport.width));
-      canvas.height = Math.max(1, Math.floor(viewport.height));
+      canvas.width = Math.max(1, Math.round(viewport.width));
+      canvas.height = Math.max(1, Math.round(viewport.height));
       const ctx = canvas.getContext('2d', { alpha: false });
       if (!ctx) return { ok: false, pages, images, error: 'Canvas 不可用' };
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      await page.render({ canvasContext: ctx, viewport }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
+      const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
       images.push({ name: pageName(name, i), dataUrl, page: i });
     }
   } catch (err) {

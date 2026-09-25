@@ -18,8 +18,8 @@
 export const ADMIN_PREFIX = 'admin-';
 
 // 口令哈希（sha256 迭代 50000 轮的十六进制）与密封后的管理员密钥（base64）
-const PW_HASH = '4a1977edef96c6c10251d814780df0f2e07f377e6672e1df0544fb1104b029d9';
-const SEALED = '3Fi3Buw7YQ+8xsx5IS0yvKe8RKyQhE31QBqkZa5Pt5GNOm1AfW8SMxG75XaFJGTvt240qTyROwVQ';
+const PW_HASH = '2943983159fb5841cd1687984c0b3ce28c39fd85dd64eaabaf42769a5057bb53';
+const SEALED = 'Gy+kgayS8peH/L0EijuVwc4vx3ld188XTXgcvZAx1FWvai9tIaPsn0oDhoIC5wF1o58dV6z6VsXD';
 const STRETCH_ROUNDS = 50000;
 
 const te = new TextEncoder();

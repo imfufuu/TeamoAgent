@@ -935,6 +935,7 @@ export function mountUI(store, agent) {
   }
 
   function paintAssistant(wrap, m) {
+    wrap.classList.toggle('cancelled', !!m.cancelled);
     const body = $('.md-body', wrap);
     let html = '';
     const noOutputYet = !m.text && !m.reasoning && !(m.toolCalls && m.toolCalls.length);
@@ -1009,6 +1010,12 @@ export function mountUI(store, agent) {
           chipImages.set(tc.id, shot);
         }
         if (shot) paintChipImage(chip, shot);
+        if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
+          chip.classList.add('done');
+          chip.classList.remove('running');
+          const st = $('.chip-state', chip);
+          if (st && !st.querySelector('.chip-ok, .chip-fail')) st.textContent = '已停止';
+        }
       }
     }
     const edited = (m.toolCalls || []).filter((c) => c.name === 'write_file' && c.args && c.args.path);
@@ -1152,7 +1159,7 @@ export function mountUI(store, agent) {
     chip.classList.toggle('fail', !ok);
     chip.classList.remove('running');
     chip._out = String(toolMsg.content || '');
-    chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(String(toolMsg.content).slice(0, 3000))}</pre>`;
+    chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(chip._out)}</pre>`;
     chip._renderedArgs = true;
   }
 

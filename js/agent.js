@@ -19,7 +19,7 @@ import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransp
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { createFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
-import { compactMessages, contextBudgetFor, truncateToolContent } from './context.js';
+import { compactMessages, contextBudgetFor } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
 import { planTurn } from './jev.js';
@@ -113,7 +113,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     for (const c of calls) {
       // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
       const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
-      messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: truncateToolContent(res, 4000) });
+      messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: res });
     }
   }
   return finalText || '（子智能体未产生最终报告）';
@@ -478,7 +478,7 @@ export function createAgent(store, hooks = {}) {
           const result = results[i];
           usedTools.push(call.name);
           syncFS();
-          store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: truncateToolContent(result, 8000) });
+          store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: result });
           emit('onToolResult', call, result);
         }
       }
