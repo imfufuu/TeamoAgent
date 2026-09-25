@@ -18,12 +18,12 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.24';
+export const APP_VERSION = '2026.09.22.25';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
-export const TOOL_LOOP_MAX = 8;          // Agent 工具循环最大迭代次数
-export const SUBAGENT_LOOP_MAX = 4;      // 子智能体内部循环上限
+export const TOOL_LOOP_MAX = 0;          // 0 = 不限制（有上限会掐死多步 Agent）
+export const SUBAGENT_LOOP_MAX = 0;      // 0 = 不限制
 export const REQUEST_TIMEOUT_MS = 600000; // 官方服务器最长支持 600s
 export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
@@ -33,46 +33,46 @@ export const STORAGE_KEY = 'teamo-agent-state-v1';
 export const FALLBACK_MODELS = [
   // Anthropic —— 走 /v1/messages 原生协议
   { id: 'claude-fable-5-1',    provider: 'Anthropic' },
-  { id: 'claude-opus-5',       provider: 'Anthropic' },
+  { id: 'claude-opus-5',       provider: 'Anthropic', hot: true },
   { id: 'claude-fable-5',      provider: 'Anthropic' },
-  { id: 'claude-sonnet-5',     provider: 'Anthropic' },
+  { id: 'claude-sonnet-5',     provider: 'Anthropic', hot: true },
   { id: 'claude-opus-4-8',     provider: 'Anthropic' },
   { id: 'claude-opus-4-7',     provider: 'Anthropic' },
   { id: 'claude-opus-4-6',     provider: 'Anthropic' },
   { id: 'claude-sonnet-4-6',   provider: 'Anthropic' },
-  { id: 'claude-haiku-4-5',    provider: 'Anthropic' },
+  { id: 'claude-haiku-4-5',    provider: 'Anthropic', cheap: true },
   // OpenAI —— 走 /v1/chat/completions
   { id: 'gpt-6-astra',         provider: 'OpenAI' },
-  { id: 'gpt-5.6-sol',         provider: 'OpenAI' },
+  { id: 'gpt-5.6-sol',         provider: 'OpenAI', hot: true },
   { id: 'gpt-5.6-terra',       provider: 'OpenAI' },
   { id: 'gpt-5.6-luna',        provider: 'OpenAI' },
-  { id: 'gpt-5.5',             provider: 'OpenAI' },
+  { id: 'gpt-5.5',             provider: 'OpenAI', hot: true },
   { id: 'gpt-5.4',             provider: 'OpenAI' },
-  { id: 'gpt-5.4-mini',        provider: 'OpenAI' },
+  { id: 'gpt-5.4-mini',        provider: 'OpenAI', cheap: true },
   // Google
-  { id: 'gemini-3.8-flash',    provider: 'Google' },
-  { id: 'gemini-3.7-flash',    provider: 'Google' },
-  { id: 'gemini-3.6-flash',    provider: 'Google' },
-  { id: 'gemini-3.5-flash',    provider: 'Google' },
-  { id: 'gemini-3.5-flash-lite', provider: 'Google' },
+  { id: 'gemini-3.8-flash',    provider: 'Google', hot: true, cheap: true },
+  { id: 'gemini-3.7-flash',    provider: 'Google', cheap: true },
+  { id: 'gemini-3.6-flash',    provider: 'Google', cheap: true },
+  { id: 'gemini-3.5-flash',    provider: 'Google', cheap: true },
+  { id: 'gemini-3.5-flash-lite', provider: 'Google', cheap: true },
   { id: 'gemini-3.1-pro-preview', provider: 'Google' },
   // DeepSeek
-  { id: 'deepseek-flash',      provider: 'DeepSeek' },
-  { id: 'deepseek-flash-free', provider: 'DeepSeek', free: true },
+  { id: 'deepseek-flash',      provider: 'DeepSeek', cheap: true },
+  { id: 'deepseek-flash-free', provider: 'DeepSeek', free: true, cheap: true },
   { id: 'deepseek-v4-pro',     provider: 'DeepSeek' },
-  { id: 'deepseek-v4-flash',   provider: 'DeepSeek' },
+  { id: 'deepseek-v4-flash',   provider: 'DeepSeek', hot: true, cheap: true },
   { id: 'deepseek-v4-flash-vision-exp', provider: 'DeepSeek' },  // 多模态（vision）
-  { id: 'deepseek-v4-flash-free', provider: 'DeepSeek', free: true },
+  { id: 'deepseek-v4-flash-free', provider: 'DeepSeek', free: true, cheap: true },
   // Kimi（月之暗面）——网关 GET /v1/models 已上线 kimi-k3（含 1M 上下文变体）
-  { id: 'kimi-k3',             provider: 'Kimi' },
+  { id: 'kimi-k3',             provider: 'Kimi', hot: true },
   { id: 'kimi-k3[1M]',         provider: 'Kimi' },
   // GLM（智谱）
-  { id: 'glm-5.3-flash',       provider: 'GLM' },
-  { id: 'glm-5.3-flash-free',  provider: 'GLM', free: true },
+  { id: 'glm-5.3-flash',       provider: 'GLM', hot: true, cheap: true },
+  { id: 'glm-5.3-flash-free',  provider: 'GLM', free: true, cheap: true },
   { id: 'glm-5.3',             provider: 'GLM' },
   { id: 'glm-5.2',             provider: 'GLM' },
   // xAI
-  { id: 'grok-4.6',            provider: 'Grok' },
+  { id: 'grok-4.6',            provider: 'Grok', hot: true },
 ];
 
 export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Kimi', 'Grok', '其他'];
@@ -212,7 +212,7 @@ export const OUTPUT_SPEC = [
   '- 代码：一律用围栏代码块并标注语言（```js / ```python / ```cpp 等）；行内代码用单反引号。',
   '- 数学公式：行内用 $...$，独立公式用 $$...$$（LaTeX 语法，由 KaTeX 渲染），不要用纯文本拼公式。',
   '- 强调：**加粗**标注关键结论，术语/文件名/参数用 `代码样式`；不输出原始 HTML 标签。',
-  '- 用与用户相同的语言回复（用户用中文就用中文）；简洁优先，不复述用户问题。',
+  '- 用与用户相同的语言回复（用户用中文就用中文）；说明文字可以短，但代码必须完整可运行：含错误处理、边界条件与必要注释；禁止伪代码、「其余略」、只给函数签名。',
 ].join('\n');
 
 export function systemPrompt(now = new Date(), opts = {}) {
@@ -246,6 +246,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '',
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',
+    '- 写到回复或沙箱文件里的代码要一次写全，能直接运行/编译；不要用省略号代替实现，不要把关键逻辑缩成一行示意。',
     '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。',
     '- 多步任务先想清楚「哪几步可以并行委派/并行执行」，在同一轮里一次发出多个互不依赖的工具调用，不要一步一等。',
     '- 委派子智能体不需要用户同意或点名；判断该派就派，判断不该派就直接答。',

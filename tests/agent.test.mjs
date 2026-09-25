@@ -595,6 +595,7 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   const { systemPrompt, OUTPUT_SPEC } = await import('../js/config.js');
   assert.ok(OUTPUT_SPEC.includes('Markdown') && OUTPUT_SPEC.includes('KaTeX'), '规范含 Markdown/KaTeX');
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
+  assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
 });
 
@@ -760,19 +761,27 @@ test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）
   } finally { globalThis.fetch = realFetch; }
 });
 
-test('工具循环：迭代上限（TOOL_LOOP_MAX）后停止并告知用户', async () => {
+test('工具循环：TOOL_LOOP_MAX=0 表示不限制次数', async () => {
   const { TOOL_LOOP_MAX } = await import('../js/config.js');
-  let n = 0;
-  globalThis.fetch = async () => { n++; return openaiToolTurn(`call_${n}`, 'write_file', JSON.stringify({ path: `f${n}.txt`, content: 'x' })); };
+  const { formatBudgetNote } = await import('../js/prompt.js');
+  assert.equal(TOOL_LOOP_MAX, 0, '上限会掐死多步 Agent，必须关掉');
+  assert.equal(formatBudgetNote(8, 0), '');
+  assert.equal(formatBudgetNote(99, 0), '');
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_1', 'write_file', JSON.stringify({ path: 'a.txt', content: '1' })),
+    openaiToolTurn('call_2', 'write_file', JSON.stringify({ path: 'b.txt', content: '2' })),
+    openaiToolTurn('call_3', 'write_file', JSON.stringify({ path: 'c.txt', content: '3' })),
+    openaiTextTurn('三步完成'),
+  ], calls);
   try {
     const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
-    await agent.send('一直写文件');
-    assert.equal(n, TOOL_LOOP_MAX, '应按上限停止请求');
-    const last = store.state.messages[store.state.messages.length - 1];
-    assert.ok(last.text.includes('上限'), '上限提示落盘');
+    await agent.send('写三个文件');
+    assert.equal(calls.length, 4, '超过旧的 8 次上限之前的多步循环必须跑完');
+    assert.equal(store.state.messages[store.state.messages.length - 1].text, '三步完成');
     assert.equal(agent.getStatus(), 'done');
   } finally { globalThis.fetch = realFetch; }
 });
@@ -2899,10 +2908,19 @@ test('模型列表不再标「原生」；底部提示为 AI 生成免责声明'
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.equal(/badge ghost">原生/.test(ui), false, 'Claude 行不应再挂「原生」标签');
+  assert.match(ui, /badge hot">热门/);
+  assert.match(ui, /badge cheap">低价/);
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.match(html, /内容由AI生成，请仔细甄别/);
   assert.equal(html.includes('网关提供路由'), false);
   assert.equal(html.includes('Claude 走'), false);
+  const sonnet = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-sonnet-5');
+  assert.equal(sonnet.hot, true, '默认对话模型应标热门');
+  const haiku = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-haiku-4-5');
+  assert.equal(haiku.cheap, true, 'haiku 应标低价');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.badge\.hot/);
+  assert.match(css, /\.badge\.cheap/);
 });
 
 group('PDF 正文提取（客户端，无 pdf.js）');

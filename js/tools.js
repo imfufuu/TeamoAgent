@@ -12,7 +12,7 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 export const TOOL_DEFS = [
   {
     name: 'execute_javascript',
-    description: '在隔离的 Web Worker 沙箱中执行 JavaScript 代码（支持顶层 await）。沙箱提供 console（输出被捕获）和 files 对象（虚拟文件系统的键值快照，读写字典即可增改文件）。代码的 return 值或最后一个表达式作为结果返回。适合数学计算、数据处理、算法验证。',
+    description: '在隔离的 Web Worker 沙箱中执行 JavaScript 代码（支持顶层 await）。沙箱提供 console（输出被捕获）和 files 对象（虚拟文件系统的键值快照，读写字典即可增改文件）。代码必须完整可运行，不要省略实现。return 值或最后一个表达式作为结果返回。适合数学计算、数据处理、算法验证。',
     parameters: {
       type: 'object',
       properties: {
@@ -23,7 +23,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。可用 micropip / loadPackage 安装第三方库（numpy、pandas 等），已装库名会记在本机，刷新页面后自动重装。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。code 必须完整可运行，不要省略实现。可用 micropip / loadPackage 安装第三方库（numpy、pandas 等），已装库名会记在本机，刷新页面后自动重装。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {

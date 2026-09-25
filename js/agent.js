@@ -86,7 +86,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     { role: 'user', text: task },
   ];
   let finalText = '';
-  for (let i = 0; i < SUBAGENT_LOOP_MAX; i++) {
+  for (let i = 0; SUBAGENT_LOOP_MAX <= 0 || i < SUBAGENT_LOOP_MAX; i++) {
     if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
     const acc = createToolCallAccumulator();
     const tb = createThinkingTracker(); // 思考块需随 tool_use 回合回传，否则下一轮 400
@@ -345,7 +345,7 @@ export function createAgent(store, hooks = {}) {
         }
       }
 
-      while (iterations < TOOL_LOOP_MAX) {
+      while (TOOL_LOOP_MAX <= 0 || iterations < TOOL_LOOP_MAX) {
         iterations++;
         setStatus('thinking');
 
@@ -483,7 +483,9 @@ export function createAgent(store, hooks = {}) {
         }
       }
       // 达到迭代上限
-      store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, model, done: true });
+      if (TOOL_LOOP_MAX > 0) {
+        store.pushMessage({ role: 'assistant', text: `⚠️ 已达到工具调用上限（${TOOL_LOOP_MAX} 次迭代），本轮停止。可以让我继续，或调整任务。`, model, done: true });
+      }
       setStatus('done');
       emit('onTurnEnd');
     } catch (err) {

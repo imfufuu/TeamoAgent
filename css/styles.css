@@ -222,6 +222,11 @@ a { color: var(--fg); }
 .dd-item-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dd-item-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: .06em; border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; color: var(--fg-2); }
+.badge.hot { color: #c2410c; border-color: #fdba74; }
+.badge.cheap { color: #15803d; border-color: #86efac; }
+[data-theme="dark"] .badge.hot { color: #fdba74; border-color: #c2410c; }
+[data-theme="dark"] .badge.cheap { color: #86efac; border-color: #15803d; }
+.dd-item.active .badge.hot, .dd-item.active .badge.cheap { border-color: var(--bg); color: var(--bg); }
 .badge.ghost { color: var(--fg-3); }
 .badge.vision { display: inline-flex; align-items: center; padding: 1px 4px; }
 .badge.vision svg { width: 11px; height: 11px; }
