@@ -18,7 +18,7 @@
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.25';
+export const APP_VERSION = '2026.09.22.26';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -234,13 +234,13 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',
-    '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。',
+    '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。返回的是全文，不要当成摘要；需要再核对时 read_file 对应的 .ocr.md。',
     '- run_git：在本机工作区 ./workspace/ 执行 git 命令（clone / status / diff / log / add / commit / push 等，服务端白名单校验、不经 shell）。用户提到仓库、提交、分支、PR 前的准备时用它在真实目录里干活；写操作前先 status/diff 确认。',
     '- dispatch_subagent：把任务委派给专业子智能体（同模型 + 专属提示词 + 工具子集 + 独立上下文）。这是你放大能力的主要手段，遇到需要专业视角的活儿主动派，不要等用户点名；名录与触发条件见下方「子智能体委派」。',
     '',
     '## 附件',
     '- 用户消息可能附带图片：对话模型是纯文本，不能直接看图。必须调用 analyze_image（内部使用 deepseek-v4-flash-vision-exp）。沙箱 uploads/ 与 outputs/ 里的图随时可以再分析。',
-    '- PDF 会在浏览器里逐页渲染成 JPEG（uploads/{文件名}-p01.jpg …）。对话模型看不见图，必须对每一页调用 analyze_image 做 OCR/读表/读版式。加密或渲染失败时如实说明，不要假装看见了正文。',
+    '- PDF 会在浏览器里逐页渲染成 JPEG（uploads/{文件名}-p01.jpg …）。对话模型看不见图，必须对每一页调用 analyze_image 做 OCR/读表/读版式；工具返回的是该页全文，不要自行截成几行摘要。加密或渲染失败时如实说明，不要假装看见了正文。',
     '- ZIP 会解压到沙箱 uploads/{压缩包名}/。之后用 read_file / analyze_image / list_files；需要再打包时用 zip_files。',
     '- 所有附件（文本、图片、PDF 页图）都会复制到沙箱 uploads/：文本可 read_file；图片以 data URL 存放，可 analyze_image 或作为 generate_image 的 reference_paths。',
     '',

@@ -175,7 +175,8 @@ export const TOOL_DEFS = [
     description:
       '分析一张图片（OCR、描述画面、读图表）。对话模型本身是纯文本，不能直接看图：必须调用本工具。' +
       `内部固定使用 ${VISION_TOOL_MODEL}，不要把该模型当对话模型选。` +
-      'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；也可以不传 path 而分析用户本轮刚上传的图。Agent 随时可以查看沙箱里的图像。',
+      'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；也可以不传 path 而分析用户本轮刚上传的图。' +
+      '返回完整识别结果（不会截成摘要）；全文同时写入沙箱同名 .ocr.md，可用 read_file 再读。',
     parameters: {
       type: 'object',
       properties: {
@@ -567,8 +568,14 @@ export async function executeTool(name, args, ctx) {
           const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           const text = await analyzeImage({ apiKey: ctx.apiKey, prompt, dataUrl, signal: ctx.signal });
           const ms = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0);
+          const slash = path.lastIndexOf('/');
+          const dir = slash >= 0 ? path.slice(0, slash + 1) : '';
+          const base = slash >= 0 ? path.slice(slash + 1) : path;
+          const stem = base.replace(/\.[^.]+$/, '') || 'image';
+          const ocrPath = `${dir}${stem}.ocr.md`;
+          try { fs.write(ocrPath, text); } catch { /* 落盘失败仍回全文 */ }
           emit({ status: 'ok', note: `已分析 ${path}`, durationMs: ms });
-          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${path}\n\n${text}`;
+          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${path} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });

@@ -39,10 +39,16 @@ export function contextBudgetFor(modelId) {
   return 90000;
 }
 
-const truncTool = (max) => (m) =>
-  m.role === 'tool' && typeof m.content === 'string' && m.content.length > max
-    ? { ...m, content: m.content.slice(0, Math.floor(max * 0.75)) + '\n…[工具结果已截断]' }
-    : m;
+function isVisionToolMsg(m) {
+  return m && m.role === 'tool' && (m.name === 'analyze_image' || (typeof m.content === 'string' && m.content.startsWith('[识图完成]')));
+}
+
+const truncTool = (max, opts) => (m) => {
+  if (m.role !== 'tool' || typeof m.content !== 'string' || m.content.length <= max) return m;
+  // 识图全文默认不砍：被截断的 OCR 会让 Agent 瞎编后半页。只在 fitBudget 硬收口时 force。
+  if (isVisionToolMsg(m) && !(opts && opts.force)) return m;
+  return { ...m, content: m.content.slice(0, Math.floor(max * 0.75)) + '\n…[工具结果已截断]' };
+};
 
 // 超长正文保护：粘贴大文件、超长的历史回答同样会撑爆预算（头 60% + 尾 20%）
 const truncBody = (max) => (m) => {
@@ -66,9 +72,13 @@ function fitBudget(msgs, budget) {
   if (!msgs.length || estimateTokens(msgs) <= budget) return msgs;
   const last = msgs.length - 1;
   const target = msgs[last];
-  const shrink = (cap) => msgs.map((m, i) => (i === last ? truncBody(cap)(m) : m));
+  const shrink = (cap) => msgs.map((m, i) => {
+    if (i !== last) return m;
+    if (m.role === 'tool') return truncTool(cap, { force: true })(m);
+    return truncBody(cap)(m);
+  });
   let lo = 0;
-  let hi = String(target.text || '').length;
+  let hi = String(target.role === 'tool' ? target.content : target.text || '').length;
   let best = shrink(0);
   if (estimateTokens(best) > budget) return best; // 其余消息本身就超预算，已尽力
   while (hi - lo > 256) {

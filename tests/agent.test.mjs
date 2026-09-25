@@ -1728,6 +1728,65 @@ test('analyze_image 缺 path 时列出沙箱图片，不发请求', async () => 
   } finally { globalThis.fetch = orig; }
 });
 
+test('识图：max_tokens 拉高、length 截断会续写、全文落盘且不摘要', async () => {
+  const png = 'data:image/png;base64,AAA';
+  const fs = createFS({ 'uploads/shot.png': png });
+  const bodies = [];
+  const orig = globalThis.fetch;
+  let n = 0;
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    n += 1;
+    const content = n === 1 ? '第一段OCR' : '第二段OCR';
+    const finish = n === 1 ? 'length' : 'stop';
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content }, finish_reason: finish }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const out = await executeTool('analyze_image', { path: 'uploads/shot.png' }, { fs, apiKey: 'k' });
+    assert.equal(bodies[0].max_tokens, 16384, '未设 max_tokens 时网关会把 OCR 砍短');
+    assert.equal(bodies[0].model, 'deepseek-v4-flash-vision-exp');
+    assert.equal(bodies[0].reasoning, false);
+    assert.equal(bodies.length, 2, 'finish_reason=length 必须续写');
+    assert.match(out, /第一段OCR第二段OCR/);
+    assert.match(out, /shot\.ocr\.md/);
+    assert.equal(fs.read('uploads/shot.ocr.md'), '第一段OCR第二段OCR');
+  } finally { globalThis.fetch = orig; }
+});
+test('识图：content 为 parts 数组时拼成全文', async () => {
+  const { analyzeImage } = await import('../js/vision.js');
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: [{ type: 'text', text: '甲' }, { type: 'text', text: '乙' }] }, finish_reason: 'stop' }],
+  }), { status: 200, headers: { 'content-type': 'application/json' } });
+  try {
+    const t = await analyzeImage({ apiKey: 'k', dataUrl: 'data:image/png;base64,AAA' });
+    assert.equal(t, '甲乙');
+  } finally { globalThis.fetch = orig; }
+});
+test('compactMessages：识图全文在 preflight 时也不截断', () => {
+  const ocr = '[识图完成] 模型 x · 文件 uploads/a.png\n\n' + '字'.repeat(20000);
+  const one = [
+    { role: 'user', text: '看图' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c1', name: 'analyze_image', args: {} }] },
+    { role: 'tool', toolCallId: 'c1', name: 'analyze_image', content: ocr },
+    { role: 'user', text: '继续' },
+  ];
+  const tokens = estimateTokens(one);
+  const pf = compactMessages(one, tokens, { preflight: true });
+  assert.equal(pf.messages[2].content, ocr, '识图结果不得被 preflight 砍成摘要');
+  const py = '结果行\n'.repeat(2000);
+  const other = [
+    { role: 'user', text: '旧问' },
+    { role: 'assistant', text: '', toolCalls: [{ id: 'c2', name: 'execute_python', args: {} }] },
+    { role: 'tool', toolCallId: 'c2', name: 'execute_python', content: py },
+    { role: 'user', text: '新问' },
+  ];
+  const chopped = compactMessages(other, Math.floor(estimateTokens(other) * 0.9), { preflight: true });
+  assert.ok(chopped.messages[2].content.length < py.length, '非识图工具仍可收紧');
+});
+
 test('generate_image 输出序号按最大值递增（删过文件也不覆盖旧图）', async () => {
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
   const fs = createFS({ 'outputs/image-001.png': png, 'outputs/image-002.png': png, 'outputs/image-004.png': png });
