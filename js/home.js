@@ -54,6 +54,12 @@ let raf = 0;
 let lastBeat = -1;
 let lastTitle = '';
 let t0 = 0;
+let audioReady = !audio;
+let audioBlobUrl = '';
+let loadAbort = null;
+const loadBar = document.getElementById('gate-load-bar');
+const loadBox = document.getElementById('gate-load');
+const loadLabel = document.getElementById('gate-load-label');
 
 function smoother(t) {
   const x = Math.min(1, Math.max(0, t));
@@ -190,8 +196,13 @@ function finishOpen(instant) {
   watchReveal();
 }
 
+function abortAudioLoad() {
+  try { loadAbort && loadAbort.abort(); } catch { /* ignore */ }
+}
+
 function openSite(instant) {
   if (root.classList.contains('open')) return;
+  abortAudioLoad();
   playing = false;
   cancelAnimationFrame(raf);
   if (audio) try { audio.pause(); } catch { /* ignore */ }
@@ -208,6 +219,75 @@ function openSite(instant) {
     curtain.style.opacity = '1';
   }
   window.setTimeout(() => finishOpen(false), 120);
+}
+
+function setLoadProgress(p, text) {
+  const x = Math.max(0, Math.min(1, Number(p) || 0));
+  if (loadBar) loadBar.style.transform = `scaleX(${x})`;
+  if (loadBox) {
+    loadBox.setAttribute('aria-valuenow', String(Math.round(x * 100)));
+    loadBox.classList.toggle('ready', x >= 1);
+  }
+  if (loadLabel) loadLabel.textContent = text || (x >= 1 ? '配乐已就绪' : `配乐 ${Math.round(x * 100)}%`);
+}
+
+function markAudioReady(label) {
+  audioReady = true;
+  if (explore) {
+    explore.disabled = false;
+    explore.classList.remove('waiting');
+  }
+  setLoadProgress(1, label || '配乐已就绪');
+}
+
+async function prefetchAudio() {
+  if (!audio) { markAudioReady(); return; }
+  if (explore) {
+    explore.disabled = true;
+    explore.classList.add('waiting');
+  }
+  setLoadProgress(0.02, '配乐准备中');
+  loadAbort = new AbortController();
+  const src = audio.getAttribute('src') || 'assets/audio/teamo-home.mp3';
+  try {
+    const res = await fetch(src, { signal: loadAbort.signal, cache: 'force-cache' });
+    if (!res.ok || !res.body) throw new Error(String(res.status || 'no body'));
+    const total = Number(res.headers.get('Content-Length') || 0);
+    const reader = res.body.getReader();
+    const chunks = [];
+    let received = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      received += value.byteLength;
+      setLoadProgress(total ? received / total : Math.min(0.95, received / 1600000));
+    }
+    const blob = new Blob(chunks, { type: res.headers.get('Content-Type') || 'audio/mpeg' });
+    if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+    audioBlobUrl = URL.createObjectURL(blob);
+    audio.src = audioBlobUrl;
+    audio.preload = 'auto';
+    await new Promise((resolve) => {
+      let settled = false;
+      const finish = () => { if (settled) return; settled = true; resolve(); };
+      audio.addEventListener('canplaythrough', finish, { once: true });
+      audio.addEventListener('error', finish, { once: true });
+      window.setTimeout(finish, 4000);
+      try { audio.load(); } catch { finish(); }
+    });
+    markAudioReady();
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    try { audio.preload = 'auto'; audio.load(); } catch { /* ignore */ }
+    markAudioReady('配乐未缓存，开片时尝试播放');
+  }
+}
+
+function requestFilm() {
+  if (playing || root.classList.contains('scoring') || root.classList.contains('open')) return;
+  if (!audioReady) return;
+  startFilm();
 }
 
 async function startFilm() {
@@ -310,15 +390,16 @@ if (reduce) {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
-  explore && explore.addEventListener('click', startFilm);
+  explore && explore.addEventListener('click', requestFilm);
   skip && skip.addEventListener('click', skipFilm);
   gateSkip && gateSkip.addEventListener('click', () => openSite(true));
+  prefetchAudio();
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (root.classList.contains('gate')) {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        startFilm();
+        requestFilm();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         openSite(true);

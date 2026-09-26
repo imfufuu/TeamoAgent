@@ -1637,6 +1637,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /id="gate-skip"/);
   assert.match(home, /class="gate-beats"/);
   assert.match(home, /播放介绍片/);
+  assert.match(home, /id="gate-load"/);
+  assert.match(home, /media-src 'self' blob:/);
   assert.match(home, /id="curtain"/);
   assert.match(home, /class="logo-text"/);
   assert.match(home, /M15 13a4\.5 4\.5 0 0 1-3-4/);
@@ -1669,6 +1671,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /watchReveal/);
   assert.match(homeJs, /function pinTop/);
   assert.match(homeJs, /scrollRestoration/);
+  assert.match(homeJs, /prefetchAudio/);
+  assert.match(homeJs, /createObjectURL/);
+  assert.match(homeJs, /requestFilm/);
   assert.match(homeJs, /gate-skip/);
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
