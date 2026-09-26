@@ -1671,6 +1671,11 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
   assert.match(home, /id="principles"/);
+  assert.match(home, /id="why"/);
+  assert.match(home, /为什么选我们/);
+  assert.match(home, /Local Key/);
+  assert.equal(home.includes('本机 Key'), false);
+  assert.match(homeCss, /honesty \+ \.faq/);
   assert.match(homeJs, /IntersectionObserver/);
   const titles = [...homeJs.matchAll(/title: '([^']*)'/g)].map((m) => m[1]).filter(Boolean);
   assert.equal(new Set(titles).size, titles.length, `字幕重复：${titles}`);
