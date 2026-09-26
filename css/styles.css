@@ -1,4 +1,10 @@
 /* ─── TeamoAgent · 黑白极简设计系统 ─────────────────────────────────── */
+@property --bg { syntax: "<color>"; inherits: true; initial-value: #ffffff; }
+@property --bg-soft { syntax: "<color>"; inherits: true; initial-value: #fafafa; }
+@property --fg { syntax: "<color>"; inherits: true; initial-value: #0a0a0a; }
+@property --fg-2 { syntax: "<color>"; inherits: true; initial-value: #555555; }
+@property --fg-3 { syntax: "<color>"; inherits: true; initial-value: #a0a0a0; }
+@property --line { syntax: "<color>"; inherits: true; initial-value: #e8e8e8; }
 
 :root {
   --bg: #ffffff;
@@ -31,10 +37,17 @@
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; } /* 页面本身永不滚动，滚动只发生在消息区内 */
+html {
+  transition:
+    --bg .55s var(--ease), --bg-soft .55s var(--ease), --fg .55s var(--ease),
+    --fg-2 .55s var(--ease), --fg-3 .55s var(--ease), --line .55s var(--ease),
+    background-color .55s var(--ease), color .55s var(--ease);
+}
 body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--fg);
+  transition: background-color .55s var(--ease), color .55s var(--ease);
   font-size: 14px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
@@ -137,7 +150,7 @@ a { color: var(--fg); }
    空状态里的大 Logo 仍保留极慢的转动作为欢迎页动效 */
 .logo-mark { font-size: 22px; display: inline-block; }
 @keyframes halfspin { 0%,80% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
-.logo-text { font-weight: 800; letter-spacing: .08em; font-size: 13px; flex-shrink: 0; white-space: nowrap; color: inherit; text-decoration: none; }
+.logo-text { font-weight: 500; letter-spacing: .14em; font-size: 13px; flex-shrink: 0; white-space: nowrap; color: inherit; text-decoration: none; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
 
 .side-section { padding: 6px 14px 12px; min-height: 0; }

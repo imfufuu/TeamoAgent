@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **当前版本：Teamo V1.1 正式版**（构建 `2026.9.26.13`）
+> **当前版本：Teamo V1.1 正式版**（构建 `2026.9.26.14`）
 > 线上地址：https://imfufuu.github.io/TeamoAgent/ 为产品介绍；对话在 [app.html](./app.html)。侧栏 Logo 旁的 `V1.1` 徽章、底部「Teamo V1.1 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
 > V1.1 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
 
@@ -44,7 +44,7 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 
 - **入口**：输入框附件按钮 / 拖拽到聊天区 / 直接粘贴（截图可用）
 - **发送即上屏**：按下 Enter 后自己的消息立刻渲染（含附件缩略图与「回滚」按钮），不需要等模型输出完或切换会话回来才看到
-- **图片**（png/jpg/gif/webp ≤5MB）：多模态直传 —— OpenAI 协议走 `image_url`(data URL)，Anthropic 协议走 `image.source.base64` 原生块；需所选模型支持视觉（Claude/GPT/Gemini/deepseek-vision 等），气泡内缩略图可点开
+- **图片**（png/jpg/gif/webp ≤5MB）：对话通道纯文本。识图必须走 `analyze_image`（`deepseek-v4-flash-vision-exp`），结果可落盘；气泡内缩略图可点开。不要把图片塞进对话模型的多模态块。
 - **文本/代码文件**（≤512KB，30+ 扩展名）：正文随消息注入，同时**自动写入沙箱 `uploads/` 目录**，Agent 可用 read_file 或沙箱代码处理全文
 - **全部附件（图片 + 文本）都会自动复制到沙箱 `uploads/`**：图片以 data URL 存放，Agent 可把它作为 `generate_image` 的 `reference_paths` 直接改图；文件面板可逐个下载或整包导出 ZIP
 - 同名再传：内容相同复用原路径，内容不同自动追加 `-2`/`-3` 序号，不覆盖上一轮
@@ -56,10 +56,10 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 用户输入
   │
   ▼
-agent.js  ── ReAct 式工具调用循环（上限 8 轮）
+agent.js  ── ReAct 式工具调用循环（TOOL_LOOP_MAX=0，不限轮）
   │    ⓪ 上下文管理（context.js）：按模型预算压缩历史（整轮丢弃防孤儿 tool 消息）
-  │       + 工具结果截断（8k）+ 参数 JSON 解析失败自动反馈纠错 + 流层早期失败重试
-  │    ① 构建协议请求体（api.js: buildAnthropicPayload / buildOpenAIMessages，含多模态附件块）
+  │       + 工具结果截断 + 参数 JSON 解析失败自动反馈纠错 + 流层早期失败重试
+  │    ① 构建协议请求体（api.js: buildAnthropicPayload / buildOpenAIMessages）
   │    ② 协议路由：claude-* → /v1/messages（x-api-key）
   │                 其余    → /v1/chat/completions（Bearer, 可带 service_tier=fast）
   │    ③ 流式解析：createSSEParser → createAnthropicStream / createOpenAIStream
@@ -69,18 +69,19 @@ agent.js  ── ReAct 式工具调用循环（上限 8 轮）
   │       无 tool_calls → 回合结束
   ▼
 state.js  检查点快照（每轮 user 消息前）→ 支持回滚 / 一步撤销 / 重新生成
-sandbox.js Web Worker 沙箱（JS 8s / Pyodide Python 60s 超时强杀）+ 虚拟文件系统
+sandbox.js Web Worker 沙箱（JS 8s / Pyodide Python 120s 超时强杀）+ 虚拟文件系统
 context.js    上下文预算与分级压缩（历史工具结果先收紧，本轮内容永远完整）
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）、
-`fetch_url`（抓取网页正文，可自动落进虚拟文件系统）、`run_git`（在本地中继的 `workspace/` 内执行 git）。
-联网检索**不是工具**：由模型 API 自带的网页搜索格式在模型服务端执行（见下一节）。
+`fetch_url`（仅本地中继 + 顶栏「联网」打开时）、`run_git`（本地中继 `workspace/` 内 git）。
+另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
+没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## 子智能体（18 个专家，`dispatch_subagent` 委派）
 
-主 Agent 按需把专业任务委派给子智能体——**同模型、专属系统提示词、工具子集、独立上下文**（看不到会话历史，task 必须自包含；不可再委派，防递归；内部循环上限 4 轮）。面板「子智能体」页可查看名录。
+主 Agent 按需把专业任务委派给子智能体——**同模型、专属系统提示词、工具子集、独立上下文**（看不到会话历史，task 必须自包含；不可再委派，防递归；`SUBAGENT_LOOP_MAX=0` 不限轮）。名录在 `js/subagents.js`，**不在侧栏面板展示**；仅思考档 Max / Ultra 时工具表里才有 `dispatch_subagent`。
 
 - **自主触发**：系统提示词给了明确的触发条件（交付物含 ≥2 个专业维度、写完代码请 reviewer/debugger 复核、翻译与长文改写等脏活外包、需要真实计算时派分析师），用户不点名也会自己派。
 - **并行委派**：互不依赖的子任务在同一轮里一次发多个 `dispatch_subagent`，运行时最多 3 个并发，结果按调用顺序回填对话。
@@ -98,56 +99,6 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **顶栏「联网」只有探测到本地中继（`python3 server.py`）才能打开；GitHub Pages / 没有中继时按钮始终灰色、点不了。**
 打开后 Agent 用 `fetch_url` 经中继抓取具体网址。不接第三方搜索，也不再下发模型原生网页搜索字段。
 
-下表是**拿真 key 打过网关**的结论（2026-09-21，回归测试在 `tests/live-web.mjs`），不是照文档抄的：
-
-| 模型家族 | 原生格式（写在请求体里） | 走的端点 | 实测结果 |
-| -------- | -------------------------- | -------- | -------- |
-| Claude | `tools: [{type:"web_search_20250305", name:"web_search", max_uses:5}]` | `POST /v1/messages` | ✅ 真检索：`server_tool_use` → `web_search_tool_result`（含 title/url/page_age），引用走 `citations_delta` |
-| GPT | `tools: [{type:"web_search", search_context_size:"medium"}]` + `include:["web_search_call.action.sources"]` | `POST /v1/responses`（网关仅 GPT 支持此端点） | ✅ 真检索：`web_search_call` + `action.sources`（一次问题可回十几到上百条 URL），引用走 `url_citation` 标注 |
-| Kimi | `tools: [{type:"builtin_function", function:{name:"$web_search"}}]` | `POST /v1/chat/completions` | ❌ 网关收下但不执行，模型自述「我没有联网能力」 |
-| GLM | `tools: [{type:"web_search"}]` | `POST /v1/chat/completions` | ❌ 上游直接 400 `upstream_error` |
-| Grok | `search_parameters: {mode:"live"}` | `POST /v1/chat/completions` | ❌ 把工具调用当普通文本吐回来（XML 片段），不是检索 |
-| Gemini | `tools: [{google_search:{}}]` | `POST /v1beta/models/{model}:generateContent` | ⚠️ 原生端点实测可用（`groundingMetadata.groundingChunks`），但需要另开一条原生 Gemini 协议通道，**本轮未接**；chat 协议里塞 `google_search` 会被网关 503 |
-| 其余（DeepSeek 等） | 无原生格式 → **不联网** | 原端点，不塞任何联网字段 | — |
-
-所以现在只有 Claude 与 GPT 会真的联网：**宁可少支持，也不给用户看「假装查过了」的来源条。**
-
-- 能力表与请求/流转换都在 `js/websearch.js`；GPT 改道 `/v1/responses` 后被拒（400/404/422）会**自动退回**
-  Chat Completions 并剥掉联网字段，同时 toast 告知并把该模型记入降级表（本会话不再白试一次）——
-  见 `api.webFallbackFor(model)`。
-- 实测坑位两条，已修并各有回归：① 网关 Anthropic 路由会把网页工具**混着两种块**发出来
-  （`server_tool_use` 与名叫 `web_search`/`web_fetch` 的普通 `tool_use`）——后者若按客户端工具处理，
-  主循环会去执行一个不存在的工具，所以统一按服务端工具处理、不进客户端累积器；
-  ② 请求体里带 `"system": ""` 会让上游整段不返回 thinking 块，空 system 现在不发。
-- **诚实性护栏**：真机实测发现模型有时**不搜索却在正文里声称「已联网查询」**，并给出凭记忆编的实时数字。
-  两道防线：系统提示词要求「只有真的拿到检索结果才可以说联网，否则直说本论没能取得检索结果」；
-  界面上若正文声称联网而这一轮没有任何检索事件，回答下方会显示「未见检索事件 —— 该说法无法证实，
-  具体数字请另行核实」（`websearch.js` 的 `claimsWebSearch()`，含否定句豁免与正反例单测）。
-- **模型「以为自己不能联网」**：能力表与提示词一度自相矛盾（旧句子「不要去找一个叫 web_search 的工具」
-  被读成「你没有联网能力」），已改写并加守卫单测。真机复测还发现**上游模型只是随机不调用**服务器搜索
-  （同提示词同问题的 4 次对照里只有 2 次真检索，`tool_choice` 强制也被网关忽略）——这种情况下界面会显示
-  中性提示条「联网开关是开着的，但本轮没有发生检索 …… 可以在提问里写明『先联网检索再回答』，或换个模型重问一次」
-  （`websearch.js#webRefusal()`，主语约束防误判），既不为模型背书、也不让用户以为功能坏了。
-- **刷新后不丢东西**：附件图片、沙箱里的图、生成图这些 base64 重数据放在 **IndexedDB**
-  （`js/blobstore.js`），localStorage 只留轻量状态与索引 —— 以前它们挤在约 5MB 的 localStorage 里，
-  一超限就被静默丢弃（`QuotaExceededError` → 瘦身快照）。启动时后台取回并重绘。回归测试
-  `npm run test:persist`（真 Chromium + 真 IndexedDB）。
-- **触屏密度**：`@media (hover: none)` 只保证最小可点高度（38–40px），不再放大字号/内边距；
-  按钮文字一律 `white-space: nowrap`，中文标签不会把按钮撑成两行。回归测试 `npm run test:touch`。
-- **顶栏开关的反色态**：`.pill.on` 必须与 `:hover` 写进同一条 CSS 规则 —— 分开写时
-  `.pill:hover:not(:disabled)` 特异度更高，点开后指针没移开时文字会与反色背景同色（看起来像「没生效」）。
-- **一键重试（提示条上的按钮）**：真机对照里同一句提问加「先联网检索再回答」前缀后明显更容易触发检索，
-  所以提示条带一枚按钮，点一下就把原提问改写成带前缀的版本并**覆盖式重试**（抹掉没检索到的回答再重发），
-  免得用户自己重打。
-- **工具表随中继状态收敛**：`fetch_url` / `run_git` 只在中继可用时进请求；`js/main.js` 启动探一次
-  `/api/health` 写 `store.state.relayOk`，不可用时提示词补一段说明，避免模型反复够一个必然失败的工具。
-- 上游检索偶发不可用（Anthropic 会明确回 `web_search_tool_result_error{error_code:"unavailable"}`），
-  此时如实显示「联网检索未成功」并给出建议，而不是显示「服务端检索到 0 条来源」。
-- 模型返回的查询词与来源渲染成回答下方的「联网 · 服务端检索到 N 条来源」条（链接 `rel="noopener"`），
-  随消息一起持久化，切会话/重开页面仍在。
-- **不做**的事：不在浏览器里打 DuckDuckGo/Brave/Tavily/Serper，不用 `r.jina.ai` 之类的第三方抽取器，
-  也不为搜索单独配 key（历史上的 `TEAMO_*_KEY` 已随之删除）。
-
 `fetch_url`（抓取指定 URL）与 `run_git` 则需要本地中继 `server.py`：浏览器受同源与 CSP 限制抓不了任意站点，
 所以这两个工具是「中继优先」——中继不在就返回可读原因 + 修复步骤，绝不返回编造内容。
 
@@ -157,8 +108,8 @@ python3 server.py --no-git             # 只留抓取
 python3 server.py --workspace ~/code   # 换工作区（git 的根，越界一律拒绝）
 ```
 
-中继端点：`GET /api/health`（前端据此决定是否可用）、`GET /api/fetch?url=&mode=text|raw&max=`、
-`POST /api/git {command,repo,timeout}`。**没有 `/api/search`**：联网属于模型服务端。
+中继端点：`GET /api/health`（前端据此决定「联网」能否打开）、`GET /api/fetch?url=&mode=text|raw&max=`、
+`POST /api/git {command,repo,timeout}`。**没有 `/api/search`**。
 
 安全边界（`tests/server_checks.py` 51 项护栏自检覆盖）：
 
@@ -200,7 +151,7 @@ python3 server.py --workspace ~/code   # 换工作区（git 的根，越界一�
 
 ## 图像能力（文生图 / 图片编辑 / 图生文）
 
-- **图生文（识图）**：所选模型支持视觉时，附件图片按各协议原生多模态块发送（OpenAI `image_url`、Anthropic `image.source.base64`）；模型菜单里带「眼睛」徽标的即支持。
+- **图生文（识图）**：对话模型看不见图。必须调用 `analyze_image`（内部 `deepseek-v4-flash-vision-exp`）；返回全文，不要自行截成摘要。
 - **文生图 / 图片编辑不作为对话模型直接调用**：`gpt-image-2`、`gpt-image-2.5-sunburst`、`gpt-image-2.5-flare` 不出现在模型下拉里（直接选中会绕过工具循环、破坏 Agent 特性）。改由主智能体通过 **`generate_image` 工具**发起：
   - 无参考图 → `POST /v1/images/generations`；带 `reference_paths`（如 `uploads/cat.png`）→ `POST /v1/images/edits`（multipart）。
   - 出图写回沙箱 `outputs/image-00N.png`，对话中的工具芯片直接显示图片并可下载；`size`/`quality`/`output_format` 与「本次用哪个生图模型」都由工具参数控制。

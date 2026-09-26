@@ -2829,7 +2829,7 @@ test('noul/choice/score 解析与 plan 提示词', async () => {
   assert.equal(jev.scoreOf(answers, 'difficulty'), 3.2);
   const note = jev.formatPlanNote(answers, { webEnabled: true, sandboxEnabled: true });
   assert.match(note, /【Jev 决策】/);
-  assert.match(note, /服务端网页搜索/);
+  assert.match(note, /fetch_url/);
   assert.match(note, /不要说「已联网」/);
   const summary = jev.summarizePlan(answers);
   assert.match(summary, /search/);

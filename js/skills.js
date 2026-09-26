@@ -6,16 +6,15 @@ export const BUNDLED_SKILLS = [
   {
     id: 'web-research',
     tag: 'research',
-    description: '实时事实走服务端网页搜索，有来源再下结论',
+    description: '实时事实经本地中继 fetch_url 核实，查不到就明说',
     match: (plan, text) => {
       if (plan && (plan.route === 'search' || (plan.needSearch != null && plan.needSearch >= 0.55))) return true;
       return /最新|今天|当前|汇率|股价|版本号|news|today|price/i.test(String(text || ''));
     },
     body: [
       '## Skill: web-research',
-      '- 时效性问题必须走本轮已开启的服务端网页搜索；没有检索事件就不要写「已联网」。',
-      '- 回答里带来源链接。具体网页正文用 fetch_url（仅本地中继可用）。',
-      '- 查不到就明说没查到，不要用记忆数字冒充刚搜到的。',
+      '- 时效性问题：联网已开且有中继时用 fetch_url 抓来源页；没有中继或开关关掉就直说无法核实。',
+      '- 不要写「已联网搜索」。查不到就明说没查到，不要用记忆数字冒充刚搜到的。',
     ].join('\n'),
   },
   {

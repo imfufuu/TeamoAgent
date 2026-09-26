@@ -211,7 +211,7 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
   ];
   if (route === 'search' || (search != null && search >= 0.65)) {
     if (webEnabled !== false) {
-      lines.push('- 本题需要实时事实：先走本轮已开启的服务端网页搜索，拿到结果再答；没有检索事件就不要说「已联网」。');
+      lines.push('- 本题需要实时事实：联网已开时用 fetch_url 抓来源页再答；没有中继或没抓到就不要说「已联网」。');
     } else {
       lines.push('- 本题需要实时事实，但用户关了联网：明确说无法核实，不要用记忆里的数字冒充刚查到的。');
     }
