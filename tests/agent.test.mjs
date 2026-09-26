@@ -1672,13 +1672,19 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
   assert.match(home, /id="principles"/);
   assert.match(home, /id="why"/);
-  assert.match(home, /为什么选我们/);
+  assert.match(home, /为什么选我们？/);
+  assert.equal(home.includes('为什么选我们。'), false);
   assert.match(home, /Local Key/);
   assert.equal(home.includes('本机 Key'), false);
   assert.match(homeCss, /honesty \+ \.faq/);
   assert.match(homeJs, /IntersectionObserver/);
   const titles = [...homeJs.matchAll(/title: '([^']*)'/g)].map((m) => m[1]).filter(Boolean);
   assert.equal(new Set(titles).size, titles.length, `字幕重复：${titles}`);
+  assert.ok(titles.includes('浏览器里的智能体'));
+  assert.equal(titles.some((t) => t.includes('智能体。')), false, '智能体后不加句号');
+  assert.match(homeCss, /#ff5f57/);
+  assert.match(homeCss, /#febc2e/);
+  assert.match(homeCss, /#28c840/);
 });
 
 
