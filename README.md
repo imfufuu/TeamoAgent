@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **当前版本：Teamo V1.2 正式版**（构建 `2026.9.26.25`）
+> **当前版本：Teamo V1.2 正式版**（构建 `2026.9.26.26`）
 > 线上地址：https://imfufuu.github.io/TeamoAgent/ 为产品介绍；对话在 [app.html](./app.html)。侧栏 Logo 旁的 `V1.2` 徽章、底部「Teamo V1.2 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
 > V1.2 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
 
@@ -74,7 +74,7 @@ context.js    上下文预算与分级压缩（历史工具结果先收紧，本
 ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
-**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`dispatch_subagent`（子智能体委派）、
+**工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
 `fetch_url`（仅本地中继 + 顶栏「联网」打开时）、`run_git`（本地中继 `workspace/` 内 git）。
 另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。

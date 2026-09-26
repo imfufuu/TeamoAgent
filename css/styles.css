@@ -567,17 +567,20 @@ a { color: var(--fg); }
 /* 欢迎页在 y 轴居中：让 empty-state 自己占满滚动视口高度来居中（不改 .messages 的布局模式，
    有对话时零影响）；内容比视口高时 safe center 保证顶部不被裁掉 */
 .empty-state {
-  max-width: 560px; margin: 0 auto; padding: 12px 28px; min-height: 100%; text-align: center;
+  max-width: 680px; margin: 0 auto; padding: 12px 28px; min-height: 100%; text-align: center;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   justify-content: safe center; animation: fadeUp .6s var(--ease) both;
 }
 
 .empty-state h2 { font-size: 26px; font-weight: 800; letter-spacing: .02em; margin: 12px 0 6px; }
 .empty-state p { color: var(--fg-2); font-size: 13.5px; }
-.empty-cards { display: flex; flex-direction: column; gap: 8px; margin-top: 26px; }
-.suggest { font-weight: 500; letter-spacing: .01em;
-  padding: 11px 16px; border: 1px solid var(--line); border-radius: 12px;
-  font-size: 13px; line-height: 1.45; color: var(--fg-2); text-align: left;
+.empty-cards {
+  display: flex; flex-direction: column; gap: 8px; margin-top: 26px;
+  width: 100%; max-width: 42em;
+}
+.suggest { font-weight: 500; letter-spacing: .01em; width: 100%; box-sizing: border-box;
+  padding: 13px 18px; border: 1px solid var(--line); border-radius: 12px;
+  font-size: 13.5px; line-height: 1.5; color: var(--fg-2); text-align: left;
   white-space: normal; transition: all .25s var(--ease);
 }
 .suggest:hover { border-color: var(--fg); color: var(--fg); transform: translateY(-2px); box-shadow: var(--shadow); }

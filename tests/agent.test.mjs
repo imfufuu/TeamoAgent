@@ -1526,7 +1526,7 @@ test('示例池覆盖多类能力且文案不重复', () => {
   const texts = sg.SUGGESTIONS.map((x) => x.text);
   const titles = sg.SUGGESTIONS.map((x) => x.title);
   assert.equal(new Set(texts).size, texts.length, '存在重复文案');
-  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length >= 18 && x.title.length <= 32 && x.text && x.text.length >= 140), '卡片 20–30 字概括，填入约 200 字提示');
+  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length >= 22 && x.title.length <= 40 && x.text && x.text.length >= 140), '卡片约 26–38 字概括，填入约 200 字提示');
   assert.equal(new Set(titles).size, titles.length, '短主题重复');
   assert.ok(sg.SUGGESTIONS.every((x) => x.tag === undefined), '示例条目不应再带 tag（任务类型标签已移除）');
   const joined = sg.SUGGESTIONS.map((x) => x.text).join('\n');
@@ -1547,7 +1547,7 @@ test('pickSuggestions：随机 3 条、不重复', () => {
     picks.forEach((x) => seen.add(x.text));
   }
   assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
-  assert.equal(sg.SUGGESTIONS[0].title, '用 Python 做线性回归并写出带残差表的报告');
+  assert.equal(sg.SUGGESTIONS[0].title, '用 Python 做线性回归并写出带残差表的完整报告');
   const first = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
   const second = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd, first.map((x) => x.text));
   assert.equal(second.some((x) => first.some((y) => y.text === x.text)), false, 'exclude 应避开上一批');
@@ -1719,7 +1719,7 @@ test('toolsFor：关闭沙箱只摘掉三个代码执行工具', async () => {
   const on = toolsFor(true).map((t) => t.name);
   assert.deepEqual(on, TOOL_DEFS.map((t) => t.name), '开启时应是全部工具');
   for (const n of CODE_TOOL_NAMES) assert.ok(!off.includes(n), `${n} 应被关掉`);
-  for (const n of ['write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'search_files', 'diff_text', 'json_tool', 'dispatch_subagent', 'generate_image', 'get_current_time', 'analyze_image']) {
+  for (const n of ['write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'search_files', 'diff_text', 'json_tool', 'dispatch_subagent', 'generate_image', 'get_current_time', 'analyze_image', 'remember']) {
     assert.ok(off.includes(n), `${n} 与代码执行无关，关沙箱也要可用`);
   }
 });
@@ -3032,6 +3032,18 @@ test('memory：压缩摘要蒸馏为跨会话事实，去重封顶', async () =>
   assert.match(block, /Persistent Memory/);
   const dup = mem.upsertFacts(facts, facts);
   assert.equal(dup.length, facts.length, '相同事实去重');
+  let bag = [];
+  const { executeTool } = await import('../js/tools.js');
+  const { createFS } = await import('../js/sandbox.js');
+  const ctx = { fs: createFS(), memory: bag, setMemory: (n) => { bag = n; } };
+  const added = await executeTool('remember', { action: 'add', fact: '用户偏好 Python 3.12 与深色主题' }, ctx);
+  ctx.memory = bag;
+  assert.match(added, /已记下/);
+  assert.equal(bag.length, 1);
+  const listed = await executeTool('remember', { action: 'list' }, ctx);
+  assert.match(listed, /Python 3.12/);
+  const gone = await executeTool('remember', { action: 'forget', fact: 'Python' }, ctx);
+  assert.match(gone, /删除 1 条/);
 });
 test('compactMessages：丢轮时带回 droppedDigest；preflight 在 50% 收紧历史工具结果', () => {
   const msgs = buildRounds(30);

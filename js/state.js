@@ -164,6 +164,8 @@ export function createStore(onChange) {
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
     messages: [], checkpoints: [], files: {}, undoBranch: null, stats: { lastMs: 0, totalMs: 0 },
+    memory: [],
+    learnedSkills: [],
   };
   state.activeSessionId = state.sessions[0].id;
 

@@ -239,6 +239,11 @@ export function createAgent(store, hooks = {}) {
   function toolCtxFor(call, turn) {
     return {
       fs,
+      memory: store.state.memory,
+      setMemory: (next) => {
+        store.state.memory = Array.isArray(next) ? next : [];
+        if (typeof store.save === 'function') store.save(true);
+      },
       apiKey: turn.apiKey,
       imageModel: turn.imageModel,
       sandboxEnabled: turn.sandboxEnabled,

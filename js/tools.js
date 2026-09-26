@@ -9,6 +9,7 @@ import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
+import { formatMemory, upsertFacts } from './memory.js';
 
 export const TOOL_DEFS = [
   {
@@ -302,6 +303,20 @@ export const TOOL_DEFS = [
         move: { type: 'boolean', description: 'true=移动（复制后删源），默认 false' },
       },
       required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'remember',
+    description:
+      '跨会话长效记忆。自行判断是否值得记下：用户偏好、身份、长期项目、明确约定。不要记本轮步骤或临时文件路径。' +
+      'action=add 写入一条短事实；forget 按关键词删除；list 列出当前记忆。记忆会在之后每个对话的系统提示里出现。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['add', 'forget', 'list'], description: 'add 记下；forget 删除匹配条目；list 查看' },
+        fact: { type: 'string', description: '一条短事实（建议 ≤160 字）。add / forget 时必填' },
+      },
+      required: ['action'],
     },
   },
   {
@@ -709,6 +724,33 @@ export async function executeTool(name, args, ctx) {
         if (args.move) fs.remove(from);
         emit({ status: 'ok', fsChange: true, note: `${from} → ${to}` });
         return args.move ? `已移动 ${from} → ${to}` : `已复制 ${from} → ${to}`;
+      }
+      case 'remember': {
+        const action = String((args && args.action) || 'add');
+        const mem = Array.isArray(ctx.memory) ? ctx.memory : [];
+        const commit = (next) => {
+          if (typeof ctx.setMemory === 'function') ctx.setMemory(next);
+        };
+        if (action === 'list') {
+          const block = formatMemory(mem) || '（尚无长效记忆）';
+          emit({ status: 'ok', note: block });
+          return block;
+        }
+        if (action === 'forget') {
+          const q = String((args && args.fact) || '').trim().toLowerCase();
+          if (q.length < 2) return 'forget 需要 fact（至少 2 个字符的关键词）。';
+          const next = mem.filter((f) => !String(f.text || f).toLowerCase().includes(q));
+          commit(next);
+          const n = mem.length - next.length;
+          emit({ status: 'ok', note: `删除 ${n} 条` });
+          return n ? `已从长效记忆删除 ${n} 条。剩余 ${next.length} 条。` : `没有匹配「${q}」的记忆。`;
+        }
+        const fact = String((args && args.fact) || '').trim();
+        if (fact.length < 8) return 'add 需要一条至少 8 个字的事实（偏好、身份、项目、约定），不要记临时步骤。';
+        const next = upsertFacts(mem, [fact]);
+        commit(next);
+        emit({ status: 'ok', note: `记下 ${next[0] && next[0].text}` });
+        return `已记下（跨会话保留，最多 20 条）：${next[0] && next[0].text}`;
       }
       case 'unzip_file': {
         const path = normalizeFsPath(args.path);
