@@ -337,7 +337,6 @@ export function mountUI(store, agent) {
     ddMenu.style.top = `${r.bottom + 6}px`;
     ddMenu.style.width = `${Math.max(r.width + 60, 260)}px`;
     ddMenu.classList.add('open');
-    setTimeout(() => ddSearch.focus(), 50);
   };
   const closeMenu = () => ddMenu.classList.remove('open');
   ddBtn.addEventListener('click', () => ddMenu.classList.contains('open') ? closeMenu() : openMenu());

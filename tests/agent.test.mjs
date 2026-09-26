@@ -1657,7 +1657,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /@keyframes sheen/);
   assert.match(homeCss, /@property --bg/);
   assert.match(homeCss, /site \.reveal/);
-  assert.match(homeCss, /@keyframes ctaKick/);
+  assert.match(homeCss, /@keyframes ctaOrbit/);
+  assert.equal(/@keyframes ctaKick/.test(homeCss), false);
+  assert.equal(/ctaPulse/.test(homeCss), false);
   assert.match(homeCss, /shot\.focus/);
   assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
   assert.equal(/explore-label[\s\S]{0,280}animation:\s*sheen/.test(homeCss), false);

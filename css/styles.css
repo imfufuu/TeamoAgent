@@ -281,7 +281,14 @@ a { color: var(--fg); }
 .sess-del svg, .sess-rename svg { width: 12px; height: 12px; display: block; }
 .sess-rename svg { width: 11px; height: 11px; }
 /* 就地改名：输入框接管标题位置，Enter 提交 / Esc 取消 */
-.sess-rename-input { width: 100%; font: inherit; font-size: 12.5px; color: var(--fg); background: var(--bg); border: 1px solid var(--fg); border-radius: 6px; padding: 1px 5px; }
+.sess-rename-input {
+  width: 100%; font: inherit; font-size: 12.5px; color: var(--fg);
+  background: transparent; border: 1px solid var(--fg); border-radius: 6px;
+  padding: 1px 5px; outline: none; box-shadow: none;
+}
+.sess-rename-input:focus, .sess-rename-input:focus-visible {
+  outline: none; box-shadow: none; border-color: var(--fg);
+}
 .sess-empty-hint { font-size: 11.5px; color: var(--fg-3); line-height: 1.7; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 9px; }
 
 .mini-btn {
