@@ -29,7 +29,7 @@ export const BUNDLED_SKILLS = [
     body: [
       '## Skill: sandbox-compute',
       '- 计算、数据处理、算法验证：用 execute_javascript / execute_python / execute_cpp，以工具结果为准。',
-      '- 需要落盘的中间结果 write_file；读已有文件再算。沙箱关闭时不要假装执行过。',
+      '- 需要落盘的中间结果 write_file；读已有文件再算。对拍用 diff_text，搜引用用 search_files。沙箱关闭时不要假装执行过。',
       '- 互不依赖的只读步骤（read_file / list_files）可同一轮并行发出。',
     ].join('\n'),
   },

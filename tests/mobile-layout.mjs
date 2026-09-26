@@ -30,7 +30,7 @@ catch { console.log('⏭  tests/mobile-layout.mjs 跳过：未安装 puppeteer�
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.woff2': 'font/woff2' };
 const server = http.createServer((req, res) => {
   const url = decodeURIComponent(req.url.split('?')[0]);
-  let p = path.join(ROOT, url === '/' ? 'index.html' : url);
+  let p = path.join(ROOT, url === '/' ? 'app.html' : url);
   if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end('nf'); return; }
   res.writeHead(200, { 'content-type': MIME[path.extname(p)] || 'application/octet-stream' });
   fs.createReadStream(p).pipe(res);
@@ -107,7 +107,7 @@ const tick = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function seed(page) {
   // TEAMO_AUDIT_URL=https://imfufuu.github.io/TeamoAgent/ 可对线上站点跑同一套测量
-  const target = (process.env.TEAMO_AUDIT_URL || `http://127.0.0.1:${PORT}/index.html`).replace(/\/$/, '/index.html');
+  const target = (process.env.TEAMO_AUDIT_URL || `http://127.0.0.1:${PORT}/app.html`).replace(/\/$/, '/app.html');
   await page.goto(target, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#composer-input', { timeout: 15000 });
   // 首次运行会弹 API Key 弹窗（localStorage 里没 key 时）：关掉它再测，否则量到的是遮罩层

@@ -18,7 +18,7 @@ try {
   process.exit(0);
 }
 
-const dom = new JSDOM(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8'), { url: 'http://localhost:8000/', pretendToBeVisual: true });
+const dom = new JSDOM(fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8'), { url: 'http://localhost:8000/', pretendToBeVisual: true });
 const { window } = dom;
 for (const k of ['document', 'window', 'location', 'navigator', 'HTMLElement', 'Element', 'Node', 'CustomEvent', 'Event', 'MouseEvent', 'KeyboardEvent', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'URL', 'Blob', 'FormData', 'File', 'TextEncoder']) {
   if (window[k] !== undefined) globalThis[k] = window[k];
@@ -178,7 +178,7 @@ const cfg = await import(path.join(ROOT, 'js/config.js'));
 ok('main.js 完成挂载（顶栏与对话区就绪）', !!$('#messages') && !!$('#composer-input') && !!$('#send-btn'));
 ok(`侧栏构建标识 = Teamo ${cfg.APP_RELEASE} 正式版 · v${cfg.APP_VERSION}`,
   $('#build-stamp').textContent === `Teamo ${cfg.APP_RELEASE} 正式版 · v${cfg.APP_VERSION}`, $('#build-stamp').textContent);
-const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const htmlSrc = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
 ok('入口样式/脚本带 ?v=（穿透 Pages 静态资源缓存）', htmlSrc.includes(`css/styles.css?v=${cfg.APP_VERSION}`) && htmlSrc.includes(`js/main.js?v=${cfg.APP_VERSION}`));
 
 console.log('\n空状态：随机三条任务示例');

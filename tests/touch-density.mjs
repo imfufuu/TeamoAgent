@@ -39,7 +39,7 @@ let base = process.env.TEAMO_TOUCH_URL || '';
 if (!base) {
   server = http.createServer((q, r) => {
     const u = decodeURIComponent(String(q.url).split('?')[0]);
-    const f = path.join(ROOT, u === '/' ? 'index.html' : u);
+    const f = path.join(ROOT, u === '/' ? 'app.html' : u);
     if (!fs.existsSync(f) || fs.statSync(f).isDirectory()) { r.writeHead(404); r.end(); return; }
     r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'application/octet-stream' });
     fs.createReadStream(f).pipe(r);

@@ -1,7 +1,7 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **当前版本：Teamo V1.1 正式版**（构建 `2026.9.26.1`）
-> 线上地址：https://imfufuu.github.io/TeamoAgent/ —— 页面上三处能看到版本：侧栏 Logo 旁的 `V1.1` 徽章、侧栏底部的「Teamo V1.1 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
+> **当前版本：Teamo V1.1 正式版**（构建 `2026.9.26.2`）
+> 线上地址：https://imfufuu.github.io/TeamoAgent/ 为产品介绍；对话在 [app.html](./app.html)。侧栏 Logo 旁的 `V1.1` 徽章、底部「Teamo V1.1 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
 > V1.1 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
 
 黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 模型原生联网检索 · 输出用时与 token 统计 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。

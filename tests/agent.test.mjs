@@ -459,7 +459,7 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.equal(r.normalizeReasoningLevel('MAX'), 'max');
   assert.equal(r.normalizeReasoningLevel('nope'), 'medium');
   const fsp = await import('node:fs');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.match(html, /id="think-menu"/);
   assert.match(ui, /REASONING_LEVELS/);
@@ -1514,11 +1514,11 @@ test('示例池覆盖多类能力且文案不重复', () => {
   const texts = sg.SUGGESTIONS.map((x) => x.text);
   const titles = sg.SUGGESTIONS.map((x) => x.title);
   assert.equal(new Set(texts).size, texts.length, '存在重复文案');
-  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length <= 16 && x.text && x.text.length > x.title.length), '每条应有短主题 + 更长的完整提示词');
+  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length >= 18 && x.title.length <= 32 && x.text && x.text.length >= 140), '卡片 20–30 字概括，填入约 200 字提示');
   assert.equal(new Set(titles).size, titles.length, '短主题重复');
   assert.ok(sg.SUGGESTIONS.every((x) => x.tag === undefined), '示例条目不应再带 tag（任务类型标签已移除）');
   const joined = sg.SUGGESTIONS.map((x) => x.text).join('\n');
-  for (const kw of ['沙箱', '插画', 'zip', 'Python', 'quicksort']) {
+  for (const kw of ['沙箱', '海报', 'zip', 'Python', 'LRU']) {
     assert.ok(joined.includes(kw), `示例应覆盖「${kw}」`);
   }
   assert.equal(joined.includes('code-reviewer'), false);
@@ -1535,7 +1535,7 @@ test('pickSuggestions：随机 3 条、不重复', () => {
     picks.forEach((x) => seen.add(x.text));
   }
   assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
-  assert.equal(sg.SUGGESTIONS[0].title, '斐波那契里的质数');
+  assert.equal(sg.SUGGESTIONS[0].title, '用 Python 做线性回归并写出带残差表的报告');
   const first = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
   const second = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd, first.map((x) => x.text));
   assert.equal(second.some((x) => first.some((y) => y.text === x.text)), false, 'exclude 应避开上一批');
@@ -1598,9 +1598,9 @@ test('UI 钩子抛错或缺失，都不能打断对话循环', async () => {
     globalThis.fetch = origFetch;
   }
 });
-test('index.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => {
+test('app.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => {
   const fsp = await import('node:fs');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const { APP_VERSION } = await import('../js/config.js');
   assert.match(APP_VERSION, /^\d{4}\.\d{1,2}\.\d{1,2}\.\d+$/, '版本形如 2026.9.26.1');
   for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
@@ -1609,9 +1609,19 @@ test('index.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () =
     assert.equal(m[1], APP_VERSION, '?v= 必须与 APP_VERSION 同步（发版一起 bump）');
   }
   assert.match(html, /id="build-stamp"/, '侧栏要有可见的构建标识');
-  // 模块间 import 不带版本（无构建器），因此必须靠 emit() 兜住混版 —— 见上一条用例
   const mainSrc = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
   assert.match(mainSrc, /ui && ui\.onUserMessage\(msg\)/, 'main.js 仍显式接上用户消息上屏');
+});
+test('index.html 是产品介绍页并跳转到 app.html', async () => {
+  const fsp = await import('node:fs');
+  const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const { APP_VERSION } = await import('../js/config.js');
+  assert.equal(home.includes('id="messages"'), false, '落地页不应再挂对话 DOM');
+  assert.match(home, /href="\.\/app\.html"/);
+  assert.match(home, /css\/home\.css\?v=/);
+  const m = /css\/home\.css\?v=([\d.]+)/.exec(home);
+  assert.equal(m[1], APP_VERSION);
+  assert.match(home, /开始对话|进入对话/);
 });
 
 
@@ -1622,7 +1632,7 @@ test('toolsFor：关闭沙箱只摘掉三个代码执行工具', async () => {
   const on = toolsFor(true).map((t) => t.name);
   assert.deepEqual(on, TOOL_DEFS.map((t) => t.name), '开启时应是全部工具');
   for (const n of CODE_TOOL_NAMES) assert.ok(!off.includes(n), `${n} 应被关掉`);
-  for (const n of ['write_file', 'read_file', 'list_files', 'dispatch_subagent', 'generate_image', 'get_current_time', 'analyze_image']) {
+  for (const n of ['write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'search_files', 'diff_text', 'json_tool', 'dispatch_subagent', 'generate_image', 'get_current_time', 'analyze_image']) {
     assert.ok(off.includes(n), `${n} 与代码执行无关，关沙箱也要可用`);
   }
 });
@@ -1631,6 +1641,32 @@ test('executeTool：沙箱关闭时拒绝执行代码（未显式关闭的旧调
   assert.match(r, /沙箱已关闭/, '应给出可纠错的说明而不是悄悄执行');
   const legacy = await executeTool('list_files', {}, { fs: createFS({ 'a.txt': 'x' }) });
   assert.match(legacy, /a\.txt/, 'ctx 未标 sandboxEnabled 时不应误伤');
+});
+test('search_files / diff_text / json_tool / copy_file / delete_file 本地工作台', async () => {
+  const fs = createFS({
+    'src/a.js': 'const n = 42;\nexport function add(a, b) { return a + b; }\n',
+    'src/b.js': 'const n = 43;\nexport function add(a, b) { return a + b; }\n',
+    'data.json': '{"models":["claude-sonnet-5"],"thinking":false}',
+  });
+  const hit = await executeTool('search_files', { pattern: 'const n = 42' }, { fs });
+  assert.match(hit, /src\/a\.js/);
+  const d = await executeTool('diff_text', { left_path: 'src/a.js', right_path: 'src/b.js' }, { fs });
+  assert.match(d, /^-const n = 42/m);
+  assert.match(d, /^\+const n = 43/m);
+  const pretty = await executeTool('json_tool', { action: 'pretty', path: 'data.json' }, { fs });
+  assert.match(pretty, /"thinking": false/);
+  const got = await executeTool('json_tool', { action: 'get', path: 'data.json', pointer: 'models.0' }, { fs });
+  assert.match(got, /claude-sonnet-5/);
+  const copied = await executeTool('copy_file', { from: 'data.json', to: 'backup/data.json' }, { fs });
+  assert.match(copied, /已复制/);
+  assert.equal(fs.read('backup/data.json').includes('thinking'), true);
+  const moved = await executeTool('copy_file', { from: 'backup/data.json', to: 'keep.json', move: true }, { fs });
+  assert.match(moved, /已移动/);
+  let gone = false;
+  try { fs.read('backup/data.json'); } catch { gone = true; }
+  assert.equal(gone, true);
+  const del = await executeTool('delete_file', { path: 'keep.json' }, { fs });
+  assert.match(del, /已删除/);
 });
 test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体退化成纯推理', async () => {
   const { subagentTools } = await import('../js/agent.js');
@@ -2552,7 +2588,7 @@ test('Agent 回合：联网来源写进消息（切会话后还在），提示�
 group('工具层：抓取与 git 工具的对外契约');
 test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
   const byName = Object.fromEntries(TOOL_DEFS.map((t) => [t.name, t]));
-  for (const n of ['fetch_url', 'run_git']) assert.ok(byName[n], `缺少工具 ${n}`);
+  for (const n of ['fetch_url', 'run_git', 'search_files', 'diff_text', 'json_tool', 'delete_file', 'copy_file']) assert.ok(byName[n], `缺少工具 ${n}`);
   assert.ok(!byName.web_search, '不能再有 web_search 工具');
   assert.ok(byName.analyze_image, '识图工具');
   assert.ok(byName.write_file.parameters.properties.mode);
@@ -2947,7 +2983,7 @@ test('fmtMB / filesCountLabel：一位小数 MB，空沙箱仍显示 0.0MB/120.0
 });
 test('index.html 附件 accept 含 PDF 与 ZIP；提示词说明转图片再识别', async () => {
   const fsp = await import('node:fs');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.ok(html.includes('application/pdf') && html.includes('.pdf'), 'attach-input accept 应含 PDF');
   assert.ok(html.includes('application/zip') && html.includes('.zip'), 'accept 应含 ZIP');
   const sys = cfg.systemPrompt();
@@ -2959,8 +2995,8 @@ test('index.html 附件 accept 含 PDF 与 ZIP；提示词说明转图片再识�
 test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAMOAGENT', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.match(html, /class="logo-text">TEAMO<i>AGENT<\/i>/);
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(html, /class="logo-text"[^>]*>TEAMO<i>AGENT<\/i>/);
   const logo = css.slice(css.indexOf('.logo-text {'), css.indexOf('.logo-text i'));
   assert.equal(/text-overflow:\s*ellipsis/.test(logo), false, '品牌名不得裁成省略号');
   assert.match(css, /\.logo-text \{[^}]*flex-shrink:\s*0/);
@@ -2984,7 +3020,7 @@ test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
 });
 test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
   const fsp = await import('node:fs');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const top = html.slice(html.indexOf('class="topbar"'), html.indexOf('class="messages"'));
   assert.match(top, /id="sidebar-fab"/, '汉堡必须在顶栏内，和本轮/思考并排而不是盖上去');
@@ -2998,7 +3034,7 @@ test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', 
 test('窄屏沙箱面板自底部全屏滑入，面板内关闭键可收回', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /#panel-close/, '面板内要有关闭键');
   assert.match(html, /id="panel-close"/);
@@ -3013,7 +3049,7 @@ test('模型列表不再标「原生」；底部提示为 AI 生成免责声明'
   assert.equal(/badge ghost">原生/.test(ui), false, 'Claude 行不应再挂「原生」标签');
   assert.match(ui, /badge hot">热门/);
   assert.match(ui, /badge cheap">低价/);
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(html, /内容由AI生成，请仔细甄别/);
   assert.equal(html.includes('网关提供路由'), false);
   assert.equal(html.includes('Claude 走'), false);
@@ -3096,7 +3132,7 @@ test('侧栏与沙箱面板共用 860 断点，避免中间宽度错位', async 
 test('代码块语言在左侧、复制始终可见；用户气泡反色链接', async () => {
   const fsp = await import('node:fs');
   const hl = fsp.readFileSync(new URL('../assets/hljs/teamo.css', import.meta.url), 'utf8');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.match(hl, /\.code-head/);
   assert.match(hl, /\.copy-code \{[\s\S]*opacity:\s*1/);
@@ -3138,7 +3174,7 @@ test('命令面板过滤与 token 构成', async () => {
 test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空是危险色；占用条上限 120MB', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /chip-ok/);
   assert.match(ui, /chip-fail/);

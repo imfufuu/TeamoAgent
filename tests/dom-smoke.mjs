@@ -17,7 +17,7 @@ try {
   process.exit(0);
 }
 
-const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const html = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
 const dom = new JSDOM(html, { url: 'http://localhost:8000/', pretendToBeVisual: true });
 const { window } = dom;
 
@@ -426,7 +426,7 @@ console.log('\n⑫ 联网开关（原生网页搜索已下线）');
 
 console.log('\n⑬ 余额显示已删除');
 {
-  const html2 = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const html2 = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
   ok('markup 里没有 balance-badge', !/balance-badge/.test(html2));
   ok('UI 源码不再请求余额接口', !/fetchBalance|\/api\/user\/self/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
   const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
@@ -446,7 +446,7 @@ console.log('\n⑭ 欢迎页在 y 轴居中');
 console.log('\n⑮ 版本漂移自检（硬刷新前就能发现缓存不一致）');
 {
   const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
-  ok('入口自带 app-version meta', /<meta name="app-version" content="([\d.]+)"/.test(fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8')));
+  ok('入口自带 app-version meta', /<meta name="app-version" content="([\d.]+)"/.test(fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8')));
   ok('UI 比对入口版本与模块版本并提示', /meta\[name="app-version"\]/.test(uiSrc) && /资源缓存不一致|缓存不一致/.test(uiSrc));
   ok('侧栏版本号仍然显示', $('#build-stamp').textContent.includes(cfgMod2.APP_VERSION), $('#build-stamp').textContent);
 }
@@ -482,7 +482,7 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   ok('刷新模型按钮只转箭头（不转整个按钮）', /\.icon-btn\.spin svg\s*\{[^}]*animation: spin/.test(css) && !/\.icon-btn\.spin\s*\{\s*animation/.test(css));
   ok('芯片完成时打上 .done', /classList\.add\('done'\)/.test(uiSrc));
   // 图例统一：按钮里不许再出现图形字符（用户明确要求「SVG + 中文，不要 emoji/字符图形」）
-  const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  const htmlSrc = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
   ok('顶栏/侧栏按钮图标全是 SVG（没有 ⟳ ⟨ ☰ ✕ 这类字符）', !/[\u27F3\u27E8\u2630\u2715\u21BB\u2699]/.test(htmlSrc) && /refresh-models[^>]*>\s*<svg/.test(htmlSrc)
     && /sidebar-toggle[^>]*>\s*<svg/.test(htmlSrc) && /sidebar-fab[^>]*>\s*<svg/.test(htmlSrc));
   // 顶栏 pill 的反色选中态必须与 :hover 写在同一条规则里：分开写时 .pill:hover:not(:disabled)

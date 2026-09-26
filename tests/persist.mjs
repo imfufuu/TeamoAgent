@@ -62,7 +62,7 @@ let base = REMOTE;
 if (!base) {
   server = http.createServer((q, r) => {
     const u = decodeURIComponent(String(q.url).split('?')[0]);
-    const file = path.join(ROOT, u === '/' ? 'index.html' : u);
+    const file = path.join(ROOT, u === '/' ? 'app.html' : u);
     if (!fs.existsSync(file) || fs.statSync(file).isDirectory()) { r.writeHead(404); r.end(); return; }
     r.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(r);

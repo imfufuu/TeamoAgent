@@ -8,6 +8,7 @@ import { fetchPage, gitRun } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
+import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 
 export const TOOL_DEFS = [
   {
@@ -240,6 +241,67 @@ export const TOOL_DEFS = [
         timeout_sec: { type: 'integer', description: '超时秒数，默认 25，最大 120' },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'search_files',
+    description: '在沙箱文件正文里按 JavaScript 正则搜索（跳过 data URL 图片）。返回路径、行号与片段。写完代码要核对字符串、或在多文件里找引用时用，不要口搜。',
+    parameters: {
+      type: 'object',
+      properties: {
+        pattern: { type: 'string', description: '正则源码，不要写成 /foo/g' },
+        flags: { type: 'string', description: 'gimsuvyd，可空' },
+        prefix: { type: 'string', description: '可选：只搜以此路径前缀开头的文件' },
+      },
+      required: ['pattern'],
+    },
+  },
+  {
+    name: 'diff_text',
+    description: '对比两段文本或两个沙箱文件，输出 unified diff（+ / -）。改配置、改代码前后用它，不要手数行差。',
+    parameters: {
+      type: 'object',
+      properties: {
+        left: { type: 'string', description: '左侧文本；若给 left_path 则可省略' },
+        right: { type: 'string', description: '右侧文本；若给 right_path 则可省略' },
+        left_path: { type: 'string', description: '可选：从沙箱读左侧' },
+        right_path: { type: 'string', description: '可选：从沙箱读右侧' },
+      },
+    },
+  },
+  {
+    name: 'json_tool',
+    description: '本地 JSON：pretty 格式化、parse 压缩、keys 列出顶层键、get 按点路径取值（a.b[0]）。不要为这点事开沙箱。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['pretty', 'parse', 'keys', 'get'], description: '默认 pretty' },
+        text: { type: 'string', description: 'JSON 文本；也可配合 path 从沙箱读' },
+        path: { type: 'string', description: '沙箱文件路径，或 get 时的对象路径（a.b.0）' },
+        pointer: { type: 'string', description: 'get 时的点路径，如 models.0 或 user.name' },
+      },
+    },
+  },
+  {
+    name: 'delete_file',
+    description: '从会话虚拟文件系统删除一个文件。不可恢复，删除前确认路径。',
+    parameters: {
+      type: 'object',
+      properties: { path: { type: 'string', description: '要删除的沙箱路径' } },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'copy_file',
+    description: '在沙箱内复制或移动文件。move=true 时复制后删除源路径。',
+    parameters: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: '源路径' },
+        to: { type: 'string', description: '目标路径' },
+        move: { type: 'boolean', description: 'true=移动（复制后删源），默认 false' },
+      },
+      required: ['from', 'to'],
     },
   },
   {
@@ -607,6 +669,46 @@ export async function executeTool(name, args, ctx) {
         emit({ status: 'ok', fsChange: true, editedPath: out, note: `已打包 ${entries.length} → ${out}` });
         const miss = missing.length ? `\n未找到：${missing.join('、')}` : '';
         return `已写入 ${out}（${entries.length} 个文件，${buf.length} 字节）${miss}`;
+      }
+      case 'search_files': {
+        const r = searchFiles(fs, args || {});
+        emit({ status: r.ok ? 'ok' : 'error', note: r.ok ? `${(r.hits || []).length} 处` : r.error });
+        return r.ok ? formatSearch(r) : `search_files 失败：${r.error}`;
+      }
+      case 'diff_text': {
+        const L = args.left_path ? readToolText({ path: args.left_path }, fs) : { text: args.left, label: 'a' };
+        const R = args.right_path ? readToolText({ path: args.right_path }, fs) : { text: args.right, label: 'b' };
+        if (L.error) return `diff_text 失败：${L.error}`;
+        if (R.error) return `diff_text 失败：${R.error}`;
+        const r = diffText(L.text, R.text, { from: L.label || args.left_path || 'a', to: R.label || args.right_path || 'b' });
+        emit({ status: 'ok', note: `+${r.plus} -${r.minus}` });
+        return r.text;
+      }
+      case 'json_tool': {
+        const src = args.path && !args.text ? readToolText({ path: args.path }, fs) : { text: args.text, label: 'text' };
+        if (src.error) return `json_tool 失败：${src.error}`;
+        const r = jsonTool({ action: args.action, text: src.text, path: args.pointer || (args.action === 'get' ? args.path : '') });
+        emit({ status: r.ok ? 'ok' : 'error' });
+        return r.ok ? r.text : `json_tool 失败：${r.error}`;
+      }
+      case 'delete_file': {
+        const path = normalizeFsPath(args.path);
+        if (!path) return 'delete_file 失败：非法 path';
+        try { fs.read(path); } catch { return `delete_file 失败：找不到 ${args.path}`; }
+        fs.remove(path);
+        emit({ status: 'ok', fsChange: true, note: path });
+        return `已删除 ${path}`;
+      }
+      case 'copy_file': {
+        const from = normalizeFsPath(args.from);
+        const to = normalizeFsPath(args.to);
+        if (!from || !to) return 'copy_file 失败：非法路径';
+        let raw;
+        try { raw = fs.read(from); } catch { return `copy_file 失败：找不到 ${args.from}`; }
+        fs.write(to, raw);
+        if (args.move) fs.remove(from);
+        emit({ status: 'ok', fsChange: true, note: `${from} → ${to}` });
+        return args.move ? `已移动 ${from} → ${to}` : `已复制 ${from} → ${to}`;
       }
       case 'unzip_file': {
         const path = normalizeFsPath(args.path);

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.1';
-export const APP_VERSION = '2026.9.26.1';
+export const APP_VERSION = '2026.9.26.2';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -231,7 +231,8 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。沙箱内提供 console（输出会被捕获）与 files 对象（虚拟文件系统，可直接读写键值，改动会同步回文件列表），支持顶层 await。适合计算、数据处理、算法验证。',
     '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip），已装库刷新页面后仍会重装。将结果赋给 result 可被捕获。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
-    '- write_file / read_file / list_files：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。',
+    '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
+    '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP（zip_files 写入 archives/ 等路径；unzip_file 解到指定目录）。用户上传的 .zip 会自动解开。',
     '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
