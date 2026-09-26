@@ -292,6 +292,8 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 prepareReveal();
 
+const gateSkip = document.getElementById('gate-skip');
+
 if (reduce) {
   openSite(true);
 } else {
@@ -300,4 +302,20 @@ if (reduce) {
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
   explore && explore.addEventListener('click', startFilm);
   skip && skip.addEventListener('click', skipFilm);
+  gateSkip && gateSkip.addEventListener('click', () => openSite(true));
+  window.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (root.classList.contains('gate')) {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        startFilm();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        openSite(true);
+      }
+    } else if (root.classList.contains('scoring') && !root.classList.contains('leaving') && e.key === 'Escape') {
+      e.preventDefault();
+      skipFilm();
+    }
+  });
 }

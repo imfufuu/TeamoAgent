@@ -56,30 +56,136 @@ html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181
   position: fixed; inset: 0; z-index: 60;
   display: grid; place-items: center;
   background: var(--bg);
+  overflow: hidden;
+}
+.gate-sky {
+  position: absolute; inset: 0; pointer-events: none;
+  display: grid; place-items: center;
+}
+.gate-orbit {
+  position: absolute; border: 1px dashed var(--line); border-radius: 50%;
+  animation: gateSpin 36s linear infinite;
+}
+.gate-orbit.o1 { width: min(42vw, 240px); height: min(42vw, 240px); }
+.gate-orbit.o2 { width: min(58vw, 340px); height: min(58vw, 340px); animation-duration: 52s; animation-direction: reverse; opacity: .7; }
+.gate-orbit.o3 { width: min(76vw, 460px); height: min(76vw, 460px); animation-duration: 72s; opacity: .45; }
+.gate-orbit i {
+  position: absolute; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--fg); opacity: .4;
+  top: 0; left: 50%; transform: translate(-50%, -50%);
+}
+.gate-orbit.o2 i:last-child { top: 100%; opacity: .22; }
+@keyframes gateSpin { to { transform: rotate(360deg); } }
+.gate-stage {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column; align-items: center;
+  gap: 18px; padding: 28px 20px 36px; text-align: center;
+  max-width: 520px;
+}
+.gate-kicker, .explore, .explore-guide, .gate-beats, .gate-keys, .gate-bypass {
+  animation: gateIn .9s var(--film) both;
+}
+.gate-kicker { animation-delay: .04s; }
+.explore { animation-delay: .12s; }
+.explore-guide { animation-delay: .22s; }
+.gate-beats { animation-delay: .32s; }
+.gate-keys { animation-delay: .42s; }
+.gate-bypass { animation-delay: .5s; }
+@keyframes gateIn {
+  from { opacity: 0; transform: translate3d(0, 16px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.gate-kicker {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .2em;
+  text-transform: uppercase; color: var(--fg-3);
 }
 .explore {
   appearance: none; background: none; border: 0; cursor: pointer;
   color: var(--fg); display: flex; flex-direction: column; align-items: center;
-  gap: 14px; padding: 28px 24px; position: relative;
+  gap: 14px; padding: 8px 12px 4px; position: relative;
 }
 .explore-mark {
-  width: 72px; height: 72px; display: grid; place-items: center;
+  width: 84px; height: 84px; display: grid; place-items: center;
   border: 1px solid var(--line); border-radius: 50%;
+  position: relative;
+  transition: border-color .35s var(--film), transform .35s var(--film);
 }
-.explore-mark svg { width: 36px; height: 36px; display: block; animation: halfspin 8s linear infinite; transform-origin: 50% 50%; }
+.explore-mark::after {
+  content: ""; position: absolute; inset: -12px; border-radius: 50%;
+  border: 1px solid var(--line);
+  animation: gatePulse 2.8s var(--ease) infinite;
+}
+@keyframes gatePulse {
+  0% { transform: scale(.88); opacity: .55; }
+  70% { transform: scale(1.18); opacity: 0; }
+  100% { opacity: 0; }
+}
+.explore-mark svg { width: 40px; height: 40px; display: block; animation: halfspin 8s linear infinite; transform-origin: 50% 50%; }
 .explore-word {
   font-weight: 500; letter-spacing: .14em; font-size: 13px;
 }
 .explore-word i { font-style: normal; color: var(--fg-3); }
 .explore-label {
-  font-family: var(--serif); font-size: clamp(26px, 4.6vw, 40px); font-weight: 500;
+  font-family: var(--serif); font-size: clamp(28px, 5vw, 44px); font-weight: 500;
   letter-spacing: -.02em;
 }
-.explore-meta {
+.explore-cta {
+  display: inline-flex; align-items: center; gap: 8px;
   font-family: var(--mono); font-size: 11px; letter-spacing: .16em;
-  text-transform: uppercase; color: var(--fg-3);
+  text-transform: uppercase; color: var(--fg-2);
 }
-.explore:hover .explore-mark { border-color: var(--fg); }
+.explore-play {
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line); display: grid; place-items: center;
+}
+.explore-play::after {
+  content: ""; width: 0; height: 0;
+  border-style: solid; border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--fg);
+  margin-left: 2px;
+}
+.explore:hover .explore-mark, .explore:focus-visible .explore-mark {
+  border-color: var(--fg); transform: scale(1.04);
+}
+.explore:focus-visible { outline: 2px solid var(--fg); outline-offset: 8px; }
+.explore-guide {
+  color: var(--fg-2); font-size: 14px; line-height: 1.65;
+  max-width: 34em;
+}
+.gate-beats {
+  list-style: none; display: flex; flex-wrap: wrap; justify-content: center;
+  gap: 8px 18px; padding: 4px 0 0;
+}
+.gate-beats li {
+  display: flex; align-items: baseline; gap: 8px;
+  font-size: 13px; color: var(--fg-2);
+}
+.gate-beats b {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .12em;
+  color: var(--fg-3); font-weight: 500;
+}
+.gate-keys {
+  font-size: 12px; color: var(--fg-3); letter-spacing: .04em;
+}
+.gate-keys kbd {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  border: 1px solid var(--line); border-bottom-width: 2px;
+  border-radius: 5px; padding: 2px 6px; color: var(--fg-2);
+}
+.gate-bypass {
+  appearance: none; background: none; border: 0; cursor: pointer;
+  color: var(--fg-3); font: inherit; font-size: 13px;
+  text-decoration: underline; text-underline-offset: 4px;
+  padding: 8px 4px;
+}
+.gate-bypass:hover, .gate-bypass:focus-visible { color: var(--fg); }
+html.gate .glow {
+  animation: gateGlow 8s var(--ease) infinite alternate;
+}
+@keyframes gateGlow {
+  from { transform: translateX(-50%) scale(1); opacity: .85; }
+  to { transform: translateX(-46%) scale(1.08); opacity: 1; }
+}
 .curtain {
   position: fixed; inset: 0; z-index: 90; pointer-events: none;
   opacity: 0; background: #000;
@@ -488,6 +594,8 @@ footer a { color: inherit; }
   .cta-block { padding: 72px 18px; }
   .letterbox { box-shadow: inset 0 6vh #050505, inset 0 -11vh #050505; }
   .billboard, .film-skip { height: 11vh; }
+  .gate-stage { padding: 20px 16px 28px; gap: 14px; }
+  .explore-label { font-size: clamp(24px, 8vw, 36px); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }

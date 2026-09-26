@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.9.26.15" />
+<meta name="app-version" content="2026.9.26.16" />
 <meta name="app-release" content="V1.1" />
 <meta name="description" content="TeamoAgent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>TeamoAgent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.9.26.15" />
+<link rel="stylesheet" href="css/home.css?v=2026.9.26.16" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -17,14 +17,30 @@
 <audio id="home-audio" src="assets/audio/teamo-home.mp3" preload="auto" playsinline></audio>
 
 <div class="gate" id="gate">
-  <button type="button" id="explore" class="explore" aria-label="开始探索">
-    <span class="explore-mark" aria-hidden="true">
-      <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>
-    </span>
-    <span class="explore-word">TEAMO<i>AGENT</i></span>
-    <span class="explore-label">开始探索</span>
-    <span class="explore-meta">V1.1 · 网页端智能体</span>
-  </button>
+  <div class="gate-sky" aria-hidden="true">
+    <span class="gate-orbit o1"><i></i></span>
+    <span class="gate-orbit o2"><i></i><i></i></span>
+    <span class="gate-orbit o3"><i></i></span>
+  </div>
+  <div class="gate-stage">
+    <p class="gate-kicker">Web Agent · 约 48 秒</p>
+    <button type="button" id="explore" class="explore" aria-label="开始探索，播放产品介绍片">
+      <span class="explore-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>
+      </span>
+      <span class="explore-word">TEAMO<i>AGENT</i></span>
+      <span class="explore-label">开始探索</span>
+      <span class="explore-cta"><span class="explore-play" aria-hidden="true"></span>播放介绍片</span>
+    </button>
+    <p class="explore-guide">沙箱跑代码、工作区落盘、出图与思考档。片中随时可跳过。</p>
+    <ul class="gate-beats">
+      <li><b>01</b><span>隔离沙箱</span></li>
+      <li><b>02</b><span>文件带走</span></li>
+      <li><b>03</b><span>思考五档</span></li>
+    </ul>
+    <p class="gate-keys"><kbd>Enter</kbd> 开片　<kbd>Esc</kbd> 跳过</p>
+    <button type="button" class="gate-bypass" id="gate-skip">跳过片头，直接看介绍</button>
+  </div>
 </div>
 <div class="curtain" id="curtain" aria-hidden="true"></div>
 
@@ -275,10 +291,10 @@ RMSE = 0.5831
 </main>
 
 <footer>
-  <span>TeamoAgent V1.1 · 构建 2026.9.26.15</span>
+  <span>TeamoAgent V1.1 · 构建 2026.9.26.16</span>
   <a href="./app.html">对话</a>
 </footer>
 </div>
-<script type="module" src="js/home.js?v=2026.9.26.15"></script>
+<script type="module" src="js/home.js?v=2026.9.26.16"></script>
 </body>
 </html>
