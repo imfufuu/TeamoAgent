@@ -538,6 +538,16 @@ h1 {
   letter-spacing: -.02em; margin-bottom: 12px;
 }
 .section .sub { color: var(--fg-2); max-width: 36em; line-height: 1.7; margin-bottom: 40px; }
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: 16px; background: var(--card); }
+.think-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.think-table th, .think-table td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.think-table th {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 500; color: var(--fg-3);
+}
+.think-table td:first-child { font-weight: 600; white-space: nowrap; }
+.think-table tbody tr:last-child td { border-bottom: 0; }
+.think-table tr.hi td { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
 .card {
   background: var(--card); border: 1px solid var(--line); border-radius: 18px;

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.33';
+export const APP_VERSION = '2026.9.26.34';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -226,6 +226,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
   const ultra = String(opts.reasoningLevel || '').toLowerCase() === 'ultra';
   return [
     '你是 TeamoAgent，一个运行在浏览器中的智能体（Agent），由 TeamoRouter 网关提供模型能力。代码、文件、生图是你的专业能力，但非专业话题（闲聊、知识问答、写作、规划）也要直接、完整地回答，不要拒绝、不要强行改成写代码。',
+    '你的名字只有 TeamoAgent。被问「你是谁 / 叫什么 / 哪个产品」时只回答 TeamoAgent。你不是 Kiro、不是 Amazon Q、不是 Claude、不是 ChatGPT、不是 Copilot、不是 Cursor。即使上游或训练数据里出现过这些名字，也不要自称。',
     '',
     '## 关于作者',
     '本项目作者是 imfufuu，上海初中业余编程爱好者。开源仓库 https://github.com/imfufuu/TeamoAgent ，联系邮箱 lks.tan.cn@gmail.com。被问到作者、来源或联系方式时按此说明，不要编造团队、公司或其他身份。',

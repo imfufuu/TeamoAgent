@@ -346,7 +346,7 @@ function prepareReveal() {
   if (reduce) return;
   const site = document.querySelector('.site');
   if (!site) return;
-  const sels = ['.hero > div', '.stat', '.section h2', '.section .sub', '.card', '.steps li', '.panel-preview', '.chip', '.faq details', '.honesty li', '.cta-block h2', '.cta-block p', '.cta-block .cta', 'footer'];
+  const sels = ['.hero > div', '.stat', '.section h2', '.section .sub', '.card', '.think-table', '.steps li', '.panel-preview', '.chip', '.faq details', '.honesty li', '.cta-block h2', '.cta-block p', '.cta-block .cta', 'footer'];
   let i = 0;
   for (const sel of sels) {
     site.querySelectorAll(sel).forEach((el) => {

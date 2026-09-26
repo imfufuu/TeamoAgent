@@ -1025,9 +1025,11 @@ export function mountUI(store, agent) {
     wrap.dataset.id = m.id;
     if (m.role === 'user') {
       wrap.innerHTML = `<div class="bubble md-body">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
+        <div class="msg-user-bar">
         ${m.jev && m.jev.summary ? `<div class="jev-chip" title="TypeSafe Jev 对本轮的校准分类">Jev · ${esc(m.jev.summary)}</div>` : ''}
         <div class="msg-actions msg-actions-user">
           <button class="act" data-act="copy" title="复制这条消息">${ICON.copy || ''}<span>复制</span></button>
+        </div>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.act === 'copy') {
@@ -1239,7 +1241,7 @@ export function mountUI(store, agent) {
       if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
       meta.innerHTML = parts.join(' · ');
       const tb = $('.tok-btn', meta);
-      if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(); });
+      if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(tb); });
     }
     paintFoot(wrap, m);
     // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
@@ -1470,30 +1472,57 @@ export function mountUI(store, agent) {
   }
 
   // ── 会话统计 & 导出 ───────────────────────────────────────────────────
-  function showTokBreak() {
-    const box = $('#tok-break');
+  function hideTokPop() {
+    const pop = $('#tok-pop');
+    if (pop) pop.hidden = true;
+  }
+  function placeTokPop(anchor) {
+    const pop = $('#tok-pop');
+    if (!pop || pop.hidden) return;
+    const r = (anchor && anchor.getBoundingClientRect) ? anchor.getBoundingClientRect() : ($('#conv-stats') || {}).getBoundingClientRect?.();
+    if (!r) return;
+    const pw = pop.offsetWidth || 240;
+    const ph = pop.offsetHeight || 160;
+    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    let top = r.top - ph - 10;
+    if (top < 8) top = Math.min(window.innerHeight - ph - 8, r.bottom + 8);
+    pop.style.left = `${left}px`;
+    pop.style.top = `${top}px`;
+  }
+  function showTokBreak(anchor) {
+    const pop = $('#tok-pop');
+    const body = $('#tok-pop-body');
     const stats = $('#conv-stats');
+    if (!pop) return;
+    if (!pop.hidden) { hideTokPop(); return; }
     const sysTok = estimateTokens([{ role: 'system', text: systemPrompt(new Date(), { webEnabled: false }) }]);
     const b = tokenBreakdown(store.state.messages, estimateTokens, sysTok);
-    const line = formatTokBreak(b);
-    if (box) {
-      const hide = !box.hidden && box.textContent === line;
-      box.hidden = hide;
-      box.textContent = line;
+    const n = (x) => (x >= 1000 ? `${(x / 1000).toFixed(1)}k` : String(x || 0));
+    const rows = [
+      ['系统', b.system], ['历史', b.history], ['工具结果', b.tools], ['本轮', b.current], ['合计', b.total],
+    ];
+    if (body) {
+      body.innerHTML = rows.map(([k, v], i) => `<div class="tok-row${i === rows.length - 1 ? ' total' : ''}"><span>${k}</span><span>${n(v)}</span></div>`).join('');
     }
+    const line = formatTokBreak(b);
     if (stats) stats.title = line + '（再点一次收起）';
+    pop.hidden = false;
+    placeTokPop(anchor && anchor.nodeType ? anchor : stats);
   }
   function updateStats() {
     const msgs = store.state.messages;
     const n = msgs.filter((m) => m.role !== 'tool').length;
     const stats = $('#conv-stats');
-    const box = $('#tok-break');
-    if (!n) { stats.textContent = ''; if (box) box.hidden = true; return; }
+    if (!n) { if (stats) stats.textContent = ''; hideTokPop(); return; }
     const tk = estimateTokens(msgs);
     const budget = contextBudgetLabel(store.state.model);
     stats.textContent = `${n} 条 · ~${tk >= 1000 ? (tk / 1000).toFixed(1) + 'k' : tk} tok / ${budget}`;
     stats.title = '点击查看 token 构成（系统 / 历史 / 工具结果 / 本轮）';
-    if (box && !box.hidden) showTokBreak();
+    const pop = $('#tok-pop');
+    if (pop && !pop.hidden) {
+      pop.hidden = true;
+      showTokBreak(stats);
+    }
   }
   $('#export-btn').addEventListener('click', () => {
     if (!store.state.messages.length) return toast('暂无可导出的对话');
@@ -1710,9 +1739,16 @@ export function mountUI(store, agent) {
 
   const statsEl = $('#conv-stats');
   if (statsEl) {
-    statsEl.addEventListener('click', showTokBreak);
-    statsEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTokBreak(); } });
+    statsEl.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(statsEl); });
+    statsEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTokBreak(statsEl); } });
   }
+  document.addEventListener('click', (e) => {
+    const pop = $('#tok-pop');
+    if (!pop || pop.hidden) return;
+    if (pop.contains(e.target) || (statsEl && statsEl.contains(e.target)) || e.target.closest('.tok-btn')) return;
+    hideTokPop();
+  });
+  window.addEventListener('resize', () => { if ($('#tok-pop') && !$('#tok-pop').hidden) placeTokPop($('#conv-stats')); });
 
   function syncComposerPh() {
     if (!composer) return;
@@ -1879,8 +1915,10 @@ export function mountUI(store, agent) {
       }
       const chip = el('div', 'jev-chip', `Jev · ${esc(m.jev.summary)}`);
       chip.title = 'TypeSafe Jev 对本轮的校准分类';
-      const bubble = $('.bubble', wrap);
-      if (bubble) bubble.after(chip);
+      const bar = $('.msg-user-bar', wrap);
+      const actions = $('.msg-actions-user', wrap);
+      if (bar && actions) bar.insertBefore(chip, actions);
+      else if (bar) bar.prepend(chip);
       else wrap.appendChild(chip);
     },
     onAssistantStart(m) { appendMessage(m); },

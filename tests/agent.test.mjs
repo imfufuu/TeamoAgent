@@ -665,6 +665,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(systemPrompt(), /imfufuu/);
   assert.match(systemPrompt(), /上海初中业余编程爱好者/);
   assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
+  assert.match(systemPrompt(), /不是 Kiro/);
+  assert.match(systemPrompt(), /只回答 TeamoAgent/);
 });
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
@@ -1779,6 +1781,11 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /id="principles"/);
   assert.match(home, /id="why"/);
   assert.match(home, /为什么选我们？/);
+  assert.match(home, /id="think-levels"/);
+  assert.match(home, /思考档不是装饰/);
+  assert.match(home, /<table class="think-table">/);
+  assert.match(home, /32,768/);
+  assert.match(homeCss, /\.think-table/);
   assert.equal(home.includes('为什么选我们。'), false);
   assert.match(home, /Local Key/);
   assert.match(home, /本地密钥/);
@@ -3318,6 +3325,13 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.match(ui, /class=\"msg-foot mono\"/);
   assert.match(ui, /class=\"msg-toolbar\"/);
+  assert.match(ui, /class=\"msg-user-bar\"/);
+  const htmlApp = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(htmlApp, /id=\"tok-pop\"/);
+  assert.equal(htmlApp.includes('id="tok-break"'), false);
+  assert.match(css, /\.reasoning summary \{[\s\S]{0,180}width:\s*100%/);
+  assert.match(css, /\.msg-user-bar/);
+  assert.match(css, /\.tok-pop \{/);
   assert.match(ui, /function fmtClock/);
   assert.match(ui, /minutes ago/);
   assert.match(ui, /\$\{m\}m \$\{s\}s/);
