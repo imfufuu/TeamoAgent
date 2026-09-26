@@ -1622,13 +1622,18 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   const m = /css\/home\.css\?v=([\d.]+)/.exec(home);
   assert.equal(m[1], APP_VERSION);
   assert.match(home, /开始对话|进入对话/);
+  assert.match(home, /开始探索/);
+  assert.match(home, /id="explore"/);
+  assert.match(home, /id="world"/);
+  assert.match(home, /class="shot"/);
   assert.match(home, /media-src 'self'/);
   assert.match(home, /assets\/audio\/teamo-home\.wav/);
-  assert.match(home, /id="score-play"/);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
   assert.match(homeJs, /const BPM = 124/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
   assert.match(homeJs, /beat % 4 === 0/);
+  assert.match(homeJs, /const CAM =/);
+  assert.match(homeJs, /translate3d/);
 });
 
 
