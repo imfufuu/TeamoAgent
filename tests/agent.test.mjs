@@ -3340,6 +3340,10 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
   assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
   assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}padding-left:\s*21px/, '思考正文跟标题齐，不要顶到图标左边');
+  assert.match(css, /\.reasoning \.chip-name \{[^}]*color:\s*var\(--fg-3\)/, '「思考过程」四字用灰色');
+  assert.match(css, /\.md-body a \{[^}]*color:\s*var\(--link\)/);
+  assert.match(css, /\.md-body a \{[^}]*text-decoration:\s*underline/);
+  assert.match(css, /\.msg-user \.bubble\.md-body a \{[^}]*color:\s*var\(--bg\)/, '用户气泡链接保持反色，不要变蓝');
   assert.match(css, /\.msg \{[^}]*margin:\s*0 auto 16px/);
   assert.match(css, /\.msg-toolbar \{[\s\S]{0,80}min-height:\s*0/);
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
