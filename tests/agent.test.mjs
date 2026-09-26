@@ -1627,12 +1627,14 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /id="world"/);
   assert.match(home, /class="shot"/);
   assert.match(home, /media-src 'self'/);
-  assert.match(home, /assets\/audio\/teamo-home\.wav/);
+  assert.match(home, /assets\/audio\/teamo-home\.mp3/);
+  assert.match(home, /id="billboard"/);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
   assert.match(homeJs, /const BPM = 124/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
   assert.match(homeJs, /beat % 4 === 0/);
-  assert.match(homeJs, /const CAM =/);
+  assert.match(homeJs, /const SCENES =/);
+  assert.match(homeJs, /const WHIP/);
   assert.match(homeJs, /translate3d/);
 });
 

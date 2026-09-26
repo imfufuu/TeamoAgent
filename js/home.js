@@ -1,5 +1,6 @@
 const BPM = 124;
 const BEAT = 60 / BPM; // ≈ 483.871ms；第 0 帧 = 第一拍
+const WHIP = 0.48; // 约 232ms 砸进下一镜，卡在小节拍上
 
 const root = document.documentElement;
 const saved = localStorage.getItem('teamo-home-theme');
@@ -15,72 +16,121 @@ const explore = document.getElementById('explore');
 const skip = document.getElementById('film-skip');
 const nav = document.querySelector('.nav');
 const themeBtn = document.getElementById('theme-toggle');
+const bill = document.getElementById('bill-text');
+const billboard = document.getElementById('billboard');
 
-const CAM = [
-  { beat: 0, x: 0, y: 40, z: 1280, rx: 12, ry: -16 },
-  { beat: 8, x: 0, y: 0, z: 160, rx: 0, ry: 0 },
-  { beat: 16, x: 0, y: -8, z: 320, rx: 3, ry: 14 },
-  { beat: 22, x: 640, y: 10, z: 380, rx: 2, ry: -10 },
-  { beat: 30, x: 640, y: 0, z: 130, rx: 0, ry: 6 },
-  { beat: 38, x: 640, y: 6, z: 300, rx: 1, ry: 0 },
-  { beat: 42, x: 1280, y: 16, z: 360, rx: 4, ry: -8 },
-  { beat: 50, x: 1280, y: 0, z: 120, rx: 0, ry: 4 },
-  { beat: 58, x: 1920, y: -24, z: 340, rx: -3, ry: 10 },
-  { beat: 66, x: 1920, y: -8, z: 140, rx: 0, ry: -4 },
-  { beat: 74, x: 2560, y: 8, z: 360, rx: 2, ry: -12 },
-  { beat: 82, x: 2560, y: 0, z: 130, rx: 0, ry: 8 },
-  { beat: 88, x: 3200, y: 20, z: 340, rx: 5, ry: 0 },
-  { beat: 94, x: 3200, y: 0, z: 150, rx: 0, ry: 0 },
-  { beat: 100, x: 1600, y: 0, z: 1680, rx: 6, ry: 0 },
+const SCENES = [
+  { beat: 0, x: 0, y: 80, z: 920, rx: 16, ry: -22, rz: 0, focus: 'logo', title: '' },
+  { beat: 4, x: 0, y: 0, z: 150, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TEAMOAGENT' },
+  { beat: 8, x: 0, y: -460, z: 210, rx: 12, ry: 8, rz: -3, focus: 'copy', title: '浏览器里的' },
+  { beat: 12, x: 40, y: -440, z: 120, rx: 2, ry: -10, rz: 3, focus: 'copy', title: '智能体。' },
+  { beat: 16, x: 480, y: 70, z: 380, rx: 8, ry: 24, rz: 0, focus: 'sandbox', title: '沙箱' },
+  { beat: 20, x: 460, y: 40, z: 125, rx: 0, ry: 6, rz: 0, focus: 'sandbox', title: 'JS · Python · C++' },
+  { beat: 24, x: -520, y: 240, z: 360, rx: -8, ry: -20, rz: 4, focus: 'files', title: '工作区' },
+  { beat: 28, x: -500, y: 200, z: 115, rx: 0, ry: -4, rz: 0, focus: 'files', title: '120 MB' },
+  { beat: 32, x: 160, y: -360, z: 480, rx: 14, ry: 10, rz: -5, focus: 'image', title: '出图' },
+  { beat: 36, x: 140, y: -320, z: 145, rx: 2, ry: -12, rz: 0, focus: 'image', title: '识图' },
+  { beat: 40, x: -240, y: -10, z: 190, rx: 0, ry: 18, rz: 0, focus: 'ultra', title: 'Ultra' },
+  { beat: 44, x: -220, y: 20, z: 110, rx: -8, ry: -6, rz: 0, focus: 'ultra', title: '深度思考' },
+  { beat: 48, x: 80, y: 400, z: 340, rx: -14, ry: 6, rz: 2, focus: 'term', title: '跑起来' },
+  { beat: 52, x: 60, y: 360, z: 125, rx: -4, ry: 0, rz: 0, focus: 'term', title: '结果落盘' },
+  { beat: 56, x: 620, y: -210, z: 300, rx: 10, ry: -24, rz: 0, focus: 'tools', title: '差分' },
+  { beat: 60, x: 600, y: -180, z: 130, rx: 0, ry: -8, rz: 0, focus: 'tools', title: '搜索 · JSON' },
+  { beat: 64, x: -620, y: -170, z: 280, rx: 8, ry: 22, rz: -3, focus: 'zip', title: 'ZIP' },
+  { beat: 68, x: -600, y: -140, z: 120, rx: 0, ry: 8, rz: 0, focus: 'zip', title: '打包带走' },
+  { beat: 72, x: 0, y: 20, z: 780, rx: 10, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
+  { beat: 80, x: 0, y: 0, z: 180, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TeamoAgent' },
+  { beat: 88, x: 40, y: 30, z: 1280, rx: 8, ry: -6, rz: 0, focus: '', title: '' },
+  { beat: 100, x: 0, y: 0, z: 1700, rx: 4, ry: 0, rz: 0, focus: '', title: '' },
 ];
 
 let playing = false;
 let raf = 0;
 let lastBeat = -1;
-let lastKick = 0;
+let lastTitle = '';
 
-function smoother(t) {
+function easeOutCubic(t) {
   const x = Math.min(1, Math.max(0, t));
-  return x * x * x * (x * (x * 6 - 15) + 10);
+  return 1 - (1 - x) ** 3;
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function sceneIndex(beatF) {
+  let i = 0;
+  while (i < SCENES.length - 1 && beatF >= SCENES[i + 1].beat) i++;
+  return i;
 }
 
 function camAt(beatF) {
-  let i = 0;
-  while (i < CAM.length - 1 && beatF >= CAM[i + 1].beat) i++;
-  const a = CAM[i];
-  const b = CAM[Math.min(i + 1, CAM.length - 1)];
-  const span = Math.max(0.0001, b.beat - a.beat);
-  const u = smoother((beatF - a.beat) / span);
-  const mix = (k) => a[k] + (b[k] - a[k]) * u;
-  return { x: mix('x'), y: mix('y'), z: mix('z'), rx: mix('rx'), ry: mix('ry') };
+  const i = sceneIndex(beatF);
+  const cur = SCENES[i];
+  const prev = i === 0
+    ? { x: cur.x, y: cur.y + 40, z: cur.z + 720, rx: cur.rx + 10, ry: cur.ry - 8, rz: 0 }
+    : SCENES[i - 1];
+  const local = beatF - cur.beat;
+  const u = easeOutCubic(local / WHIP);
+  const t = Math.min(1, u);
+  const c = {
+    x: lerp(prev.x, cur.x, t),
+    y: lerp(prev.y, cur.y, t),
+    z: lerp(prev.z, cur.z, t),
+    rx: lerp(prev.rx, cur.rx, t),
+    ry: lerp(prev.ry, cur.ry, t),
+    rz: lerp(prev.rz, cur.rz, t),
+    focus: t > 0.55 ? cur.focus : prev.focus,
+    title: cur.title,
+  };
+  if (local > WHIP) {
+    const drift = local - WHIP;
+    c.z -= drift * 22;
+    c.y += Math.sin(drift * 1.4) * 6;
+    c.ry += Math.sin(drift * 0.9) * 1.8;
+  }
+  return c;
 }
 
-function applyCam(c, beatF) {
+function applyCam(c) {
   if (!world) return;
-  world.style.transform = `translate3d(${-c.x}px, ${-c.y}px, ${-c.z}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg)`;
-  root.style.setProperty('--beat-phase', String(beatF - Math.floor(beatF)));
+  world.style.transform = `translate3d(${-c.x}px, ${-c.y}px, ${-c.z}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg) rotateZ(${c.rz}deg)`;
   for (const shot of shots) {
-    const sx = Number(shot.dataset.x || 0);
-    const dist = Math.abs(sx - c.x) * 0.55 + Math.abs(c.z - 140) * 0.45;
-    shot.classList.toggle('focus', dist < 220);
-    shot.style.filter = `blur(${Math.min(18, dist / 90).toFixed(2)}px)`;
-    shot.style.opacity = String(dist < 220 ? 1 : Math.max(0.12, 1 - dist / 1400));
+    const on = shot.dataset.id === c.focus;
+    shot.classList.toggle('focus', on);
   }
 }
 
-function kickHard() {
-  if (reduce || !world) return;
-  const now = performance.now();
-  if (now - lastKick < 200) return;
-  lastKick = now;
-  world.animate(
+function slam(text) {
+  if (!billboard || !bill) return;
+  if (text === lastTitle) return;
+  lastTitle = text;
+  billboard.classList.remove('slam');
+  bill.textContent = text || '';
+  billboard.classList.toggle('empty', !text);
+  if (!text) return;
+  void billboard.offsetWidth;
+  billboard.classList.add('slam');
+}
+
+function kickShot(hard) {
+  const el = document.querySelector('.shot.focus .shot-inner');
+  if (!el) return;
+  el.animate(
     [
-      { offset: 0, filter: 'brightness(1)' },
-      { offset: 0.12, filter: 'brightness(1.06)' },
-      { offset: 1, filter: 'brightness(1)' },
+      { transform: 'translate(-50%, -50%) scale(1)' },
+      { transform: `translate(-50%, -50%) scale(${hard ? 1.07 : 1.03})`, offset: 0.14 },
+      { transform: 'translate(-50%, -50%) scale(1)' },
     ],
-    { duration: 420, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
+    { duration: hard ? 340 : 220, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
   );
+}
+
+function onBeat(beat) {
+  const i = sceneIndex(beat);
+  const sc = SCENES[i];
+  if (sc.beat === beat) slam(sc.title || '');
+  kickShot(beat % 4 === 0);
 }
 
 function frame() {
@@ -88,12 +138,14 @@ function frame() {
   const t = Math.max(0, audio.currentTime);
   const beatF = t / BEAT;
   const beat = Math.max(0, Math.floor(beatF + 1e-9));
-  applyCam(camAt(beatF), beatF);
+  const c = camAt(beatF);
+  applyCam(c);
+  root.style.setProperty('--beat-phase', String(beatF - beat));
   root.dataset.beat = String(beat);
   root.dataset.bar = String(Math.floor(beat / 4));
   if (beat !== lastBeat) {
     lastBeat = beat;
-    if (beat % 4 === 0) kickHard();
+    onBeat(beat);
   }
   if (beatBar && audio.duration) beatBar.style.transform = `scaleX(${Math.min(1, t / audio.duration)})`;
   raf = requestAnimationFrame(frame);
@@ -115,10 +167,12 @@ function openSite() {
 async function startFilm() {
   if (!audio) { openSite(); return; }
   lastBeat = -1;
+  lastTitle = '';
+  slam('');
   root.classList.remove('gate', 'open');
   root.classList.add('scoring');
   lockScroll(true);
-  applyCam(camAt(0), 0);
+  applyCam(camAt(0));
   audio.currentTime = 0;
   try { await audio.play(); }
   catch { openSite(); }
