@@ -1638,6 +1638,10 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /clamp\(14px, 2\.1vw, 22px\)/);
   assert.match(homeCss, /@keyframes polish/);
   assert.match(homeCss, /@keyframes sheen/);
+  assert.match(homeCss, /@keyframes siteUnfold/);
+  assert.match(homeCss, /shot\.focus/);
+  assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
+  assert.equal(/explore-label[\s\S]{0,280}animation:\s*sheen/.test(homeCss), false);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
   assert.match(homeJs, /const BPM = 124/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
@@ -1649,6 +1653,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.equal(/catch \{ openSite/.test(homeJs), false, '配乐失败不得跳过片子');
   assert.match(homeJs, /playing = true/);
   assert.match(homeJs, /leaving/);
+  assert.match(homeJs, /revealing/);
   const titles = [...homeJs.matchAll(/title: '([^']*)'/g)].map((m) => m[1]).filter(Boolean);
   assert.equal(new Set(titles).size, titles.length, `字幕重复：${titles}`);
 });

@@ -166,13 +166,19 @@ function lockScroll(on) {
   document.body.style.overflow = on ? 'hidden' : '';
 }
 
-function finishOpen() {
+function finishOpen(instant) {
   root.classList.remove('gate', 'scoring', 'leaving');
   root.classList.add('open');
+  if (!instant && !reduce) {
+    root.classList.add('revealing');
+    window.setTimeout(() => root.classList.remove('revealing'), 1600);
+  }
   lockScroll(false);
   if (beatBar) beatBar.style.transform = 'scaleX(0)';
   if (curtain) {
-    curtain.style.transition = 'opacity .8s var(--film, cubic-bezier(.16,1,.3,1))';
+    curtain.style.transition = instant
+      ? 'none'
+      : 'opacity 1.15s var(--film, cubic-bezier(.16,1,.3,1))';
     curtain.style.opacity = '0';
   }
 }
@@ -184,7 +190,7 @@ function openSite(instant) {
   if (audio) try { audio.pause(); } catch { /* ignore */ }
   if (instant || reduce) {
     if (curtain) { curtain.style.opacity = '0'; curtain.style.background = '#000'; }
-    finishOpen();
+    finishOpen(true);
     return;
   }
   if (root.classList.contains('leaving')) return;
@@ -194,7 +200,7 @@ function openSite(instant) {
     curtain.style.background = '#fff';
     curtain.style.opacity = '1';
   }
-  window.setTimeout(finishOpen, 80);
+  window.setTimeout(() => finishOpen(false), 120);
 }
 
 async function startFilm() {
