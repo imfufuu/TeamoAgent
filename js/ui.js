@@ -388,9 +388,9 @@ export function mountUI(store, agent) {
     if (!thinkMenu) return;
     const on = store.state.settings.thinking !== false;
     const cur = normalizeReasoningLevel(store.state.settings.reasoningLevel);
-    const rows = [`<button type="button" class="think-item${on ? '' : ' active'}" data-think="off">Off<span class="think-hint">不发送思考参数</span></button>`];
+    const rows = [`<button type="button" class="think-item${on ? '' : ' active'}" data-think="off"><span class="think-lab">Off</span><span class="think-hint">不发送思考参数</span></button>`];
     for (const lv of REASONING_LEVELS) {
-      rows.push(`<button type="button" class="think-item${on && cur === lv ? ' active' : ''}" data-think="${lv}">${reasoningLevelLabel(lv)}<span class="think-hint">${reasoningLevelHint(lv)}</span></button>`);
+      rows.push(`<button type="button" class="think-item${on && cur === lv ? ' active' : ''}" data-think="${lv}"><span class="think-lab">${reasoningLevelLabel(lv)}</span><span class="think-hint">${reasoningLevelHint(lv)}</span></button>`);
     }
     thinkMenu.innerHTML = rows.join('');
   };
