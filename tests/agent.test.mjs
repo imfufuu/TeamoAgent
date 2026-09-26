@@ -1526,7 +1526,9 @@ test('示例池覆盖多类能力且文案不重复', () => {
   const texts = sg.SUGGESTIONS.map((x) => x.text);
   const titles = sg.SUGGESTIONS.map((x) => x.title);
   assert.equal(new Set(texts).size, texts.length, '存在重复文案');
-  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length >= 22 && x.title.length <= 40 && x.text && x.text.length >= 140), '卡片约 26–38 字概括，填入约 200 字提示');
+  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length >= 28 && x.title.length <= 56 && x.text && x.text.length >= 140), '卡片 30–50 字概括，长短不一');
+  const lens = sg.SUGGESTIONS.map((x) => x.title.length);
+  assert.ok(Math.max(...lens) - Math.min(...lens) >= 8, '标题不要统一成同一长度');
   assert.equal(new Set(titles).size, titles.length, '短主题重复');
   assert.ok(sg.SUGGESTIONS.every((x) => x.tag === undefined), '示例条目不应再带 tag（任务类型标签已移除）');
   const joined = sg.SUGGESTIONS.map((x) => x.text).join('\n');
@@ -1547,7 +1549,7 @@ test('pickSuggestions：随机 3 条、不重复', () => {
     picks.forEach((x) => seen.add(x.text));
   }
   assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
-  assert.equal(sg.SUGGESTIONS[0].title, '用 Python 做线性回归并写出带残差表的完整报告');
+  assert.equal(sg.SUGGESTIONS[0].title, '用 Python 沙箱手写正规方程做线性回归，并写出带残差表与 RMSE 的完整报告');
   const first = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
   const second = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd, first.map((x) => x.text));
   assert.equal(second.some((x) => first.some((y) => y.text === x.text)), false, 'exclude 应避开上一批');
@@ -3187,8 +3189,18 @@ test('模型列表不再标「原生」；底部提示为 AI 生成免责声明'
   assert.equal(html.includes('Claude 走'), false);
   const sonnet = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-sonnet-5');
   assert.equal(sonnet.hot, true, '默认对话模型应标热门');
+  const fable = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-fable-5-1');
+  assert.equal(fable.hot, true, 'Fable 5.1 当季旗舰应标热门');
+  const astra = cfg.FALLBACK_MODELS.find((m) => m.id === 'gpt-6-astra');
+  assert.equal(astra.hot, true, 'GPT-6 Astra 应标热门');
+  const gpt55 = cfg.FALLBACK_MODELS.find((m) => m.id === 'gpt-5.5');
+  assert.equal(!!gpt55.hot, false, 'GPT-5.5 已过气，不再标热门');
+  const luna = cfg.FALLBACK_MODELS.find((m) => m.id === 'gpt-5.6-luna');
+  assert.equal(luna.cheap, true, 'Luna 是高通量低价档');
   const haiku = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-haiku-4-5');
   assert.equal(haiku.cheap, true, 'haiku 应标低价');
+  const v4p = cfg.FALLBACK_MODELS.find((m) => m.id === 'deepseek-v4-pro');
+  assert.equal(!!v4p.cheap, false, 'V4 Pro 是中档，不标低价');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.badge\.hot/);
   assert.match(css, /\.badge\.cheap/);

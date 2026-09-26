@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.26';
+export const APP_VERSION = '2026.9.26.27';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -33,7 +33,8 @@ export const STORAGE_KEY = 'teamo-agent-state-v1';
 // 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09）
 export const FALLBACK_MODELS = [
   // Anthropic —— 走 /v1/messages 原生协议
-  { id: 'claude-fable-5-1',    provider: 'Anthropic' },
+  // 标签（2026-09 调研）：热门 = 当季常用/榜单常客；低价 = 约 ≤$1/M 输入或网关免费档。
+  { id: 'claude-fable-5-1',    provider: 'Anthropic', hot: true },
   { id: 'claude-opus-5',       provider: 'Anthropic', hot: true },
   { id: 'claude-fable-5',      provider: 'Anthropic' },
   { id: 'claude-sonnet-5',     provider: 'Anthropic', hot: true },
@@ -43,11 +44,11 @@ export const FALLBACK_MODELS = [
   { id: 'claude-sonnet-4-6',   provider: 'Anthropic' },
   { id: 'claude-haiku-4-5',    provider: 'Anthropic', cheap: true },
   // OpenAI —— 走 /v1/chat/completions
-  { id: 'gpt-6-astra',         provider: 'OpenAI' },
+  { id: 'gpt-6-astra',         provider: 'OpenAI', hot: true },
   { id: 'gpt-5.6-sol',         provider: 'OpenAI', hot: true },
   { id: 'gpt-5.6-terra',       provider: 'OpenAI' },
-  { id: 'gpt-5.6-luna',        provider: 'OpenAI' },
-  { id: 'gpt-5.5',             provider: 'OpenAI', hot: true },
+  { id: 'gpt-5.6-luna',        provider: 'OpenAI', cheap: true },
+  { id: 'gpt-5.5',             provider: 'OpenAI' },
   { id: 'gpt-5.4',             provider: 'OpenAI' },
   { id: 'gpt-5.4-mini',        provider: 'OpenAI', cheap: true },
   // Google
