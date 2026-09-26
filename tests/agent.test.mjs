@@ -474,6 +474,17 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.equal(thinkingParamsFor('gpt-5.6-sol', 'ultra').reasoning_effort, 'xhigh');
   assert.equal(thinkingParamsFor('gemini-3.8-flash', 'ultra').reasoning_effort, 'high');
   assert.equal(thinkingParamsFor('grok-4.6', 'mini').reasoning_effort, 'low');
+  assert.equal(thinkingParamsFor('gpt-5.6-sol', 'high').reasoning_effort, 'high');
+  assert.equal(thinkingParamsFor('claude-sonnet-5', 'high').thinking.budget_tokens, 8192);
+  assert.ok(thinkingParamsFor('claude-sonnet-5', 'ultra').thinking.budget_tokens > thinkingParamsFor('claude-sonnet-5', 'high').thinking.budget_tokens);
+  assert.match(r.reasoningLevelHint('high'), /不能委派/);
+  assert.match(r.reasoningLevelHint('ultra'), /自检|多专家/);
+  const ultraSys = cfg.systemPrompt(new Date(), { allowDispatch: true, reasoningLevel: 'ultra' });
+  const highSys = cfg.systemPrompt(new Date(), { allowDispatch: false, reasoningLevel: 'high' });
+  assert.match(ultraSys, /本轮 Ultra/);
+  assert.equal(/本轮 Ultra/.test(highSys), false);
+  assert.match(subagentGuide({ allow: true, ultra: true }), /交叉复核/);
+  assert.equal(/交叉复核/.test(subagentGuide({ allow: true })), false);
   assert.equal(r.normalizeReasoningLevel('MAX'), 'max');
   assert.equal(r.normalizeReasoningLevel('nope'), 'medium');
   const fsp = await import('node:fs');

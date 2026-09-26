@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.32';
+export const APP_VERSION = '2026.9.26.33';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -223,6 +223,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
   // 否则提示词一边说「请求已带上原生搜索字段」一边又关着开关，模型会以为能查实时信息。
   const webOn = opts.webEnabled !== false;
   const allowDispatch = opts.allowDispatch === true;
+  const ultra = String(opts.reasoningLevel || '').toLowerCase() === 'ultra';
   return [
     '你是 TeamoAgent，一个运行在浏览器中的智能体（Agent），由 TeamoRouter 网关提供模型能力。代码、文件、生图是你的专业能力，但非专业话题（闲聊、知识问答、写作、规划）也要直接、完整地回答，不要拒绝、不要强行改成写代码。',
     '',
@@ -264,6 +265,16 @@ export function systemPrompt(now = new Date(), opts = {}) {
       ? '- 本轮可以委派子智能体（思考级别 Max/Ultra）。不需要用户点名；判断该派就派，判断不该派就直接答。'
       : '- 本轮不能委派子智能体（思考级别不是 Max/Ultra）。闲聊和普通问答直接答。',
     '- 涉及「最新/当前/版本号/是否还存在」的事实：有本地中继就用 fetch_url 抓来源页；没有中继就直说无法核实。不要凭记忆编 URL、版本号或 API 细节，也不要声称已经搜过网页。',
+    ultra
+      ? [
+        '',
+        '## 本轮 Ultra（高于 High / Max）',
+        '- 这是最高思考档：先把问题拆成可验证的步骤；对关键结论做一次自检（反例、边界、单位、假设是否站得住）。',
+        '- 能委派就并行派出相关专家，收齐后交叉核对再交，不要只信自己第一稿。写代码则先跑沙箱，失败就修，不要交未验证的实现。',
+        '- 有两种以上合理方案时写出对比再选；不要早停在第一个说得通的答案。',
+        '- 闲聊、常识、一句话能答完的问题仍直接答，不要为了 Ultra 硬拆或硬派。',
+      ].join('\n')
+      : '',
     '',
     OUTPUT_SPEC,
   ].join('\n');

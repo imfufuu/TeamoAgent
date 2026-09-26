@@ -13,6 +13,7 @@ const CLAUDE_BUDGET = {
 // GPT：minimal / low / medium / high / xhigh
 // Gemini 3 thinkingLevel：minimal / low / medium / high（更高档位映射到 high）
 // Grok：常见 low / medium / high
+// High < Max < Ultra。GPT 上游最高是 xhigh（Max/Ultra 同档），Ultra 的多余能力在预算、输出帽和强制自检/多专家。
 const OPENAI_EFFORT = { mini: 'minimal', low: 'low', medium: 'medium', high: 'high', max: 'xhigh', ultra: 'xhigh' };
 const GEMINI_EFFORT = { mini: 'minimal', low: 'low', medium: 'medium', high: 'high', max: 'high', ultra: 'high' };
 const GROK_EFFORT = { mini: 'low', low: 'low', medium: 'medium', high: 'high', max: 'high', ultra: 'high' };
@@ -22,9 +23,9 @@ const HINTS = {
   mini: 'Claude 1024 tok · GPT minimal',
   low: 'Claude 2048 · GPT/Gemini low',
   medium: '默认。Claude 4096 · GPT medium',
-  high: 'Claude 8192 · GPT/Gemini high',
-  max: 'Claude 16k · GPT xhigh',
-  ultra: 'Claude 32k · GPT xhigh，最慢最贵',
+  high: 'Claude 8k · GPT high。不能委派',
+  max: 'Claude 16k · GPT xhigh。可委派子智能体',
+  ultra: '最高：Claude 32k · 更大输出 · 自检+多专家复核',
 };
 
 export function normalizeReasoningLevel(v) {

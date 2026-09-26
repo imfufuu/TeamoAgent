@@ -202,9 +202,9 @@ export function createAgent(store, hooks = {}) {
     const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
     if (!cachedPrefix) {
       cachedPrefix = assembleSystemLayers({
-        identity: systemPrompt(new Date(), { webEnabled: webOn, allowDispatch: canDispatch }),
+        identity: systemPrompt(new Date(), { webEnabled: webOn, allowDispatch: canDispatch, reasoningLevel: lv }),
         skillsIndex: formatSkillsIndex(store.state.learnedSkills),
-        contextFiles: subagentGuide({ allow: canDispatch }),
+        contextFiles: subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' }),
       }).cached;
     }
     const layers = assembleSystemLayers({

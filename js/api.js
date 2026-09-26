@@ -19,9 +19,11 @@ function isCodeTask(text) {
 }
 function taskOutputCap(text, { thinking, level }) {
   const code = isCodeTask(text);
-  const deep = !!(thinking && (level === 'max' || level === 'ultra'));
-  if (code) return deep ? 16000 : 8192;
-  return deep ? 2048 : 1024;
+  const lv = String(level || '').toLowerCase();
+  if (thinking && lv === 'ultra') return code ? 24000 : 4096;
+  if (thinking && lv === 'max') return code ? 16000 : 2048;
+  if (code) return 8192;
+  return 1024;
 }
 
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）

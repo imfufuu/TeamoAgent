@@ -232,7 +232,9 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
   const canDispatch = thinking !== false && (lv === 'max' || lv === 'ultra');
   if (dispatch != null && dispatch >= 0.7) {
     lines.push(canDispatch
-      ? '- 本题适合委派子智能体：主动 dispatch_subagent，task 必须自包含。'
+      ? (lv === 'ultra'
+        ? '- 本题适合委派：Ultra 下并行派出相关专家，收齐后交叉核对再交，不要只派一个就停。'
+        : '- 本题适合委派子智能体：主动 dispatch_subagent，task 必须自包含。')
       : '- 本题适合专业视角，但当前思考级别未到 Max/Ultra，不能委派；请你自己直接做。');
   }
   if (diff != null && diff >= 4) {
