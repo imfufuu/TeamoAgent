@@ -1690,6 +1690,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /为什么选我们？/);
   assert.equal(home.includes('为什么选我们。'), false);
   assert.match(home, /Local Key/);
+  assert.match(home, /本地密钥/);
   assert.equal(home.includes('本机 Key'), false);
   assert.match(homeCss, /honesty \+ \.faq/);
   assert.match(homeJs, /IntersectionObserver/);
