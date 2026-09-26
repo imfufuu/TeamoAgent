@@ -1690,6 +1690,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
   assert.match(home, /mailto:lks\.tan\.cn@gmail\.com/);
   assert.match(home, /github.com\/imfufuu\/TeamoAgent/);
+  const appHtml = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.equal(appHtml.includes('lks.tan.cn@gmail.com'), false, '对话页不展示联系邮箱');
+  assert.equal(appHtml.includes('github.com/imfufuu/TeamoAgent'), false, '对话页不展示仓库链接');
   assert.match(home, /id="principles"/);
   assert.match(home, /id="why"/);
   assert.match(home, /为什么选我们？/);
