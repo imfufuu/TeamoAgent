@@ -602,9 +602,55 @@ h1 {
 }
 .panel-preview .hi { color: var(--fg); }
 
-.cta-block { text-align: center; padding: 96px 28px 80px; }
-.cta-block h2 { font-family: var(--serif); font-size: clamp(32px, 5vw, 56px); font-weight: 500; letter-spacing: -.03em; margin-bottom: 16px; }
-.cta-block p { color: var(--fg-2); margin-bottom: 28px; }
+.cta-block {
+  text-align: center; padding: 96px 28px 80px;
+  position: relative; overflow: hidden;
+}
+.cta-block::before {
+  content: ""; pointer-events: none;
+  position: absolute; left: 50%; top: 38%;
+  width: min(72vw, 420px); height: min(72vw, 420px);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--fg) 14%, transparent), transparent 70%);
+  animation: ctaGlow 4.8s var(--ease) infinite alternate;
+}
+.cta-block h2 {
+  font-family: var(--serif); font-size: clamp(32px, 5vw, 56px); font-weight: 500;
+  letter-spacing: -.03em; margin-bottom: 16px;
+  display: inline-block; position: relative;
+  animation: ctaKick 3.8s var(--ease) infinite;
+}
+.cta-block h2::after {
+  content: ""; position: absolute; left: 12%; right: 12%; bottom: -8px;
+  height: 1.5px; background: var(--fg);
+  transform: scaleX(.18); transform-origin: 50%;
+  animation: ctaRule 2.6s var(--film) infinite;
+}
+.cta-block p { color: var(--fg-2); margin-bottom: 28px; position: relative; }
+.cta-block .cta {
+  position: relative;
+  animation: ctaPulse 2.8s var(--ease) infinite;
+}
+.cta-block .cta:hover,
+.cta-block .cta:focus-visible {
+  animation: none;
+}
+@keyframes ctaGlow {
+  from { opacity: .45; transform: translate(-50%, -50%) scale(.92); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+}
+@keyframes ctaKick {
+  0%, 100% { letter-spacing: -.03em; transform: translateY(0); }
+  50% { letter-spacing: .04em; transform: translateY(-2px); }
+}
+@keyframes ctaRule {
+  0%, 100% { transform: scaleX(.18); opacity: .35; }
+  50% { transform: scaleX(1); opacity: 1; }
+}
+@keyframes ctaPulse {
+  0%, 100% { transform: translateY(0); box-shadow: 0 0 0 rgba(0,0,0,0); }
+  50% { transform: translateY(-3px); box-shadow: 0 16px 36px rgba(0,0,0,.14); }
+}
 
 footer {
   position: relative; z-index: 1;

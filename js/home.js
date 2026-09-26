@@ -228,7 +228,7 @@ function setLoadProgress(p, text) {
     loadBox.setAttribute('aria-valuenow', String(Math.round(x * 100)));
     loadBox.classList.toggle('ready', x >= 1);
   }
-  if (loadLabel) loadLabel.textContent = text || (x >= 1 ? '配乐已就绪' : `配乐 ${Math.round(x * 100)}%`);
+  if (loadLabel) loadLabel.textContent = text || (x >= 1 ? '影片已就绪' : `正在加载影片 ${Math.round(x * 100)}%`);
 }
 
 function markAudioReady(label) {
@@ -237,7 +237,7 @@ function markAudioReady(label) {
     explore.disabled = false;
     explore.classList.remove('waiting');
   }
-  setLoadProgress(1, label || '配乐已就绪');
+  setLoadProgress(1, label || '影片已就绪');
 }
 
 async function prefetchAudio() {
@@ -246,7 +246,7 @@ async function prefetchAudio() {
     explore.disabled = true;
     explore.classList.add('waiting');
   }
-  setLoadProgress(0.02, '配乐准备中');
+  setLoadProgress(0.02, '正在加载影片');
   loadAbort = new AbortController();
   const src = audio.getAttribute('src') || 'assets/audio/teamo-home.mp3';
   try {
@@ -280,7 +280,7 @@ async function prefetchAudio() {
   } catch (err) {
     if (err && err.name === 'AbortError') return;
     try { audio.preload = 'auto'; audio.load(); } catch { /* ignore */ }
-    markAudioReady('配乐未缓存，开片时尝试播放');
+    markAudioReady('影片未就绪，开片时尝试播放');
   }
 }
 

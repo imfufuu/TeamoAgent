@@ -1638,6 +1638,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /class="gate-beats"/);
   assert.match(home, /播放介绍片/);
   assert.match(home, /id="gate-load"/);
+  assert.match(home, /正在加载影片/);
+  assert.match(home, /<h2>现在就开始<\/h2>/);
+  assert.equal(/cta-block[\s\S]{0,80}现在就开始。/.test(home), false);
   assert.match(home, /media-src 'self' blob:/);
   assert.match(home, /id="curtain"/);
   assert.match(home, /class="logo-text"/);
@@ -1654,6 +1657,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /@keyframes sheen/);
   assert.match(homeCss, /@property --bg/);
   assert.match(homeCss, /site \.reveal/);
+  assert.match(homeCss, /@keyframes ctaKick/);
   assert.match(homeCss, /shot\.focus/);
   assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
   assert.equal(/explore-label[\s\S]{0,280}animation:\s*sheen/.test(homeCss), false);
@@ -1672,6 +1676,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /function pinTop/);
   assert.match(homeJs, /scrollRestoration/);
   assert.match(homeJs, /prefetchAudio/);
+  assert.match(homeJs, /影片已就绪/);
+  assert.match(homeJs, /正在加载影片/);
   assert.match(homeJs, /createObjectURL/);
   assert.match(homeJs, /requestFilm/);
   assert.match(homeJs, /gate-skip/);

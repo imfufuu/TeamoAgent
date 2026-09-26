@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **当前版本：Teamo V1.2 正式版**（构建 `2026.9.26.20`）
+> **当前版本：Teamo V1.2 正式版**（构建 `2026.9.26.21`）
 > 线上地址：https://imfufuu.github.io/TeamoAgent/ 为产品介绍；对话在 [app.html](./app.html)。侧栏 Logo 旁的 `V1.2` 徽章、底部「Teamo V1.2 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
 > V1.2 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
 
