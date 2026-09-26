@@ -159,7 +159,7 @@ export function createStore(onChange) {
     models: [],
     // webEnabled：联网开关。开着时按当前模型 API 自带的网页搜索请求格式发请求
     // （见 js/websearch.js）—— 没有第三方搜索接口，所以模型没有原生格式就等于不联网。
-    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true, jevEnabled: true },
+    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true },
     sessions: [newSession()],
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
@@ -318,7 +318,7 @@ export function createStore(onChange) {
       const parsed = JSON.parse(raw);
       Object.assign(state, parsed);
       // 旧快照里没有的开关要补上默认值（整块 settings 被 parsed 覆盖时不能留下 undefined）
-      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, webEnabled: true, jevEnabled: true }, state.settings || {});
+      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true }, state.settings || {});
       if (!Array.isArray(state.memory)) state.memory = [];
       if (!Array.isArray(state.learnedSkills)) state.learnedSkills = [];
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];

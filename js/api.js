@@ -2,7 +2,8 @@
 // 协议路由 + SSE 流式解析 + 传输层（浏览器直连 / 服务端代理兜底）
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
-import { ANTHROPIC_VERSION, MAX_TOKENS, THINKING_BUDGET, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { claudeThinkingBudget, normalizeReasoningLevel, reasoningEffortFor } from './reasoning.js';
 import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
 
@@ -383,8 +384,9 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
 
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
 // onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
-export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
+export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, reasoningLevel = 'medium', signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
   const protocol = protocolOf(model);
+  const level = normalizeReasoningLevel(reasoningLevel);
   const wantThinking = thinking && !thinkingUnsupported.has(model);
   // 联网 = 只往请求体里塞模型 API 自带的网页搜索字段（能力表见 js/websearch.js）。
   // 没有原生格式的模型（DeepSeek 等）就是「本轮不联网」，绝不改道去调第三方搜索 API。
@@ -402,7 +404,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       if (instructions) body.instructions = instructions;
       const fnTools = tools && tools.length ? toOpenAITools(tools) : [];
       if (fnTools.length) body.tools = fnTools.map((t) => ({ type: 'function', ...t.function }));
-      if (withThinking) body.reasoning = { effort: thinkingParamsFor(model).reasoning_effort || 'medium' };
+      if (withThinking) body.reasoning = { effort: reasoningEffortFor(model, level) };
       if (fastMode) body.service_tier = 'fast';
       if (withWeb) injectWeb(body, webCap);
       return body;
@@ -411,7 +413,8 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       // 思考关闭的请求不能夹带历史 thinking 块（API 会拒收）
       const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
       // 思考模式要求 max_tokens > budget_tokens
-      const maxTokens = withThinking ? Math.max(p.max_tokens, THINKING_BUDGET * 4) : p.max_tokens;
+      const budget = claudeThinkingBudget(level);
+      const maxTokens = withThinking ? Math.max(p.max_tokens, 16384, budget + 8192) : p.max_tokens;
       // 空 system 不要发：实测网关 Anthropic 路由收到 system:"" 时上游整段不返回 thinking 块
       body = { model, stream: true, messages: p.messages, max_tokens: maxTokens };
       if (p.system) body.system = p.system;
@@ -419,7 +422,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
       if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）
     }
-    if (withThinking) Object.assign(body, thinkingParamsFor(model));
+    if (withThinking) Object.assign(body, thinkingParamsFor(model, level));
     if (tools && tools.length) {
       body.tools = protocol === 'anthropic' ? toAnthropicTools(tools) : toOpenAITools(tools);
     }

@@ -447,6 +447,24 @@ test('DeepSeek → reasoning；GLM → thinking.type', () => {
   assert.equal(thinkingParamsFor('deepseek-v4-pro').reasoning, true);
   assert.equal(thinkingParamsFor('glm-5.3').thinking.type, 'enabled');
 });
+test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () => {
+  const r = await import('../js/reasoning.js');
+  assert.deepEqual(r.REASONING_LEVELS, ['mini', 'low', 'medium', 'high', 'max', 'ultra']);
+  assert.equal(thinkingParamsFor('claude-sonnet-5', 'mini').thinking.budget_tokens, 1024);
+  assert.equal(thinkingParamsFor('claude-sonnet-5', 'ultra').thinking.budget_tokens, 32768);
+  assert.equal(thinkingParamsFor('gpt-5.6-sol', 'mini').reasoning_effort, 'minimal');
+  assert.equal(thinkingParamsFor('gpt-5.6-sol', 'ultra').reasoning_effort, 'xhigh');
+  assert.equal(thinkingParamsFor('gemini-3.8-flash', 'ultra').reasoning_effort, 'high');
+  assert.equal(thinkingParamsFor('grok-4.6', 'mini').reasoning_effort, 'low');
+  assert.equal(r.normalizeReasoningLevel('MAX'), 'max');
+  assert.equal(r.normalizeReasoningLevel('nope'), 'medium');
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.match(html, /id="think-menu"/);
+  assert.match(ui, /REASONING_LEVELS/);
+  assert.match(ui, /data-think/);
+});
 
 group('子智能体注册表');
 test('≥16 个子智能体且 ID 唯一', () => {

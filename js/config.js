@@ -13,12 +13,13 @@
 //   · 官方建议: Claude 模型务必走 Anthropic 原生协议，其余模型走 OpenAI 兼容协议
 
 // 接入点不在这里写死：运行时由 js/endpoint.js 在 .com / .cn 之间择路（见 GATEWAY_HOSTS）。
+import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 
 // 发布版本号：index.html 用 ?v= 挂在入口样式/脚本上，用来穿透 GitHub Pages 对静态资源
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.0';
-export const APP_VERSION = '2026.09.22.26';
+export const APP_VERSION = '2026.09.22.27';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -195,14 +196,14 @@ export function supportsFastMode(modelId) {
 // ── 思考模式参数（按模型家族路由到各自协议的思考字段）──────────────────
 // Claude: thinking.budget_tokens（需 max_tokens > budget）
 // GPT/Gemini/Grok: reasoning_effort；DeepSeek: reasoning；GLM: thinking.type
+// 级别 Mini/Low/Medium/High/Max/Ultra 见 js/reasoning.js
 // 不支持思考的模型若返回 400，api.js 会自动降级重试并记住该模型
-export function thinkingParamsFor(modelId) {
+export function thinkingParamsFor(modelId, level) {
   const m = String(modelId || '').toLowerCase();
-  if (m.startsWith('claude')) return { thinking: { type: 'enabled', budget_tokens: THINKING_BUDGET } };
+  if (m.startsWith('claude')) return { thinking: { type: 'enabled', budget_tokens: claudeThinkingBudget(level) } };
   if (m.startsWith('deepseek')) return { reasoning: true };
   if (m.startsWith('glm')) return { thinking: { type: 'enabled' } };
-  if (/^(gpt|o\d|chatgpt|gemini|grok)/.test(m)) return { reasoning_effort: 'medium' };
-  return { reasoning_effort: 'medium' }; // 未知模型尽力尝试，失败自动降级
+  return { reasoning_effort: reasoningEffortFor(modelId, level) };
 }
 
 // 输出规范：主 Agent 与全部子智能体共用（客户端支持完整 Markdown + KaTeX）

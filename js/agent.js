@@ -79,7 +79,7 @@ export function subagentTools(sandboxEnabled, def) {
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel }) {
   const subTools = subagentTools(sandboxEnabled, def);
   const messages = [
     { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}\n\n${OUTPUT_SPEC}` },
@@ -92,7 +92,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, sandboxE
     const tb = createThinkingTracker(); // 思考块需随 tool_use 回合回传，否则下一轮 400
     let text = '';
     await streamChat({
-      model, apiKey, thinking, signal, tools: subTools,
+      model, apiKey, thinking, reasoningLevel, signal, tools: subTools,
       onThinkingFallback,
       webEnabled: !!webEnabled, onWebFallback,
       messages,
@@ -250,6 +250,7 @@ export function createAgent(store, hooks = {}) {
           apiKey: turn.apiKey,
           model: turn.model,
           thinking: turn.thinking,
+          reasoningLevel: turn.reasoningLevel,
           sandboxEnabled: turn.sandboxEnabled,
           webEnabled: turn.webEnabled,
           imageModel: turn.imageModel,
@@ -313,6 +314,7 @@ export function createAgent(store, hooks = {}) {
     const turn = {
       apiKey, model, signal,
       thinking: settings.thinking !== false,
+      reasoningLevel: settings.reasoningLevel || 'medium',
       sandboxEnabled: settings.sandboxEnabled,
       webEnabled: settings.webEnabled !== false, // 联网默认开（搜不搜由模型自己判断）
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
@@ -371,6 +373,7 @@ export function createAgent(store, hooks = {}) {
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
               thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
+              reasoningLevel: turn.reasoningLevel,
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明

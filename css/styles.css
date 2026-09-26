@@ -346,6 +346,17 @@ a { color: var(--fg); }
 .pill.on:active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .pill:disabled { opacity: .35; cursor: not-allowed; }
 .topbar-right { display: flex; gap: 8px; }
+.think-picker { position: relative; flex: 0 0 auto; }
+.think-menu { padding: 6px; }
+.think-item {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  width: 100%; text-align: left; padding: 7px 10px; border-radius: 8px;
+  font-size: 13px; color: var(--fg); background: none;
+}
+.think-item:hover { background: var(--bg-hover); }
+.think-item.active { background: var(--fg); color: var(--bg); }
+.think-item.active .think-hint { color: inherit; opacity: .72; }
+.think-hint { font-size: 10.5px; color: var(--fg-3); font-weight: 400; }
 
 /* 消息区（min-height:0 保证 flex 子项可收缩，滚动被限制在本区域） */
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }

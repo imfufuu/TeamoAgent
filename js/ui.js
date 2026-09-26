@@ -1,5 +1,6 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
 import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt } from './config.js';
+import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
@@ -367,16 +368,68 @@ export function mountUI(store, agent) {
     syncWeb();
   }
 
-  // 思考模式（默认开启；按模型家族自动映射协议参数，不支持的模型 400 自动降级）
+  // 思考模式：关闭 或 Mini/Low/Medium/High/Max/Ultra（按模型家族映射协议参数）
   const thinkingToggle = $('#thinking-toggle');
-  const syncThinking = () => { thinkingToggle.classList.toggle('on', store.state.settings.thinking !== false); syncCapLine(); };
-  thinkingToggle.addEventListener('click', () => {
-    store.state.settings.thinking = !(store.state.settings.thinking !== false);
-    syncThinking(); store.notify();
-    toast(store.state.settings.thinking
-      ? '思考模式开启：Claude→thinking · GPT/Gemini/Grok→reasoning_effort · DeepSeek→reasoning · GLM→thinking（不支持自动降级）'
-      : '思考模式关闭');
+  const thinkMenu = $('#think-menu');
+  const thinkPicker = $('#think-picker');
+  const closeThinkMenu = () => {
+    if (thinkMenu) thinkMenu.classList.remove('open');
+    if (thinkingToggle) thinkingToggle.setAttribute('aria-expanded', 'false');
+  };
+  const syncThinking = () => {
+    const on = store.state.settings.thinking !== false;
+    thinkingToggle.classList.toggle('on', on);
+    thinkingToggle.title = on
+      ? `推理级别 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}（点击切换 Mini/Low/Medium/High/Max/Ultra）`
+      : '思考已关闭（点击选择推理级别）';
+    syncCapLine();
+  };
+  const renderThinkMenu = () => {
+    if (!thinkMenu) return;
+    const on = store.state.settings.thinking !== false;
+    const cur = normalizeReasoningLevel(store.state.settings.reasoningLevel);
+    const rows = [`<button type="button" class="think-item${on ? '' : ' active'}" data-think="off">关闭<span class="think-hint">不发送思考参数</span></button>`];
+    for (const lv of REASONING_LEVELS) {
+      rows.push(`<button type="button" class="think-item${on && cur === lv ? ' active' : ''}" data-think="${lv}">${reasoningLevelLabel(lv)}<span class="think-hint">${reasoningLevelHint(lv)}</span></button>`);
+    }
+    thinkMenu.innerHTML = rows.join('');
+  };
+  const openThinkMenu = () => {
+    renderThinkMenu();
+    const r = thinkingToggle.getBoundingClientRect();
+    thinkMenu.style.left = `${Math.max(8, Math.min(r.left, window.innerWidth - 200))}px`;
+    thinkMenu.style.top = `${r.bottom + 6}px`;
+    thinkMenu.style.width = '196px';
+    thinkMenu.classList.add('open');
+    thinkingToggle.setAttribute('aria-expanded', 'true');
+  };
+  thinkingToggle.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (thinkMenu && thinkMenu.classList.contains('open')) closeThinkMenu();
+    else openThinkMenu();
   });
+  if (thinkMenu) {
+    thinkMenu.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-think]');
+      if (!btn) return;
+      const v = btn.getAttribute('data-think');
+      if (v === 'off') {
+        store.state.settings.thinking = false;
+        toast('思考模式关闭');
+      } else {
+        store.state.settings.thinking = true;
+        store.state.settings.reasoningLevel = normalizeReasoningLevel(v);
+        toast(`推理级别 ${reasoningLevelLabel(v)}`);
+      }
+      store.notify();
+      syncThinking();
+      closeThinkMenu();
+    });
+  }
+  document.addEventListener('click', (e) => {
+    if (thinkPicker && !thinkPicker.contains(e.target)) closeThinkMenu();
+  });
+  window.addEventListener('resize', closeThinkMenu);
   syncThinking();
 
   const fastToggle = $('#fast-toggle');
@@ -1498,7 +1551,7 @@ export function mountUI(store, agent) {
     const eln = $('#cap-line');
     if (!eln) return;
     const bits = [store.state.model];
-    if (store.state.settings.thinking !== false) bits.push('思考');
+    if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
     bits.push(getTransport() === 'proxy' ? '中继' : '直连');
     const panelOpen = $('#sandbox-panel') && !$('#sandbox-panel').classList.contains('collapsed');
