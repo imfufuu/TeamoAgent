@@ -448,7 +448,7 @@ a { color: var(--fg); }
 
 /* 消息区（min-height:0 保证 flex 子项可收缩，滚动被限制在本区域） */
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
-.msg { max-width: 760px; margin: 0 auto 26px; padding: 0 28px; overflow-x: hidden; max-width: min(760px, 100%); }
+.msg { max-width: 760px; margin: 0 auto 16px; padding: 0 28px; overflow-x: hidden; max-width: min(760px, 100%); }
 .msg.enter { animation: fadeUp .45s var(--ease) both; }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
@@ -484,12 +484,13 @@ a { color: var(--fg); }
 
 /* Markdown */
 .md-body { word-break: break-word; }
-.md-body p { margin: 0 0 .7em; }
+.md-body > :first-child { margin-top: 0; }
+.md-body p { margin: 0 0 .45em; }
 .md-body p:last-child { margin-bottom: 0; }
-.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { margin: 1.1em 0 .5em; line-height: 1.35; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { margin: .7em 0 .35em; line-height: 1.35; }
 .md-body h1 { font-size: 1.45em; } .md-body h2 { font-size: 1.25em; } .md-body h3 { font-size: 1.1em; }
-.md-body ul, .md-body ol { margin: .4em 0 .8em; padding-left: 1.4em; }
-.md-body li { margin: .18em 0; }
+.md-body ul, .md-body ol { margin: .2em 0 .45em; padding-left: 1.4em; }
+.md-body li { margin: .08em 0; }
 .md-body blockquote { border-left: 2.5px solid var(--fg); padding: 2px 0 2px 12px; color: var(--fg-2); margin: .6em 0; }
 .md-body table { border-collapse: collapse; margin: .6em 0 .9em; display: block; overflow-x: auto; max-width: 100%; }
 .md-body th, .md-body td { border: 1px solid var(--line); padding: 6px 12px; text-align: left; white-space: nowrap; }
@@ -529,7 +530,7 @@ a { color: var(--fg); }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }
 
 /* 工具芯片 */
-.tool-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.tool-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
 .chip {
   border: none; background: transparent; padding: 1px 0;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
@@ -558,7 +559,7 @@ a { color: var(--fg); }
 /* 消息操作 + 脚注同一行：左操作、右耗时 */
 .msg-toolbar {
   display: flex; align-items: center; gap: 10px;
-  margin-top: 8px; min-height: 22px;
+  margin-top: 2px; min-height: 0;
 }
 .msg-actions { display: flex; gap: 4px; margin-top: 0; flex: 1 1 auto; min-width: 0; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
 .msg:hover .msg-actions { opacity: 1; transform: none; }
@@ -680,14 +681,27 @@ a { color: var(--fg); }
 
 /* 思考过程折叠块 */
 .reasoning {
-  width: 100%; border: none; background: transparent; padding: 1px 0; margin: 0 0 4px;
+  width: 100%; border: none; background: transparent; padding: 1px 0; margin: 0 0 2px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
   font-size: 12px; color: var(--fg-2); transition: color .2s var(--ease);
 }
 .reasoning:hover { color: var(--fg); }
-.reasoning .chip-detail { display: none; width: 100%; font-size: 11.5px; color: var(--fg-2); }
+.reasoning .chip-detail {
+  display: none; width: 100%; font-size: 12.5px; color: var(--fg-2);
+  /* 图标 13px + gap 8px：正文跟「思考过程」齐，不要顶到行首左边 */
+  padding-left: 21px; line-height: 1.45; box-sizing: border-box;
+}
 .reasoning.expanded .chip-detail { display: block; animation: fadeUp .25s var(--ease) both; }
 .reasoning .chip-state { color: var(--fg-3); font-family: var(--mono); }
+.reasoning .chip-detail > :first-child { margin-top: 0; }
+.reasoning .chip-detail p { margin: 0 0 .28em; }
+.reasoning .chip-detail p:last-child { margin-bottom: 0; }
+.reasoning .chip-detail ul, .reasoning .chip-detail ol { margin: .1em 0 .28em; padding-left: 1.2em; }
+.reasoning .chip-detail li { margin: 0; }
+.reasoning .chip-detail h1, .reasoning .chip-detail h2, .reasoning .chip-detail h3,
+.reasoning .chip-detail h4, .reasoning .chip-detail h5, .reasoning .chip-detail h6 {
+  margin: .35em 0 .15em; font-size: 1em; font-weight: 650; line-height: 1.35;
+}
 .thinking-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-3); }
 .thinking-line .dots { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
 .think-ico { display: inline-flex; width: 14px; height: 14px; color: var(--fg-3); flex-shrink: 0; }
@@ -952,7 +966,7 @@ a { color: var(--fg); }
 
   /* 消息区：左右 14px，气泡与操作条不贴边 */
   .messages { padding: 16px 0 8px; }
-  .msg { padding: 0 14px; margin-bottom: 20px; max-width: 100%; }
+  .msg { padding: 0 14px; margin-bottom: 14px; max-width: 100%; }
   .msg-user .bubble { max-width: 100%; }
   .msg-head { flex-wrap: nowrap; justify-content: flex-start; gap: 6px; margin-bottom: 6px; }
   .msg-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
@@ -1029,7 +1043,7 @@ a { color: var(--fg); }
   * { scroll-behavior: auto; }
 }
 
-.edited-files { margin-top: 8px; font-size: 12px; color: var(--fg-3); border: none; }
+.edited-files { margin-top: 4px; font-size: 12px; color: var(--fg-3); border: none; }
 .edited-files summary {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; list-style: none; user-select: none;
 }

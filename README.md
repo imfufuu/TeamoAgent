@@ -1,12 +1,15 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **当前版本：Teamo V1.2 正式版**（构建 `2026.9.26.35`）
-> 线上地址：https://imfufuu.github.io/TeamoAgent/ 为产品介绍；对话在 [app.html](./app.html)。侧栏 Logo 旁的 `V1.2` 徽章、底部「Teamo V1.2 正式版 · v<构建号>」、以及 `<meta name="app-release">` / `<meta name="app-version">`。
-> V1.2 的改动范围见 [CHANGELOG.md](./CHANGELOG.md) 顶部一节。
+> **Teamo V1.2 正式版** · 构建 `2026.9.26.36` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
-黑白极简 UI · 模型自选 · 代码沙箱（JS/Python/C++）· 多会话记录（导出/导入 JSON）· 对话回滚 · 附件 · LaTeX 公式渲染（KaTeX）· 本地中继可开联网（fetch_url）· 输出用时与 token 统计 · 18 个子智能体 · 全模型思考模式 · 成熟 Agent 架构（工具调用循环）。
+## TL;DR
 
-布局：侧栏与沙箱面板均可收起——宽屏并入网格（永不遮挡内容），窄屏抽屉/浮层 + 遮罩；「↓ 最新输出」按钮在向上滚动时浮现。侧栏为会话记录列表（切换/删除/新建），复制与回滚按钮每轮只在回合末尾出现一次，**「重新生成」只给最近一条回答**（覆盖式重生成，更早的先回滚再问）。顶栏「思考 / 沙箱 / 联网 / 快速 / 面板」；无本地中继时「联网」灰色不可点。移动端另有一层排布（胶囊横滑、触控 ≥40px、输入框 16px），见「移动端布局」一节。
+浏览器里的智能体：填入 TeamoRouter Key，选一个模型，就可以写文件、跑 JS/Python/C++、生图识图、委派子智能体。
+
+- 最快路径：打开线上介绍页进入对话，或本仓库 `python3 server.py` 后打开本地页
+- Key 只存在本机 localStorage，请求直发网关
+- 没有模型原生网页搜索；「联网」必须本地中继起来才会亮，灰着就点不了
+- 下面先「快速开始」。协议表和架构图是排错用的，日常对话不必先读完
 
 ## 快速开始
 
@@ -19,7 +22,20 @@ python3 server.py --host 0.0.0.0   # 需要局域网访问时才显式放开（�
 打开页面 → 填入 TeamoRouter API Key（`sk-teamo-` 开头，[控制台创建](https://teamorouter.com/dashboard?tab=api-keys)）→ 选择模型 → 开始对话。
 Key 仅存于浏览器 localStorage，随请求头直发网关。
 
+## 能做什么
+
+打开对话后这些是立刻能用的，不必先啃协议：
+
+- 沙箱跑 JS / Python / C++，改动写回工作区，可单个下载或整包 ZIP
+- 读改文件、哈希 / 正则 / ZIP、生图与识图（识图走专用工具，不塞进对话多模态）
+- 多会话、回滚、只覆盖「最近一条」的重新生成；思考从 Off 到 Ultra
+- 有本地中继时才能抓网页、跑 git；无中继时顶栏「联网」保持灰色
+
+侧栏与沙箱面板宽屏进网格、窄屏变抽屉；顶栏是「思考 / 沙箱 / 联网 / 快速 / 面板」。更细的移动端规则见文末。
+
 ## TeamoRouter API 调研结论（2026-09，实测验证）
+
+日常填 Key 对话用不上这张表。对接协议、排 400 / 鉴权时再看。
 
 来源：`https://teamorouter.com/docs/api-integration` + 对 `api.teamorouter.com` 的实测。
 

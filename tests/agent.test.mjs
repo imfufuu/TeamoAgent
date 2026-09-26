@@ -3339,6 +3339,15 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(ui, /m\.toolCalls && m\.toolCalls\.length\) \{ foot\.hidden = true/);
   assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
   assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
+  assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}padding-left:\s*21px/, '思考正文跟标题齐，不要顶到图标左边');
+  assert.match(css, /\.msg \{[^}]*margin:\s*0 auto 16px/);
+  assert.match(css, /\.msg-toolbar \{[\s\S]{0,80}min-height:\s*0/);
+  const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /^## TL;DR$/m, 'README 开头要有 TL;DR');
+  assert.match(readme, /## 能做什么/);
+  const tldrAt = readme.indexOf('## TL;DR');
+  const apiAt = readme.indexOf('## TeamoRouter API');
+  assert.ok(tldrAt >= 0 && tldrAt < apiAt, 'TL;DR 必须出现在协议表之前');
   assert.match(css, /\.msg-user-bar/);
   assert.match(css, /\.tok-pop \{/);
   assert.match(ui, /function fmtClock/);
