@@ -308,26 +308,28 @@ html.scoring.leaving .stage { opacity: 0; pointer-events: none; }
 html.scoring.leaving .site { display: block; }
 html.open .gate, html.open .stage { display: none; }
 html.open .site { display: block; }
-html.open.revealing .site {
-  transform-origin: 50% 42%;
-  animation: siteUnfold 1.45s var(--film) both;
+html, body {
+  transition: background-color .7s var(--film), color .7s var(--film);
 }
-@keyframes siteUnfold {
-  0% {
-    clip-path: inset(48% 14% 48% 14% round 28px);
-    filter: invert(1) hue-rotate(180deg);
-    transform: scale(.92);
-  }
-  46% {
-    clip-path: inset(10% 4% 10% 4% round 12px);
-    filter: invert(.28) hue-rotate(50deg);
-    transform: scale(.975);
-  }
-  100% {
-    clip-path: inset(0);
-    filter: none;
-    transform: none;
-  }
+html.theme-inverting {
+  animation: appearanceInvert .72s var(--film);
+}
+@keyframes appearanceInvert {
+  0% { filter: none; }
+  46% { filter: invert(1) hue-rotate(180deg); }
+  54% { filter: invert(1) hue-rotate(180deg); }
+  100% { filter: none; }
+}
+.site .reveal {
+  opacity: 0;
+  transform: translate3d(0, 32px, 0);
+  transition:
+    opacity .85s var(--film) var(--delay, 0ms),
+    transform .95s var(--film) var(--delay, 0ms);
+}
+.site .reveal.in {
+  opacity: 1;
+  transform: none;
 }
 
 .nav {

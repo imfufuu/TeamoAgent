@@ -169,18 +169,15 @@ function lockScroll(on) {
 function finishOpen(instant) {
   root.classList.remove('gate', 'scoring', 'leaving');
   root.classList.add('open');
-  if (!instant && !reduce) {
-    root.classList.add('revealing');
-    window.setTimeout(() => root.classList.remove('revealing'), 1600);
-  }
   lockScroll(false);
   if (beatBar) beatBar.style.transform = 'scaleX(0)';
   if (curtain) {
     curtain.style.transition = instant
       ? 'none'
-      : 'opacity 1.15s var(--film, cubic-bezier(.16,1,.3,1))';
+      : 'opacity .8s var(--film, cubic-bezier(.16,1,.3,1))';
     curtain.style.opacity = '0';
   }
+  watchReveal();
 }
 
 function openSite(instant) {
@@ -250,15 +247,54 @@ function skipFilm() {
   requestAnimationFrame(tick);
 }
 
+function flipTheme() {
+  root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('teamo-home-theme', root.dataset.theme);
+}
+
+function prepareReveal() {
+  if (reduce) return;
+  const site = document.querySelector('.site');
+  if (!site) return;
+  const sels = ['.hero > div', '.stat', '.section h2', '.section .sub', '.card', '.steps li', '.panel-preview', '.cta-block h2', '.cta-block p', '.cta-block .cta', 'footer'];
+  let i = 0;
+  for (const sel of sels) {
+    site.querySelectorAll(sel).forEach((el) => {
+      if (el.classList.contains('reveal')) return;
+      el.classList.add('reveal');
+      el.style.setProperty('--delay', `${(i % 4) * 70}ms`);
+      i += 1;
+    });
+  }
+}
+
+function watchReveal() {
+  if (reduce) return;
+  const nodes = document.querySelectorAll('.site .reveal:not(.in)');
+  if (!nodes.length) return;
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      e.target.classList.add('in');
+      io.unobserve(e.target);
+    }
+  }, { threshold: 0.14, rootMargin: '0px 0px -8% 0px' });
+  nodes.forEach((n) => io.observe(n));
+}
+
 if (themeBtn) {
   themeBtn.addEventListener('click', () => {
-    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-    localStorage.setItem('teamo-home-theme', root.dataset.theme);
+    if (reduce) { flipTheme(); return; }
+    if (root.classList.contains('theme-inverting')) return;
+    root.classList.add('theme-inverting');
+    window.setTimeout(flipTheme, 360);
+    window.setTimeout(() => root.classList.remove('theme-inverting'), 720);
   });
 }
 window.addEventListener('scroll', () => {
   if (nav) nav.classList.toggle('scrolled', window.scrollY > 8);
 }, { passive: true });
+prepareReveal();
 
 if (reduce) {
   openSite(true);
