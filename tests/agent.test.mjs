@@ -1180,6 +1180,22 @@ test('每个会话记住自己的模型与生图模型', async () => {
   store.switchSession(secondId);
   assert.equal(store.state.model, 'claude-opus-5', '来回切换互不污染');
 });
+test('每个会话记住自己的思考等级', async () => {
+  await drainSaves();
+  const { createStore: makeStore } = await import('../js/state.js?sessthink=' + Date.now());
+  const store = makeStore();
+  store.state.settings.thinking = false;
+  store.state.settings.reasoningLevel = 'high';
+  store.notify();
+  const firstId = store.state.activeSessionId;
+  store.createSession();
+  store.state.settings.thinking = true;
+  store.state.settings.reasoningLevel = 'mini';
+  store.notify();
+  store.switchSession(firstId);
+  assert.equal(store.state.settings.thinking, false, '切回旧会话应恢复思考 Off');
+  assert.equal(store.state.settings.reasoningLevel, 'high');
+});
 test('assistant 消息记录生成时所用模型；连接阶段状态可见', async () => {
   const realFetch = globalThis.fetch;
   globalThis.fetch = () => Promise.resolve(sseResponse(
@@ -1194,8 +1210,41 @@ test('assistant 消息记录生成时所用模型；连接阶段状态可见', a
     await agent.send('在吗');
     const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
     assert.equal(last.model, 'gpt-5.4-mini', '消息应带上当轮实际使用的模型');
+    assert.equal(last.reasoningLevel, 'medium', '默认思考档位应记在消息上');
+    assert.equal(typeof last.durationMs, 'number');
+    assert.ok(last.ts);
     assert.ok(seen.includes('connecting'), '应上报「连接模型中」阶段');
     assert.ok(seen.indexOf('connecting') < seen.indexOf('streaming'), '收到首字后切到生成中');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('思考 Off 丢弃 reasoning 流，消息记 off 与耗时', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (_url, opts) => {
+    const body = JSON.parse(opts.body);
+    assert.equal(body.reasoning_effort, undefined, 'Off 不发 reasoning_effort');
+    assert.equal(body.thinking, undefined);
+    assert.equal(body.reasoning, undefined);
+    return sseResponse(
+      sseEv({ choices: [{ delta: { reasoning_content: '不该出现' } }] })
+      + sseEv({ choices: [{ delta: { content: '直接答' } }] })
+      + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone,
+    );
+  };
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.4-mini';
+    store.state.settings.thinking = false;
+    const seen = [];
+    const agent = createAgent(store, { onReasoning: () => seen.push('reason'), onStatus: (s) => seen.push(s) });
+    await agent.send('hi');
+    const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(last.text, '直接答');
+    assert.equal(last.reasoning, undefined, 'Off 后思考过程不得入库');
+    assert.equal(last.reasoningLevel, 'off');
+    assert.equal(typeof last.durationMs, 'number');
+    assert.equal(seen.includes('reason'), false);
+    assert.equal(seen.includes('thinking'), false, 'Off 时状态栏不要走「思考中」');
   } finally { globalThis.fetch = realFetch; }
 });
 test('大图片不写入 localStorage（沙箱 data URL 瘦身）', async () => {
@@ -3232,6 +3281,21 @@ test('代码块加载 extra 语言包并覆盖主流 fence 别名', async () => 
   assert.match(ui, /dockerfile: 'dockerfile'/);
   assert.match(ui, /tex: 'latex'/);
   assert.match(ui, /bat: 'dos'/);
+});
+test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(ui, /class=\"msg-foot mono\"/);
+  assert.match(ui, /function fmtClock/);
+  assert.match(ui, /minutes ago/);
+  assert.match(ui, /\$\{m\}m \$\{s\}s/);
+  assert.match(ui, /reasoningLevel !== 'off'/);
+  assert.match(css, /\.msg-foot \{/);
+  assert.match(ag, /if \(!turn\.thinking\) break/);
+  assert.match(ag, /reasoningLevel: turn\.thinking \? \(turn\.reasoningLevel \|\| 'medium'\) : 'off'/);
+  assert.match(ag, /durationMs: Math\.round\(nowT - streamT0\)/);
 });
 
 group('PDF 正文提取（客户端，无 pdf.js）');

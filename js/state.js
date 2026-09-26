@@ -186,6 +186,9 @@ export function createStore(onChange) {
     const wantImage = s.imageModel || state.imageModel;
     state.imageModel = isImageGenModel(wantImage) ? wantImage : DEFAULT_IMAGE_MODEL;
     s.imageModel = state.imageModel;
+    // 思考开关与级别按会话记：切会话时恢复该对话自己的档位
+    if (typeof s.thinking === 'boolean') state.settings.thinking = s.thinking;
+    if (s.reasoningLevel) state.settings.reasoningLevel = s.reasoningLevel;
   };
   const commit = () => {
     const s = sess();
@@ -196,6 +199,8 @@ export function createStore(onChange) {
     s.stats = state.stats;
     s.model = state.model;           // 会话级模型（修复：切换会话后模型名被当前选择覆盖）
     s.imageModel = state.imageModel; // 会话级生图模型
+    s.thinking = state.settings.thinking !== false;
+    s.reasoningLevel = state.settings.reasoningLevel || 'medium';
     s.updatedAt = Date.now();
     // 兜底标题（首条消息截断）只在还没有像样标题时生成；
     // Agent 总结出的（titleSource:'auto'）与用户手改的（'user'）都不覆盖。
@@ -521,6 +526,10 @@ export function createStore(onChange) {
             done: m.done !== false,
             cancelled: !!m.cancelled,
             reasoning: m.reasoning,
+            reasoningMs: m.reasoningMs,
+            reasoningLevel: m.reasoningLevel,
+            durationMs: m.durationMs,
+            thinkingBlocks: m.thinkingBlocks,
             webSearch: m.webSearch,
             ...(atts.length ? { attachments: atts } : {}),
           };

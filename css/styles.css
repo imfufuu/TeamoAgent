@@ -684,6 +684,10 @@ a { color: var(--fg); }
 .think-ico { display: inline-flex; width: 14px; height: 14px; color: var(--fg-3); flex-shrink: 0; }
 .think-ico svg { width: 100%; height: 100%; display: block; }
 .thinking-line .think-ico { animation: pulse 1.2s ease-in-out infinite; }
+.msg-foot {
+  margin-top: 8px; font-size: 11px; color: var(--fg-3);
+  letter-spacing: .01em; font-variant-numeric: tabular-nums;
+}
 
 /* 会话统计 */
 .conv-stats { font-size: 10.5px; color: var(--fg-3); font-family: var(--mono); letter-spacing: .02em; }

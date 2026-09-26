@@ -264,6 +264,29 @@ function fmtSpan(ms) {
   const sec = Math.round((n % 60000) / 1000);
   return sec ? `${min}min ${sec}s` : `${min}min`;
 }
+function fmtClock(ms) {
+  const total = Math.max(0, Math.round(Number(ms) / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m <= 0) return `${s}s`;
+  return `${m}m ${s}s`;
+}
+function fmtAgo(ts) {
+  const sec = Math.max(0, Math.round((Date.now() - Number(ts || 0)) / 1000));
+  if (sec < 45) return 'just now';
+  if (sec < 90) return '1 minute ago';
+  if (sec < 3600) {
+    const n = Math.round(sec / 60);
+    return n === 1 ? '1 minute ago' : `${n} minutes ago`;
+  }
+  if (sec < 5400) return '1 hour ago';
+  if (sec < 86400) {
+    const n = Math.round(sec / 3600);
+    return n === 1 ? '1 hour ago' : `${n} hours ago`;
+  }
+  const d = Math.round(sec / 86400);
+  return d === 1 ? '1 day ago' : `${d} days ago`;
+}
 
 export function mountUI(store, agent) {
   const msgList = $('#messages');
@@ -696,12 +719,14 @@ export function mountUI(store, agent) {
     agent.loadFiles(store.state.files);
     // 模型随会话恢复：切回来后模型按钮显示该会话自己的模型，而不是上一次的全局选择
     rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
+    syncThinking(); syncCapLine();
   }
   $('#new-session').addEventListener('click', () => {
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
     (store.ensureDraft ? store.ensureDraft() : store.createSession());
     agent.loadFiles({});
     rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
+    syncThinking(); syncCapLine();
     composer.focus();
   });
   // 一键清除所有会话记录（含各自的沙箱文件与检查点）：不可恢复，所以必须确认
@@ -1021,6 +1046,7 @@ export function mountUI(store, agent) {
         ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headModel)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
+        <div class="msg-foot mono" hidden></div>
         <div class="msg-actions">
           <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
           <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
@@ -1086,6 +1112,22 @@ export function mountUI(store, agent) {
     chip.classList.add('has-image');
   }
 
+  function paintFoot(wrap, m) {
+    const foot = $('.msg-foot', wrap);
+    if (!foot) return;
+    if (m.role !== 'assistant' || !m.done) { foot.hidden = true; foot.textContent = ''; return; }
+    const bits = [];
+    if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
+    const clock = m.durationMs != null ? fmtClock(m.durationMs) : '';
+    const ago = m.ts ? fmtAgo(m.ts) : '';
+    const time = [clock, ago].filter(Boolean).join(' | ');
+    const line = bits.length && time ? `${bits[0]} · ${time}` : (bits[0] || time);
+    if (!line) { foot.hidden = true; foot.textContent = ''; return; }
+    foot.hidden = false;
+    foot.textContent = line;
+    foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
+  }
+
   function paintAssistant(wrap, m) {
     wrap.classList.toggle('cancelled', !!m.cancelled);
     const body = $('.md-body', wrap);
@@ -1094,10 +1136,12 @@ export function mountUI(store, agent) {
     // 光标/连接动画只属于「正在跑的这一条」。导入的历史回复没有 done 字段，
     // 不能靠 !m.done 一直闪烁 —— 必须叠上本轮忙碌状态。
     const live = !m.done && getBusy();
-    // 思考过程（深度思考模型）：完成后折叠展示，流式期间给出行提示
-    if (m.done && m.reasoning) {
-      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (live && m.reasoning && !m.text) {
+    // 思考过程：Off 本轮不画（即便上游仍吐了 reasoning）。完成后折叠，流式期间一行提示。
+    const showThink = m.reasoningLevel !== 'off' && m.reasoning;
+    if (m.done && showThink) {
+      const lv = m.reasoningLevel && m.reasoningLevel !== 'off' ? ` · ${reasoningLevelLabel(m.reasoningLevel)}` : '';
+      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程${lv}${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
+    } else if (live && showThink && !m.text) {
       html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
     } else if (live && noOutputYet) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
@@ -1190,6 +1234,7 @@ export function mountUI(store, agent) {
       const tb = $('.tok-btn', meta);
       if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(); });
     }
+    paintFoot(wrap, m);
     // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
     refreshActionVisibility();
   }
@@ -1454,6 +1499,8 @@ export function mountUI(store, agent) {
         role: m.role, text: m.text, content: m.content, toolCalls: m.toolCalls,
         toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
         done: m.done !== false, cancelled: !!m.cancelled,
+        reasoning: m.reasoning, reasoningMs: m.reasoningMs, reasoningLevel: m.reasoningLevel,
+        durationMs: m.durationMs, thinkingBlocks: m.thinkingBlocks,
         attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
       })),
     };
@@ -1765,6 +1812,13 @@ export function mountUI(store, agent) {
 
   // ── 初次渲染 ──
   rebuildMessages();
+  setInterval(() => {
+    for (const m of store.state.messages || []) {
+      if (m.role !== 'assistant' || !m.done) continue;
+      const wrap = msgNodes.get(m.id);
+      if (wrap) paintFoot(wrap, m);
+    }
+  }, 30000);
   setStatus('idle');
   updateTransportBadge();
   updateStats();

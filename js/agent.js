@@ -344,7 +344,7 @@ export function createAgent(store, hooks = {}) {
 
     try {
       if (settings.jevEnabled !== false) {
-        setStatus('thinking');
+        setStatus(turn.thinking ? 'thinking' : 'connecting');
         const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
         const plan = await planTurn({
           apiKey, model, settings, signal,
@@ -365,7 +365,7 @@ export function createAgent(store, hooks = {}) {
 
       while (TOOL_LOOP_MAX <= 0 || iterations < TOOL_LOOP_MAX) {
         iterations++;
-        setStatus('thinking');
+        setStatus(turn.thinking ? 'thinking' : 'connecting');
 
         // ── 一次 LLM 流式调用（流层早期失败自动重试一次）──
         const acc = createToolCallAccumulator();
@@ -377,10 +377,14 @@ export function createAgent(store, hooks = {}) {
         const usage = {};
         let finishReason = null;
 
-        const assistantMsg = store.pushMessage({ role: 'assistant', text: '', model, usage: null });
+        const assistantMsg = store.pushMessage({
+          role: 'assistant', text: '', model, usage: null,
+          reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
+        });
         emit('onAssistantStart', assistantMsg);
         setStatus('connecting'); // 已发出请求、尚未收到首个 token：UI 显示连接动画
         let streamed = false;
+        const streamT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
         let attempt = 0;
         while (true) {
@@ -388,7 +392,7 @@ export function createAgent(store, hooks = {}) {
             await streamChat({
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
-              thinking: settings.thinking !== false, // 思考模式默认开启（settings.thinking 未显式关闭即开）
+              thinking: turn.thinking, // Off 时不发思考参数；流里若仍夹带 reasoning 也不入库
               reasoningLevel: turn.reasoningLevel,
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
@@ -403,6 +407,8 @@ export function createAgent(store, hooks = {}) {
                     emit('onDelta', assistantMsg, text);
                     break;
                   case 'reasoning':
+                    // Off 后模型仍可能自己吐 reasoning_content；不入库、不画「思考过程」
+                    if (!turn.thinking) break;
                     if (!reasonT0) reasonT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
                     reasoning += ev.text;
                     tb.delta(ev.index, ev.text);
@@ -410,7 +416,7 @@ export function createAgent(store, hooks = {}) {
                     emit('onReasoning', assistantMsg, reasoning);
                     break;
                   case 'block_start':
-                    if (ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
+                    if (turn.thinking && ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
                     break;
                   case 'signature_delta':
                     tb.signature(ev.index, ev.signature);
@@ -475,12 +481,17 @@ export function createAgent(store, hooks = {}) {
         }
 
         const toolCalls = acc.result();
-        const thinkingBlocks = tb.blocks();
+        const thinkingBlocks = turn.thinking ? tb.blocks() : [];
+        const nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         store.updateMessage(assistantMsg.id, {
-          text, reasoning: reasoning || undefined, toolCalls: toolCalls.length ? toolCalls : undefined,
+          text,
+          reasoning: turn.thinking && reasoning ? reasoning : undefined,
+          toolCalls: toolCalls.length ? toolCalls : undefined,
           // 思考块（含 signature）随消息持久化：下一轮请求需原样回传（P0-2）
           thinkingBlocks: thinkingBlocks.length ? thinkingBlocks : undefined,
-          reasoningMs: reasonT0 ? Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - reasonT0) : undefined,
+          reasoningMs: turn.thinking && reasonT0 ? Math.round(nowT - reasonT0) : undefined,
+          reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
+          durationMs: Math.round(nowT - streamT0),
           usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
           finishReason, done: true, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
