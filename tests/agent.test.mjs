@@ -1624,6 +1624,10 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /开始对话|进入对话/);
   assert.match(home, /开始探索/);
   assert.match(home, /id="explore"/);
+  assert.match(home, /explore-mark/);
+  assert.match(home, /id="curtain"/);
+  assert.match(home, /class="logo-text"/);
+  assert.match(home, /M15 13a4\.5 4\.5 0 0 1-3-4/);
   assert.match(home, /id="world"/);
   assert.match(home, /class="shot"/);
   assert.match(home, /media-src 'self'/);
@@ -1636,6 +1640,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /const WHIP/);
   assert.match(homeJs, /translate3d/);
   assert.match(homeJs, /const FILM_SEC/);
+  assert.match(homeJs, /const CURTAIN_SEC = 5/);
   assert.equal(/catch \{ openSite/.test(homeJs), false, '配乐失败不得跳过片子');
   assert.match(homeJs, /playing = true/);
   assert.match(homeJs, /leaving/);

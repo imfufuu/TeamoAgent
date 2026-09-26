@@ -18,6 +18,7 @@ const nav = document.querySelector('.nav');
 const themeBtn = document.getElementById('theme-toggle');
 const bill = document.getElementById('bill-text');
 const billboard = document.getElementById('billboard');
+const curtain = document.getElementById('curtain');
 
 const SCENES = [
   { beat: 0, x: 0, y: 80, z: 920, rx: 16, ry: -22, rz: 0, focus: 'logo', title: '' },
@@ -45,6 +46,8 @@ const SCENES = [
 ];
 
 const FILM_SEC = 47.65;
+const CURTAIN_SEC = 5;
+const BLACK_SEC = 2.5;
 
 let playing = false;
 let raf = 0;
@@ -119,9 +122,30 @@ function nowSec() {
   return (performance.now() - t0) / 1000;
 }
 
+function paintCurtain(t) {
+  if (!curtain) return;
+  const u = t - (FILM_SEC - CURTAIN_SEC);
+  curtain.style.transition = 'none';
+  if (u <= 0) {
+    curtain.style.opacity = '0';
+    curtain.style.background = '#000';
+    return;
+  }
+  if (u < BLACK_SEC) {
+    curtain.style.background = '#000';
+    curtain.style.opacity = String(Math.min(1, u / BLACK_SEC));
+  } else {
+    const v = Math.min(1, (u - BLACK_SEC) / Math.max(0.001, CURTAIN_SEC - BLACK_SEC));
+    const g = Math.round(255 * v);
+    curtain.style.background = `rgb(${g},${g},${g})`;
+    curtain.style.opacity = '1';
+  }
+}
+
 function frame() {
   if (!playing) return;
   const t = Math.max(0, nowSec());
+  paintCurtain(t);
   if (t >= FILM_SEC) { openSite(); return; }
   const beatF = t / BEAT;
   const beat = Math.max(0, Math.floor(beatF + 1e-9));
@@ -147,6 +171,10 @@ function finishOpen() {
   root.classList.add('open');
   lockScroll(false);
   if (beatBar) beatBar.style.transform = 'scaleX(0)';
+  if (curtain) {
+    curtain.style.transition = 'opacity .8s var(--film, cubic-bezier(.16,1,.3,1))';
+    curtain.style.opacity = '0';
+  }
 }
 
 function openSite(instant) {
@@ -155,12 +183,18 @@ function openSite(instant) {
   cancelAnimationFrame(raf);
   if (audio) try { audio.pause(); } catch { /* ignore */ }
   if (instant || reduce) {
+    if (curtain) { curtain.style.opacity = '0'; curtain.style.background = '#000'; }
     finishOpen();
     return;
   }
   if (root.classList.contains('leaving')) return;
   root.classList.add('leaving');
-  window.setTimeout(finishOpen, 1100);
+  if (curtain) {
+    curtain.style.transition = 'none';
+    curtain.style.background = '#fff';
+    curtain.style.opacity = '1';
+  }
+  window.setTimeout(finishOpen, 80);
 }
 
 async function startFilm() {
@@ -187,7 +221,27 @@ async function startFilm() {
 
 function skipFilm() {
   if (audio) { audio.pause(); audio.currentTime = 0; }
-  openSite();
+  playing = false;
+  cancelAnimationFrame(raf);
+  if (reduce || !curtain) { openSite(true); return; }
+  const start = performance.now();
+  const dur = 1200;
+  const tick = (now) => {
+    const p = Math.min(1, (now - start) / dur);
+    curtain.style.transition = 'none';
+    if (p < 0.5) {
+      curtain.style.background = '#000';
+      curtain.style.opacity = String(p / 0.5);
+    } else {
+      const v = (p - 0.5) / 0.5;
+      const g = Math.round(255 * v);
+      curtain.style.background = `rgb(${g},${g},${g})`;
+      curtain.style.opacity = '1';
+    }
+    if (p < 1) requestAnimationFrame(tick);
+    else openSite();
+  };
+  requestAnimationFrame(tick);
 }
 
 if (themeBtn) {
@@ -205,9 +259,7 @@ if (reduce) {
 } else {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
-  if (audio) {
-    audio.addEventListener('ended', () => { if (playing) openSite(); });
-  }
+  /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
   explore && explore.addEventListener('click', startFilm);
   skip && skip.addEventListener('click', skipFilm);
 }
