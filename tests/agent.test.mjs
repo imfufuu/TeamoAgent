@@ -1638,7 +1638,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /clamp\(14px, 2\.1vw, 22px\)/);
   assert.match(homeCss, /@keyframes polish/);
   assert.match(homeCss, /@keyframes sheen/);
-  assert.match(homeCss, /@keyframes appearanceInvert/);
+  assert.match(homeCss, /@property --bg/);
   assert.match(homeCss, /site \.reveal/);
   assert.match(homeCss, /shot\.focus/);
   assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
@@ -1655,7 +1655,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /playing = true/);
   assert.match(homeJs, /leaving/);
   assert.match(homeJs, /watchReveal/);
-  assert.match(homeJs, /theme-inverting/);
+  assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
+  assert.match(home, /id="principles"/);
   assert.match(homeJs, /IntersectionObserver/);
   const titles = [...homeJs.matchAll(/title: '([^']*)'/g)].map((m) => m[1]).filter(Boolean);
   assert.equal(new Set(titles).size, titles.length, `字幕重复：${titles}`);

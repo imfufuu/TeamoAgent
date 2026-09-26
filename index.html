@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
-<meta name="app-version" content="2026.9.26.11" />
+<meta name="app-version" content="2026.9.26.12" />
 <meta name="app-release" content="V1.1" />
 <meta name="description" content="TeamoAgent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>TeamoAgent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.9.26.11" />
+<link rel="stylesheet" href="css/home.css?v=2026.9.26.12" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -129,7 +129,9 @@ RMSE = 0.5831
   <span class="ver">V1.1</span>
   <span class="nav-spacer"></span>
   <a class="nav-link" href="#capabilities">能力</a>
+  <a class="nav-link" href="#bench">工作台</a>
   <a class="nav-link" href="#flow">流程</a>
+  <a class="nav-link" href="#principles">原则</a>
   <button id="theme-toggle" class="nav-link" type="button">外观</button>
   <a class="cta" href="./app.html">开始对话</a>
 </header>
@@ -142,7 +144,7 @@ RMSE = 0.5831
       </div>
       <p class="kicker">Web Agent · TeamoRouter</p>
       <h1>浏览器里的<br>智能体。</h1>
-      <p class="lede">写代码、管文件、出图、深度思考。会话级沙箱就在侧栏，打开网页即可开始，不必安装客户端。</p>
+      <p class="lede">在网页里写代码、管文件、出图、识图、深度思考。会话级沙箱就在侧栏，Key 只存在本机。打开即可开始，不必安装客户端。</p>
       <div class="hero-actions">
         <a class="cta" href="./app.html">进入对话</a>
         <a class="cta cta-ghost" href="#capabilities">了解能力</a>
@@ -152,10 +154,10 @@ RMSE = 0.5831
 
   <div class="band">
     <div class="band-inner">
-      <div class="stat"><b>JS / Py / C++</b><span>隔离沙箱执行</span></div>
-      <div class="stat"><b>120 MB</b><span>会话工作区</span></div>
-      <div class="stat"><b>Off → Ultra</b><span>思考档可调</span></div>
-      <div class="stat"><b>V1.1</b><span>正式版</span></div>
+      <div class="stat"><b>JS / Py / C++</b><span>隔离沙箱，超时可杀</span></div>
+      <div class="stat"><b>120 MB</b><span>会话工作区，刷新还在</span></div>
+      <div class="stat"><b>Off → Ultra</b><span>思考档五档可调</span></div>
+      <div class="stat"><b>本机 Key</b><span>不经过我们的账号</span></div>
     </div>
   </div>
 
@@ -166,23 +168,44 @@ RMSE = 0.5831
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 19.5v-11a1.5 1.5 0 0 0-1.5-1.5h-7L9.6 4.6A1.5 1.5 0 0 0 8.44 4h-5A1.5 1.5 0 0 0 2 5.5v13a1.5 1.5 0 0 0 1.5 1.5h15.5a1.5 1.5 0 0 0 1.5-1.5Z"/></svg>
         <h3>沙箱</h3>
-        <p>JavaScript Worker、Pyodide（可装第三方库）与远程 C++。超时可杀，改动同步回工作区。</p>
+        <p>JavaScript Worker、Pyodide（可装第三方库）与远程 C++20。超时可杀，stdout / 返回值可捕获，改动写回工作区。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2.5H7A1.5 1.5 0 0 0 5.5 4v16A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V8Z"/><path d="M14 2.8V7a1.5 1.5 0 0 0 1.5 1.5H20"/></svg>
         <h3>工作区</h3>
-        <p>读写、追加、局部替换、复制删除、正则搜索、文本差分、JSON 整理，ZIP 打包解压上限 128 条。</p>
+        <p>读写、追加、局部替换、复制删除、正则搜索、文本差分、JSON 整理。ZIP 打包解压上限 128 条，容量 120 MB。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.2"/><circle cx="8.8" cy="8.8" r="1.8"/><path d="m4.5 18.5 4.6-4.6a1.8 1.8 0 0 1 2.55 0l5.35 5.35"/><path d="M14.5 14.2l1.7-1.7a1.8 1.8 0 0 1 2.55 0l1.75 1.75"/></svg>
         <h3>图像</h3>
-        <p>文生图与改图走工具；识图统一「分析图片」。对话通道保持纯文本，结果写入沙箱。</p>
+        <p>文生图与改图走 generate_image；识图统一 analyze_image。对话通道保持纯文本，结果写入沙箱 outputs/。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/></svg>
         <h3>思考</h3>
-        <p>Off / Mini / Medium / Max / Ultra。Ultra 标题走斜向丝绸渐变，过程可展开，耗时可见。</p>
+        <p>Off / Mini / Medium / Max / Ultra。过程可展开，耗时可见。Max 与 Ultra 才允许委派子智能体。</p>
       </article>
+      <article class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg>
+        <h3>本地工作台</h3>
+        <p>正则、哈希、编解码、Unicode、差分、JSON，不必为这些开沙箱。关沙箱时代码执行不可用，文件工具仍在。</p>
+      </article>
+      <article class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.2"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 17.5v1.8a1.2 1.2 0 0 0 1.2 1.2h12.6a1.2 1.2 0 0 0 1.2-1.2v-1.8"/></svg>
+        <h3>带走结果</h3>
+        <p>侧栏按卡片列出容量与文件树。打包 ZIP、下载单文件。有本地中继时还能对真实 git 仓库操作。</p>
+      </article>
+    </div>
+  </section>
+
+  <section class="section" id="bench">
+    <h2>关沙箱也能用的本地工具。</h2>
+    <p class="sub">这些在浏览器里直接跑，不消耗网关、也不需要 Worker / Pyodide。写正则、对拍文本、整理 JSON 时优先用它们。</p>
+    <div class="chip-row">
+      <span class="chip">regex</span><span class="chip">hash</span><span class="chip">codec</span><span class="chip">unicode</span>
+      <span class="chip">search_files</span><span class="chip">diff_text</span><span class="chip">json_tool</span>
+      <span class="chip">zip_files</span><span class="chip">unzip_file</span><span class="chip">get_current_time</span>
+      <span class="chip">run_git</span><span class="chip">fetch_url</span>
     </div>
   </section>
 
@@ -192,9 +215,10 @@ RMSE = 0.5831
         <h2>从一句话到可下载的产物。</h2>
         <p class="sub">智能体在浏览器里循环调用工具，直到写出文件、跑通测试或生成图像。你可以随时打开侧栏工作区拿走结果。</p>
         <ol class="steps">
-          <li><span class="num">01</span><div><h3>写下任务</h3><p>空状态有 20–30 字的挑战示例。点一下填入完整提示词。</p></div></li>
-          <li><span class="num">02</span><div><h3>工具在跑</h3><p>芯片无边框、可复制入参。思考与调用都记下耗时。</p></div></li>
-          <li><span class="num">03</span><div><h3>带走文件</h3><p>工作区按卡片呈现容量与树。打包 ZIP，刷新不丢。</p></div></li>
+          <li><span class="num">01</span><div><h3>写下任务</h3><p>空状态有 20–30 字的挑战示例。点一下填入完整提示词，附件会进沙箱 uploads/。</p></div></li>
+          <li><span class="num">02</span><div><h3>工具在跑</h3><p>芯片无边框、可复制入参。思考与调用都记下耗时。并行互不依赖的步骤会同一轮发出。</p></div></li>
+          <li><span class="num">03</span><div><h3>核对结果</h3><p>代码在沙箱执行，不是口算。长输出写入文件，识图返回全文而不是摘要。</p></div></li>
+          <li><span class="num">04</span><div><h3>带走文件</h3><p>工作区按卡片呈现容量与树。打包 ZIP，刷新不丢。Key 与会话都在本机。</p></div></li>
         </ol>
       </div>
       <aside class="panel-preview" aria-hidden="true">
@@ -210,18 +234,51 @@ RMSE = 0.5831
     </div>
   </section>
 
+  <section class="section" id="principles">
+    <h2>不会假装有的能力。</h2>
+    <p class="sub">介绍页和对话页说的是同一份产品。下面这些限制写进提示词，模型不会用「已经搜过」来搪塞。</p>
+    <ul class="honesty">
+      <li>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/></svg>
+        <span>没有模型原生网页搜索。有本地中继时用 fetch_url 抓具体网址；GitHub Pages 上该开关不可用。</span>
+      </li>
+      <li>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.2"/><circle cx="8.8" cy="8.8" r="1.8"/><path d="m4.5 18.5 4.6-4.6a1.8 1.8 0 0 1 2.55 0l5.35 5.35"/><path d="M14.5 14.2l1.7-1.7a1.8 1.8 0 0 1 2.55 0l1.75 1.75"/></svg>
+        <span>对话模型看不见图片。识图必须走 analyze_image（deepseek-v4-flash-vision-exp），返回全文。</span>
+      </li>
+      <li>
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="12" r="2.5"/><path d="M6.5 9v6"/><path d="M9 6.5h3.5a2 2 0 0 1 2 2v1.5"/><path d="M9 17.5h3.5a2 2 0 0 0 2-2V14"/></svg>
+        <span>run_git 只在本机工作区白名单命令下执行，不经 shell。没有中继就没有真实 git。</span>
+      </li>
+    </ul>
+    <div class="faq" style="margin-top:36px">
+      <details>
+        <summary>Key 存在哪里？</summary>
+        <p>TeamoRouter 的 API Key 只写在本机浏览器。我们不提供账号系统，刷新后对话、附件与沙箱仍在 localStorage / 会话存储里。</p>
+      </details>
+      <details>
+        <summary>和对话页是不是两套产品？</summary>
+        <p>不是。介绍页只负责说明，对话在 app.html。沙箱、工作区、生图、思考档、本地工具与这里写的一致。</p>
+      </details>
+      <details>
+        <summary>为什么有些模型不能识图？</summary>
+        <p>对话通道一律纯文本，避免各模型 multimodal 行为不一致。需要看图时由工具调用专用识图模型，结果落盘后可以再读。</p>
+      </details>
+    </div>
+  </section>
+
   <section class="cta-block">
     <h2>现在就开始。</h2>
-    <p>Key 存在本机。对话、附件与沙箱刷新后还在。</p>
+    <p>打开对话页，填入 Key，选一个模型。空状态的示例点一下就是完整任务。</p>
     <a class="cta" href="./app.html">打开 TeamoAgent</a>
   </section>
 </main>
 
 <footer>
-  <span>TeamoAgent V1.1 · 构建 2026.9.26.11</span>
+  <span>TeamoAgent V1.1 · 构建 2026.9.26.12</span>
   <a href="./app.html">对话</a>
 </footer>
 </div>
-<script type="module" src="js/home.js?v=2026.9.26.11"></script>
+<script type="module" src="js/home.js?v=2026.9.26.12"></script>
 </body>
 </html>
