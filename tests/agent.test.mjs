@@ -464,6 +464,10 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.match(html, /id="think-menu"/);
   assert.match(ui, /REASONING_LEVELS/);
   assert.match(ui, /data-think/);
+  assert.match(ui, /data-think="off">Off/);
+  assert.match(ui, /msg-actions-user/);
+  assert.match(ui, /data-act="copy"/);
+  assert.match(ui, /act-danger/);
 });
 
 group('子智能体注册表');
@@ -836,7 +840,7 @@ test('P0-2 端到端：Claude 思考+工具调用，第二次请求回传思考�
     assert.equal(calls.length, 2);
     assert.ok(calls[0].url.endsWith('/v1/messages'), 'Claude 走原生协议');
     assert.deepEqual(calls[0].body.thinking, { type: 'enabled', budget_tokens: 4096 });
-    assert.equal(calls[0].body.max_tokens, 16384, '思考模式 max_tokens 自动抬升');
+    assert.equal(calls[0].body.max_tokens, 12288, '代码任务 + 思考：budget+任务上限');
     // 关键断言：第二次请求的 assistant 消息以思考块开头并携带 signature
     const asst = calls[1].body.messages.find((m) => m.role === 'assistant');
     assert.equal(asst.content[0].type, 'thinking');
@@ -1641,11 +1645,15 @@ test('agent.js 与 tools.js 的沙箱工具清单一致（本地副本，防 lin
 });
 group('子智能体自主委派（提示词层）');
 test('systemPrompt 里列出了 dispatch_subagent（不再只靠开关后附加的指引）', async () => {
-  const sys = cfg.systemPrompt();
+  const sys = cfg.systemPrompt(new Date(), { allowDispatch: true });
   assert.match(sys, /dispatch_subagent/, '能力清单必须包含委派工具');
   assert.match(sys, /不要等用户点名/, '要写明无需用户点名即可委派');
   assert.match(sys, /同一轮/, '要允许一轮内并行发起多个工具调用');
   assert.match(sys, /代码执行工具需要用户开启/, '沙箱开关的作用范围要说清');
+  const locked = cfg.systemPrompt();
+  assert.match(locked, /Max 或 Ultra/, '默认不委派，须点明 Max/Ultra');
+  assert.match(locked, /非代码话题|非专业话题|闲聊/);
+  assert.match(cfg.OUTPUT_SPEC, /<<<CONTINUE>>>/);
 });
 test('subagentGuide 给触发条件与并行规则，而不是劝阻委派', async () => {
   const g = subagentGuide();
@@ -1664,6 +1672,8 @@ test('关闭沙箱时委派指引照样注入（旧写法整段被开关藏起�
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     store.state.settings.sandboxEnabled = false;
+    store.state.settings.thinking = true;
+    store.state.settings.reasoningLevel = 'max';
     const agent = createAgent(store, {});
     await agent.send('随便聊聊');
     const sys = calls[0].body.messages.find((m) => m.role === 'system');
@@ -1694,6 +1704,8 @@ test('同一轮的多个 dispatch_subagent 并发执行，结果仍按调用顺�
     const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
+    store.state.settings.thinking = true;
+    store.state.settings.reasoningLevel = 'ultra';
     const agent = createAgent(store, {});
     const t0 = Date.now();
     await agent.send('同时找三个专家看看');
@@ -2902,6 +2914,9 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
     assert.match(sys[0].content, /TeamoAgent/);
     assert.match(sys[0].content, /available_skills/);
     assert.match(sys[0].content, /子智能体委派（dispatch_subagent）/);
+    assert.match(sys[0].content, /不是 Max\/Ultra/);
+    assert.equal((calls[0].body.tools || []).some((t) => (t.function && t.function.name) === 'dispatch_subagent'), false, '默认 Medium 不得委派');
+    assert.equal(calls[0].body.max_tokens, 1024, '闲聊输出上限约 1k');
     const joined = sys.map((m) => m.content).join('\n');
     assert.match(joined, /本轮未联网/);
   } finally { globalThis.fetch = realFetch; }
@@ -3122,6 +3137,8 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.equal(ui.includes("state.textContent = patch.note || '✕'"), false);
   assert.match(html, /id="clear-sessions"[^>]*class="mini-btn danger"/);
   assert.match(html, /id="clear-files"[^>]*class="mini-btn danger"/);
+  assert.match(css, /\.act\.act-danger/);
+  assert.match(css, /\.dot\.busy\.thinking/);
   assert.match(ui, /再次确认/);
   assert.match(html, /id="quota-bar"/);
   assert.match(css, /\.quota-bar/);

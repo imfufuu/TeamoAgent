@@ -129,7 +129,14 @@ export function findSubagent(id) {
 // 因此这里给的是触发条件（何时必须派）与批量规则（可并行多路），而不是劝阻性措辞。
 // 旧版结尾写着「简单任务直接自己处理，不要为了委派而委派；一次委派一个明确的子任务」，
 // 实测模型据此几乎从不主动调用 dispatch_subagent，等于把子智能体功能藏了起来。
-export function subagentGuide() {
+export function subagentGuide(opts) {
+  if (opts && opts.allow === false) {
+    return [
+      '',
+      '## 子智能体委派（dispatch_subagent）',
+      '本轮思考级别不是 Max/Ultra，工具表里没有 dispatch_subagent。请直接回答或自己分步完成；闲聊、常识、非专业问题直接答。',
+    ].join('\n');
+  }
   const list = SUBAGENTS.map((a) => `- ${a.id}（${a.name}）：${a.description}`).join('\n');
   return [
     '',

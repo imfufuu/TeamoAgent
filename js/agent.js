@@ -198,11 +198,14 @@ export function createAgent(store, hooks = {}) {
     }
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const webOn = store.state.settings.webEnabled !== false;
+    const st = store.state.settings || {};
+    const lv = String(st.reasoningLevel || 'medium').toLowerCase();
+    const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
     if (!cachedPrefix) {
       cachedPrefix = assembleSystemLayers({
-        identity: systemPrompt(new Date(), { webEnabled: webOn }),
+        identity: systemPrompt(new Date(), { webEnabled: webOn, allowDispatch: canDispatch }),
         skillsIndex: formatSkillsIndex(store.state.learnedSkills),
-        contextFiles: subagentGuide(),
+        contextFiles: subagentGuide({ allow: canDispatch }),
       }).cached;
     }
     const layers = assembleSystemLayers({
@@ -240,6 +243,7 @@ export function createAgent(store, hooks = {}) {
       apiKey: turn.apiKey,
       imageModel: turn.imageModel,
       sandboxEnabled: turn.sandboxEnabled,
+      allowDispatch: !!turn.canDispatch,
       signal: turn.signal,
       onUi: (patch) => emit('onToolEvent', call, patch),
       dispatch: async (agentId, subTask, onNote) => {
@@ -310,11 +314,16 @@ export function createAgent(store, hooks = {}) {
     // 状态来自 main.js 启动时的一次探测（store.state.relayOk），没探过就当「可能在」，
     // 避免每次回合都多发一个 /api/health 请求，也避免测试桩被这层探测打乱。
     const relayOk = store.state.relayOk !== false;
-    const tools = toolsFor(settings.sandboxEnabled).filter((t) => relayOk || !RELAY_ONLY_TOOLS.has(t.name));
+    const lv = String(settings.reasoningLevel || 'medium').toLowerCase();
+    const canDispatch = settings.thinking !== false && (lv === 'max' || lv === 'ultra');
+    const tools = toolsFor(settings.sandboxEnabled)
+      .filter((t) => relayOk || !RELAY_ONLY_TOOLS.has(t.name))
+      .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
     const turn = {
       apiKey, model, signal,
       thinking: settings.thinking !== false,
       reasoningLevel: settings.reasoningLevel || 'medium',
+      canDispatch,
       sandboxEnabled: settings.sandboxEnabled,
       webEnabled: settings.webEnabled !== false, // 联网默认开（搜不搜由模型自己判断）
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,

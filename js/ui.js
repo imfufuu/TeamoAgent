@@ -388,7 +388,7 @@ export function mountUI(store, agent) {
     if (!thinkMenu) return;
     const on = store.state.settings.thinking !== false;
     const cur = normalizeReasoningLevel(store.state.settings.reasoningLevel);
-    const rows = [`<button type="button" class="think-item${on ? '' : ' active'}" data-think="off">关闭<span class="think-hint">不发送思考参数</span></button>`];
+    const rows = [`<button type="button" class="think-item${on ? '' : ' active'}" data-think="off">Off<span class="think-hint">不发送思考参数</span></button>`];
     for (const lv of REASONING_LEVELS) {
       rows.push(`<button type="button" class="think-item${on && cur === lv ? ' active' : ''}" data-think="${lv}">${reasoningLevelLabel(lv)}<span class="think-hint">${reasoningLevelHint(lv)}</span></button>`);
     }
@@ -415,7 +415,7 @@ export function mountUI(store, agent) {
       const v = btn.getAttribute('data-think');
       if (v === 'off') {
         store.state.settings.thinking = false;
-        toast('思考模式关闭');
+        toast('思考 Off');
       } else {
         store.state.settings.thinking = true;
         store.state.settings.reasoningLevel = normalizeReasoningLevel(v);
@@ -913,8 +913,16 @@ export function mountUI(store, agent) {
     if (m.role === 'user') {
       wrap.innerHTML = `<div class="bubble md-body">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
         ${m.jev && m.jev.summary ? `<div class="jev-chip" title="TypeSafe Jev 对本轮的校准分类">Jev · ${esc(m.jev.summary)}</div>` : ''}
-        <div class="msg-actions msg-actions-user"><button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button></div>`;
-      $('.act', wrap).addEventListener('click', () => doRollback(m));
+        <div class="msg-actions msg-actions-user">
+          <button class="act" data-act="copy" title="复制这条消息">${ICON.copy || ''}<span>复制</span></button>
+          <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
+        </div>`;
+      $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
+        if (b.dataset.act === 'copy') {
+          navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+        }
+        if (b.dataset.act === 'rollback') doRollback(m);
+      }));
     } else {
       // 模型名/头像每轮（一次 user 提问开始的回合）只显示一次：
       // 仅当上一条消息是 user 时渲染 msg-head，工具循环产生的后续 assistant 消息不再重复
@@ -929,7 +937,7 @@ export function mountUI(store, agent) {
         <div class="tool-chips"></div>
         <div class="msg-actions">
           <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
-          <button class="act" data-act="rollback" title="回滚到本轮之前">${ICON.rollback || ''}<span>回滚</span></button>
+          <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
           <button class="act act-regen" data-act="regen" title="重新生成并覆盖最近这一条回答（更早的回答请先「回滚」再重新提问）">${ICON.regen || ''}<span>重新生成</span></button>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
@@ -1258,7 +1266,7 @@ export function mountUI(store, agent) {
     const busy = ['connecting', 'thinking', 'streaming', 'executing'].includes(s);
     if (busy) {
       if (!busySince) busySince = performance.now();
-      statusDot.className = `dot busy${s === 'connecting' ? ' connecting' : ''}`;
+      statusDot.className = `dot busy ${s}`;
       if (!busyTimer) busyTimer = setInterval(() => paintStatus(s), 200);
       paintStatus(s);
     } else {

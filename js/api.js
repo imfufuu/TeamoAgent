@@ -7,6 +7,23 @@ import { claudeThinkingBudget, normalizeReasoningLevel, reasoningEffortFor } fro
 import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
 
+function lastUserText(messages) {
+  for (let i = (messages || []).length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === 'user') return String(m.text || (typeof m.content === 'string' ? m.content : '') || '');
+  }
+  return '';
+}
+function isCodeTask(text) {
+  return /```|write_file|read_file|patch_file|execute_|function\b|class\b|\bdef\b|\bimport\b|实现|代码|重构|编译|\.js\b|\.py\b|\.ts\b|\.cpp\b|算法|沙箱|模块|函数|单测|bug|报错|接口定义|TypeScript|JavaScript|Python|写个文件|写入|文件|sandbox|\bcode\b|\bimplement\b|\bpatch\b/i.test(String(text || ''));
+}
+function taskOutputCap(text, { thinking, level }) {
+  const code = isCodeTask(text);
+  const deep = !!(thinking && (level === 'max' || level === 'ultra'));
+  if (code) return deep ? 16000 : 8192;
+  return deep ? 2048 : 1024;
+}
+
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
 const thinkingUnsupported = new Set();
 export function thinkingDisabledFor(model) { return thinkingUnsupported.has(model); }
@@ -397,10 +414,11 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
 
   const buildBody = (withThinking, withWeb) => {
     let body;
+    const cap = taskOutputCap(lastUserText(messages), { thinking: withThinking, level });
     if (endpoint === 'responses') {
       // OpenAI Responses API：网关文档 4.4 —— /v1/responses 仅 GPT 系列，Claude/Gemini 会 400
       const { instructions, input } = buildResponsesInput(messages);
-      body = { model, stream: true, input };
+      body = { model, stream: true, input, max_output_tokens: cap };
       if (instructions) body.instructions = instructions;
       const fnTools = tools && tools.length ? toOpenAITools(tools) : [];
       if (fnTools.length) body.tools = fnTools.map((t) => ({ type: 'function', ...t.function }));
@@ -412,14 +430,14 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     if (protocol === 'anthropic') {
       // 思考关闭的请求不能夹带历史 thinking 块（API 会拒收）
       const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
-      // 思考模式要求 max_tokens > budget_tokens
-      const budget = claudeThinkingBudget(level);
-      const maxTokens = withThinking ? Math.max(p.max_tokens, 16384, budget + 8192) : p.max_tokens;
+      // 思考模式要求 max_tokens > budget_tokens；聊天 ~1k，代码 8k–16k
+      const budget = withThinking ? claudeThinkingBudget(level) : 0;
+      const maxTokens = withThinking ? Math.max(cap, budget + cap) : cap;
       // 空 system 不要发：实测网关 Anthropic 路由收到 system:"" 时上游整段不返回 thinking 块
       body = { model, stream: true, messages: p.messages, max_tokens: maxTokens };
       if (p.system) body.system = p.system;
     } else {
-      body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
+      body = { model, stream: true, stream_options: { include_usage: true }, max_tokens: cap, messages: buildOpenAIMessages(messages) };
       if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）
     }
     if (withThinking) Object.assign(body, thinkingParamsFor(model, level));

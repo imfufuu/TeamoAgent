@@ -449,6 +449,9 @@ export async function executeTool(name, args, ctx) {
         return `[git] ${String(args.command).slice(0, 120)}\n目录：${r.cwd || 'workspace'} · 退出码 0${r.note ? ` · ${r.note}` : ''}\n\n${body}`;
       }
       case 'dispatch_subagent': {
+        if (ctx.allowDispatch === false) {
+          return '当前思考级别不是 Max/Ultra，不能委派子智能体。请用户把「思考」调到 Max 或 Ultra，或由你直接回答。';
+        }
         if (!ctx.dispatch) return '子智能体调度器不可用。';
         emit({ status: 'running', note: `子智能体 ${args.agent} 执行中…` });
         const report = await ctx.dispatch(args.agent, args.task || '', (note) => emit({ status: 'running', note }));

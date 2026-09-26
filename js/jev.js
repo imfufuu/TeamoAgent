@@ -195,7 +195,7 @@ export function summarizePlan(answers) {
   return bits.join(' · ');
 }
 
-export function formatPlanNote(answers, { webEnabled, sandboxEnabled } = {}) {
+export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, reasoningLevel } = {}) {
   if (!answers) return '';
   const route = choiceOf(answers, 'route') || 'chat';
   const conf = confidenceOf(answers, 'route');
@@ -228,8 +228,12 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled } = {}) {
   } else if (route === 'chat' && (code == null || code < 0.25) && (dispatch == null || dispatch < 0.3)) {
     lines.push('- 本题可以直接回答。不要为了用工具而用工具，也不要无故委派。');
   }
+  const lv = String(reasoningLevel || 'medium').toLowerCase();
+  const canDispatch = thinking !== false && (lv === 'max' || lv === 'ultra');
   if (dispatch != null && dispatch >= 0.7) {
-    lines.push('- 本题适合委派子智能体：主动 dispatch_subagent，task 必须自包含。');
+    lines.push(canDispatch
+      ? '- 本题适合委派子智能体：主动 dispatch_subagent，task 必须自包含。'
+      : '- 本题适合专业视角，但当前思考级别未到 Max/Ultra，不能委派；请你自己直接做。');
   }
   if (diff != null && diff >= 4) {
     lines.push('- 高难度：先在内部想清步骤；互不依赖的工具在同一轮并行发出。');
@@ -258,6 +262,8 @@ export async function planTurn({ apiKey, text, model, settings, attachments, sig
     note: formatPlanNote(answers, {
       webEnabled: !(settings && settings.webEnabled === false),
       sandboxEnabled: !(settings && settings.sandboxEnabled === false),
+      thinking: !(settings && settings.thinking === false),
+      reasoningLevel: settings && settings.reasoningLevel,
     }),
   };
 }

@@ -65,7 +65,7 @@ export const BUNDLED_SKILLS = [
     match: (plan) => !!(plan && plan.needDispatch != null && plan.needDispatch >= 0.55),
     body: [
       '## Skill: subagent-dispatch',
-      '- 适合专业视角（审查、研究、写作、数据分析）时主动 dispatch_subagent，不必等用户点名。',
+      '- 仅当思考级别为 Max 或 Ultra 时才有 dispatch_subagent。适合专业视角时主动委派，不必等用户点名。',
       '- task 必须自包含：子智能体看不到主对话。互不依赖的委派同一轮并行发出。',
       '- 不要把冗长报告原样转贴；综合后再答。报告异常时自己补做。',
     ].join('\n'),
