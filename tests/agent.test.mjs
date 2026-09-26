@@ -1663,6 +1663,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /@property --bg/);
   assert.match(homeCss, /site \.reveal/);
   assert.match(homeCss, /@keyframes ctaOrbit/);
+  assert.match(homeCss, /ctaOrbit \{[\s\S]*translate\(-50%, -50%\) rotate\(360deg\)/);
+  assert.equal(/cta-block h2::before \{[\s\S]{0,180}inset:\s*0/.test(homeCss), false, '弧线不能绑在标题宽矩形上旋转，否则会划过文字');
+  assert.match(homeCss, /cta-block h2::before \{[\s\S]{0,220}border-radius:\s*50%/);
   assert.equal(/@keyframes ctaKick/.test(homeCss), false);
   assert.equal(/ctaPulse/.test(homeCss), false);
   assert.match(homeCss, /shot\.focus/);

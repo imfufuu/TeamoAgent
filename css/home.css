@@ -604,34 +604,49 @@ h1 {
 
 .cta-block {
   text-align: center; padding: 96px 28px 80px;
-  position: relative;
+  position: relative; overflow: visible;
 }
 .cta-block h2 {
   font-family: var(--serif); font-size: clamp(32px, 5vw, 56px); font-weight: 500;
   letter-spacing: -.03em; margin-bottom: 16px;
   display: inline-block; position: relative;
-  padding: 22px 32px 18px;
+  padding: 36px 48px 28px;
+  overflow: visible;
 }
+/* 正圆短弧绕标题慢转。禁止用标题自身的宽矩形 inset:0 去 rotate——
+   那会把胶囊边框拧成斜线，从字上划过去。 */
 .cta-block h2::before {
   content: ""; pointer-events: none;
-  position: absolute; inset: 0;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  border-top-color: var(--fg);
-  border-right-color: color-mix(in srgb, var(--fg) 28%, transparent);
-  opacity: .45;
-  animation: ctaOrbit 36s linear infinite;
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 12.5em; height: 12.5em;
+  border-radius: 50%;
+  background: conic-gradient(
+    from 0deg,
+    transparent 0 78%,
+    color-mix(in srgb, var(--fg) 0%, transparent) 84%,
+    var(--fg) 91%,
+    color-mix(in srgb, var(--fg) 0%, transparent) 97%,
+    transparent 100%
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.25px), #000 calc(100% - 1.25px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.25px), #000 calc(100% - 1.25px));
+  opacity: .42;
+  animation: ctaOrbit 48s linear infinite;
 }
 .cta-block h2::after {
   content: ""; pointer-events: none;
-  position: absolute; left: 22%; right: 22%; bottom: 6px;
+  position: absolute; left: 22%; right: 22%; bottom: 10px;
   height: 1px; background: var(--fg);
   transform: scaleX(0); transform-origin: 50%;
   transition: transform 1.6s var(--film) .15s;
 }
 .cta-block h2.in::after { transform: scaleX(1); }
 .cta-block p { color: var(--fg-2); margin-bottom: 28px; position: relative; }
-@keyframes ctaOrbit { to { transform: rotate(360deg); } }
+@keyframes ctaOrbit {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
 
 footer {
   position: relative; z-index: 1;
