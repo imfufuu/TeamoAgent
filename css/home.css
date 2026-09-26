@@ -614,7 +614,7 @@ h1 {
 
 .cta-block {
   text-align: center; padding: 96px 28px 80px;
-  position: relative; overflow: visible;
+  position: relative; overflow: hidden;
 }
 .cta-block h2 {
   font-family: var(--serif); font-size: clamp(32px, 5vw, 56px); font-weight: 500;

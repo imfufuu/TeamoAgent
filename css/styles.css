@@ -529,9 +529,9 @@ a { color: var(--fg); }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }
 
 /* 工具芯片 */
-.tool-chips { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.tool-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
 .chip {
-  border: none; background: transparent; padding: 4px 0;
+  border: none; background: transparent; padding: 1px 0;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
   font-size: 12px; color: var(--fg-2); transition: color .2s var(--ease);
 }
@@ -679,16 +679,15 @@ a { color: var(--fg); }
 .msg-user .att-file { color: var(--fg); }
 
 /* 思考过程折叠块 */
-.reasoning { margin-bottom: 10px; border: none; padding: 0; }
-.reasoning summary {
-  cursor: pointer; font-size: 12px; color: var(--fg-3); user-select: none; transition: color .2s;
-  display: flex; align-items: center; gap: 6px; list-style: none;
-  width: 100%; padding: 4px 0;
+.reasoning {
+  width: 100%; border: none; background: transparent; padding: 1px 0; margin: 0 0 4px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
+  font-size: 12px; color: var(--fg-2); transition: color .2s var(--ease);
 }
-.reasoning summary::-webkit-details-marker { display: none; }
-.reasoning summary:hover { color: var(--fg); }
-.reasoning[open] summary { margin-bottom: 6px; color: var(--fg-2); }
-.reasoning > div { font-size: 12.5px; color: var(--fg-2); padding-left: 20px; }
+.reasoning:hover { color: var(--fg); }
+.reasoning .chip-detail { display: none; width: 100%; font-size: 11.5px; color: var(--fg-2); }
+.reasoning.expanded .chip-detail { display: block; animation: fadeUp .25s var(--ease) both; }
+.reasoning .chip-state { color: var(--fg-3); font-family: var(--mono); }
 .thinking-line { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--fg-3); }
 .thinking-line .dots { animation: pulse 1.2s ease-in-out infinite; display: inline-block; }
 .think-ico { display: inline-flex; width: 14px; height: 14px; color: var(--fg-3); flex-shrink: 0; }

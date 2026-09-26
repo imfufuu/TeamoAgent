@@ -365,8 +365,40 @@ function readToolText(args, fs) {
   return { text: args && args.text != null ? String(args.text) : '', label: 'text' };
 }
 
+function nowMs() {
+  return (typeof performance !== 'undefined' && typeof performance.now === 'function') ? performance.now() : Date.now();
+}
+function stampToolDuration(text, ms) {
+  const s = text == null ? '' : String(text);
+  if (/执行耗时 \d+ms/.test(s)) return s;
+  const body = s.replace(/\s+$/, '');
+  const n = Math.max(0, Math.round(Number(ms) || 0));
+  return body ? `${body}\n[执行耗时 ${n}ms]` : `[执行耗时 ${n}ms]`;
+}
 // 执行工具并返回字符串结果（会回填进对话）；onUi 用于驱动沙箱面板
 export async function executeTool(name, args, ctx) {
+  const t0 = nowMs();
+  const rawOnUi = ctx && ctx.onUi;
+  const timedCtx = {
+    ...(ctx || {}),
+    onUi: (patch) => {
+      if (!rawOnUi) return;
+      if (patch && (patch.status === 'ok' || patch.status === 'error') && patch.durationMs == null) {
+        rawOnUi({ ...patch, durationMs: Math.max(0, Math.round(nowMs() - t0)) });
+      } else rawOnUi(patch);
+    },
+  };
+  let out;
+  try {
+    out = await executeToolBody(name, args, timedCtx);
+  } catch (err) {
+    const msg = `工具执行失败: ${err.message}`;
+    timedCtx.onUi({ name, args, status: 'error', error: { message: msg } });
+    out = msg;
+  }
+  return stampToolDuration(out, nowMs() - t0);
+}
+async function executeToolBody(name, args, ctx) {
   const { fs, onUi } = ctx;
   const emit = (patch) => onUi && onUi({ name, args, ...patch });
   // 兜底防线：工具列表按开关过滤过，但缓存错配或旧上下文里的工具调用仍可能打进来

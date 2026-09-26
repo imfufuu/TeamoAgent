@@ -1746,6 +1746,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /ctaOrbit \{[\s\S]*translate\(-50%, -50%\) rotate\(360deg\)/);
   assert.equal(/cta-block h2::before \{[\s\S]{0,180}inset:\s*0/.test(homeCss), false, '弧线不能绑在标题宽矩形上旋转，否则会划过文字');
   assert.match(homeCss, /cta-block h2::before \{[\s\S]{0,220}border-radius:\s*50%/);
+  assert.match(homeCss, /\.cta-block \{[\s\S]{0,160}overflow:\s*hidden/, '弧线用区块 overflow 蒙住，不得画进上方 FAQ');
+  assert.equal(/cta-block h2 \{[\s\S]{0,180}overflow:\s*hidden/.test(homeCss), false, '不要裁在标题盒上把弧剪碎');
   assert.equal(/@keyframes ctaKick/.test(homeCss), false);
   assert.equal(/ctaPulse/.test(homeCss), false);
   assert.match(homeCss, /shot\.focus/);
@@ -1818,6 +1820,7 @@ test('executeTool：沙箱关闭时拒绝执行代码（未显式关闭的旧调
   assert.match(r, /沙箱已关闭/, '应给出可纠错的说明而不是悄悄执行');
   const legacy = await executeTool('list_files', {}, { fs: createFS({ 'a.txt': 'x' }) });
   assert.match(legacy, /a\.txt/, 'ctx 未标 sandboxEnabled 时不应误伤');
+  assert.match(legacy, /\[执行耗时 \d+ms\]/, '所有工具完成都要带耗时，供芯片 fmtSpan');
 });
 test('search_files / diff_text / json_tool / copy_file / delete_file 本地工作台', async () => {
   const fs = createFS({
@@ -3234,8 +3237,9 @@ test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
   const { ICON } = await import('../js/icons.js');
   const chip = css.slice(css.indexOf('.chip {'), css.indexOf('.chip:hover'));
   assert.match(chip, /border:\s*none/, '工具芯片不要边框');
-  const reason = css.slice(css.indexOf('.reasoning {'), css.indexOf('.reasoning summary {'));
+  const reason = css.slice(css.indexOf('.reasoning {'), css.indexOf('.reasoning:hover'));
   assert.match(reason, /border:\s*none/, '思考块不要虚线框');
+  assert.match(css, /\.reasoning\.expanded \.chip-detail/, '思考展开要和芯片一样用 expanded');
   assert.ok(ICON.thinking.includes('stroke="currentColor"'));
   assert.match(ui, /ICON\.thinking/, '深度思考提示要带思考图标');
   assert.match(ui, /class="think-ico"/);
@@ -3329,7 +3333,12 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   const htmlApp = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(htmlApp, /id=\"tok-pop\"/);
   assert.equal(htmlApp.includes('id="tok-break"'), false);
-  assert.match(css, /\.reasoning summary \{[\s\S]{0,180}width:\s*100%/);
+  assert.equal(ui.includes('details class="reasoning"'), false, '思考过程不得再用 details');
+  assert.match(ui, /classList\.toggle\('expanded'\)/);
+  assert.match(ui, /chip-detail reason-detail/);
+  assert.match(ui, /m\.toolCalls && m\.toolCalls\.length\) \{ foot\.hidden = true/);
+  assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
+  assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
   assert.match(css, /\.msg-user-bar/);
   assert.match(css, /\.tok-pop \{/);
   assert.match(ui, /function fmtClock/);

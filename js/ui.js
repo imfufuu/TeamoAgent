@@ -1120,6 +1120,7 @@ export function mountUI(store, agent) {
     const foot = $('.msg-foot', wrap);
     if (!foot) return;
     if (m.role !== 'assistant' || !m.done) { foot.hidden = true; foot.textContent = ''; return; }
+    if (m.toolCalls && m.toolCalls.length) { foot.hidden = true; foot.textContent = ''; return; }
     const bits = [];
     if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
     const clock = m.durationMs != null ? fmtClock(m.durationMs) : '';
@@ -1144,13 +1145,7 @@ export function mountUI(store, agent) {
     const thinkOn = m.reasoningLevel !== 'off';
     const showThink = thinkOn && m.reasoning;
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
-    const lv = m.reasoningLevel && m.reasoningLevel !== 'off' ? ` · ${reasoningLevelLabel(m.reasoningLevel)}` : '';
-    if (m.done && showThink) {
-      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程${lv}${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (m.done && hiddenThink) {
-      const tok = m.usage && m.usage.reasoning ? ` · ${m.usage.reasoning} tok` : '';
-      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>已思考${lv}${tok}${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div></details>`;
-    } else if (live && thinkOn && !m.text) {
+    if (live && thinkOn && !m.text) {
       html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
     } else if (live && noOutputYet) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
@@ -1160,6 +1155,31 @@ export function mountUI(store, agent) {
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
+    // 思考过程与工具芯片同构：整行 click + .expanded + .chip-detail，不用 <details>
+    let reason = $('.reasoning', wrap);
+    if (m.done && (showThink || hiddenThink)) {
+      if (!reason) {
+        reason = el('div', 'reasoning');
+        reason.addEventListener('click', (e) => {
+          if (e.target.closest('a, button, .chip-copy')) return;
+          reason.classList.toggle('expanded');
+          wrap._reasonOpen = reason.classList.contains('expanded');
+        });
+        wrap.insertBefore(reason, body);
+      }
+      const bits = [];
+      if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
+      if (hiddenThink && m.usage && m.usage.reasoning) bits.push(`${m.usage.reasoning} tok`);
+      if (m.reasoningMs) bits.push(fmtSpan(m.reasoningMs));
+      const title = showThink ? '思考过程' : '已思考';
+      const detail = showThink
+        ? renderMarkdown(m.reasoning)
+        : '<div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div>';
+      reason.innerHTML = `<span class="chip-ico think-ico">${ICON.thinking || ''}</span><span class="mono chip-name">${title}</span><span class="chip-state">${esc(bits.join(' · '))}</span><div class="chip-detail reason-detail">${detail}</div>`;
+      reason.classList.toggle('expanded', !!wrap._reasonOpen);
+    } else if (reason) {
+      reason.remove();
+    }
     if (m.webSearch) body.appendChild(webNote(m.webSearch));
     // 诚实性护栏：正文说「已联网搜索」但本轮没有任何服务端检索事件 → 如实提醒，不替模型背书
     else if (m.done && m.role === 'assistant' && claimsWebSearch(m.text)) {
