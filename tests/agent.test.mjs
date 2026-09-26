@@ -1633,6 +1633,11 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /media-src 'self'/);
   assert.match(home, /assets\/audio\/teamo-home\.mp3/);
   assert.match(home, /id="billboard"/);
+  const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  assert.equal(/11vw,\s*128px/.test(homeCss), false, '字幕不得铺满挡住镜头');
+  assert.match(homeCss, /clamp\(14px, 2\.1vw, 22px\)/);
+  assert.match(homeCss, /@keyframes polish/);
+  assert.match(homeCss, /@keyframes sheen/);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
   assert.match(homeJs, /const BPM = 124/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
