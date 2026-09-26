@@ -599,6 +599,15 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.ok(link.includes('href="https://example.com"') && link.includes('target="_blank"') && link.includes('noopener'), '自动链接');
   // XSS：原始 HTML 必须被转义
   assert.ok(!renderMarkdown('<script>alert(1)</script>').includes('<script>'), '原始 HTML 转义');
+  const jsLink = renderMarkdown('[x](javascript:alert(1))');
+  assert.equal(/href=["']javascript:/i.test(jsLink), false, `javascript: 不得进 href：${jsLink}`);
+  const dataLink = renderMarkdown('[x](data:text/html,<script>alert(1)</script>)');
+  assert.equal(/href=["'][^"']*data:text\/html/i.test(dataLink), false, 'data:text/html 不得当 href');
+  assert.equal(dataLink.includes('<script>'), false);
+  const okLink = renderMarkdown('[x](https://example.com/a)');
+  assert.ok(okLink.includes('href="https://example.com/a"'), okLink);
+  const imgJs = renderMarkdown('![](javascript:alert(1))');
+  assert.equal(/src=["']javascript:/i.test(imgJs), false, '图片 javascript: src 必须剥掉');
   // 代码块：语言标注 + 复制按钮 + 不套 <p>
   const pre = renderMarkdown('```python\nprint(1)\n```');
   assert.ok(pre.includes('data-lang="python"') && pre.includes('copy-code'), '围栏代码块');

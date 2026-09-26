@@ -22,6 +22,26 @@ const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const safeHref = (href) => {
+  const h = String(href || '').trim();
+  if (!h || /[\s<>"'`]/.test(h)) return '';
+  if (h.startsWith('#') && h.length < 200) return h;
+  try {
+    const u = new URL(h);
+    if (u.protocol === 'http:' || u.protocol === 'https:') return h;
+    if (u.protocol === 'mailto:') {
+      const addr = decodeURIComponent(u.pathname || '');
+      if (/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(addr)) return `mailto:${addr}`;
+    }
+  } catch { /* 非法 URL */ }
+  return '';
+};
+const safeImgSrc = (src) => {
+  const s = String(src || '').trim();
+  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(s)) return s.replace(/\s+/g, '');
+  if (/^blob:/i.test(s)) return s;
+  return safeHref(s);
+};
 const fmtSize = (n) => (n == null ? '' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`);
 
 const contextBudgetLabel = (model) => {
@@ -34,8 +54,9 @@ function renderAttachments(atts) {
   if (!atts || !atts.length) return '';
   const items = atts.map((a) => {
     if (a.kind === 'image') {
-      return a.dataUrl
-        ? `<a class="att-img" href="${a.dataUrl}" target="_blank" rel="noopener" title="${esc(a.name)}"><img src="${a.dataUrl}" alt="${esc(a.name)}"></a>`
+      const src = safeImgSrc(a.dataUrl);
+      return src
+        ? `<a class="att-img" href="${src}" target="_blank" rel="noopener noreferrer" title="${esc(a.name)}"><img src="${src}" alt="${esc(a.name)}"></a>`
         : `<span class="att-file mono" title="内容未持久化">🖼 ${esc(a.name)}（已省略）</span>`;
     }
     return `<span class="att-file mono" title="${esc(a.name)}">📄 ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
@@ -70,9 +91,23 @@ function getMd() {
     else {
       const md = markdownit({ html: false, linkify: true, breaks: false, typographer: false });
       md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
-        tokens[idx].attrSet('target', '_blank');
-        tokens[idx].attrSet('rel', 'noopener noreferrer');
+        const tok = tokens[idx];
+        const href = safeHref(tok.attrGet('href'));
+        tok.attrSet('href', href);
+        if (href) {
+          tok.attrSet('target', '_blank');
+          tok.attrSet('rel', 'noopener noreferrer nofollow');
+        } else {
+          tok.attrSet('target', '');
+          tok.attrSet('rel', '');
+        }
         return self.renderToken(tokens, idx, options);
+      };
+      const defaultImage = md.renderer.rules.image;
+      md.renderer.rules.image = (tokens, idx, options, env, self) => {
+        const tok = tokens[idx];
+        tok.attrSet('src', safeImgSrc(tok.attrGet('src')));
+        return defaultImage ? defaultImage(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
       };
       md.renderer.rules.fence = (tokens, idx) => {
         const tk = tokens[idx];

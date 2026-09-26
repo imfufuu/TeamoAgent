@@ -12,8 +12,21 @@ export function createFS(initial = {}) {
       if (!(path in files)) throw new Error(`文件不存在: ${path}`);
       return files[path];
     },
-    write(path, content) { files[path] = String(content); },
-    remove(path) { delete files[path]; },
+    write(path, content) {
+      const p = String(path || '');
+      const parts = p.split('/');
+      if (!p || p.startsWith('/') || p.includes('\\') || p.includes('\0')
+          || parts.some((seg) => !seg || seg === '.' || seg === '..')) {
+        throw new Error(`非法路径: ${p}`);
+      }
+      files[p] = String(content);
+    },
+    remove(path) {
+      const p = String(path || '');
+      const parts = p.split('/');
+      if (p.startsWith('/') || p.includes('\0') || parts.some((seg) => seg === '..')) return;
+      delete files[p];
+    },
     list() {
       return Object.entries(files).map(([path, c]) => ({ path, size: String(c).length }));
     },

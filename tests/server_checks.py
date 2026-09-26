@@ -115,6 +115,15 @@ def main():
     check("html_title 只取 title 文本", m.html_title(doc).startswith("标题"), m.html_title(doc))
     check("空输入不炸", m.html_to_text("") == "" and m.html_title(None) == "")
 
+    print("\nOrigin / 代理路径")
+    check("无 Origin 放行（curl）", m.origin_allowed("", "127.0.0.1:8787") is True)
+    check("同源 Origin 放行", m.origin_allowed("http://127.0.0.1:8787", "127.0.0.1:8787") is True)
+    check("跨站 Origin 拒绝", m.origin_allowed("https://evil.example", "127.0.0.1:8787") is False)
+    check("代理只许 /v1/", m.validate_proxy_path("/v1/chat/completions") is True)
+    check("代理拒绝穿越", m.validate_proxy_path("/v1/../secret") is False)
+    check("代理拒绝非 v1", m.validate_proxy_path("/api/git") is False)
+    check("代理拒绝协议相对", m.validate_proxy_path("//evil.example") is False)
+
     print("\n搜索端点已移除（联网只用模型 API 自带格式）")
     src = (ROOT / "server.py").read_text(encoding="utf8")
     check("源码里没有 /api/search 路由与 handler",

@@ -79,6 +79,30 @@ CONTENT_TYPES = {
 
 
 # ── 抓取/搜索/git 的支撑函数（模块级，便于单测与复用）───────────────────
+def origin_allowed(origin, host):
+    """浏览器跨站请求会带 Origin。只放行与 Host 一致的来源，挡住对本地中继的 CSRF。
+    没有 Origin（curl / 单测）放行。"""
+    origin = (origin or "").strip()
+    host = (host or "").strip()
+    if not origin:
+        return True
+    try:
+        o = urllib.parse.urlparse(origin)
+    except Exception:
+        return False
+    if o.scheme not in ("http", "https") or not o.netloc:
+        return False
+    return o.netloc.lower() == host.lower()
+
+
+def validate_proxy_path(path):
+    """代理只许打到网关 /v1/…，禁止任意路径或穿越。"""
+    path = str(path or "")
+    if ".." in path or "\\" in path or "\x00" in path:
+        return False
+    return bool(re.fullmatch(r"/v1/[A-Za-z0-9._~/-]*", path))
+
+
 def guard_public_http_url(raw):
     """只允许公网 http(s)，挡掉 loopback/私网/链路本地（避免中继变成 SSR 跳板）。"""
     url = (raw or "").strip()
@@ -93,7 +117,10 @@ def guard_public_http_url(raw):
         raise ValueError(f"域名解析失败：{exc}")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+        if (
+            ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified
+        ):
             raise ValueError("目标解析到内网/保留地址，已拒绝（本中继只做公网抓取）")
     return url
 
@@ -228,7 +255,17 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
+
+    def _assert_origin(self):
+        if origin_allowed(self.headers.get("Origin") or "", self.headers.get("Host") or ""):
+            return True
+        self._json(403, {"error": "origin mismatch"})
+        return False
 
     def log_message(self, fmt, *args):  # 精简日志
         sys.stderr.write("· %s\n" % (fmt % args))
@@ -259,6 +296,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_error(405)
 
     def _handle_api(self, method):
+        if not self._assert_origin():
+            return
         route = self._route()
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         if route == "/api/health":
@@ -317,6 +356,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return self._json(405, {"error": "git 端点只接受 POST"})
         try:
             n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._json(400, {"error": "Content-Length 非法"})
+        if n > 1_000_000:
+            return self._json(413, {"error": "请求体过大"})
+        try:
             payload = json.loads(self.rfile.read(n).decode("utf-8") or "{}") if n else {}
         except Exception as exc:
             return self._json(400, {"error": f"请求体不是合法 JSON：{exc}"})
@@ -380,13 +424,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         })
 
     def _proxy(self, method):
+        if not self._assert_origin():
+            return
         qs = urllib.parse.urlparse(self.path).query
         params = urllib.parse.parse_qs(qs)
         path = (params.get("path") or ["/v1/models"])[0]
-        if not path.startswith("/") or ".." in path:
+        if not validate_proxy_path(path):
             return self._json(400, {"error": "invalid path"})
 
-        length = int(self.headers.get("Content-Length") or 0)
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return self._json(400, {"error": "Content-Length 非法"})
+        if length > 20_000_000:
+            return self._json(413, {"error": "请求体过大"})
         body = self.rfile.read(length) if length else None
 
         headers = {k.lower(): v for k, v in self.headers.items() if k.lower() in ALLOW_HEADERS}
