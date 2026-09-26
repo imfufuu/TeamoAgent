@@ -10,12 +10,12 @@
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'" />
-<meta name="app-version" content="2026.09.22.31" />
-<meta name="app-release" content="V1.0" />
-<title>TeamoAgent V1.0 正式版 — 网页端智能体</title>
+<meta name="app-version" content="2026.9.26.1" />
+<meta name="app-release" content="V1.1" />
+<title>TeamoAgent V1.1 正式版 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.09.22.31" />
-<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.09.22.31" />
+<link rel="stylesheet" href="css/styles.css?v=2026.9.26.1" />
+<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.9.26.1" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -31,7 +31,7 @@
     <div class="logo">
       <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg></span>
       <span class="logo-text">TEAMO<i>AGENT</i></span>
-      <span class="ver-badge" title="Teamo V1.0 正式版">V1.0</span>
+      <span class="ver-badge" title="Teamo V1.1 正式版">V1.1</span>
       <button id="sidebar-toggle" class="icon-btn" type="button" title="收起侧栏" aria-label="收起侧栏"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 6 8.5 12l6 6"/><path d="M19 4v16"/></svg></button>
     </div>
 
@@ -125,20 +125,22 @@
       <button id="panel-close" class="icon-btn panel-close" type="button" title="收起面板" aria-label="收起面板"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6 18 18"/><path d="M18 6 6 18"/></svg></button>
     </div>
     <div id="tab-files" class="panel-body">
-      <div class="files-toolbar">
-        <span class="side-label files-title">虚拟文件系统</span>
-        <div class="files-bar">
-        <div class="quota-wrap">
-          <div id="quota-bar" class="quota-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" title="沙箱占用（上限 120MB）"><i id="quota-bar-fill"></i></div>
-          <span id="files-count" class="files-count mono" aria-live="polite"></span>
+      <div class="files-card">
+        <div class="files-card-head">
+          <div class="files-card-titles">
+            <span class="files-card-name">沙箱</span>
+            <div class="files-card-meta">
+              <span id="files-count" class="files-count mono" aria-live="polite">0.0MB/120.0MB</span>
+              <span id="files-n" class="files-n">0 个文件</span>
+            </div>
+          </div>
+          <div class="files-card-acts">
+            <button id="download-zip" class="files-icon-btn" type="button" title="把沙箱内全部文件打包下载（.zip）"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.2"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 17.5v1.8a1.2 1.2 0 0 0 1.2 1.2h12.6a1.2 1.2 0 0 0 1.2-1.2v-1.8"/></svg></button>
+            <button id="clear-files" class="files-icon-btn danger" type="button" title="清空沙箱文件"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9.5 7V4.8h5V7"/><path d="M6.5 7l.9 12.1A1.5 1.5 0 0 0 8.9 20.4h6.2a1.5 1.5 0 0 0 1.5-1.3L17.5 7"/></svg></button>
+          </div>
         </div>
-        <span class="files-actions">
-          <button id="download-zip" class="mini-btn" type="button" title="把沙箱内全部文件按目录结构打包下载（.zip，图片还原为原始二进制）"><svg class="btn-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.2"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 17.5v1.8a1.2 1.2 0 0 0 1.2 1.2h12.6a1.2 1.2 0 0 0 1.2-1.2v-1.8"/></svg>ZIP</button>
-          <button id="clear-files" class="mini-btn danger" type="button" title="清空虚拟文件系统里的全部文件">清空</button>
-        </span>
-        </div>
+        <div id="file-list" class="file-list"></div>
       </div>
-      <div id="file-list" class="file-list"></div>
       <div id="file-viewer" class="file-viewer"></div>
     </div>
   </aside>
@@ -169,6 +171,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.09.22.31"></script>
+<script type="module" src="js/main.js?v=2026.9.26.1"></script>
 </body>
 </html>

@@ -360,9 +360,9 @@ ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !t
 globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis
 click($('#clear-sessions'));
 await tick(30);
-ok('侧栏底部写明「Teamo V1.0 正式版」+ 构建号', /Teamo V1\.0 正式版/.test($('#build-stamp').textContent) && /v\d{4}\.\d{2}\.\d{2}\.\d+/.test($('#build-stamp').textContent),
+ok('侧栏底部写明「Teamo V1.1 正式版」+ 构建号', /Teamo V1\.1 正式版/.test($('#build-stamp').textContent) && /v\d{4}\.\d{1,2}\.\d{1,2}\.\d+/.test($('#build-stamp').textContent),
   $('#build-stamp').textContent.trim());
-ok('侧栏 Logo 旁 V1.0 徽章在界面上', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === 'V1.0');
+ok('侧栏 Logo 旁 V1.1 徽章在界面上', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === 'V1.1');
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
 ok('没有会话记录时只显示一句短提示', $('#session-list .sess-empty-hint').textContent.trim() === '还没有会话记录'
   && $('#session-list .sess-empty-hint').querySelectorAll('br').length === 0, $('#session-list .sess-empty-hint').textContent.trim());

@@ -199,8 +199,8 @@ ok('缩进由 --d 驱动', $$('#file-list .ft-row').some((n) => n.style.getPrope
 ok('每行有下载按钮（目录行只有 ZIP）', $$('#file-list .file-dl').length === 3, `${$$('#file-list .file-dl').length} 个`);
 ok('目录行有打包按钮', $$('#file-list .ft-zip').length === 3, `${$$('#file-list .ft-zip').length} 个`);
 ok('目录/文件图标为内联 SVG', $$('#file-list .ft-ico').every((n) => !!n.querySelector('svg')));
-ok('工具栏摘要含文件与目录计数', /3 个文件 · 3 个目录/.test($('#files-count').textContent), $('#files-count').textContent);
-ok('工具栏摘要含已用/上限（X.XMB/120.0MB）', /\d+\.\dMB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
+ok('文件数单独显示', /3 个文件/.test($('#files-n').textContent), $('#files-n').textContent);
+ok('容量单独显示已用/上限', /\d+\.\dMB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
 
 // 折叠：点目录行收起整棵子树
 const uploadsRow = () => $$('#file-list .ft-dir').find((n) => rowPath(n) === 'uploads');
@@ -393,14 +393,14 @@ console.log('\n⑩ 操作条：输出结束才出现，复制按钮带 SVG 图�
   ok('「重新生成」只给最后一条 assistant', acts.find((b) => b.dataset.act === 'regen').style.display === '');
 }
 
-console.log('\n⑪ 沙箱面板：原两行工具栏（标题 / 容量+按钮）');
+console.log('\n⑪ 沙箱面板：Workspace 卡片');
 {
-  const bar = $('#tab-files .files-bar');
-  ok('第一行是「虚拟文件系统」标题', $('#tab-files .files-toolbar > .files-title')?.textContent.trim() === '虚拟文件系统');
-  ok('第二行含容量、进度条与 ZIP/清空', !!bar && !!$('#files-count') && !!bar.querySelector('#quota-bar') && !!bar.querySelector('#download-zip') && !!bar.querySelector('#clear-files'),
-    bar ? bar.className : 'no .files-bar');
+  ok('卡片标题是「沙箱」', $('.files-card-name')?.textContent.trim() === '沙箱');
+  ok('容量与文件数分开显示', /0\.0MB\/\d+\.\dMB/.test($('#files-count')?.textContent || '') && /个文件/.test($('#files-n')?.textContent || ''),
+    `${$('#files-count')?.textContent} | ${$('#files-n')?.textContent}`);
+  ok('打包/清空是卡片头图标按钮', !!$('#download-zip.files-icon-btn') && !!$('#clear-files.files-icon-btn'));
   const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
-  ok('工具栏为 column 布局（两行）', /\.files-toolbar\s*\{[^}]*flex-direction: column/.test(css));
+  ok('卡片有描边圆角', /\.files-card\s*\{[^}]*border-radius/.test(css));
   ok('空提示无虚线框', !/\.empty-hint\s*\{[^}]*dashed/.test(css));
 }
 
@@ -489,13 +489,13 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   // 特异度更高，会压住 .pill.on → 点开后指针没移开时文字与背景同色（用户报的「点了没反应」）
   ok('pill 选中态压得住 hover（写进同一条规则）', /\.pill\.on,\s*\n?\.pill\.on:hover:not\(:disabled\)/.test(cssText));
   ok('icon-btn 用 flex 居中图标', /\.icon-btn\s*\{[^}]*display: inline-flex/.test(cssText) && /\.icon-btn\s*\{[^}]*justify-content: center/.test(cssText));
-  // V1.0 正式版标识：标题 / meta / 侧栏徽章 / 底部版本戳都要写出来
+  // V1.1 正式版标识：标题 / meta / 侧栏徽章 / 底部版本戳都要写出来
   const cfgSrc = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
-  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V1\.0'/.test(cfgSrc) && /APP_VERSION = '/.test(cfgSrc));
-  ok('标题与 meta 标明 V1.0 正式版', /<title>[^<]*V1\.0 正式版[^<]*<\/title>/.test(htmlSrc) && /<meta name="app-release" content="V1\.0"/.test(htmlSrc));
-  ok('侧栏 Logo 旁有 V1.0 徽章', /class="ver-badge"[^>]*>V1\.0</.test(htmlSrc) && /\.ver-badge\s*\{/.test(cssText));
+  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V1\.1'/.test(cfgSrc) && /APP_VERSION = '/.test(cfgSrc));
+  ok('标题与 meta 标明 V1.1 正式版', /<title>[^<]*V1\.1 正式版[^<]*<\/title>/.test(htmlSrc) && /<meta name="app-release" content="V1\.1"/.test(htmlSrc));
+  ok('侧栏 Logo 旁有 V1.1 徽章', /class="ver-badge"[^>]*>V1\.1</.test(htmlSrc) && /\.ver-badge\s*\{/.test(cssText));
   ok('底部版本戳用 APP_RELEASE 写明正式版', /Teamo \$\{APP_RELEASE\} 正式版/.test(uiSrc) && /APP_RELEASE\b/.test(uiSrc));
-  ok('控制台横幅也是 V1.0', /TeamoAgent V1\.0 正式版/.test(fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8')));
+  ok('控制台横幅也是 V1.1', /TeamoAgent V1\.1 正式版/.test(fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8')));
   ok('主题按钮只留图标（icon-only + aria-label）', /id="theme-toggle"[^>]*class="mini-btn icon-only"/.test(htmlSrc)
     && /id="theme-toggle"[^>]*aria-label="切换明暗主题"/.test(htmlSrc) && />主题</.test(htmlSrc) === false);
   ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));

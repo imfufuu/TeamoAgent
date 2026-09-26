@@ -13,7 +13,7 @@ import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
 import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
-import { SANDBOX_STORAGE_CAP, filesCountLabel } from './storagefmt.js';
+import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
 import { unpackZip } from './unzip.js';
@@ -796,21 +796,17 @@ export function mountUI(store, agent) {
     });
     const tree = buildFileTree(files);
     const stat = treeStats(tree);
-    const countEl = $('#files-count');
-    if (countEl) {
-      countEl.textContent = filesCountLabel(stat, storageQuota);
-      countEl.title = `沙箱已用 ${filesCountLabel({ size: stat.size }, storageQuota)}（上限 120MB）`;
+    const quotaEl = $('#files-count');
+    if (quotaEl) {
+      quotaEl.textContent = sandboxQuotaLabel(stat.size, storageQuota);
+      quotaEl.title = `沙箱已用 ${sandboxQuotaLabel(stat.size, storageQuota)}（上限 120MB）`;
     }
-    const bar = $('#quota-bar');
-    const fill = $('#quota-bar-fill');
-    if (bar && fill) {
-      const pct = Math.min(100, Math.round((Number(stat.size) || 0) / storageQuota * 100));
-      fill.style.width = pct + '%';
-      bar.setAttribute('aria-valuenow', String(pct));
-      bar.classList.toggle('warn', pct >= 70 && pct < 90);
-      bar.classList.toggle('hot', pct >= 90);
+    const nEl = $('#files-n');
+    if (nEl) {
+      const n = Number(stat.files) || 0;
+      nEl.textContent = `${n} 个文件`;
     }
-    if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件。Agent 可通过 write_file 或沙箱代码创建；用户上传的附件会自动复制到 uploads/。')); return; }
+    if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件')); return; }
     const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
     const rows = flattenTree(tree, { isCollapsed: (p) => collapsedDirs.has(p) });
     for (const r of rows) {
@@ -825,9 +821,8 @@ export function mountUI(store, agent) {
         row.setAttribute('aria-expanded', String(!closed));
         row.innerHTML = `<span class="ft-chev">${ICON.chevRight}</span>`
           + `<span class="ft-ico">${closed ? ICON.folder : ICON.folderOpen}</span>`
-          + `<span class="ft-name mono">${esc(r.name)}</span>`
-          + `<span class="ft-meta mono">${r.count} 个文件 · ${fmtSize(r.size)}</span>`
-          + `<span class="ft-actions"><button class="mini-btn ft-zip" type="button" title="把 ${esc(r.path)}/ 下的文件按原目录结构打包下载（.zip）">${ICON.download}<span>ZIP</span></button></span>`;
+          + `<span class="ft-name">${esc(r.name)}</span>`
+          + `<span class="ft-actions"><button class="files-icon-btn ft-zip" type="button" title="打包 ${esc(r.path)}/">${ICON.download}</button></span>`;
         const toggle = () => {
           if (collapsedDirs.has(r.path)) collapsedDirs.delete(r.path); else collapsedDirs.add(r.path);
           renderFiles();
@@ -841,9 +836,8 @@ export function mountUI(store, agent) {
       } else {
         row.innerHTML = `<span class="ft-sp"></span>`
           + `<span class="ft-ico">${imageSet.has(r.path) ? ICON.image : ICON.file}</span>`
-          + `<span class="ft-name mono file-path">${esc(r.name)}</span>`
-          + `<span class="ft-meta mono file-size">${fmtSize(r.size)}</span>`
-          + `<span class="ft-actions"><button class="mini-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
+          + `<span class="ft-name file-path">${esc(r.name)}</span>`
+          + `<span class="ft-actions"><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
         $('.file-dl', row).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(r.path); });
         row.addEventListener('click', () => openFileViewer(r.path));
       }

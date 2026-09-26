@@ -1602,7 +1602,7 @@ test('index.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () =
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const { APP_VERSION } = await import('../js/config.js');
-  assert.match(APP_VERSION, /^\d{4}\.\d{2}\.\d{2}\.\d+$/, '版本形如 2026.09.21.2');
+  assert.match(APP_VERSION, /^\d{4}\.\d{1,2}\.\d{1,2}\.\d+$/, '版本形如 2026.9.26.1');
   for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
     const m = new RegExp(`${asset}\\?v=([\\d.]+)`).exec(html);
     assert.ok(m, `${asset.replace(/\\/g, '')} 应带 ?v=`);
@@ -3147,16 +3147,16 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(ui, /closest\('\.chip-copy'\)/);
   assert.equal(ui.includes("state.textContent = patch.note || '✕'"), false);
   assert.match(html, /id="clear-sessions"[^>]*class="mini-btn danger"/);
-  assert.match(html, /id="clear-files"[^>]*class="mini-btn danger"/);
+  assert.match(html, /id="clear-files"[^>]*class="files-icon-btn danger"/);
   assert.match(css, /\.act\.act-danger/);
   assert.match(css, /\.dot\.busy\.thinking/);
   assert.match(ui, /再次确认/);
-  assert.match(html, /id="quota-bar"/);
   assert.match(html, /id="files-count"/);
+  assert.match(html, /id="files-n"/);
+  assert.match(html, /files-card/);
   assert.match(html, /panel-tab-label/);
-  assert.match(html, /files-title/);
   assert.match(ui, /暂无文件/);
-  assert.match(css, /\.quota-bar/);
+  assert.match(css, /\.files-card/);
   assert.match(ui, /产品上限 120MB/);
   assert.equal(/resolveStorageQuota\(SANDBOX_STORAGE_CAP\)\.then/.test(ui), false);
   assert.match(html, /id="cmd-palette"/);
