@@ -404,16 +404,26 @@ console.log('\n⑪ 沙箱面板：Workspace 卡片');
   ok('空提示无虚线框', !/\.empty-hint\s*\{[^}]*dashed/.test(css));
 }
 
-console.log('\n⑫ 联网开关（原生网页搜索已下线）');
+console.log('\n⑫ 联网开关（无中继灰掉，有中继可开）');
 {
   const web = await import(path.join(ROOT, 'js/websearch.js'));
   const pill = $('#web-toggle');
   ok('顶栏有「联网」pill（SVG + 中文）', !!pill && !!pill.querySelector('svg') && /联网/.test(pill.textContent), pill ? pill.textContent : '缺失');
-  ok('默认关闭且 disabled', pill.disabled && !pill.classList.contains('on') && store.state.settings.webEnabled === false);
+  store.state.relayOk = false;
+  ui.syncWeb();
+  ok('无中继时 disabled 且不亮', pill.disabled && !pill.classList.contains('on'));
+  ok('提示语点明中继', /中继/.test(pill.title), pill.title);
   ok('webCapFor 恒为 null', web.webCapFor('gpt-5.5') == null && web.webCapFor('claude-opus-5') == null);
-  ok('提示语说明已下线', /原生网页搜索已下线/.test(pill.title), pill.title);
   click(pill);
-  ok('点击也不能打开', store.state.settings.webEnabled === false && !$('#web-toggle').classList.contains('on'));
+  ok('无中继点击也不能打开', pill.disabled && !pill.classList.contains('on'));
+  store.state.relayOk = true;
+  store.state.settings.webEnabled = true;
+  ui.syncWeb();
+  ok('有中继时可点且能亮', !pill.disabled && pill.classList.contains('on'));
+  click(pill);
+  ok('有中继再点可关掉', !pill.classList.contains('on') && store.state.settings.webEnabled === false);
+  store.state.settings.webEnabled = true;
+  ui.syncWeb();
   const m = store.pushMessage({
     role: 'assistant', text: '根据来源回答', model: store.state.model, done: true,
     webSearch: { status: 'done', results: 2, queries: ['pyodide 0.26 版本'], sources: [{ url: 'https://pyodide.org/docs', title: 'Pyodide 文档' }, { url: 'https://a.test/b', title: 'B' }] },

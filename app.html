@@ -10,12 +10,12 @@
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'" />
-<meta name="app-version" content="2026.9.26.12" />
+<meta name="app-version" content="2026.9.26.13" />
 <meta name="app-release" content="V1.1" />
 <title>TeamoAgent V1.1 正式版 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.9.26.12" />
-<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.9.26.12" />
+<link rel="stylesheet" href="css/styles.css?v=2026.9.26.13" />
+<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.9.26.13" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -94,7 +94,7 @@
           <div id="think-menu" class="dd-menu think-menu" role="listbox"></div>
         </div>
         <button id="sandbox-toggle" class="pill on" type="button" title="代码沙箱：开启后 Agent 可执行 JS/Python/C++ 代码（文件读写、生图、子智能体委派不受此开关影响）"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="m8 9 3 3-3 3"/><path d="M13 15h3"/></svg>沙箱</button>
-        <button id="web-toggle" class="pill on" type="button" title="联网：只用模型 API 自带的网页搜索请求格式（Claude → /v1/messages 的 web_search_20250305 服务器工具；GPT → /v1/responses 的 tools:[{type:web_search}]），不调用任何第三方搜索 API；当前模型没有原生格式时自动不联网"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>联网</button>
+        <button id="web-toggle" class="pill" type="button" disabled title="未检测到本地中继时联网不可用"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>联网</button>
         <button id="fast-toggle" class="pill" type="button" title="TeamoRouter Fast mode（service_tier=fast，2x 计费，仅 GPT 系列）"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4.6 13.2a.6.6 0 0 0 .48.97H11l-1.2 7.4a.35.35 0 0 0 .62.27l8.56-11.2a.6.6 0 0 0-.48-.97H14l1.2-7.4a.35.35 0 0 0-.62-.27Z"/></svg>快速</button>
         <button id="panel-toggle" class="pill" type="button" title="沙箱面板：文件树 / 下载 / 清空" aria-label="展开或收起沙箱面板"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4.2l1.8 2.2h9A1.5 1.5 0 0 1 21 9.7v8.8A1.5 1.5 0 0 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5Z"/></svg>面板</button>
       </div>
@@ -171,6 +171,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.9.26.12"></script>
+<script type="module" src="js/main.js?v=2026.9.26.13"></script>
 </body>
 </html>

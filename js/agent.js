@@ -122,10 +122,9 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 // 联网开关的提示词：联网用的是模型 API 自带的网页搜索请求格式，所以这里不挂我们自己的搜索工具，
 // 只告诉模型「能力从哪来」。文本放在本模块内而不是给 config.js 新增具名导出再 import —— 那会在
 // 「新 agent.js + 旧 config.js」的混版缓存下触发 ESM link 错误（整页白屏），历史上真踩过。
-const WEB_ON_NOTE = '\n\n【联网】原生网页搜索已下线。有本地中继时用 fetch_url 抓具体网址；GitHub Pages 无法联网搜索。不要声称已经搜过网页。';
-const WEB_OFF_NOTE = '\n\n【联网】本轮未联网（本项目不接任何第三方搜索接口）。不要声称自己能查实时信息：'
-  + '涉及时效性问题就直说「当前未联网，无法核实」，或建议用户打开顶栏的「联网」开关；'
-  + '确定的知识可以直接答，但别把记忆包装成「刚查到的」。';
+const WEB_ON_NOTE = '\n\n【联网】本轮已开。用 fetch_url 经本地中继抓取具体网址；不要声称已经做过网页搜索。没有检索结果就直说没查到。';
+const WEB_OFF_NOTE = '\n\n【联网】本轮未联网。没有本地中继时顶栏「联网」是灰色且点不了。不要声称自己能查实时信息：'
+  + '涉及时效性问题就直说「当前未联网，无法核实」；确定的知识可以直接答，但别把记忆包装成「刚查到的」。';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -197,7 +196,7 @@ export function createAgent(store, hooks = {}) {
       store.state.memory = upsertFacts(store.state.memory, factsFromDigest(droppedDigest));
     }
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-    const webOn = store.state.settings.webEnabled !== false;
+    const webOn = store.state.settings.webEnabled !== false && relayOk;
     const st = store.state.settings || {};
     const lv = String(st.reasoningLevel || 'medium').toLowerCase();
     const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
@@ -317,7 +316,10 @@ export function createAgent(store, hooks = {}) {
     const lv = String(settings.reasoningLevel || 'medium').toLowerCase();
     const canDispatch = settings.thinking !== false && (lv === 'max' || lv === 'ultra');
     const tools = toolsFor(settings.sandboxEnabled)
-      .filter((t) => relayOk || !RELAY_ONLY_TOOLS.has(t.name))
+      .filter((t) => {
+        if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
+        return relayOk || !RELAY_ONLY_TOOLS.has(t.name);
+      })
       .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
     const turn = {
       apiKey, model, signal,
@@ -325,7 +327,7 @@ export function createAgent(store, hooks = {}) {
       reasoningLevel: settings.reasoningLevel || 'medium',
       canDispatch,
       sandboxEnabled: settings.sandboxEnabled,
-      webEnabled: settings.webEnabled !== false, // 联网默认开（搜不搜由模型自己判断）
+      webEnabled: settings.webEnabled !== false && relayOk,
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
     };
     let iterations = 0;

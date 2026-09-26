@@ -2419,6 +2419,39 @@ test('系统提示词不再自相矛盾：不能说「去找 web_search 工具�
   assert.ok(sys.includes('analyze_image'));
 });
 
+test('有中继但关掉联网时不提供 fetch_url，run_git 仍在', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('关联网照样答')], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = false;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = true;
+    const agent = createAgent(store, {});
+    await agent.send('随便问一句');
+    const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
+    assert.equal(names.includes('fetch_url'), false, `关联网不该有 fetch_url：${names.join(',')}`);
+    assert.ok(names.includes('run_git'), 'git 不跟联网开关走');
+  } finally { globalThis.fetch = realFetch; await drainSaves(); }
+});
+test('有中继且打开联网时提供 fetch_url', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('开联网')], calls);
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = true;
+    const agent = createAgent(store, {});
+    await agent.send('抓个页面');
+    const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
+    assert.ok(names.includes('fetch_url'), `开联网应有 fetch_url：${names.join(',')}`);
+  } finally { globalThis.fetch = realFetch; await drainSaves(); }
+});
 test('没有本地中继时，只在本地可用的工具（fetch_url / run_git）不进请求', async () => {
   const calls = [];
   await withNetFetch(async (url) => { if (url.startsWith('/api/health')) return new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } });
@@ -2613,12 +2646,12 @@ test('Agent 回合：联网来源写进消息（切会话后还在），提示�
     const done = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
     assert.equal(done.webSearch.sources[0].url, 'https://src.test/x', '来源随消息持久化');
     const sys = calls[0].body.system || calls[0].body.messages[0].content;
-    assert.match(sys, /原生网页搜索已下线/);
+    assert.match(sys, /fetch_url|本地中继/);
     // 关掉联网后必须换成「别声称能联网」的说法
     store.state.settings.webEnabled = false;
     await agent.send('再来一轮');
     const sys2 = calls[1].body.system || calls[1].body.messages[0].content;
-    assert.match(sys2, /未联网|原生网页搜索已下线/);
+    assert.match(sys2, /未联网|无法核实/);
     assert.ok(!/web_search_20250305/.test(String(sys2)), '关联网时不要再宣称已开启服务端搜索');
     assert.ok(!('tools' in calls[1].body) || calls[1].body.tools.every((t) => t.name !== 'web_search'), '也不能带原生联网工具');
   } finally { globalThis.fetch = realFetch; api.__resetWebFallbackForTests(); await drainSaves(); }

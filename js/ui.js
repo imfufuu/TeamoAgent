@@ -335,34 +335,38 @@ export function mountUI(store, agent) {
   });
   syncSandbox();
 
-  // 联网：打开后由 api.js 往请求体里注入「当前模型 API 自带」的网页搜索格式
-  //（Claude → /v1/messages 的 web_search_20250305；GPT → /v1/responses 的 web_search；
-  //  Kimi/GLM/Grok → Chat Completions 的对应原生字段）。本项目不调用任何第三方搜索 API。
+  // 联网：只有探测到本地中继（server.py）才能开。无中继（GitHub Pages）始终灰、点不了。
+  // 打开后 Agent 可用 fetch_url 抓网页；原生网页搜索仍不下发。
   const GLOBE_SVG = '<svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>';
   const webToggle = $('#web-toggle');
-  const pagesNoRelay = () => store.state.relayOk === false;
+  const hasRelay = () => store.state.relayOk === true;
   const syncWeb = () => {
     if (!webToggle) return;
-    if (pagesNoRelay()) {
-      store.state.settings.webEnabled = false;
+    webToggle.innerHTML = GLOBE_SVG + '联网';
+    if (!hasRelay()) {
       webToggle.disabled = true;
       webToggle.classList.remove('on');
-      webToggle.innerHTML = GLOBE_SVG + '联网';
-      webToggle.title = 'GitHub Pages / 无本地中继：原生网页搜索已下线，联网不可用';
+      webToggle.title = '未检测到本地中继（python3 server.py）。没有中继时联网不可用，按钮保持灰色。';
       syncCapLine();
       return;
     }
-    webToggle.disabled = true; // 原生网页搜索已下线，任何环境都不再注入
-    store.state.settings.webEnabled = false;
-    webToggle.classList.remove('on');
-    webToggle.innerHTML = GLOBE_SVG + '联网';
-    webToggle.title = '原生网页搜索已下线（各模型不稳定）。本地中继可用 fetch_url 抓具体网址。';
+    webToggle.disabled = false;
+    const on = store.state.settings.webEnabled !== false;
+    webToggle.classList.toggle('on', on);
+    webToggle.title = on
+      ? '联网已开：经本地中继用 fetch_url 抓取网页。再点关闭。'
+      : '联网已关。点此开启（经本地中继抓取网页）。';
     syncCapLine();
   };
   if (webToggle) {
     webToggle.addEventListener('click', () => {
-      toast('原生网页搜索已下线。本地跑 server.py 时可用 fetch_url 抓网页。', 'warn', 5000);
+      if (webToggle.disabled || !hasRelay()) return;
+      store.state.settings.webEnabled = store.state.settings.webEnabled === false;
+      store.notify();
       syncWeb();
+      toast(store.state.settings.webEnabled !== false
+        ? '联网已开：可经中继抓取网页'
+        : '联网已关', store.state.settings.webEnabled !== false ? 'ok' : 'warn');
     });
     syncWeb();
   }
@@ -1547,6 +1551,7 @@ export function mountUI(store, agent) {
     const bits = [store.state.model];
     if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
+    if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
     bits.push(getTransport() === 'proxy' ? '中继' : '直连');
     const panelOpen = $('#sandbox-panel') && !$('#sandbox-panel').classList.contains('collapsed');
     if (panelOpen) bits.push('面板');

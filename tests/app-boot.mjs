@@ -272,17 +272,17 @@ const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ')
 ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
 ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
 
-console.log('\n联网：原生网页搜索已下线');
+console.log('\n联网：无中继时按钮灰掉');
 {
   const pill = $('#web-toggle');
   ok('顶栏仍有「联网」pill', !!pill && /联网/.test(pill.textContent));
-  ok('pill 禁用且不亮', pill.disabled && !pill.classList.contains('on'), pill.title);
-  ok('提示语说明已下线', /原生网页搜索已下线/.test(pill.title), pill.title);
+  ok('无中继时禁用且不亮', pill.disabled && !pill.classList.contains('on'), pill.title);
+  ok('提示语点明中继', /中继/.test(pill.title), pill.title);
   ok('全程不走 /v1/responses', !reqs.some((r) => r.url.includes('/v1/responses')), JSON.stringify(reqs.map((r) => r.url.split('/v1/')[1]).slice(0, 8)));
   ok('请求体不含 web_search 原生字段', reqs.every((r) => !(r.body.tools || []).some((x) => String(x.type || '').startsWith('web_search'))));
   click(pill);
   await tick(30);
-  ok('点击也不能打开', !pill.classList.contains('on') && store.state.settings.webEnabled === false);
+  ok('无中继点击也不能打开', pill.disabled && !pill.classList.contains('on'));
 }
 
 console.log('\n诚实性护栏：正文说「已联网」但没有任何检索事件');
