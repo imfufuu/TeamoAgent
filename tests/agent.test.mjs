@@ -86,6 +86,10 @@ test('文本增量 + usage + finish', () => {
   assert.deepEqual(evs.filter((e) => e.type === 'text').map((e) => e.text), ['你', '好']);
   assert.deepEqual(evs.find((e) => e.type === 'usage').usage, { input: 21, output: 7 });
   assert.equal(evs.find((e) => e.type === 'finish').reason, 'stop');
+  const evs2 = [];
+  const h2 = createOpenAIStream((e) => evs2.push(e));
+  h2({ usage: { prompt_tokens: 19, completion_tokens: 23, completion_tokens_details: { reasoning_tokens: 16 } }, choices: [] });
+  assert.equal(evs2[0].usage.reasoning, 16);
 });
 test('tool_calls 分片累积（index 对齐 + 参数拼接）', () => {
   const evs = [];
@@ -182,6 +186,20 @@ test('createThinkingTracker：按流内顺序拼装，仅保留可回传的块',
   assert.equal(blocks.length, 2);
   assert.deepEqual(blocks[0], { type: 'thinking', thinking: '让我想想', signature: 'sig-A' });
   assert.deepEqual(blocks[1], { type: 'redacted_thinking', data: 'ENC==' });
+});
+test('空 thinking + signature 也要回传（Claude 5 不返回正文）', () => {
+  const tb = createThinkingTracker();
+  tb.start(0, { type: 'thinking' });
+  tb.signature(0, 'sig-empty');
+  const blocks = tb.blocks();
+  assert.deepEqual(blocks, [{ type: 'thinking', thinking: '', signature: 'sig-empty' }]);
+  const p = buildAnthropicPayload([
+    { role: 'user', text: 'Q' },
+    { role: 'assistant', text: '323', thinkingBlocks: blocks },
+  ]);
+  assert.equal(p.messages[1].content[0].type, 'thinking');
+  assert.equal(p.messages[1].content[0].thinking, '');
+  assert.equal(p.messages[1].content[0].signature, 'sig-empty');
 });
 test('buildAnthropicPayload：思考块置于 assistant content 最前（先于 tool_use）', () => {
   const p = buildAnthropicPayload([
@@ -3288,14 +3306,19 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.match(ui, /class=\"msg-foot mono\"/);
+  assert.match(ui, /class=\"msg-toolbar\"/);
   assert.match(ui, /function fmtClock/);
   assert.match(ui, /minutes ago/);
   assert.match(ui, /\$\{m\}m \$\{s\}s/);
   assert.match(ui, /reasoningLevel !== 'off'/);
+  assert.match(ui, /think-hidden/);
   assert.match(css, /\.msg-foot \{/);
+  assert.match(css, /\.msg-toolbar/);
+  assert.match(css, /text-align:\s*right/);
   assert.match(ag, /if \(!turn\.thinking\) break/);
   assert.match(ag, /reasoningLevel: turn\.thinking \? \(turn\.reasoningLevel \|\| 'medium'\) : 'off'/);
   assert.match(ag, /durationMs: Math\.round\(nowT - streamT0\)/);
+  assert.match(ag, /thoughtHidden/);
 });
 
 group('PDF 正文提取（客户端，无 pdf.js）');

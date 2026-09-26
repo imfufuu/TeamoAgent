@@ -1046,11 +1046,13 @@ export function mountUI(store, agent) {
         ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headModel)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
-        <div class="msg-foot mono" hidden></div>
+        <div class="msg-toolbar">
         <div class="msg-actions">
           <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
           <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
           <button class="act act-regen" data-act="regen" title="重新生成并覆盖最近这一条回答（更早的回答请先「回滚」再重新提问）">${ICON.regen || ''}<span>重新生成</span></button>
+        </div>
+        <div class="msg-foot mono" hidden></div>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         const act = b.dataset.act;
@@ -1136,12 +1138,17 @@ export function mountUI(store, agent) {
     // 光标/连接动画只属于「正在跑的这一条」。导入的历史回复没有 done 字段，
     // 不能靠 !m.done 一直闪烁 —— 必须叠上本轮忙碌状态。
     const live = !m.done && getBusy();
-    // 思考过程：Off 本轮不画（即便上游仍吐了 reasoning）。完成后折叠，流式期间一行提示。
-    const showThink = m.reasoningLevel !== 'off' && m.reasoning;
+    // 思考过程：Off 本轮不画。Claude 5 / GPT / Gemini 常只返回签名或 reasoning_tokens、没有正文。
+    const thinkOn = m.reasoningLevel !== 'off';
+    const showThink = thinkOn && m.reasoning;
+    const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
+    const lv = m.reasoningLevel && m.reasoningLevel !== 'off' ? ` · ${reasoningLevelLabel(m.reasoningLevel)}` : '';
     if (m.done && showThink) {
-      const lv = m.reasoningLevel && m.reasoningLevel !== 'off' ? ` · ${reasoningLevelLabel(m.reasoningLevel)}` : '';
       html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>思考过程${lv}${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div>${renderMarkdown(m.reasoning)}</div></details>`;
-    } else if (live && showThink && !m.text) {
+    } else if (m.done && hiddenThink) {
+      const tok = m.usage && m.usage.reasoning ? ` · ${m.usage.reasoning} tok` : '';
+      html += `<details class="reasoning"><summary><span class="think-ico">${ICON.thinking || ''}</span>已思考${lv}${tok}${m.reasoningMs ? ` · ${fmtSpan(m.reasoningMs)}` : ''}</summary><div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div></details>`;
+    } else if (live && thinkOn && !m.text) {
       html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
     } else if (live && noOutputYet) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
@@ -1500,7 +1507,7 @@ export function mountUI(store, agent) {
         toolCallId: m.toolCallId, name: m.name, usage: m.usage, ts: m.ts, model: m.model,
         done: m.done !== false, cancelled: !!m.cancelled,
         reasoning: m.reasoning, reasoningMs: m.reasoningMs, reasoningLevel: m.reasoningLevel,
-        durationMs: m.durationMs, thinkingBlocks: m.thinkingBlocks,
+        durationMs: m.durationMs, thinkingBlocks: m.thinkingBlocks, thoughtHidden: m.thoughtHidden,
         attachments: (m.attachments || []).map((a) => ({ kind: a.kind, name: a.name, size: a.size, stripped: !!a.stripped })),
       })),
     };

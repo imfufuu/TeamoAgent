@@ -550,8 +550,12 @@ a { color: var(--fg); }
 .chip-result { background: var(--bg-soft); border: none; border-radius: 8px; padding: 8px 10px; max-height: min(60vh, 520px); overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: 11px; }
 .msg.cancelled .chip .chip-ico { animation: none; }
 
-/* 消息操作 */
-.msg-actions { display: flex; gap: 4px; margin-top: 8px; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
+/* 消息操作 + 脚注同一行：左操作、右耗时 */
+.msg-toolbar {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 8px; min-height: 22px;
+}
+.msg-actions { display: flex; gap: 4px; margin-top: 0; flex: 1 1 auto; min-width: 0; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
 .msg:hover .msg-actions { opacity: 1; transform: none; }
 /* 输出中一律不露出复制/回滚/重新生成：半截结果上点复制或回滚都不是用户想要的 */
 .msg.actions-pending .msg-actions, .msg.actions-pending .msg-actions-user { display: none; }
@@ -685,9 +689,11 @@ a { color: var(--fg); }
 .think-ico svg { width: 100%; height: 100%; display: block; }
 .thinking-line .think-ico { animation: pulse 1.2s ease-in-out infinite; }
 .msg-foot {
-  margin-top: 8px; font-size: 11px; color: var(--fg-3);
+  margin: 0 0 0 auto; font-size: 11px; color: var(--fg-3);
   letter-spacing: .01em; font-variant-numeric: tabular-nums;
+  text-align: right; flex: 0 0 auto; white-space: nowrap;
 }
+.think-hidden { font-size: 12.5px; color: var(--fg-3); padding-left: 20px; }
 
 /* 会话统计 */
 .conv-stats { font-size: 10.5px; color: var(--fg-3); font-family: var(--mono); letter-spacing: .02em; }
@@ -953,7 +959,9 @@ a { color: var(--fg); }
   .md-body a { overflow-wrap: anywhere; }
 
   /* 操作条：换行 + 40px 触控高度（原来 11px 字号 / 3px 内边距在手机上点不中） */
-  .msg-actions { flex-wrap: nowrap; gap: 4px; margin-top: 8px; opacity: 1; transform: none; overflow-x: auto; }
+  .msg-toolbar { gap: 8px; }
+  .msg-actions { flex-wrap: nowrap; gap: 4px; margin-top: 0; opacity: 1; transform: none; overflow-x: auto; }
+  .msg-foot { font-size: 10.5px; }
   .act { min-height: 0; padding: 3px 8px; font-size: 11px; border-color: transparent; }
   .act svg { width: 12px; height: 12px; }
 

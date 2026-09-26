@@ -530,6 +530,7 @@ export function createStore(onChange) {
             reasoningLevel: m.reasoningLevel,
             durationMs: m.durationMs,
             thinkingBlocks: m.thinkingBlocks,
+            thoughtHidden: m.thoughtHidden,
             webSearch: m.webSearch,
             ...(atts.length ? { attachments: atts } : {}),
           };

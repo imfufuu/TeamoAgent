@@ -19,12 +19,12 @@ const GROK_EFFORT = { mini: 'low', low: 'low', medium: 'medium', high: 'high', m
 
 const LABELS = { mini: 'Mini', low: 'Low', medium: 'Medium', high: 'High', max: 'Max', ultra: 'Ultra' };
 const HINTS = {
-  mini: '最轻，延迟最低',
-  low: '轻度推理',
-  medium: '默认，日常任务',
-  high: '较深推理',
-  max: '尽量想透',
-  ultra: '最深，最慢也最贵',
+  mini: 'Claude 1024 tok · GPT minimal',
+  low: 'Claude 2048 · GPT/Gemini low',
+  medium: '默认。Claude 4096 · GPT medium',
+  high: 'Claude 8192 · GPT/Gemini high',
+  max: 'Claude 16k · GPT xhigh',
+  ultra: 'Claude 32k · GPT xhigh，最慢最贵',
 };
 
 export function normalizeReasoningLevel(v) {

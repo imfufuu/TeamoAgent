@@ -121,15 +121,30 @@ export function createSSEParser(onData) {
 }
 
 // ── OpenAI chat.completion.chunk 归一化 ─────────────────────────────────
+function reasoningTokensOf(u) {
+  if (!u) return 0;
+  const det = u.completion_tokens_details || u.output_tokens_details || {};
+  const gem = (u.billing_usage && u.billing_usage.gemini_usage_metadata) || {};
+  const oai = ((u.billing_usage && u.billing_usage.openai_usage) || {}).output_tokens_details || {};
+  return det.reasoning_tokens || det.thinking_tokens || gem.thoughtsTokenCount || oai.reasoning_tokens || 0;
+}
+
 export function createOpenAIStream(onEv) {
   return function handle(json) {
     if (json.error) { onEv({ type: 'error', message: json.error.message || JSON.stringify(json.error) }); return; }
-    if (json.usage) onEv({ type: 'usage', usage: { input: json.usage.prompt_tokens, output: json.usage.completion_tokens } });
+    if (json.usage) {
+      const usage = { input: json.usage.prompt_tokens, output: json.usage.completion_tokens };
+      const r = reasoningTokensOf(json.usage);
+      if (r) usage.reasoning = r;
+      onEv({ type: 'usage', usage });
+    }
     const ch = (json.choices && json.choices[0]) || null;
     if (!ch) return;
     const d = ch.delta || {};
     if (d.content) onEv({ type: 'text', text: d.content });
     if (d.reasoning_content) onEv({ type: 'reasoning', text: d.reasoning_content });
+    else if (typeof d.reasoning === 'string' && d.reasoning) onEv({ type: 'reasoning', text: d.reasoning });
+    else if (d.reasoning && typeof d.reasoning.content === 'string' && d.reasoning.content) onEv({ type: 'reasoning', text: d.reasoning.content });
     if (d.tool_calls) {
       for (const tc of d.tool_calls) {
         onEv({
@@ -175,7 +190,12 @@ export function createAnthropicStream(onEv) {
     switch (json.type) {
       case 'message_start': {
         const u = json.message && json.message.usage;
-        if (u) onEv({ type: 'usage', usage: { input: u.input_tokens, output: u.output_tokens } });
+        if (u) {
+          const usage = { input: u.input_tokens, output: u.output_tokens };
+          const r = reasoningTokensOf(u);
+          if (r) usage.reasoning = r;
+          onEv({ type: 'usage', usage });
+        }
         break;
       }
       case 'content_block_start': {
@@ -227,7 +247,12 @@ export function createAnthropicStream(onEv) {
         break;
       }
       case 'message_delta': {
-        if (json.usage && json.usage.output_tokens != null) onEv({ type: 'usage', usage: { output: json.usage.output_tokens } });
+        if (json.usage && json.usage.output_tokens != null) {
+          const usage = { output: json.usage.output_tokens };
+          const r = reasoningTokensOf(json.usage);
+          if (r) usage.reasoning = r;
+          onEv({ type: 'usage', usage });
+        }
         if (json.delta && json.delta.stop_reason) onEv({ type: 'finish', reason: json.delta.stop_reason });
         break;
       }
@@ -290,11 +315,11 @@ export function createThinkingTracker() {
       const b = byIndex.get(index);
       if (b && b.type === 'thinking' && signature) b.signature = signature;
     },
-    // 只保留可回传的块：thinking 需非空内容 + signature（缺签名的块会被 API 拒收），
-    // redacted_thinking 需 data
+    // Claude 5 常返回空 thinking + signature（正文被上游收走）。缺签名的块会被 API 拒收，
+    // 有签名即使 thinking 为空也必须回传，否则下一轮工具调用 400。
     blocks() {
       return order
-        .filter((b) => (b.type === 'thinking' ? b.thinking && b.signature : b.data))
+        .filter((b) => (b.type === 'thinking' ? b.signature : b.data))
         .map((b) => ({ ...b }));
     },
   };
@@ -377,7 +402,7 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
       // 且按流内接收顺序排列（非 interleaved 模式下思考块总在回合开头）
       if (includeThinking) {
         for (const b of m.thinkingBlocks || []) {
-          if (b.type === 'thinking' && b.thinking && b.signature) content.push({ type: 'thinking', thinking: b.thinking, signature: b.signature });
+          if (b.type === 'thinking' && b.signature) content.push({ type: 'thinking', thinking: b.thinking || '', signature: b.signature });
           else if (b.type === 'redacted_thinking' && b.data) content.push({ type: 'redacted_thinking', data: b.data });
         }
       }

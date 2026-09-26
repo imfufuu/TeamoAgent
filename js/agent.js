@@ -455,6 +455,7 @@ export function createAgent(store, hooks = {}) {
                     // Anthropic 分两段上报（message_start: input；message_delta: output 累计值），取最新即可
                     if (ev.usage.input != null) usage.input = ev.usage.input;
                     if (ev.usage.output != null) usage.output = ev.usage.output;
+                    if (ev.usage.reasoning != null) usage.reasoning = ev.usage.reasoning;
                     break;
                   case 'finish':
                     finishReason = ev.reason;
@@ -492,7 +493,8 @@ export function createAgent(store, hooks = {}) {
           reasoningMs: turn.thinking && reasonT0 ? Math.round(nowT - reasonT0) : undefined,
           reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
           durationMs: Math.round(nowT - streamT0),
-          usage: usage.input != null || usage.output != null ? { ...usage } : undefined,
+          usage: usage.input != null || usage.output != null || usage.reasoning != null ? { ...usage } : undefined,
+          thoughtHidden: !!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)),
           finishReason, done: true, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
         });
