@@ -471,7 +471,7 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.ok(ui.includes("classList.toggle('ultra'"));
   assert.equal(html.includes('tab-agents') || html.includes('data-tab="agents"'), false, '子智能体展示面板应删除');
   const cssUltra = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
-  assert.match(cssUltra, /ultra-flow/);
+  assert.match(cssUltra, /ultra-slide/);
   assert.ok(cssUltra.includes('.pill.ultra'));
 });
 
@@ -3152,6 +3152,9 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(css, /\.dot\.busy\.thinking/);
   assert.match(ui, /再次确认/);
   assert.match(html, /id="quota-bar"/);
+  assert.match(html, /id="files-count"/);
+  assert.match(html, /panel-head-copy/);
+  assert.match(ui, /暂无文件/);
   assert.match(css, /\.quota-bar/);
   assert.match(ui, /产品上限 120MB/);
   assert.equal(/resolveStorageQuota\(SANDBOX_STORAGE_CAP\)\.then/.test(ui), false);

@@ -393,14 +393,15 @@ console.log('\n⑩ 操作条：输出结束才出现，复制按钮带 SVG 图�
   ok('「重新生成」只给最后一条 assistant', acts.find((b) => b.dataset.act === 'regen').style.display === '');
 }
 
-console.log('\n⑪ 沙箱面板头部改成两行（标题一行，统计与按钮一行）');
+console.log('\n⑪ 沙箱面板头部：标题+容量，工具栏是进度条与 ZIP/清空');
 {
   const bar = $('#tab-files .files-bar');
-  ok('第一行是「虚拟文件系统」标题', $('#tab-files .files-toolbar > .files-title')?.textContent.trim() === '虚拟文件系统');
-  ok('第二行含文件统计与 ZIP/清空', !!bar && !!$('#files-count', bar ? undefined : undefined) === true && !!bar.querySelector('#download-zip') && !!bar.querySelector('#clear-files'),
+  ok('面板头是「虚拟文件系统」标题', $('.panel-head .files-title')?.textContent.trim() === '虚拟文件系统');
+  ok('容量数字在面板头（不被 ZIP 挤掉）', /0\.0MB\/\d+\.\dMB/.test($('.panel-head #files-count')?.textContent || ''), $('.panel-head #files-count')?.textContent);
+  ok('工具栏含进度条与 ZIP/清空', !!bar && !!bar.querySelector('#quota-bar') && !!bar.querySelector('#download-zip') && !!bar.querySelector('#clear-files'),
     bar ? bar.className : 'no .files-bar');
   const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
-  ok('工具栏为 column 布局（两行）', /\.files-toolbar\s*\{[^}]*flex-direction: column/.test(css));
+  ok('空列表提示样式存在', /\.empty-hint\s*\{/.test(css));
   ok('第二行自身是左右分布', /\.files-bar\s*\{[^}]*justify-content: space-between/.test(css));
 }
 
