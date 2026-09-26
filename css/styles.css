@@ -423,7 +423,7 @@ a { color: var(--fg); }
     #c4b5fd, #7dd3fc, #6ee7b7, #fde68a, #f9a8d4, #e9d5ff,
     #c4b5fd, #7dd3fc, #6ee7b7, #fde68a, #f9a8d4, #e9d5ff,
     #c4b5fd, #7dd3fc, #6ee7b7, #fde68a, #f9a8d4, #e9d5ff, #c4b5fd);
-  animation: ultra-diag 9s linear infinite;
+  animation: ultra-diag 6.5s linear infinite;
 }
 .pill.ultra .pill-ico { color: inherit; position: relative; z-index: 1; }
 .think-item[data-think="ultra"].active {
@@ -489,7 +489,8 @@ a { color: var(--fg); }
 .msg-meta { font-size: 10.5px; color: var(--fg-3); font-family: var(--mono); }
 
 /* Markdown */
-.md-body { word-break: break-word; }
+.md-body { word-break: break-word; line-height: 1.78; }
+.md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { scroll-margin-top: 12px; }
 .md-body > :first-child { margin-top: 0; }
 .md-body p { margin: 0 0 .45em; }
 .md-body p:last-child { margin-bottom: 0; }
@@ -697,7 +698,7 @@ a { color: var(--fg); }
 .reasoning .chip-detail {
   display: none; width: 100%; font-size: 12.5px; color: var(--fg-2);
   /* 图标 13px + gap 8px：正文跟「思考过程」齐，不要顶到行首左边 */
-  padding-left: 21px; line-height: 1.45; box-sizing: border-box;
+  padding-left: 21px; line-height: 1.62; box-sizing: border-box;
 }
 .reasoning.expanded .chip-detail { display: block; animation: fadeUp .25s var(--ease) both; }
 .reasoning .chip-state { color: var(--fg-3); font-family: var(--mono); }
@@ -1053,6 +1054,38 @@ a { color: var(--fg); }
   * { scroll-behavior: auto; }
 }
 
+.sb-img { max-width: min(420px, 100%); height: auto; display: block; margin: 8px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-soft); }
+.sb-file {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
+  font-size: 12.5px; color: var(--fg-2);
+}
+.sb-file.missing { color: var(--fg-3); }
+.sb-dl { font-size: 11px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
+.md-fold { margin: .5em 0; border: none; }
+.md-fold summary {
+  cursor: pointer; font-size: 13px; color: var(--fg-3); user-select: none;
+  list-style: none; padding: 2px 0;
+}
+.md-fold summary::-webkit-details-marker { display: none; }
+.md-fold summary::before { content: "▸ "; color: var(--fg-3); }
+.md-fold[open] summary::before { content: "▾ "; }
+.md-fold summary:hover { color: var(--fg); }
+.md-fold-body { margin-top: 6px; padding-left: 14px; }
+.choice-box {
+  margin: 12px 0 4px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
+}
+.choice-q { font-weight: 650; margin-bottom: 8px; }
+.choice-opts { display: flex; flex-direction: column; gap: 6px; }
+.choice-opt {
+  text-align: left; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--bg); color: var(--fg);
+  transition: border-color .2s, background .2s;
+}
+.choice-opt:hover { border-color: var(--fg); background: var(--bg-hover); }
+.choice-skip { margin-top: 8px; font-size: 12px; color: var(--fg-3); text-decoration: underline; text-underline-offset: 2px; }
+.choice-box.stale { opacity: .5; pointer-events: none; }
 .edited-files { margin-top: 4px; font-size: 12px; color: var(--fg-3); border: none; }
 .edited-files summary {
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px; list-style: none; user-select: none;

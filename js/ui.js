@@ -42,6 +42,70 @@ const safeImgSrc = (src) => {
   if (/^blob:/i.test(s)) return s;
   return safeHref(s);
 };
+const sandboxPath = (src) => {
+  const s = String(src || '').trim();
+  const m = /^(?:sandbox:\/\/|sandbox:)(.+)$/i.exec(s);
+  if (!m) return '';
+  const parts = m[1].trim().split('/').map((x) => x.trim()).filter((x) => x && x !== '.');
+  if (!parts.length || parts.includes('..') || /[\u0000-\u001f]/.test(parts.join('/'))) return '';
+  return parts.join('/');
+};
+const headingSlug = (text) => {
+  const s = String(text || '').trim().toLowerCase()
+    .replace(/[^\p{L}\p{N}\p{M}\s-]+/gu, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 80);
+  return s || 'section';
+};
+const parseChoiceOpts = (body) => {
+  const listed = [];
+  for (const line of String(body || '').split('\n')) {
+    const m = /^\s*(?:[-*]|\d+\.|[A-Za-z]\.)\s+(.+?)\s*$/.exec(line);
+    if (m) listed.push(m[1].trim());
+  }
+  if (listed.length) return listed;
+  return String(body || '').split('\n').map((l) => l.trim()).filter(Boolean);
+};
+const peelChoices = (src) => {
+  const blocks = [];
+  let rest = String(src || '').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '');
+  const re = /(?:^|\n):::choice(?:[ \t]+([^\n]*))?\n([\s\S]*?)\n:::$/;
+  while (true) {
+    const m = rest.match(re);
+    if (!m) break;
+    blocks.unshift({ title: (m[1] || '').trim(), body: m[2] });
+    rest = rest.slice(0, rest.length - m[0].length).replace(/\s+$/, '');
+  }
+  return { rest, blocks };
+};
+const choiceHtml = (block) => {
+  const q = esc(block.title || '请选择');
+  const opts = parseChoiceOpts(block.body);
+  const buttons = opts.map((o) => `<button type="button" class="choice-opt" data-choice-send="${esc(o)}">${esc(o)}</button>`).join('');
+  return `<div class="choice-box" role="group" aria-label="${q}"><div class="choice-q">${q}</div><div class="choice-opts">${buttons}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div>`;
+};
+function hydrateSandboxMedia(root, fs) {
+  if (!root || !fs) return;
+  for (const img of root.querySelectorAll('img[data-sandbox]')) {
+    const p = img.getAttribute('data-sandbox') || '';
+    let raw = '';
+    try { raw = fs.read(p); } catch { raw = ''; }
+    if (/^data:image\//i.test(String(raw))) {
+      img.src = raw;
+      if (!img.alt) img.alt = p;
+      continue;
+    }
+    const card = document.createElement('div');
+    card.className = 'sb-file' + (raw ? '' : ' missing');
+    const name = esc((p.split('/').pop() || p));
+    card.innerHTML = raw
+      ? `<span class="mono">${name}</span><button type="button" class="sb-dl" data-sb-dl="${esc(p)}">下载</button>`
+      : `<span class="mono">${esc(p)}</span><span>沙箱中没有这个文件</span>`;
+    img.replaceWith(card);
+  }
+}
 const fmtSize = (n) => (n == null ? '' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`);
 
 const contextBudgetLabel = (model) => {
@@ -146,7 +210,11 @@ function getMd() {
         const tok = tokens[idx];
         const href = safeHref(tok.attrGet('href'));
         tok.attrSet('href', href);
-        if (href) {
+        if (href.startsWith('#')) {
+          tok.attrSet('target', '');
+          tok.attrSet('rel', '');
+          tok.attrJoin('class', 'md-jump');
+        } else if (href) {
           tok.attrSet('target', '_blank');
           tok.attrSet('rel', 'noopener noreferrer nofollow');
         } else {
@@ -158,9 +226,32 @@ function getMd() {
       const defaultImage = md.renderer.rules.image;
       md.renderer.rules.image = (tokens, idx, options, env, self) => {
         const tok = tokens[idx];
-        tok.attrSet('src', safeImgSrc(tok.attrGet('src')));
+        const raw = String(tok.attrGet('src') || '');
+        const sb = sandboxPath(raw);
+        if (sb) {
+          tok.attrSet('src', '');
+          tok.attrSet('data-sandbox', sb);
+          tok.attrJoin('class', 'sb-img');
+        } else {
+          tok.attrSet('src', safeImgSrc(raw));
+        }
         return defaultImage ? defaultImage(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options);
       };
+      md.core.ruler.push('heading-ids', (state) => {
+        const seen = Object.create(null);
+        for (let i = 0; i < state.tokens.length; i++) {
+          const tok = state.tokens[i];
+          if (tok.type !== 'heading_open') continue;
+          const inline = state.tokens[i + 1];
+          const text = inline && inline.children
+            ? inline.children.filter((c) => c.type === 'text').map((c) => c.content).join('')
+            : '';
+          let id = headingSlug(text);
+          if (seen[id]) { seen[id] += 1; id = `${id}-${seen[id]}`; }
+          else seen[id] = 1;
+          tok.attrSet('id', id);
+        }
+      });
       md.renderer.rules.fence = (tokens, idx) => {
         const tk = tokens[idx];
         const lang = (tk.info || '').trim().split(/\s+/)[0] || 'text';
@@ -213,15 +304,36 @@ export function renderMarkdown(src) {
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false))
     .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => pushMath(x, false));
 
+  const peeled = peelChoices(t);
+  t = peeled.rest;
+  const folds = [];
+  t = t.replace(/^:::fold[ \t]+(.+)\n([\s\S]*?)^:::[ \t]*$/gm, (_, title, body) => {
+    folds.push({ title: String(title || '').trim(), body });
+    return `\n\n\uE000FOLD${folds.length - 1}\uE000\n\n`;
+  });
+
   const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
     const { lang, code } = codeBlocks[+i];
     return fenceHtml(lang, code, esc);
   });
   const restoreMath = (html) => html.replace(/\uE000M(\d+)\uE000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
+  const restoreWidgets = (html) => {
+    const foldAt = (_, i) => {
+      const f = folds[+i];
+      const innerMd = getMd();
+      const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
+      return `<details class="md-fold"><summary>${esc(f.title)}</summary><div class="md-fold-body">${inner}</div></details>`;
+    };
+    let out = html.replace(/<p>\s*\uE000FOLD(\d+)\uE000\s*<\/p>/g, foldAt)
+      .replace(/\uE000FOLD(\d+)\uE000/g, foldAt);
+    if (peeled.blocks.length) out += peeled.blocks.map(choiceHtml).join('');
+    return out;
+  };
 
   const md = getMd();
   if (md) {
     let html = md.render(t);
+    html = restoreWidgets(html);
     html = restoreCb(html);
     html = restoreMath(html);
     // 独占一段的代码块去掉外层 <p>，避免 <p><pre> 嵌套
@@ -231,9 +343,15 @@ export function renderMarkdown(src) {
   // ── 内置精简回退（markdown-it 未加载时）──
   t = esc(t);
   t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  t = t.replace(/^###### (.*)$/gm, '<h6>$1</h6>').replace(/^##### (.*)$/gm, '<h5>$1</h5>')
-    .replace(/^#### (.*)$/gm, '<h4>$1</h4>').replace(/^### (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^## (.*)$/gm, '<h2>$1</h2>').replace(/^# (.*)$/gm, '<h1>$1</h1>');
+  t = t.replace(/!\[([^\]]*)\]\((sandbox:\/\/[^)]+)\)/gi, (_, alt, src) => {
+    const sb = sandboxPath(src);
+    return sb ? `<img src="" alt="${alt}" data-sandbox="${esc(sb)}" class="sb-img">` : '';
+  });
+  t = t.replace(/^(#{1,6}) (.*)$/gm, (_, hashes, title) => {
+    const n = hashes.length;
+    const id = headingSlug(title.replace(/<[^>]+>/g, ''));
+    return `<h${n} id="${esc(id)}">${title}</h${n}>`;
+  });
   t = t.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
@@ -243,7 +361,7 @@ export function renderMarkdown(src) {
   t = t.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, (m) => '\n<ol>' + m.trim().split('\n').map((l) => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('') + '</ol>');
   t = t.replace(/\n{2,}/g, '</p><p>').replace(/^(?!<[a-z])/, '<p>').replace(/(?!>)$/, '</p>');
   t = t.replace(/<p>\s*(<(?:h\d|ul|ol|blockquote|pre))/g, '$1').replace(/(<\/(?:h\d|ul|ol|blockquote|pre)>)\s*<\/p>/g, '$1');
-  return restoreMath(restoreCb(t));
+  return restoreMath(restoreCb(restoreWidgets(t)));
 }
 
 // ── Toast ───────────────────────────────────────────────────────────────
@@ -1097,25 +1215,6 @@ export function mountUI(store, agent) {
   // 会话内按 callId 缓存：重绘/切换会话回来时仍能直接看到图（刷新页面后与
   // 附件同策略不落盘，避免数 MB data URL 顶穿 localStorage）
   const chipImages = new Map();
-  function paintChipImage(chip, shot) {
-    if (!chip || !shot || !shot.dataUrl) return;
-    const detail = $('.chip-detail', chip);
-    let fig = $('.chip-img', chip);
-    if (!fig) {
-      fig = el('figure', 'chip-img');
-      chip.insertBefore(fig, detail || null);
-    }
-    const name = String(shot.path || 'image.png').split('/').pop();
-    // data URL 体积按 base64 反推真实字节（×3/4），标签展示更准确
-    const comma = shot.dataUrl.indexOf(',');
-    const bytes = comma > 0 ? Math.max(0, Math.round((shot.dataUrl.length - comma - 1) * 0.75)) : shot.dataUrl.length;
-    fig.innerHTML = `<img src="${shot.dataUrl}" alt="${esc(name)}">`
-      + `<figcaption class="chip-img-cap mono">${esc(shot.path || name)} · ${fmtSize(bytes)}${shot.width && shot.height ? ` · ${shot.width}x${shot.height}` : ''}`
-      + `<a href="${shot.dataUrl}" download="${esc(name)}">下载</a></figcaption>`;
-    fig.addEventListener('click', (e) => e.stopPropagation()); // 点图片不要触发芯片折叠
-    chip.classList.add('has-image');
-  }
-
   function paintFoot(wrap, m) {
     const foot = $('.msg-foot', wrap);
     if (!foot) return;
@@ -1155,6 +1254,11 @@ export function mountUI(store, agent) {
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     body.innerHTML = html;
+    hydrateSandboxMedia(body, agent.fs);
+    const lastAsst = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
+    for (const box of $$('.choice-box', body)) {
+      box.classList.toggle('stale', !m.done || getBusy() || (lastAsst && lastAsst.id !== m.id));
+    }
     // 思考过程与工具芯片同构：整行 click + .expanded + .chip-detail，不用 <details>
     let reason = $('.reasoning', wrap);
     if (m.done && (showThink || hiddenThink)) {
@@ -1176,6 +1280,7 @@ export function mountUI(store, agent) {
         ? renderMarkdown(m.reasoning)
         : '<div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div>';
       reason.innerHTML = `<span class="chip-ico think-ico">${ICON.thinking || ''}</span><span class="mono chip-name">${title}</span><span class="chip-state">${esc(bits.join(' · '))}</span><div class="chip-detail reason-detail">${detail}</div>`;
+      hydrateSandboxMedia($('.reason-detail', reason) || reason, agent.fs);
       reason.classList.toggle('expanded', !!wrap._reasonOpen);
     } else if (reason) {
       reason.remove();
@@ -1234,7 +1339,7 @@ export function mountUI(store, agent) {
           shot = { dataUrl: tc.image, path: tc.imagePath, width: tc.width, height: tc.height };
           chipImages.set(tc.id, shot);
         }
-        if (shot) paintChipImage(chip, shot);
+        // 生图预览改走正文 ![alt](sandbox://path)，芯片里不再插图
         if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
           chip.classList.add('done');
           chip.classList.remove('running');
@@ -1251,7 +1356,8 @@ export function mountUI(store, agent) {
         chips.after(ed);
       }
       const paths = [...new Set(edited.map((c) => String(c.args.path)))];
-      ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>Edited file(s) ${paths.length}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+      const label = paths.length === 1 ? 'Edited file 1' : `Edited files ${paths.length}`;
+      ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>${label}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
     } else if (ed) ed.remove();
     // meta（无 msg-head 的续消息没有该节点）
     const meta = $('.msg-meta', wrap);
@@ -1736,11 +1842,54 @@ export function mountUI(store, agent) {
   // 复制代码块按钮（事件委托）
   msgList.addEventListener('click', (e) => {
     const btn = e.target.closest('.copy-code');
-    if (!btn) return;
-    const block = btn.closest('.code-block') || btn.parentElement;
-    const code = block.querySelector('code');
-    if (!code) return;
-    navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = '已复制'; setTimeout(() => (btn.textContent = '复制'), 1500); });
+    if (btn) {
+      const block = btn.closest('.code-block') || btn.parentElement;
+      const code = block.querySelector('code');
+      if (!code) return;
+      navigator.clipboard.writeText(code.textContent).then(() => { btn.textContent = '已复制'; setTimeout(() => (btn.textContent = '复制'), 1500); });
+      return;
+    }
+    const jump = e.target.closest('a.md-jump, a[href^="#"]');
+    if (jump && jump.getAttribute('href') && jump.getAttribute('href').startsWith('#')) {
+      const wrap = jump.closest('.md-body, .msg');
+      const id = decodeURIComponent(jump.getAttribute('href').slice(1));
+      const target = wrap && id ? wrap.querySelector(`#${CSS.escape(id)}`) : null;
+      if (target) {
+        e.preventDefault();
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return;
+    }
+    const opt = e.target.closest('[data-choice-send]');
+    if (opt) {
+      if (opt.closest('.choice-box.stale') || getBusy()) return;
+      const text = opt.getAttribute('data-choice-send') || '';
+      if (!text || !store.state.apiKey) return;
+      agent.send(text, []);
+      return;
+    }
+    const skip = e.target.closest('[data-choice-skip]');
+    if (skip) {
+      if (skip.closest('.choice-box.stale') || getBusy()) return;
+      if (!store.state.apiKey) return;
+      agent.send('跳过', []);
+      return;
+    }
+    const dl = e.target.closest('[data-sb-dl]');
+    if (dl) {
+      e.preventDefault();
+      const path = dl.getAttribute('data-sb-dl') || '';
+      let raw = '';
+      try { raw = agent.fs.read(path); } catch { raw = ''; }
+      if (!raw) return;
+      const { bytes } = fileBytesFromValue(raw);
+      const blob = new Blob([bytes]);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = path.split('/').pop() || 'file';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
   });
 
 
@@ -2044,7 +2193,6 @@ export function mountUI(store, agent) {
         if (patch.width) call.width = patch.width;
         if (patch.height) call.height = patch.height;
         store.save();
-        paintChipImage(chip, chipImages.get(call.id));
       }
       if (patch.status === 'running' || patch.image) scrollToBottom();
     },

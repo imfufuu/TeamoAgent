@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.37';
+export const APP_VERSION = '2026.9.26.38';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -216,6 +216,10 @@ export const OUTPUT_SPEC = [
   '- 用与用户相同的语言回复（用户用中文就用中文）；说明文字可以短，但本段交出的代码必须完整可运行：含错误处理、边界条件与必要注释；禁止伪代码、「其余略」、只给函数签名。',
   '- 你也可以回答非代码话题（闲聊、解释、规划、写作、常识）。不要把每句话都当成编程任务，不必为了用工具而用工具。',
   '- 大工程先给文件列表与接口，再每次只实现一个文件、每次最多改 1–3 个函数。一次做不完就在末尾单独一行写 <<<CONTINUE>>>，等用户让你继续。不要一次输出整个项目。',
+  '- 沙箱文件：要让用户看见沙箱里的图或文件，用 Markdown 图片语法 ![说明](sandbox://相对路径)，例如 ![示例](sandbox://outputs/example.png)。不要输出 data URL，不要写 HTML <img>。',
+  '- 选择框（重要决策，且必须是本条回复的最后一块；可连续多个）：\\n:::choice 问题\\n- 选项一\\n- 选项二\\n:::\\n用户点选项即发送该选项；系统提供「跳过」。不要在段中或工具循环中途输出。',
+  '- 折叠栏（次要内容或答案，默认收起，少用）：\\n:::fold 标题\\n内容\\n:::',
+  '- 长文目录：标题用 ## / ###；目录用 [节名](#slug) 链到同文标题（slug 为标题小写、空格改 -，中文标题可原样作锚）。',
 ].join('\n');
 
 export function systemPrompt(now = new Date(), opts = {}) {
@@ -239,7 +243,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
     '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP（zip_files 写入 archives/ 等路径；unzip_file 解到指定目录）。用户上传的 .zip 会自动解开。',
-    '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果会写入沙箱 outputs/ 并在对话中展示。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
+    '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果写入沙箱 outputs/。工具芯片里不会出现预览；随后的回复必须用 ![说明](sandbox://outputs/image-001.png) 把图嵌进正文。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
     '- remember：跨会话长效记忆。用户偏好、身份、长期项目、明确约定值得记下时自己调用（action=add）；过时了就 forget；不确定先 list。不要记本轮任务步骤或临时路径。记忆会出现在之后每个对话里。',
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',

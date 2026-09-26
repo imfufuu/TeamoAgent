@@ -646,6 +646,7 @@ async function executeToolBody(name, args, ctx) {
             `- 模型：${model}`,
             `- 尺寸：${dims || size}${count > 1 ? `（共 ${written.length} 张）` : ''}`,
             `- 输出：${paths}（已写入沙箱，可在文件面板下载或打包 ZIP）${billed}`,
+            `- 展示：在随后的回复里写 ![说明](sandbox://${written[0].path})，不要依赖芯片预览`,
             `- 继续修改：以 reference_paths=["${written[written.length - 1].path}"] 再次调用本工具`,
           ];
           if (note) summary.push(`- ${note}`);

@@ -501,6 +501,7 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.equal(html.includes('tab-agents') || html.includes('data-tab="agents"'), false, '子智能体展示面板应删除');
   const cssUltra = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(cssUltra, /ultra-diag/);
+  assert.match(cssUltra, /ultra-diag 6\.5s/);
   assert.ok(cssUltra.includes('.pill.ultra'));
 });
 
@@ -644,6 +645,22 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   // 公式：行内 + 块级
   assert.ok(renderMarkdown('行内 $a^2$ 结束').includes('class="katex"'), '行内公式');
   assert.ok(renderMarkdown('$$\\frac{a}{b}$$').includes('katex-display'), '块级公式');
+  const sbImg = renderMarkdown('看图 ![示例](sandbox://outputs/example.png)');
+  assert.match(sbImg, /data-sandbox="outputs\/example\.png"/, '沙箱图占位');
+  assert.equal(/src=["']sandbox:/i.test(sbImg), false, 'sandbox:// 不得进 img src');
+  const toc = renderMarkdown('## Hello World\n\n[去引言](#hello-world)');
+  assert.match(toc, /id="hello-world"/);
+  assert.match(toc, /class="[^"]*md-jump/);
+  assert.equal(/href="#hello-world"[^>]*target="_blank"/.test(toc), false, '文内锚点不要新窗口');
+  const fold = renderMarkdown('上文\n\n:::fold 详细推导\n隐藏答案\n:::\n');
+  assert.match(fold, /<details class="md-fold">/);
+  assert.match(fold, /<summary>详细推导<\/summary>/);
+  const choice = renderMarkdown('请拍板\n\n:::choice 部署方式\n- GitHub Pages\n- 自建\n:::');
+  assert.match(choice, /class="choice-box"/);
+  assert.match(choice, /data-choice-send="GitHub Pages"/);
+  assert.match(choice, /data-choice-skip/);
+  const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
+  assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
 test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => {
   const savedMd = globalThis.markdownit;
@@ -659,6 +676,9 @@ test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => 
 test('systemPrompt / 子智能体：注入输出规范', async () => {
   const { systemPrompt, OUTPUT_SPEC } = await import('../js/config.js');
   assert.ok(OUTPUT_SPEC.includes('Markdown') && OUTPUT_SPEC.includes('KaTeX'), '规范含 Markdown/KaTeX');
+  assert.match(OUTPUT_SPEC, /sandbox:\/\//);
+  assert.match(OUTPUT_SPEC, /:::choice/);
+  assert.match(OUTPUT_SPEC, /:::fold/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
@@ -3340,6 +3360,10 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
   assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
   assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}padding-left:\s*21px/, '思考正文跟标题齐，不要顶到图标左边');
+  assert.match(css, /\.md-body \{[^}]*line-height:\s*1\.78/);
+  assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}line-height:\s*1\.62/);
+  assert.match(ui, /data-sandbox/);
+  assert.equal(ui.includes('paintChipImage(chip'), false, '生图不得再画进芯片');
   assert.match(css, /\.reasoning \.chip-name \{[^}]*color:\s*var\(--fg-3\)/, '「思考过程」四字用灰色');
   assert.match(css, /\.md-body a \{[^}]*color:\s*var\(--link\)/);
   assert.match(css, /\.md-body a \{[^}]*text-decoration:\s*underline/);
@@ -3445,7 +3469,7 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
-  assert.match(ui, /Edited file\(s\)/);
+  assert.match(ui, /paths\.length === 1 \? 'Edited file 1'/);
 });
 test('execute_python schema 含 packages', async () => {
   const py = TOOL_DEFS.find((t) => t.name === 'execute_python');
