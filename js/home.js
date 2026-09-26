@@ -44,10 +44,13 @@ const SCENES = [
   { beat: 100, x: 0, y: 0, z: 1700, rx: 4, ry: 0, rz: 0, focus: '', title: '' },
 ];
 
+const FILM_SEC = 47.65;
+
 let playing = false;
 let raf = 0;
 let lastBeat = -1;
 let lastTitle = '';
+let t0 = 0;
 
 function easeOutCubic(t) {
   const x = Math.min(1, Math.max(0, t));
@@ -133,9 +136,17 @@ function onBeat(beat) {
   kickShot(beat % 4 === 0);
 }
 
+function nowSec() {
+  if (audio && !audio.paused && !audio.ended && Number.isFinite(audio.currentTime) && audio.currentTime > 0.03) {
+    return audio.currentTime;
+  }
+  return (performance.now() - t0) / 1000;
+}
+
 function frame() {
-  if (!playing || !audio) return;
-  const t = Math.max(0, audio.currentTime);
+  if (!playing) return;
+  const t = Math.max(0, nowSec());
+  if (t >= FILM_SEC) { openSite(); return; }
   const beatF = t / BEAT;
   const beat = Math.max(0, Math.floor(beatF + 1e-9));
   const c = camAt(beatF);
@@ -147,7 +158,7 @@ function frame() {
     lastBeat = beat;
     onBeat(beat);
   }
-  if (beatBar && audio.duration) beatBar.style.transform = `scaleX(${Math.min(1, t / audio.duration)})`;
+  if (beatBar) beatBar.style.transform = `scaleX(${Math.min(1, t / FILM_SEC)})`;
   raf = requestAnimationFrame(frame);
 }
 
@@ -165,7 +176,6 @@ function openSite() {
 }
 
 async function startFilm() {
-  if (!audio) { openSite(); return; }
   lastBeat = -1;
   lastTitle = '';
   slam('');
@@ -173,9 +183,18 @@ async function startFilm() {
   root.classList.add('scoring');
   lockScroll(true);
   applyCam(camAt(0));
-  audio.currentTime = 0;
-  try { await audio.play(); }
-  catch { openSite(); }
+  playing = true;
+  t0 = performance.now();
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(frame);
+  if (!audio) return;
+  try {
+    audio.currentTime = 0;
+    await audio.play();
+    t0 = performance.now() - audio.currentTime * 1000;
+  } catch {
+    /* 无声也把片子演完，绝不跳进展览页 */
+  }
 }
 
 function skipFilm() {
@@ -199,12 +218,7 @@ if (reduce) {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
   if (audio) {
-    audio.addEventListener('play', () => {
-      playing = true;
-      cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(frame);
-    });
-    audio.addEventListener('ended', () => openSite());
+    audio.addEventListener('ended', () => { if (playing) openSite(); });
   }
   explore && explore.addEventListener('click', startFilm);
   skip && skip.addEventListener('click', skipFilm);

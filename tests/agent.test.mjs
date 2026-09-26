@@ -1636,6 +1636,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /const SCENES =/);
   assert.match(homeJs, /const WHIP/);
   assert.match(homeJs, /translate3d/);
+  assert.match(homeJs, /const FILM_SEC/);
+  assert.equal(/catch \{ openSite/.test(homeJs), false, '配乐失败不得跳过片子');
+  assert.match(homeJs, /playing = true/);
 });
 
 
