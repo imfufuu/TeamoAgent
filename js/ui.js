@@ -64,7 +64,59 @@ function renderAttachments(atts) {
   return `<div class="att-row">${items}</div>`;
 }
 
-const LANG_ALIAS = { js: 'javascript', ts: 'typescript', py: 'python', sh: 'bash', shell: 'bash', zsh: 'bash', csharp: 'csharp', 'c#': 'csharp', 'c++': 'cpp', cc: 'cpp', htm: 'xml', html: 'xml', yml: 'yaml', rs: 'rust', rb: 'ruby', kt: 'kotlin', m: 'matlab' };
+const LANG_ALIAS = {
+  js: 'javascript', javascript: 'javascript', jsx: 'javascript', node: 'javascript',
+  ts: 'typescript', typescript: 'typescript', tsx: 'typescript',
+  py: 'python', python: 'python', py3: 'python',
+  java: 'java',
+  c: 'c', h: 'c',
+  cpp: 'cpp', 'c++': 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hh: 'cpp',
+  csharp: 'csharp', 'c#': 'csharp', cs: 'csharp',
+  go: 'go', golang: 'go',
+  rs: 'rust', rust: 'rust',
+  rb: 'ruby', ruby: 'ruby',
+  php: 'php',
+  swift: 'swift',
+  kt: 'kotlin', kotlin: 'kotlin',
+  scala: 'scala',
+  dart: 'dart',
+  objc: 'objectivec', 'objective-c': 'objectivec', objectivec: 'objectivec',
+  m: 'matlab', matlab: 'matlab', octave: 'matlab',
+  sh: 'bash', bash: 'bash', shell: 'bash', zsh: 'bash', fish: 'bash',
+  ps1: 'powershell', psm1: 'powershell', powershell: 'powershell', pwsh: 'powershell',
+  bat: 'dos', cmd: 'dos', batch: 'dos', dos: 'dos',
+  sql: 'sql',
+  json: 'json', jsonc: 'json',
+  yml: 'yaml', yaml: 'yaml',
+  toml: 'toml', ini: 'ini', conf: 'ini', gitconfig: 'ini', gitignore: 'ini', properties: 'ini',
+  xml: 'xml', htm: 'xml', html: 'xml', svg: 'xml', vue: 'xml', svelte: 'xml',
+  css: 'css', scss: 'scss', less: 'less',
+  md: 'markdown', markdown: 'markdown',
+  r: 'r',
+  jl: 'julia', julia: 'julia',
+  sas: 'sas', do: 'stata', stata: 'stata',
+  hs: 'haskell', haskell: 'haskell',
+  erl: 'erlang', erlang: 'erlang',
+  ex: 'elixir', exs: 'elixir', elixir: 'elixir',
+  clj: 'clojure', cljs: 'clojure', clojure: 'clojure',
+  lisp: 'lisp', cl: 'lisp', scm: 'scheme', scheme: 'scheme',
+  fs: 'fsharp', fsharp: 'fsharp', 'f#': 'fsharp',
+  ml: 'ocaml', ocaml: 'ocaml',
+  asm: 'x86asm', s: 'x86asm', x86asm: 'x86asm', armasm: 'armasm', arm: 'armasm',
+  vhd: 'vhdl', vhdl: 'vhdl',
+  v: 'verilog', sv: 'verilog', verilog: 'verilog',
+  cu: 'cpp', cuda: 'cpp',
+  sol: 'javascript', solidity: 'javascript',
+  graphql: 'graphql', gql: 'graphql',
+  tex: 'latex', latex: 'latex',
+  hbs: 'handlebars', handlebars: 'handlebars',
+  jinja: 'django', jinja2: 'django', j2: 'django', django: 'django',
+  dockerfile: 'dockerfile', docker: 'dockerfile',
+  mk: 'makefile', make: 'makefile', makefile: 'makefile',
+  nginx: 'nginx', apache: 'apache', apacheconf: 'apache',
+  diff: 'diff', patch: 'diff',
+  regex: 'javascript', regexp: 'javascript',
+};
 function highlightCode(code, lang, escapeFn) {
   const raw = String(code || '').replace(/\n$/, '');
   const L = LANG_ALIAS[(lang || '').toLowerCase()] || (lang || '').toLowerCase();
@@ -235,15 +287,25 @@ export function mountUI(store, agent) {
   const ddBtn = $('#model-btn');
   const ddMenu = $('#model-menu');
   const ddSearch = $('#model-search');
+  // 网关仍可能返回已下线的福利档；本地兜底表删了也不够，这里再挡一层。
+  const HIDDEN_MODELS = new Set(['glm-5.3-flash-free']);
   // 对话模型列表：过滤掉生图模型（只能由主智能体通过 generate_image 工具调用，
   // 直接选中会绕过工具循环、破坏 Agent 特性；网关 /v1/models 里带它们时也照样隐藏）
   function mergedModels() {
     const map = new Map();
-    for (const m of FALLBACK_MODELS) if (!isImageModel(m.id) && !isJevModel(m.id)) map.set(m.id, { ...m });
+    for (const m of FALLBACK_MODELS) {
+      if (HIDDEN_MODELS.has(m.id) || isImageModel(m.id) || isJevModel(m.id)) continue;
+      map.set(m.id, { ...m });
+    }
     for (const id of store.state.models || []) {
-      if (!map.has(id) && !isImageModel(id) && !isJevModel(id)) map.set(id, { id, provider: providerOf(id) });
+      if (HIDDEN_MODELS.has(id) || isImageModel(id) || isJevModel(id)) continue;
+      if (!map.has(id)) map.set(id, { id, provider: providerOf(id) });
     }
     return [...map.values()];
+  }
+  if (HIDDEN_MODELS.has(store.state.model)) {
+    store.state.model = 'claude-sonnet-5';
+    store.notify();
   }
   function renderModelMenu() {
     const q = ddSearch.value.trim().toLowerCase();

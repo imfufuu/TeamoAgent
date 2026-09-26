@@ -3205,6 +3205,31 @@ test('模型列表不再标「原生」；底部提示为 AI 生成免责声明'
   assert.match(css, /\.badge\.hot/);
   assert.match(css, /\.badge\.cheap/);
 });
+test('glm-5.3-flash-free 从菜单隐藏；网关返回也滤掉', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.equal(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash-free'), false);
+  assert.ok(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash'), '付费 flash 仍在');
+  assert.match(ui, /HIDDEN_MODELS = new Set\(\['glm-5.3-flash-free'\]\)/);
+  assert.match(ui, /HIDDEN_MODELS\.has\(id\)/);
+  assert.match(ui, /HIDDEN_MODELS\.has\(store\.state\.model\)/);
+});
+test('代码块加载 extra 语言包并覆盖主流 fence 别名', async () => {
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const extra = fsp.readFileSync(new URL('../assets/hljs/langs-extra.min.js', import.meta.url), 'utf8');
+  assert.match(html, /assets\/hljs\/langs-extra\.min\.js/);
+  assert.match(html, /assets\/hljs\/matlab\.min\.js/);
+  for (const lang of ['typescript', 'rust', 'powershell', 'dockerfile', 'haskell', 'verilog', 'latex', 'php', 'swift']) {
+    assert.match(extra, new RegExp('registerLanguage\\("' + lang + '"'));
+  }
+  assert.match(ui, /tsx: 'typescript'/);
+  assert.match(ui, /ps1: 'powershell'/);
+  assert.match(ui, /dockerfile: 'dockerfile'/);
+  assert.match(ui, /tex: 'latex'/);
+  assert.match(ui, /bat: 'dos'/);
+});
 
 group('PDF 正文提取（客户端，无 pdf.js）');
 const makePdf = (contentStream) => {
