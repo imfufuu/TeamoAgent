@@ -3,13 +3,13 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
-<meta name="app-version" content="2026.9.26.2" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'" />
+<meta name="app-version" content="2026.9.26.3" />
 <meta name="app-release" content="V1.1" />
 <meta name="description" content="TeamoAgent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>TeamoAgent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.9.26.2" />
+<link rel="stylesheet" href="css/home.css?v=2026.9.26.3" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -25,32 +25,51 @@
   <a class="nav-link" href="#capabilities">能力</a>
   <a class="nav-link" href="#flow">流程</a>
   <button id="theme-toggle" class="nav-link" type="button">外观</button>
+  <button id="score-nav" class="nav-link score-nav" type="button" aria-pressed="false" aria-label="播放配乐宣传">播放</button>
   <a class="cta" href="./app.html">开始对话</a>
 </header>
 
 <main>
-  <section class="hero">
-    <div>
-      <div class="orbit reveal">
-        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>
+  <section class="hero" id="hero">
+    <div class="beat-progress" aria-hidden="true"><i id="beat-bar"></i></div>
+    <audio id="home-audio" src="assets/audio/teamo-home.wav" preload="auto" playsinline></audio>
+    <div class="hero-inner">
+      <button type="button" id="score-play" class="score-play" aria-pressed="false" aria-label="播放配乐宣传">
+        <svg class="ico-play" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8.4 5.6v12.8l10.2-6.4Z"/></svg>
+        <svg class="ico-pause" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.2 5.5h3.2v13H7.2zm6.4 0h3.2v13h-3.2z"/></svg>
+      </button>
+      <div class="orbit beat-cue" data-on="0">
+        <div class="orbit-kick">
+          <div class="orbit-spin">
+            <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>
+          </div>
+        </div>
       </div>
-      <p class="kicker reveal d1">Web Agent · TeamoRouter</p>
-      <h1 class="reveal d1">浏览器里的<br>智能体。</h1>
-      <p class="lede reveal d2">写代码、管文件、出图、深度思考。会话级沙箱就在侧栏，打开网页即可开始，不必安装客户端。</p>
-      <div class="hero-actions reveal d3">
+      <p class="kicker beat-cue" data-on="4">Web Agent · TeamoRouter</p>
+      <h1>
+        <span class="title-a beat-cue" data-on="8">浏览器里的</span>
+        <span class="title-b beat-cue" data-on="12">智能体。</span>
+      </h1>
+      <p class="lede beat-cue" data-on="16">写代码、管文件、出图、深度思考。会话级沙箱就在侧栏，打开网页即可开始，不必安装客户端。</p>
+      <div class="hero-actions beat-cue" data-on="20">
         <a class="cta" href="./app.html">进入对话</a>
         <a class="cta cta-ghost" href="#capabilities">了解能力</a>
       </div>
-      <p class="scroll-hint">下滑</p>
+      <p class="film-line" aria-live="polite">
+        <span class="beat-cue film-item" data-on="28" data-off="36">沙箱里跑 JS、Python、C++。</span>
+        <span class="beat-cue film-item" data-on="36" data-off="44">文件、ZIP、差分，都在侧栏。</span>
+        <span class="beat-cue film-item" data-on="44">出图与识图走工具。现在就开始。</span>
+      </p>
+      <p class="scroll-hint beat-cue" data-on="24">下滑 · 空格播放</p>
     </div>
   </section>
 
   <div class="band">
     <div class="band-inner">
-      <div class="stat"><b>JS / Py / C++</b><span>隔离沙箱执行</span></div>
-      <div class="stat"><b>120 MB</b><span>会话工作区</span></div>
-      <div class="stat"><b>Off → Ultra</b><span>思考档可调</span></div>
-      <div class="stat"><b>V1.1</b><span>正式版</span></div>
+      <div class="stat beat-cue" data-on="32"><b>JS / Py / C++</b><span>隔离沙箱执行</span></div>
+      <div class="stat beat-cue" data-on="36"><b>120 MB</b><span>会话工作区</span></div>
+      <div class="stat beat-cue" data-on="40"><b>Off → Ultra</b><span>思考档可调</span></div>
+      <div class="stat beat-cue" data-on="44"><b>V1.1</b><span>正式版</span></div>
     </div>
   </div>
 
@@ -113,9 +132,9 @@ RMSE = 0.5831
 </main>
 
 <footer>
-  <span>TeamoAgent V1.1 · 构建 2026.9.26.2</span>
+  <span>TeamoAgent V1.1 · 构建 2026.9.26.3</span>
   <a href="./app.html">对话</a>
 </footer>
-<script type="module" src="js/home.js?v=2026.9.26.2"></script>
+<script type="module" src="js/home.js?v=2026.9.26.3"></script>
 </body>
 </html>
