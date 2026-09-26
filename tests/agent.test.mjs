@@ -1632,13 +1632,15 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
   assert.match(homeJs, /const BPM = 124/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
-  assert.match(homeJs, /beat % 4 === 0/);
   assert.match(homeJs, /const SCENES =/);
   assert.match(homeJs, /const WHIP/);
   assert.match(homeJs, /translate3d/);
   assert.match(homeJs, /const FILM_SEC/);
   assert.equal(/catch \{ openSite/.test(homeJs), false, '配乐失败不得跳过片子');
   assert.match(homeJs, /playing = true/);
+  assert.match(homeJs, /leaving/);
+  const titles = [...homeJs.matchAll(/title: '([^']*)'/g)].map((m) => m[1]).filter(Boolean);
+  assert.equal(new Set(titles).size, titles.length, `字幕重复：${titles}`);
 });
 
 

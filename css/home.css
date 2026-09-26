@@ -75,7 +75,7 @@ html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181
   transform-style: preserve-3d;
   opacity: .16;
   filter: blur(14px);
-  transition: opacity .24s var(--film), filter .24s var(--film);
+  transition: opacity .55s var(--film), filter .55s var(--film);
 }
 .shot.focus { opacity: 1; filter: none; z-index: 2; }
 .shot[data-id="logo"] { transform: translate3d(0, 0, 0); }
@@ -117,19 +117,18 @@ html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181
   transform: none;
   filter: none;
   transition:
-    opacity .22s var(--film),
-    transform .22s var(--film),
-    filter .22s var(--film);
+    opacity .55s var(--film),
+    transform .7s var(--film),
+    filter .55s var(--film);
 }
 .copy-hero {
-  font-family: var(--serif);
-  font-size: clamp(56px, 13vw, 152px);
+  font-family: var(--mono);
+  font-size: clamp(14px, 2vw, 18px);
   font-weight: 500;
-  letter-spacing: -.05em;
-  line-height: .9;
+  letter-spacing: .28em;
+  text-transform: uppercase;
   text-align: center;
-  width: min(90vw, 920px);
-  color: #f4f1ea;
+  color: rgba(244,241,234,.45);
 }
 .letterbox {
   pointer-events: none; position: absolute; inset: 0; z-index: 5;
@@ -232,11 +231,24 @@ html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181
 
 html.gate .stage, html.gate .site { display: none; }
 html.scoring .gate { display: none; }
-html.scoring .stage { display: block; }
+html.scoring .stage {
+  display: block;
+  opacity: 1;
+  transition: opacity 1.1s var(--film);
+}
 html.scoring .site { display: none; }
 html.scoring .glow { opacity: .55; }
+html.scoring.leaving .stage { opacity: 0; pointer-events: none; }
+html.scoring.leaving .site {
+  display: block;
+  animation: siteIn 1.1s var(--film) both;
+}
 html.open .gate, html.open .stage { display: none; }
 html.open .site { display: block; }
+@keyframes siteIn {
+  from { opacity: 0; filter: blur(10px); }
+  to { opacity: 1; filter: none; }
+}
 
 .nav {
   position: sticky; top: 0; z-index: 20;

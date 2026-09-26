@@ -1,6 +1,6 @@
 const BPM = 124;
 const BEAT = 60 / BPM; // ≈ 483.871ms；第 0 帧 = 第一拍
-const WHIP = 0.48; // 约 232ms 砸进下一镜，卡在小节拍上
+const WHIP = 4; // 整段小节内滑到下一机位，不再短促砸镜
 
 const root = document.documentElement;
 const saved = localStorage.getItem('teamo-home-theme');
@@ -22,26 +22,26 @@ const billboard = document.getElementById('billboard');
 const SCENES = [
   { beat: 0, x: 0, y: 80, z: 920, rx: 16, ry: -22, rz: 0, focus: 'logo', title: '' },
   { beat: 4, x: 0, y: 0, z: 150, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TEAMOAGENT' },
-  { beat: 8, x: 0, y: -460, z: 210, rx: 12, ry: 8, rz: -3, focus: 'copy', title: '浏览器里的' },
-  { beat: 12, x: 40, y: -440, z: 120, rx: 2, ry: -10, rz: 3, focus: 'copy', title: '智能体。' },
-  { beat: 16, x: 480, y: 70, z: 380, rx: 8, ry: 24, rz: 0, focus: 'sandbox', title: '沙箱' },
-  { beat: 20, x: 460, y: 40, z: 125, rx: 0, ry: 6, rz: 0, focus: 'sandbox', title: 'JS · Python · C++' },
-  { beat: 24, x: -520, y: 240, z: 360, rx: -8, ry: -20, rz: 4, focus: 'files', title: '工作区' },
-  { beat: 28, x: -500, y: 200, z: 115, rx: 0, ry: -4, rz: 0, focus: 'files', title: '120 MB' },
-  { beat: 32, x: 160, y: -360, z: 480, rx: 14, ry: 10, rz: -5, focus: 'image', title: '出图' },
-  { beat: 36, x: 140, y: -320, z: 145, rx: 2, ry: -12, rz: 0, focus: 'image', title: '识图' },
-  { beat: 40, x: -240, y: -10, z: 190, rx: 0, ry: 18, rz: 0, focus: 'ultra', title: 'Ultra' },
-  { beat: 44, x: -220, y: 20, z: 110, rx: -8, ry: -6, rz: 0, focus: 'ultra', title: '深度思考' },
-  { beat: 48, x: 80, y: 400, z: 340, rx: -14, ry: 6, rz: 2, focus: 'term', title: '跑起来' },
-  { beat: 52, x: 60, y: 360, z: 125, rx: -4, ry: 0, rz: 0, focus: 'term', title: '结果落盘' },
-  { beat: 56, x: 620, y: -210, z: 300, rx: 10, ry: -24, rz: 0, focus: 'tools', title: '差分' },
-  { beat: 60, x: 600, y: -180, z: 130, rx: 0, ry: -8, rz: 0, focus: 'tools', title: '搜索 · JSON' },
-  { beat: 64, x: -620, y: -170, z: 280, rx: 8, ry: 22, rz: -3, focus: 'zip', title: 'ZIP' },
-  { beat: 68, x: -600, y: -140, z: 120, rx: 0, ry: 8, rz: 0, focus: 'zip', title: '打包带走' },
-  { beat: 72, x: 0, y: 20, z: 780, rx: 10, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
-  { beat: 80, x: 0, y: 0, z: 180, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TeamoAgent' },
-  { beat: 88, x: 40, y: 30, z: 1280, rx: 8, ry: -6, rz: 0, focus: '', title: '' },
-  { beat: 100, x: 0, y: 0, z: 1700, rx: 4, ry: 0, rz: 0, focus: '', title: '' },
+  { beat: 8, x: 0, y: -460, z: 210, rx: 8, ry: 6, rz: 0, focus: 'copy', title: '浏览器里的' },
+  { beat: 12, x: 20, y: -440, z: 130, rx: 2, ry: -6, rz: 0, focus: 'copy', title: '智能体。' },
+  { beat: 16, x: 480, y: 70, z: 360, rx: 6, ry: 18, rz: 0, focus: 'sandbox', title: '沙箱' },
+  { beat: 20, x: 460, y: 40, z: 140, rx: 0, ry: 6, rz: 0, focus: 'sandbox', title: '隔离执行' },
+  { beat: 24, x: -520, y: 240, z: 340, rx: -6, ry: -16, rz: 0, focus: 'files', title: '工作区' },
+  { beat: 28, x: -500, y: 200, z: 130, rx: 0, ry: -4, rz: 0, focus: 'files', title: '120 MB' },
+  { beat: 32, x: 160, y: -360, z: 440, rx: 10, ry: 8, rz: 0, focus: 'image', title: '出图' },
+  { beat: 36, x: 140, y: -320, z: 150, rx: 2, ry: -8, rz: 0, focus: 'image', title: '识图' },
+  { beat: 40, x: -240, y: -10, z: 190, rx: 0, ry: 12, rz: 0, focus: 'ultra', title: '思考档' },
+  { beat: 44, x: -220, y: 16, z: 120, rx: -4, ry: -4, rz: 0, focus: 'ultra', title: 'Off → Ultra' },
+  { beat: 48, x: 80, y: 400, z: 320, rx: -10, ry: 4, rz: 0, focus: 'term', title: '跑起来' },
+  { beat: 52, x: 60, y: 360, z: 140, rx: -4, ry: 0, rz: 0, focus: 'term', title: '结果落盘' },
+  { beat: 56, x: 620, y: -210, z: 280, rx: 8, ry: -18, rz: 0, focus: 'tools', title: '差分' },
+  { beat: 60, x: 600, y: -180, z: 140, rx: 0, ry: -6, rz: 0, focus: 'tools', title: '搜索 · JSON' },
+  { beat: 64, x: -620, y: -170, z: 260, rx: 6, ry: 16, rz: 0, focus: 'zip', title: 'ZIP' },
+  { beat: 68, x: -600, y: -140, z: 130, rx: 0, ry: 6, rz: 0, focus: 'zip', title: '打包带走' },
+  { beat: 72, x: 0, y: 20, z: 640, rx: 6, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
+  { beat: 84, x: 0, y: 0, z: 220, rx: 0, ry: 0, rz: 0, focus: 'logo', title: '' },
+  { beat: 92, x: 0, y: 0, z: 900, rx: 4, ry: 0, rz: 0, focus: 'logo', title: '' },
+  { beat: 100, x: 0, y: 0, z: 1400, rx: 2, ry: 0, rz: 0, focus: '', title: '' },
 ];
 
 const FILM_SEC = 47.65;
@@ -52,9 +52,9 @@ let lastBeat = -1;
 let lastTitle = '';
 let t0 = 0;
 
-function easeOutCubic(t) {
+function smoother(t) {
   const x = Math.min(1, Math.max(0, t));
-  return 1 - (1 - x) ** 3;
+  return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
 function lerp(a, b, t) {
@@ -70,29 +70,19 @@ function sceneIndex(beatF) {
 function camAt(beatF) {
   const i = sceneIndex(beatF);
   const cur = SCENES[i];
-  const prev = i === 0
-    ? { x: cur.x, y: cur.y + 40, z: cur.z + 720, rx: cur.rx + 10, ry: cur.ry - 8, rz: 0 }
-    : SCENES[i - 1];
-  const local = beatF - cur.beat;
-  const u = easeOutCubic(local / WHIP);
-  const t = Math.min(1, u);
-  const c = {
-    x: lerp(prev.x, cur.x, t),
-    y: lerp(prev.y, cur.y, t),
-    z: lerp(prev.z, cur.z, t),
-    rx: lerp(prev.rx, cur.rx, t),
-    ry: lerp(prev.ry, cur.ry, t),
-    rz: lerp(prev.rz, cur.rz, t),
-    focus: t > 0.55 ? cur.focus : prev.focus,
+  const next = SCENES[Math.min(i + 1, SCENES.length - 1)];
+  const span = Math.max(0.0001, next.beat - cur.beat);
+  const u = smoother((beatF - cur.beat) / span);
+  return {
+    x: lerp(cur.x, next.x, u),
+    y: lerp(cur.y, next.y, u),
+    z: lerp(cur.z, next.z, u),
+    rx: lerp(cur.rx, next.rx, u),
+    ry: lerp(cur.ry, next.ry, u),
+    rz: lerp(cur.rz, next.rz, u),
+    focus: u < 0.5 ? cur.focus : next.focus,
     title: cur.title,
   };
-  if (local > WHIP) {
-    const drift = local - WHIP;
-    c.z -= drift * 22;
-    c.y += Math.sin(drift * 1.4) * 6;
-    c.ry += Math.sin(drift * 0.9) * 1.8;
-  }
-  return c;
 }
 
 function applyCam(c) {
@@ -116,24 +106,10 @@ function slam(text) {
   billboard.classList.add('slam');
 }
 
-function kickShot(hard) {
-  const el = document.querySelector('.shot.focus .shot-inner');
-  if (!el) return;
-  el.animate(
-    [
-      { transform: 'translate(-50%, -50%) scale(1)' },
-      { transform: `translate(-50%, -50%) scale(${hard ? 1.07 : 1.03})`, offset: 0.14 },
-      { transform: 'translate(-50%, -50%) scale(1)' },
-    ],
-    { duration: hard ? 340 : 220, easing: 'cubic-bezier(0.16, 1, 0.3, 1)' },
-  );
-}
-
 function onBeat(beat) {
   const i = sceneIndex(beat);
   const sc = SCENES[i];
   if (sc.beat === beat) slam(sc.title || '');
-  kickShot(beat % 4 === 0);
 }
 
 function nowSec() {
@@ -166,13 +142,25 @@ function lockScroll(on) {
   document.body.style.overflow = on ? 'hidden' : '';
 }
 
-function openSite() {
-  playing = false;
-  cancelAnimationFrame(raf);
-  root.classList.remove('gate', 'scoring');
+function finishOpen() {
+  root.classList.remove('gate', 'scoring', 'leaving');
   root.classList.add('open');
   lockScroll(false);
   if (beatBar) beatBar.style.transform = 'scaleX(0)';
+}
+
+function openSite(instant) {
+  if (root.classList.contains('open')) return;
+  playing = false;
+  cancelAnimationFrame(raf);
+  if (audio) try { audio.pause(); } catch { /* ignore */ }
+  if (instant || reduce) {
+    finishOpen();
+    return;
+  }
+  if (root.classList.contains('leaving')) return;
+  root.classList.add('leaving');
+  window.setTimeout(finishOpen, 1100);
 }
 
 async function startFilm() {
@@ -213,7 +201,7 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 
 if (reduce) {
-  openSite();
+  openSite(true);
 } else {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
