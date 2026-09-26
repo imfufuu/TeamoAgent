@@ -18,8 +18,8 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 发布版本号：index.html 用 ?v= 挂在入口样式/脚本上，用来穿透 GitHub Pages 对静态资源
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
-export const APP_RELEASE = 'V1.1';
-export const APP_VERSION = '2026.9.26.18';
+export const APP_RELEASE = 'V1.2';
+export const APP_VERSION = '2026.9.26.19';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）

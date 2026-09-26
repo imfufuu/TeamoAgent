@@ -1667,6 +1667,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /playing = true/);
   assert.match(homeJs, /leaving/);
   assert.match(homeJs, /watchReveal/);
+  assert.match(homeJs, /function pinTop/);
+  assert.match(homeJs, /scrollRestoration/);
   assert.match(homeJs, /gate-skip/);
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);

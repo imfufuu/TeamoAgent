@@ -168,10 +168,18 @@ function lockScroll(on) {
   document.body.style.overflow = on ? 'hidden' : '';
 }
 
+function pinTop() {
+  if (location.hash) {
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+  }
+  window.scrollTo(0, 0);
+}
+
 function finishOpen(instant) {
   root.classList.remove('gate', 'scoring', 'leaving');
   root.classList.add('open');
   lockScroll(false);
+  pinTop();
   if (beatBar) beatBar.style.transform = 'scaleX(0)';
   if (curtain) {
     curtain.style.transition = instant
@@ -290,6 +298,8 @@ if (themeBtn) {
 window.addEventListener('scroll', () => {
   if (nav) nav.classList.toggle('scrolled', window.scrollY > 8);
 }, { passive: true });
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+pinTop();
 prepareReveal();
 
 const gateSkip = document.getElementById('gate-skip');
