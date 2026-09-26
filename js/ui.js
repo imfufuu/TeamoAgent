@@ -9,7 +9,6 @@ import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { webCapFor, webCapNote } from './websearch.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
-import { SUBAGENTS } from './subagents.js';
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
@@ -379,6 +378,7 @@ export function mountUI(store, agent) {
   const syncThinking = () => {
     const on = store.state.settings.thinking !== false;
     thinkingToggle.classList.toggle('on', on);
+    thinkingToggle.classList.toggle('ultra', on && normalizeReasoningLevel(store.state.settings.reasoningLevel) === 'ultra');
     thinkingToggle.title = on
       ? `推理级别 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}（点击切换 Mini/Low/Medium/High/Max/Ultra）`
       : '思考已关闭（点击选择推理级别）';
@@ -716,23 +716,7 @@ export function mountUI(store, agent) {
   // 初始：面板默认收起；侧栏宽屏展开、窄屏隐藏（由 fab 打开）
   setPanelCollapsed(true);
   updateBackdrop();
-  $$('#panel-tabs button[data-tab]').forEach((b) => b.addEventListener('click', () => {
-    $$('#panel-tabs button[data-tab]').forEach((x) => x.classList.remove('active'));
-    b.classList.add('active');
-    for (const tab of ['files', 'agents']) {
-      $(`#tab-${tab}`).style.display = b.dataset.tab === tab ? '' : 'none';
-    }
-  }));
 
-  // 子智能体名录（只读展示；实际调用由主 Agent 委派）
-  const agentList = $('#agent-list');
-  for (const a of SUBAGENTS) {
-    const card = el('div', 'agent-card');
-    card.innerHTML = `<div class="agent-card-head"><span class="agent-name">${esc(a.name)}</span><span class="agent-tag mono">${esc(a.id)}</span></div>
-      <div class="agent-desc">${esc(a.description)}</div>
-      <div class="agent-tools mono">${a.tools.length ? a.tools.map(esc).join(' · ') : '纯推理（无工具）'}</div>`;
-    agentList.appendChild(card);
-  }
 
   // 品牌图标加载失败兜底（捕获阶段监听资源错误）：替换为首字母徽章
   document.addEventListener('error', (e) => {
@@ -883,16 +867,26 @@ export function mountUI(store, agent) {
   renderFiles();
 
   // ── 消息渲染 ──────────────────────────────────────────────────────────
+  function loadLastSuggest() {
+    try { return JSON.parse(sessionStorage.getItem('teamo.suggest.last') || '[]'); } catch { return []; }
+  }
+  function saveLastSuggest(picks) {
+    try { sessionStorage.setItem('teamo.suggest.last', JSON.stringify((picks || []).map((x) => x.text))); } catch { /* 无 storage */ }
+  }
   function renderEmpty() {
     if (store.state.messages.length) return;
-    const picks = pickSuggestions(SUGGESTIONS, 3);
+    const exclude = loadLastSuggest();
+    let picks = pickSuggestions(SUGGESTIONS, 3, Math.random, exclude);
+    const same = picks.map((x) => x.text).join('\0') === exclude.join('\0');
+    if (same && SUGGESTIONS.length > 3) picks = pickSuggestions(SUGGESTIONS, 3, Math.random, exclude);
+    saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
       <h2>TeamoAgent</h2>
       <p>基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => {
-          const shown = mqPanel.matches ? shortSuggest(x.text) : x.text;
+          const shown = x.title || (mqPanel.matches ? shortSuggest(x.text) : x.text);
           return `<button class="suggest" type="button" data-prompt="${esc(x.text)}">${esc(shown)}</button>`;
         }).join('')}
       </div>
@@ -915,13 +909,11 @@ export function mountUI(store, agent) {
         ${m.jev && m.jev.summary ? `<div class="jev-chip" title="TypeSafe Jev 对本轮的校准分类">Jev · ${esc(m.jev.summary)}</div>` : ''}
         <div class="msg-actions msg-actions-user">
           <button class="act" data-act="copy" title="复制这条消息">${ICON.copy || ''}<span>复制</span></button>
-          <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
         </div>`;
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.act === 'copy') {
           navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
         }
-        if (b.dataset.act === 'rollback') doRollback(m);
       }));
     } else {
       // 模型名/头像每轮（一次 user 提问开始的回合）只显示一次：
@@ -1598,7 +1590,7 @@ export function mountUI(store, agent) {
 
   // ⌘K 命令面板
   const pal = $('#cmd-palette');
-  const palInput = $('#cmd-input');
+    const palInput = $('#cmd-input');
   const palList = $('#cmd-list');
   let palItems = [];
   let palIdx = 0;
@@ -1613,20 +1605,10 @@ export function mountUI(store, agent) {
       for (const f of agent.fs.list()) {
         items.push({ group: '文件', id: 'f:' + f.path, label: f.path, run: () => {
           setPanelCollapsed(false);
-          const tab = $$('#panel-tabs button[data-tab]').find((b) => b.dataset.tab === 'files');
-          if (tab) tab.click();
           openFileViewer(f.path);
         } });
       }
     } catch { /* fs 未就绪 */ }
-    for (const a of SUBAGENTS) {
-      items.push({ group: '子智能体', id: 'a:' + a.id, label: a.name + ' · ' + a.id, hint: a.tag || '', run: () => {
-        setPanelCollapsed(false);
-        const tab = $$('#panel-tabs button[data-tab]').find((b) => b.dataset.tab === 'agents');
-        if (tab) tab.click();
-        toast(`子智能体 ${a.name}：由主 Agent 通过 dispatch_subagent 委派`, 'ok');
-      } });
-    }
     items.push({ group: '操作', id: 'p:panel', label: '打开 / 收起沙箱面板', kbd: '⌘B', run: () => setPanelCollapsed(!$('#sandbox-panel').classList.contains('collapsed')) });
     items.push({ group: '操作', id: 'p:new', label: '新建会话', run: () => $('#new-session').click() });
     return items;

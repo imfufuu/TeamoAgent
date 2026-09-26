@@ -1,36 +1,70 @@
 // ─── 空状态任务示例池（纯函数 + 数据，便于单测）────────────────────────
-// 每次渲染空状态时从池子里随机抽 3 条，覆盖不同能力面（沙箱执行 / 生图改图 /
-// 文件与打包 / 子智能体 / 多模型对比 / 上下文与回滚），让新用户一眼看到「能干什么」。
-// 卡片上只显示任务本身：早先每条前面挂过「任务类型」小标签（沙箱 / 文生图 / 协议…），
-// 用户要求去掉 —— 类型在文案里已经能读出来，标签只是额外的视觉噪音。
-// 注意：示例里提到的模型必须是网关真实存在的（此前有一条点名 qwen，而 /v1/models
-// 里根本没有 qwen 系模型，点了只会得到一轮「找不到模型」的失败演示）。
+// 卡片只显示短主题（title）；点击后把完整提示词（text）填进输入框。
+// 能力范围对齐真实工具：JS/Python/C++ 沙箱、读写文件、ZIP、生图、本地
+// regex/hash/codec/unicode。不写「切换模型 / 打开快速模式 / 点回滚 /
+// 审查未上传的图 / 只有 Max 才能委派」这类用户或环境做不到的演示。
 
 export const SUGGESTIONS = [
-  // 代码沙箱
-  { text: '用沙箱计算：前 100 个斐波那契数中有多少个质数？' },
-  { text: '写一段 JS 在沙箱里用蒙特卡洛估算 π，跑 10 万次并验证误差' },
-  { text: '用 Python 沙箱（Pyodide）画出 1~20 的阶乘增长表，并把结果写入 files/factorials.md' },
-  { text: '在 C++ 沙箱里写一个快速排序，用 10 组随机数组对拍 std::sort 验证正确性' },
-  { text: '把《静夜思》写入 files/poem.txt，读出来后逐句翻译成英文并存成 files/poem.en.md' },
-  // 生图 / 图片编辑
-  { text: '画一张「深夜实验室里的机械猫」，1024x1024，生成后把图写进沙箱并告诉我路径' },
-  { text: '用 generate_image 生成三张候选图（n=3），再把最满意的一张改成夜晚霓虹配色' },
-  { text: '把我刚上传的图片改成透明底，并把结果连同原图一起打包成 ZIP' },
-  // 文件 / 导出
-  { text: '在沙箱里建三个目录 demo/a、demo/b、demo/c 并各写一个文件，然后按目录树列出来' },
-  { text: '生成一份 200 行的销售数据 CSV 写入沙箱，用 JS 聚合出 Top5 并输出 Markdown 表格' },
-  // 子智能体 / 工具循环
-  { text: '派 code-reviewer 审查这段代码的问题：function f(a){for(i=0;i<a.length;i++) if(a[i]==0) return}' },
-  { text: '让 security-auditor 与 debugger 协作：先审一段 Express 路由的鉴权漏洞，再修复并给出验证用例' },
-  // 多模型 / 网关能力
-  { text: '对比网关里带 -free 的免费模型（deepseek、glm 等）：各写一首关于秋天的五言绝句，再点评优劣' },
-  { text: '打开「快速」模式（service_tier=fast）跑一次 GPT 模型，告诉我它和默认档的耗时差异' },
-  { text: 'GET /v1/models 里现在有哪些模型？按供应商分组列出来，并标出支持视觉的' },
-  // 上下文 / 回滚
-  { text: '连续问我三轮再回答，最后演示用「回滚」退回到第二轮之前，并说明消息数组怎么变的' },
-  { text: '把一段 3000 字的中文长文压缩成 5 条要点，再展开成结构化大纲（验证上下文压缩策略）' },
-  { text: '解释一下 TeamoRouter 的 Claude 为什么要走 /v1/messages 而不是 /v1/chat/completions，并给出请求头示例' },
+  {
+    title: '斐波那契里的质数',
+    text: '用 JavaScript 沙箱计算前 100 个斐波那契数中有多少个质数。列出这些质数，把计算过程写成 Markdown，保存到 files/fib-primes.md。',
+  },
+  {
+    title: '蒙特卡洛估 π',
+    text: '用 JavaScript 沙箱做蒙特卡洛估算圆周率：随机投点 100000 次，输出估计值、与 Math.PI 的误差，以及一段不超过 5 行的结论。',
+  },
+  {
+    title: '1–20 阶乘表',
+    text: '用 Python 沙箱生成 1 到 20 的阶乘表，排成 Markdown 表格（列：n、n!），写入 files/factorials.md。不要省略中间的行。',
+  },
+  {
+    title: '快排对拍 std::sort',
+    text: '在 C++ 沙箱里实现 quicksort（可改原地）。生成 10 组长度 20 的随机整数数组，与 std::sort 的结果对拍，打印每组是否一致；若有失败给出那一组数据。',
+  },
+  {
+    title: '静夜思英译存档',
+    text: '把李白《静夜思》原文写入 files/poem.txt。再按原诗四句逐句译成英文，保存为 files/poem.en.md（中英对照）。',
+  },
+  {
+    title: '深夜机械猫插画',
+    text: '生成一张 1024×1024 插画：深夜实验室里的机械猫，冷色顶光、金属反光、浅景深。生成后告诉我沙箱里的文件路径。',
+  },
+  {
+    title: '三目录打包 ZIP',
+    text: '在沙箱创建 demo/a、demo/b、demo/c，每个目录写一个 README.md（一句话说明该目录用途）。列出目录树，再打包成 zip 并告诉我 zip 路径。',
+  },
+  {
+    title: '销售数据 Top5',
+    text: '在沙箱生成一份 50 行销售 CSV，列：日期、城市、品类、金额。用 JavaScript 汇总出金额最高的 5 个城市，输出 Markdown 表格并写入 files/top5.md。',
+  },
+  {
+    title: '修这段 JS 循环',
+    text: '指出下面这段 JavaScript 的问题（含隐式全局、比较、提前 return），给出修复后的完整函数并各用一个正例/反例说明：\n\nfunction f(a){for(i=0;i<a.length;i++) if(a[i]==0) return}',
+  },
+  {
+    title: '字符串双哈希',
+    text: '对字符串 TeamoAgent 分别计算 SHA-256 和 MD5。给出两个十六进制结果，并各用一句话说明长度为什么不同。',
+  },
+  {
+    title: '拆开生僻字码位',
+    text: '用 unicode 工具分别拆开「𰻞」和「TeamoAgent」：列出每个字符的码位（U+xxxx）和 Unicode 名称。',
+  },
+  {
+    title: 'Base64 往返校验',
+    text: '把「你好，TeamoAgent」做 Base64 编码，再解码回原文。对照是否完全一致；再给出对应的 URL 编码（encodeURIComponent 风格）。',
+  },
+  {
+    title: '正则抽出日期',
+    text: '用正则从这段文本抽出所有 ISO 日期（YYYY-MM-DD），列出匹配与捕获组：\n会议订在 2026-09-26，备份窗口 2026-10-01 到 2026-10-03，过期稿 2025-12-31 已归档。',
+  },
+  {
+    title: 'CSV 转 Markdown 表',
+    text: '把下面三行写成 files/people.csv，再读出来转成 Markdown 表格输出：\nname,role,city\nAda,engineer,Tokyo\nLin,designer,Kyoto',
+  },
+  {
+    title: 'FizzBuzz 写测试',
+    text: '用 JavaScript 沙箱实现 FizzBuzz（1 到 30）：3 的倍数 Fizz、5 的倍数 Buzz、15 的倍数 FizzBuzz。打印结果，并断言第 15 项是 FizzBuzz、第 7 项是 7。',
+  },
 ];
 
 // 洗牌（Fisher-Yates，不改动原数组）
@@ -44,22 +78,30 @@ export function shuffled(list, rnd = Math.random) {
 }
 
 /**
- * 抽取本轮展示的任务示例：随机、不重复，且尽量分散在不同能力面
- * （同一 tag 最多一条；池子里同类不够时用剩余随机项补齐）。
+ * 抽取本轮展示的任务示例：随机、不重复。
+ * exclude：上一批的 text（或条目），刷新时尽量避开，避免连续两次同一组。
  */
-export function pickSuggestions(list = SUGGESTIONS, n = 3, rnd = Math.random) {
+export function pickSuggestions(list = SUGGESTIONS, n = 3, rnd = Math.random, exclude = []) {
   const pool = Array.isArray(list) ? list.filter((x) => x && x.text) : [];
+  const ban = new Set((Array.isArray(exclude) ? exclude : []).map((x) => (typeof x === 'string' ? x : (x && x.text) || '')));
+  ban.delete('');
   const order = shuffled(pool, rnd);
   const picked = [];
   const usedTags = new Set();
+  const take = (allowBanned) => {
+    for (const item of order) {
+      if (picked.length >= n) break;
+      if (picked.includes(item)) continue;
+      if (!allowBanned && ban.has(item.text)) continue;
+      const tag = item.tag || '';
+      if (tag && usedTags.has(tag)) continue;
+      if (tag) usedTags.add(tag);
+      picked.push(item);
+    }
+  };
+  take(false);
+  // 标签去重后不足、或 exclude 把池子抽干：不再挡 tag / ban，只保证不重复
   for (const item of order) {
-    if (picked.length >= n) break;
-    const tag = item.tag || '';
-    if (tag && usedTags.has(tag)) continue;
-    usedTags.add(tag);
-    picked.push(item);
-  }
-  for (const item of order) { // 标签去重后不足则补齐
     if (picked.length >= n) break;
     if (!picked.includes(item)) picked.push(item);
   }

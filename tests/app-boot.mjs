@@ -184,7 +184,11 @@ ok('入口样式/脚本带 ?v=（穿透 Pages 静态资源缓存）', htmlSrc.in
 console.log('\n空状态：随机三条任务示例');
 const cards = $$('#messages .empty-state .suggest');
 ok('展示 3 条示例卡片', cards.length === 3, `${cards.length} 张`);
-ok('示例卡只有任务文案（没有任务类型标签）', cards.every((c) => !c.querySelector('.suggest-tag') && c.dataset.prompt?.length > 8 && c.textContent.trim() === c.dataset.prompt));
+ok('示例卡显示短主题、data-prompt 是完整提示词', cards.every((c) => {
+  const title = c.textContent.trim();
+  const prompt = c.dataset.prompt || '';
+  return !c.querySelector('.suggest-tag') && title.length > 0 && prompt.length > title.length && title !== prompt;
+}));
 ok('「换一批」可点', !!$('#messages .suggest-shuffle'));
 const firstBatch = cards.map((c) => c.dataset.prompt).join('|');
 let changed = false;
@@ -195,8 +199,8 @@ for (let i = 0; i < 10 && !changed; i++) {
 ok('换一批换出不同组合', changed);
 click($$('#messages .empty-state .suggest')[0]);
 const clicked = $$('#messages .empty-state .suggest')[0];
-ok('点卡片把任务原句回填进输入框', $('#composer-input').value === clicked.dataset.prompt
-  && $('#composer-input').value === clicked.textContent.trim() && $('#composer-input').value.length > 8,
+ok('点卡片把完整提示词填进输入框', $('#composer-input').value === clicked.dataset.prompt
+  && $('#composer-input').value !== clicked.textContent.trim() && $('#composer-input').value.length > 8,
   JSON.stringify($('#composer-input').value).slice(0, 50));
 $('#composer-input').value = '';
 

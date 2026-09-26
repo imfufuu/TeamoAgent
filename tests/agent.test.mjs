@@ -468,6 +468,11 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.match(ui, /msg-actions-user/);
   assert.match(ui, /data-act="copy"/);
   assert.match(ui, /act-danger/);
+  assert.ok(ui.includes("classList.toggle('ultra'"));
+  assert.equal(html.includes('tab-agents') || html.includes('data-tab="agents"'), false, '子智能体展示面板应删除');
+  const cssUltra = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(cssUltra, /ultra-flow/);
+  assert.ok(cssUltra.includes('.pill.ultra'));
 });
 
 group('子智能体注册表');
@@ -1507,13 +1512,17 @@ const sg = await import('../js/suggestions.js');
 test('示例池覆盖多类能力且文案不重复', () => {
   assert.ok(sg.SUGGESTIONS.length >= 12, `池子应有 ≥12 条，实际 ${sg.SUGGESTIONS.length}`);
   const texts = sg.SUGGESTIONS.map((x) => x.text);
+  const titles = sg.SUGGESTIONS.map((x) => x.title);
   assert.equal(new Set(texts).size, texts.length, '存在重复文案');
-  // 用户要求：示例卡前面不加「任务类型」标签 → 池子里也不该再有 tag 字段
+  assert.ok(sg.SUGGESTIONS.every((x) => x.title && x.title.length <= 16 && x.text && x.text.length > x.title.length), '每条应有短主题 + 更长的完整提示词');
+  assert.equal(new Set(titles).size, titles.length, '短主题重复');
   assert.ok(sg.SUGGESTIONS.every((x) => x.tag === undefined), '示例条目不应再带 tag（任务类型标签已移除）');
   const joined = sg.SUGGESTIONS.map((x) => x.text).join('\n');
-  for (const kw of ['沙箱', 'generate_image', 'ZIP', 'code-reviewer', '回滚', 'models']) { // 标签去掉后按正文关键词判定覆盖面
+  for (const kw of ['沙箱', '插画', 'zip', 'Python', 'quicksort']) {
     assert.ok(joined.includes(kw), `示例应覆盖「${kw}」`);
   }
+  assert.equal(joined.includes('code-reviewer'), false);
+  assert.equal(['code-reviewer', 'GET /v1/models', '刚上传的图片', '打开「快速」', 'qwen'].some((k) => joined.includes(k)), false, '不要超出能力或依赖未发生的操作');
 });
 test('pickSuggestions：随机 3 条、不重复', () => {
   let seed = 1;
@@ -1526,8 +1535,10 @@ test('pickSuggestions：随机 3 条、不重复', () => {
     picks.forEach((x) => seen.add(x.text));
   }
   assert.ok(seen.size >= 8, `40 轮应覆盖到多条示例，实际 ${seen.size} 条 → 随机性不足`);
-  // 不改动原数组顺序（渲染层依赖池子稳定）
-  assert.equal(sg.SUGGESTIONS[0].text, '用沙箱计算：前 100 个斐波那契数中有多少个质数？');
+  assert.equal(sg.SUGGESTIONS[0].title, '斐波那契里的质数');
+  const first = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd);
+  const second = sg.pickSuggestions(sg.SUGGESTIONS, 3, rnd, first.map((x) => x.text));
+  assert.equal(second.some((x) => first.some((y) => y.text === x.text)), false, 'exclude 应避开上一批');
 });
 test('边界：n 超过池子 / 空池 / 脏数据', () => {
   assert.equal(sg.pickSuggestions([{ text: 'a' }], 3).length, 1);

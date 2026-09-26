@@ -300,7 +300,8 @@ ok('用户消息已进入 state（其后才是 assistant 占位）', (() => {
   const lastUser = [...list].reverse().find((m) => m.role === 'user');
   return list.length > beforeCount && !!lastUser && lastUser.text.includes('这条输入应当立刻可见');
 })());
-ok('回滚按钮随用户消息一起渲染', !!$('#messages .msg-user .act'));
+ok('用户消息可复制', !!$('#messages .msg-user .act[data-act="copy"]'));
+ok('用户气泡没有回滚（每轮回滚只出现在助手侧）', !$('#messages .msg-user .act[data-act="rollback"]'));
 if (releaseStream) releaseStream();
 await sending;
 globalThis.fetch = origFetch;
@@ -316,8 +317,8 @@ const emptyState = $('#messages .empty-state');
 const cards = emptyState ? [...emptyState.querySelectorAll('.suggest')] : [];
 ok('空状态展示 3 条示例卡片', cards.length === 3, `${cards.length} 张`);
 const cmp = (a, b) => { const n = Math.min(a.length, b.length); for (let i = 0; i < n; i++) if (a[i] !== b[i]) return `${i}:${a.charCodeAt(i)}≠${b.charCodeAt(i)}`; return a.length === b.length ? 'eq' : `len ${a.length}/${b.length}`; };
-ok('示例卡不再带「任务类型」标签', cards.every((c) => !c.querySelector('.suggest-tag') && cmp(c.textContent.trim(), c.dataset.prompt || '') === 'eq'),
-  cards.map((c) => `${cmp(c.textContent.trim(), c.dataset.prompt || '')}/${c.querySelector('.suggest-tag') ? '有标签:' + c.querySelector('.suggest-tag').outerHTML.slice(0, 60) : '无标签'}/${JSON.stringify([...c.children].map((k) => k.className))}`).join(' | '));
+ok('示例卡不再带「任务类型」标签，主题短于完整提示词', cards.every((c) => !c.querySelector('.suggest-tag') && c.textContent.trim() && c.dataset.prompt && c.textContent.trim() !== c.dataset.prompt && c.textContent.trim().length < c.dataset.prompt.length),
+  cards.map((c) => `${cmp(c.textContent.trim(), c.dataset.prompt || '')}/${c.querySelector('.suggest-tag') ? '有标签' : '无标签'}`).join(' | '));
 ok('CSS 里也没有 .suggest-tag 残留', !cssText.includes('.suggest-tag'));
 ok('示例文本来自池子且本轮不重复', cards.every((c) => sg.SUGGESTIONS.some((x) => x.text === c.dataset.prompt)) && new Set(cards.map((c) => c.dataset.prompt)).size === 3);
 ok('有「换一批」按钮', !!$('#messages .suggest-shuffle svg'));
@@ -332,9 +333,9 @@ for (let i = 0; i < 12 && !sawDifferent; i++) {
 ok('换一批会换出不同组合', sawDifferent);
 const cardEl = window.document.querySelector('#messages .empty-state .suggest');
 click(cardEl);
-ok('点示例卡把整句任务填进输入框', (() => {
+ok('点示例卡把完整提示词填进输入框', (() => {
   const v = $('#composer-input').value;
-  return v === cardEl.dataset.prompt && v === cardEl.textContent.trim() && v.length > 8;
+  return v === cardEl.dataset.prompt && v !== cardEl.textContent.trim() && v.length > 8;
 })(), JSON.stringify($('#composer-input').value).slice(0, 60));
 store.state.messages.push(...savedMsgs);
 ui.rebuildMessages();
