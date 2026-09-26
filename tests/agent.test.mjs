@@ -633,6 +633,9 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
+  assert.match(systemPrompt(), /imfufuu/);
+  assert.match(systemPrompt(), /上海初中业余编程爱好者/);
+  assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
 });
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
@@ -1685,6 +1688,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /gate-skip/);
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
+  assert.match(home, /mailto:lks\.tan\.cn@gmail\.com/);
+  assert.match(home, /github.com\/imfufuu\/TeamoAgent/);
   assert.match(home, /id="principles"/);
   assert.match(home, /id="why"/);
   assert.match(home, /为什么选我们？/);
