@@ -1150,13 +1150,17 @@ export function mountUI(store, agent) {
         row.innerHTML = `<span class="ft-chev">${ICON.chevRight}</span>`
           + `<span class="ft-ico">${closed ? ICON.folder : ICON.folderOpen}</span>`
           + `<span class="ft-name">${esc(r.name)}</span>`
-          + `<span class="ft-actions"><button class="files-icon-btn ft-zip" type="button" title="打包 ${esc(r.path)}/">${ICON.download}</button></span>`;
+          + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn ft-zip" type="button" title="打包 ${esc(r.path)}/">${ICON.download}</button></span>`;
         const toggle = () => {
           if (collapsedDirs.has(r.path)) collapsedDirs.delete(r.path); else collapsedDirs.add(r.path);
           renderFiles();
         };
         row.addEventListener('click', toggle);
         row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+        $('.ft-copy', row).addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(r.name).then(() => toast('已复制文件名', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+        });
         $('.ft-zip', row).addEventListener('click', (e) => {
           e.stopPropagation();
           saveZip(zipEntriesOf(collectPaths(r)), `teamo-${r.name || 'folder'}`);
@@ -1165,7 +1169,11 @@ export function mountUI(store, agent) {
         row.innerHTML = `<span class="ft-sp"></span>`
           + `<span class="ft-ico">${imageSet.has(r.path) ? ICON.image : ICON.file}</span>`
           + `<span class="ft-name file-path">${esc(r.name)}</span>`
-          + `<span class="ft-actions"><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
+          + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
+        $('.ft-copy', row).addEventListener('click', (e) => {
+          e.stopPropagation();
+          navigator.clipboard.writeText(r.name).then(() => toast('已复制文件名', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+        });
         $('.file-dl', row).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(r.path); });
         row.addEventListener('click', () => openFileViewer(r.path));
       }
@@ -1337,6 +1345,7 @@ export function mountUI(store, agent) {
       html += '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
     }
     body.innerHTML = html;
+    body.classList.toggle('empty', !String(html || '').trim());
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
     const msgs = store.state.messages;
@@ -1405,6 +1414,7 @@ export function mountUI(store, agent) {
       const seen = new Map();
       for (const t of m.toolCalls) {
         if (t.name === 'write_file') continue;
+        if (t.name === 'read_file') continue;
         if (!seen.has(t.name)) {
           const g = { name: t.name, items: [] };
           seen.set(t.name, g);
@@ -1472,59 +1482,70 @@ export function mountUI(store, agent) {
         }
       }
     }
-    // 连续 Edited File 合并到同一轮最后一条带 write_file 的助手消息，避免连着出现两块
-    const writePathsOf = (msg) => [...new Set((msg.toolCalls || []).filter((c) => c.name === 'write_file' && c.args && c.args.path).map((c) => String(c.args.path)))];
+    // 连续 Edited / Explored File 合并到同一轮最后一条对应工具的助手消息，避免连着两块
     const msgsAll = store.state.messages;
     const idxA = msgsAll.findIndex((x) => x.id === m.id);
-    let laterWrite = false;
-    if (idxA >= 0) {
-      for (let i = idxA + 1; i < msgsAll.length; i++) {
-        if (msgsAll[i].role === 'user') break;
-        if (msgsAll[i].role === 'assistant' && writePathsOf(msgsAll[i]).length) { laterWrite = true; break; }
-      }
-    }
-    const paths = [];
-    if (!laterWrite && idxA >= 0) {
-      const seen = new Set();
-      for (let i = idxA; i >= 0; i--) {
-        const x = msgsAll[i];
-        if (x.role === 'user') break;
-        if (x.role !== 'assistant') continue;
-        const ps = writePathsOf(x);
-        if (!ps.length) break;
-        for (let j = ps.length - 1; j >= 0; j--) {
-          const p = ps[j];
-          if (!seen.has(p)) { seen.add(p); paths.unshift(p); }
+    const pathsOf = (msg, name) => [...new Set((msg.toolCalls || []).filter((c) => c.name === name && c.args && c.args.path).map((c) => String(c.args.path)))];
+    const mergedPaths = (name) => {
+      let later = false;
+      if (idxA >= 0) {
+        for (let i = idxA + 1; i < msgsAll.length; i++) {
+          if (msgsAll[i].role === 'user') break;
+          if (msgsAll[i].role === 'assistant' && pathsOf(msgsAll[i], name).length) { later = true; break; }
         }
       }
-    } else if (!laterWrite) {
-      paths.push(...writePathsOf(m));
-    }
-    let ed = $('.edited-files', wrap);
-    if (paths.length) {
-      if (!ed) {
-        ed = el('div', 'edited-files');
-        ed.addEventListener('click', (e) => {
-          if (e.target.closest('a, button, .chip-copy')) return;
-          ed.classList.toggle('expanded');
-          ed._userToggle = ed.classList.contains('expanded');
-        });
-        chips.after(ed);
-      }
-      const label = paths.length === 1 ? 'Edited File' : 'Edited Files';
-      ed.innerHTML = `<span class="chip-ico think-ico">${ICON.edited || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
-      if (idxA >= 0) {
-        for (let i = idxA - 1; i >= 0; i--) {
+      const out = [];
+      if (!later && idxA >= 0) {
+        const seen = new Set();
+        for (let i = idxA; i >= 0; i--) {
           const x = msgsAll[i];
           if (x.role === 'user') break;
           if (x.role !== 'assistant') continue;
-          if (!writePathsOf(x).length) break;
-          const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
-          const old = w && $('.edited-files', w);
-          if (old) old.remove();
+          const ps = pathsOf(x, name);
+          if (!ps.length) break;
+          for (let j = ps.length - 1; j >= 0; j--) {
+            const p = ps[j];
+            if (!seen.has(p)) { seen.add(p); out.unshift(p); }
+          }
         }
+      } else if (!later) {
+        out.push(...pathsOf(m, name));
       }
-    } else if (ed) ed.remove();
+      return out;
+    };
+    const paintPathFold = (cls, name, icon, one, many, afterEl) => {
+      const paths = mergedPaths(name);
+      let node = $(`.${cls}`, wrap);
+      if (paths.length) {
+        if (!node) {
+          node = el('div', cls);
+          node.addEventListener('click', (e) => {
+            if (e.target.closest('a, button, .chip-copy')) return;
+            node.classList.toggle('expanded');
+            node._userToggle = node.classList.contains('expanded');
+          });
+          afterEl.after(node);
+        } else if (node.previousElementSibling !== afterEl) {
+          afterEl.after(node);
+        }
+        const label = paths.length === 1 ? one : `${many} ${paths.length}`;
+        node.innerHTML = `<span class="chip-ico think-ico">${icon || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
+        if (idxA >= 0) {
+          for (let i = idxA - 1; i >= 0; i--) {
+            const x = msgsAll[i];
+            if (x.role === 'user') break;
+            if (x.role !== 'assistant') continue;
+            if (!pathsOf(x, name).length) break;
+            const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
+            const old = w && $(`.${cls}`, w);
+            if (old) old.remove();
+          }
+        }
+      } else if (node) node.remove();
+      return $(`.${cls}`, wrap) || afterEl;
+    };
+    const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips);
+    paintPathFold('edited-files', 'write_file', ICON.edited, 'Edited File', 'Edited Files', afterRead);
     // meta（无 msg-head 的续消息没有该节点）
     const meta = $('.msg-meta', wrap);
     if (meta) {

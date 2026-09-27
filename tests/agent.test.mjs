@@ -3506,8 +3506,8 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
   assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
   assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}padding-left:\s*21px/, '思考正文跟标题齐，不要顶到图标左边');
-  assert.match(css, /\.md-body \{[^}]*line-height:\s*1\.78/);
-  assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}line-height:\s*1\.62/);
+  assert.match(css, /\.md-body \{[^}]*line-height:\s*1\.65/);
+  assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}line-height:\s*1\.65/);
   assert.match(ui, /data-sandbox/);
   assert.equal(ui.includes('paintChipImage(chip'), false, '生图不得再画进芯片');
   assert.match(css, /\.reasoning \.chip-name \{[^}]*color:\s*var\(--fg-3\)/, '「思考过程」四字用灰色');
@@ -3615,9 +3615,14 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
-  assert.match(ui, /paths\.length === 1 \? 'Edited File' : 'Edited Files'/);
-  assert.match(ui, /连续 Edited File/, '同一轮连续 write_file 合并成一块');
+  assert.match(ui, /Edited File/);
+  assert.match(ui, /Edited Files/);
+  assert.match(ui, /Explored File/);
+  assert.match(ui, /Explored Files/);
+  assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
+  assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
   assert.match(ui, /t\.name === 'write_file'\) continue/, 'write_file 不单独出芯片');
+  assert.match(ui, /t\.name === 'read_file'\) continue/, 'read_file 改走 Explored File，不单独出芯片');
   assert.match(ui, /×\$\{g\.items\.length\}/, '相同工具多次调用折叠');
   const toolsSrc = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
   const workerJs = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');

@@ -511,10 +511,11 @@ a { color: var(--fg); }
 .msg-meta { font-size: 10.5px; color: var(--fg-3); font-family: var(--mono); }
 
 /* Markdown */
-.md-body { word-break: break-word; line-height: 1.78; }
+.md-body { word-break: break-word; line-height: 1.65; }
+.msg-assistant .md-body.empty, .msg-assistant .md-body:empty { display: none; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { scroll-margin-top: 12px; }
 .md-body > :first-child { margin-top: 0; }
-.md-body p { margin: 0 0 .45em; }
+.md-body p { margin: 0 0 .32em; }
 .md-body p:last-child { margin-bottom: 0; }
 .md-body h1, .md-body h2, .md-body h3, .md-body h4, .md-body h5, .md-body h6 { margin: .7em 0 .35em; line-height: 1.35; }
 .md-body h1 { font-size: 1.45em; } .md-body h2 { font-size: 1.25em; } .md-body h3 { font-size: 1.1em; }
@@ -562,19 +563,20 @@ a { color: var(--fg); }
 .tool-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
 .chip { border: none; }
 .chip:hover { color: var(--fg-2); }
-.chip, .reasoning, .md-fold, .edited-files {
+.chip, .reasoning, .md-fold, .edited-files, .explored-files {
   border: none; background: transparent; padding: 1px 0; margin: 0 0 2px;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
-  font-size: 12px; color: var(--fg-2); line-height: 1.5;
+  font-size: 12px; color: var(--fg-2); line-height: 1.65;
   transition: color .2s var(--ease);
   -webkit-tap-highlight-color: transparent;
   outline: none;
 }
-.chip:hover, .md-fold:hover, .edited-files:hover { color: var(--fg-2); }
+.chip:hover, .md-fold:hover, .edited-files:hover, .explored-files:hover { color: var(--fg-2); }
 .chip:focus, .chip:focus-visible, .chip:active,
 .reasoning:focus, .reasoning:focus-visible, .reasoning:active,
 .md-fold:focus, .md-fold:focus-visible, .md-fold:active,
-.edited-files:focus, .edited-files:focus-visible, .edited-files:active {
+.edited-files:focus, .edited-files:focus-visible, .edited-files:active,
+.explored-files:focus, .explored-files:focus-visible, .explored-files:active {
   outline: none; box-shadow: none; color: var(--fg-2);
 }
 .chip-ico { display: inline-flex; align-items: center; justify-content: center; width: 13px; height: 13px; color: var(--fg-3); flex-shrink: 0; }
@@ -593,7 +595,7 @@ a { color: var(--fg); }
 .chip-detail {
   display: grid; grid-template-rows: 0fr; opacity: 0;
   width: 100%; flex-basis: 100%; font-size: 11.5px; color: var(--fg-2);
-  padding-left: 21px; line-height: 1.62; box-sizing: border-box; overflow: hidden;
+  padding-left: 21px; line-height: 1.65; box-sizing: border-box; overflow: hidden;
   transition: grid-template-rows .28s var(--ease), opacity .2s var(--ease);
 }
 .chip.expanded > .chip-detail,
@@ -601,7 +603,8 @@ a { color: var(--fg); }
 .reasoning.expanded > .chip-detail,
 .reasoning.expanded .chip-detail,
 .md-fold.expanded > .chip-detail,
-.edited-files.expanded > .chip-detail {
+.edited-files.expanded > .chip-detail,
+.explored-files.expanded > .chip-detail {
   grid-template-rows: 1fr; opacity: 1;
 }
 .chip-detail > .fold-inner { overflow: hidden; min-height: 0; }
@@ -738,9 +741,9 @@ a { color: var(--fg); }
 .reasoning:hover { color: var(--fg-2); }
 .reasoning .chip-name { color: var(--fg-3); font-weight: 500; }
 .reasoning:hover .chip-name { color: var(--fg-3); }
-.reasoning .chip-detail { font-size: 12.5px; padding-left: 21px; line-height: 1.62; }
+.reasoning .chip-detail { font-size: 12.5px; padding-left: 21px; line-height: 1.65; }
 .reasoning .chip-state { color: var(--fg-3); font-family: var(--mono); }
-.md-fold .chip-name, .edited-files .chip-name { color: var(--fg-3); font-weight: 500; }
+.md-fold .chip-name, .edited-files .chip-name, .explored-files .chip-name { color: var(--fg-3); font-weight: 500; }
 .md-fold .chip-ico { transition: transform .28s var(--ease); }
 .md-fold.expanded .chip-ico { transform: rotate(90deg); }
 .reasoning .chip-detail > :first-child { margin-top: 0; }
@@ -866,10 +869,10 @@ a { color: var(--fg); }
 .files-count, .files-n { font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
 .files-card-acts { display: flex; align-items: center; gap: 2px; flex-shrink: 0; margin-top: 1px; }
 .files-icon-btn {
-  width: 32px; height: 32px; border-radius: 8px; color: var(--fg-3);
+  width: 24px; height: 24px; border-radius: 6px; color: var(--fg-3);
   display: inline-flex; align-items: center; justify-content: center;
 }
-.files-icon-btn .ico, .files-icon-btn svg { width: 16px; height: 16px; display: block; }
+.files-icon-btn .ico, .files-icon-btn svg { width: 13px; height: 13px; display: block; }
 .files-icon-btn:hover { color: var(--fg); background: var(--bg-hover); }
 .files-icon-btn.danger:hover { color: #b42318; background: #fdf2f2; }
 [data-theme="dark"] .files-icon-btn.danger:hover { color: #e8b4b4; background: #3a1f1f; }
@@ -896,7 +899,8 @@ a { color: var(--fg); }
 .ft-name { font-size: 12.5px; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
 .ft-meta { font-size: 10px; color: var(--fg-3); font-family: var(--mono); flex-shrink: 0; }
 .ft-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
-.ft-row .files-icon-btn { width: 28px; height: 28px; opacity: 0; }
+.ft-row .files-icon-btn { width: 22px; height: 22px; opacity: 0; }
+.ft-row .files-icon-btn .ico, .ft-row .files-icon-btn svg { width: 12px; height: 12px; }
 .ft-row:hover .files-icon-btn, .ft-row:focus-within .files-icon-btn { opacity: 1; }
 @media (hover: none) { .ft-row .files-icon-btn, .file-dl { opacity: 1; } }
 /* 按钮里的线性图标：与文字同色（currentColor），随主题/选中态自动反转 */
@@ -1139,9 +1143,9 @@ a { color: var(--fg); }
 }
 .choice-box.stale { display: none; }
 .trunc-note { margin-top: 8px; font-size: 12px; color: var(--fg-3); }
-.edited-files { width: 100%; color: var(--fg-2); }
-.edited-files ul { margin: 0; padding: 0; list-style: none; }
-.edited-files li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); line-height: 1.5; }
+.edited-files, .explored-files { width: 100%; color: var(--fg-2); }
+.edited-files ul, .explored-files ul { margin: 0; padding: 0; list-style: none; }
+.edited-files li, .explored-files li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); line-height: 1.65; }
 .chip-time { color: var(--fg-3); font-family: var(--mono); font-size: 10.5px; }
 
 /* ── 危险操作（清空）─────────────────────────────────────────────────── */
