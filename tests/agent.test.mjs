@@ -3500,8 +3500,17 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
   assert.match(ui, /paths\.length === 1 \? 'Edited File' : 'Edited Files'/);
+  assert.match(ui, /连续 Edited File/, '同一轮连续 write_file 合并成一块');
   assert.match(ui, /t\.name === 'write_file'\) continue/, 'write_file 不单独出芯片');
   assert.match(ui, /×\$\{g\.items\.length\}/, '相同工具多次调用折叠');
+  const toolsSrc = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  const workerJs = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
+  const cfgSrc = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(toolsSrc, /files\["files\/a\.txt"\] = "hi"/);
+  assert.match(toolsSrc, /env: \$\{env\}/);
+  assert.match(workerJs, /无 Node API/);
+  assert.match(cfgSrc, /Object\.keys\(files\)/);
+  assert.match(cfgSrc, /先探测再假设/);
   assert.equal(/unpackZip/.test(ui), false, 'ZIP 上传不再自动解压');
 });
 test('execute_python schema 含 packages', async () => {

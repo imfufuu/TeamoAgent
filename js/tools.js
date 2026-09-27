@@ -14,7 +14,7 @@ import { formatMemory, upsertFacts } from './memory.js';
 export const TOOL_DEFS = [
   {
     name: 'execute_javascript',
-    description: '在隔离的 Web Worker 沙箱中执行 JavaScript 代码（支持顶层 await）。沙箱提供 console（输出被捕获）和 files 对象（虚拟文件系统的键值快照，读写字典即可增改文件）。代码必须完整可运行，不要省略实现。return 值或最后一个表达式作为结果返回。适合数学计算、数据处理、算法验证。',
+    description: '在隔离的 Web Worker 沙箱中执行 JavaScript（支持顶层 await）。仅有 console 与 files，没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是普通对象，键=完整相对路径，例 files["files/a.txt"] = "hi"。不熟悉就先探测：typeof console、Object.keys(files)。失败后先探测环境，不要换一个 API 名再猜。代码必须完整可运行。return 值或最后表达式作为结果。',
     parameters: {
       type: 'object',
       properties: {
@@ -25,7 +25,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python 代码。提供 FILES 字典（虚拟文件系统）。print 输出会被捕获；将最终结果赋给全局变量 result 可被返回。code 必须完整可运行，不要省略实现。可用 micropip / loadPackage 安装第三方库（numpy、pandas 等），已装库名会记在本机，刷新页面后自动重装。运行时常驻，仅会话首次调用需下载（约 10-30 秒）。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等），已装库刷新后仍会重装。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {
@@ -830,6 +830,14 @@ function formatExecResult(lang, out) {
     parts.push(`── 错误 ──\n${errMsg}${stack ? `\n${stack}` : ''}`);
   }
   if (!parts.length) parts.push('（执行完成，无输出）');
+  if (lang === 'JavaScript' || lang === 'Python') {
+    const keys = Object.keys(out.files || {});
+    const shown = keys.slice(0, 40);
+    const more = keys.length > 40 ? `, …+${keys.length - 40}` : '';
+    const env = lang === 'JavaScript' ? 'web-worker' : 'pyodide';
+    const apis = lang === 'JavaScript' ? 'console, files' : 'FILES, result';
+    parts.push(`[env: ${env}; apis: ${apis}; files_keys: ${JSON.stringify(shown)}${more}]`);
+  }
   parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
   return `[${lang} 沙箱]\n${parts.join('\n')}`;
 }

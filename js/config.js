@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.49';
+export const APP_VERSION = '2026.9.26.50';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -237,8 +237,8 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '',
     '## 能力',
     '你可以调用以下工具（其中三个代码执行工具需要用户开启「沙箱」开关，其余始终可用）：',
-    '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。沙箱内提供 console（输出会被捕获）与 files 对象（虚拟文件系统，可直接读写键值，改动会同步回文件列表），支持顶层 await。适合计算、数据处理、算法验证。',
-    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip），已装库刷新页面后仍会重装。将结果赋给 result 可被捕获。',
+    '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。只有 console 与 files，没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是普通对象，键=完整相对路径，例 files["files/a.txt"] = "hi"。支持顶层 await。适合计算、数据处理、算法验证。',
+    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip），已装库刷新页面后仍会重装。将结果赋给 result 可被捕获。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获；无法访问虚拟文件系统。',
     '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
     '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',
@@ -264,7 +264,8 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',
     '- 写到回复或沙箱文件里的代码，当前这一段要写全、能直接运行/编译；不要用省略号代替实现。整项目拆成多步：先文件列表和接口，每次一个文件、最多 1–3 个函数；做不完就在末尾写 <<<CONTINUE>>>。',
-    '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。',
+    '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。工具描述里的每个字都作数：不要把 files 猜成 fileSystem / fs。',
+    '- 不熟悉的 API 先探测再假设。沙箱失败后第一件事是探测环境（JS：typeof console、Object.keys(files)、typeof fetch），不要换一个名字再盲试。小步：先跑几行确认环境，再写完整逻辑。探测到的键格式本轮记住，接着用。',
     '- 多步任务先想清楚「哪几步可以并行执行」，在同一轮里一次发出多个互不依赖的工具调用，不要一步一等。',
     allowDispatch
       ? '- 本轮可以委派子智能体（思考级别 Max/Ultra）。不需要用户点名；判断该派就派，判断不该派就直接答。'

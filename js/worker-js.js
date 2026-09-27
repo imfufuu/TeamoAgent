@@ -19,6 +19,10 @@ self.onmessage = async (e) => {
     try { out = JSON.parse(JSON.stringify(result)); } catch { out = String(result); }
     self.postMessage({ ok: true, logs, result: result === undefined ? undefined : out, files: fs });
   } catch (err) {
-    self.postMessage({ ok: false, logs, files: fs, error: { message: String((err && err.message) || err), stack: (err && err.stack) || '' } });
+    let message = String((err && err.message) || err);
+    if (/is not defined|Can't find variable|is not a function/i.test(message)) {
+      message += "。未定义该名字：此沙箱为 Web Worker，无 Node API（无 require/fs/process/Buffer），无 DOM/fetch。仅提供 console 与 files。键=完整相对路径，例如 files['files/a.txt'] = 'hi'。失败后先探测 Object.keys(files)、typeof console，不要换 API 名盲猜。";
+    }
+    self.postMessage({ ok: false, logs, files: fs, error: { message, stack: (err && err.stack) || '' } });
   }
 };

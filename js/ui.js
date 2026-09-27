@@ -1439,16 +1439,53 @@ export function mountUI(store, agent) {
         }
       }
     }
-    const edited = (m.toolCalls || []).filter((c) => c.name === 'write_file' && c.args && c.args.path);
+    // 连续 Edited File 合并到同一轮最后一条带 write_file 的助手消息，避免连着出现两块
+    const writePathsOf = (msg) => [...new Set((msg.toolCalls || []).filter((c) => c.name === 'write_file' && c.args && c.args.path).map((c) => String(c.args.path)))];
+    const msgsAll = store.state.messages;
+    const idxA = msgsAll.findIndex((x) => x.id === m.id);
+    let laterWrite = false;
+    if (idxA >= 0) {
+      for (let i = idxA + 1; i < msgsAll.length; i++) {
+        if (msgsAll[i].role === 'user') break;
+        if (msgsAll[i].role === 'assistant' && writePathsOf(msgsAll[i]).length) { laterWrite = true; break; }
+      }
+    }
+    const paths = [];
+    if (!laterWrite && idxA >= 0) {
+      const seen = new Set();
+      for (let i = idxA; i >= 0; i--) {
+        const x = msgsAll[i];
+        if (x.role === 'user') break;
+        if (x.role !== 'assistant') continue;
+        const ps = writePathsOf(x);
+        if (!ps.length) break;
+        for (let j = ps.length - 1; j >= 0; j--) {
+          const p = ps[j];
+          if (!seen.has(p)) { seen.add(p); paths.unshift(p); }
+        }
+      }
+    } else if (!laterWrite) {
+      paths.push(...writePathsOf(m));
+    }
     let ed = $('.edited-files', wrap);
-    if (edited.length) {
+    if (paths.length) {
       if (!ed) {
         ed = el('details', 'edited-files');
         chips.after(ed);
       }
-      const paths = [...new Set(edited.map((c) => String(c.args.path)))];
       const label = paths.length === 1 ? 'Edited File' : 'Edited Files';
       ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>${label}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+      if (idxA >= 0) {
+        for (let i = idxA - 1; i >= 0; i--) {
+          const x = msgsAll[i];
+          if (x.role === 'user') break;
+          if (x.role !== 'assistant') continue;
+          if (!writePathsOf(x).length) break;
+          const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
+          const old = w && $('.edited-files', w);
+          if (old) old.remove();
+        }
+      }
     } else if (ed) ed.remove();
     // meta（无 msg-head 的续消息没有该节点）
     const meta = $('.msg-meta', wrap);
