@@ -3367,7 +3367,11 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   const htmlApp = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(htmlApp, /id=\"tok-pop\"/);
   assert.match(htmlApp, /id=\"memory-list\"/, '侧栏长效记忆面板');
-  assert.match(htmlApp, /id=\"memory-add\"/);
+  assert.match(htmlApp, /id=\"memory-del\"/);
+  assert.equal(htmlApp.includes('id="memory-add"'), false, '记忆面板不支持手写');
+  assert.equal(htmlApp.includes('id="memory-input"'), false);
+  assert.match(ui, /mem-bubble/);
+  assert.match(ui, /memSelected/);
   assert.equal(htmlApp.includes('id="tok-break"'), false);
   assert.equal(ui.includes('details class="reasoning"'), false, '思考过程不得再用 details');
   assert.match(ui, /classList\.toggle\('expanded'\)/);

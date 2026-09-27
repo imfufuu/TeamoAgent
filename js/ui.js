@@ -762,54 +762,66 @@ export function mountUI(store, agent) {
       : `${t.getMonth() + 1}/${t.getDate()}`;
     return `${n} 轮 · ${time}`;
   }
+  let memSelected = new Set();
+  function syncMemDelBtn() {
+    const btn = $('#memory-del');
+    if (!btn) return;
+    const n = memSelected.size;
+    btn.disabled = n === 0;
+    btn.textContent = n ? `删除 ${n}` : '删除';
+  }
   function renderMemory() {
     const box = $('#memory-list');
     if (!box) return;
     const list = Array.isArray(store.state.memory) ? store.state.memory : [];
     box.innerHTML = '';
+    memSelected = new Set([...memSelected].filter((i) => i >= 0 && i < list.length));
     if (!list.length) {
-      box.innerHTML = '<div class="mem-empty">只记重要约定、偏好和身份。闲聊不会出现在这里。</div>';
+      box.innerHTML = '<div class="mem-empty">还没有长效记忆。重要约定由智能体自行记下，不能在这里手写。</div>';
+      memSelected = new Set();
+      syncMemDelBtn();
       return;
     }
     for (const [i, f] of list.entries()) {
-      const text = String(f && (f.text || f) || '').trim();
+      const text = String((f && (f.text || f)) || '').trim();
       if (!text) continue;
-      const row = el('div', 'mem-row');
-      row.innerHTML = `<span class="mem-text">${esc(text)}</span><button type="button" class="mem-del" data-mem="${i}" title="删除这条">${ICON.trash || '×'}</button>`;
-      box.appendChild(row);
+      const bubble = el('button', 'mem-bubble' + (memSelected.has(i) ? ' selected' : ''));
+      bubble.type = 'button';
+      bubble.setAttribute('role', 'listitem');
+      bubble.dataset.mem = String(i);
+      bubble.setAttribute('aria-pressed', memSelected.has(i) ? 'true' : 'false');
+      bubble.title = '点击选中，可多选后删除';
+      bubble.textContent = text;
+      box.appendChild(bubble);
     }
+    syncMemDelBtn();
   }
   function commitMemory(next) {
     store.state.memory = Array.isArray(next) ? next : [];
     if (typeof store.save === 'function') store.save(true);
     renderMemory();
   }
-  const memForm = $('#memory-add');
-  if (memForm) memForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const input = $('#memory-input');
-    const text = String((input && input.value) || '').replace(/\s+/g, ' ').trim().slice(0, 160);
-    if (text.length < 8) return toast('至少 8 个字，且应是跨会话仍有用的事实', 'warn');
-    const cur = Array.isArray(store.state.memory) ? store.state.memory : [];
-    const key = text.toLowerCase();
-    if (cur.some((f) => String(f.text || f).toLowerCase() === key)) return toast('已经有这条记忆', 'warn');
-    commitMemory([{ text, ts: Date.now() }, ...cur].slice(0, 20));
-    if (input) input.value = '';
-  });
   const memListEl = $('#memory-list');
   if (memListEl) memListEl.addEventListener('click', (e) => {
-    const btn = e.target.closest('[data-mem]');
-    if (!btn) return;
-    const i = Number(btn.getAttribute('data-mem'));
-    const cur = Array.isArray(store.state.memory) ? store.state.memory.slice() : [];
-    if (i >= 0 && i < cur.length) { cur.splice(i, 1); commitMemory(cur); }
+    const bubble = e.target.closest('[data-mem]');
+    if (!bubble || !memListEl.contains(bubble)) return;
+    const i = Number(bubble.getAttribute('data-mem'));
+    if (!Number.isInteger(i) || i < 0) return;
+    if (memSelected.has(i)) memSelected.delete(i);
+    else memSelected.add(i);
+    bubble.classList.toggle('selected', memSelected.has(i));
+    bubble.setAttribute('aria-pressed', memSelected.has(i) ? 'true' : 'false');
+    syncMemDelBtn();
   });
-  const memClear = $('#memory-clear');
-  if (memClear) memClear.addEventListener('click', () => {
-    const n = (store.state.memory || []).length;
-    if (!n) return;
-    if (!confirm(`清空全部 ${n} 条长效记忆？不可恢复。`)) return;
-    commitMemory([]);
+  const memDel = $('#memory-del');
+  if (memDel) memDel.addEventListener('click', () => {
+    if (!memSelected.size) return;
+    const cur = Array.isArray(store.state.memory) ? store.state.memory : [];
+    const n = memSelected.size;
+    if (!confirm(`删除选中的 ${n} 条长效记忆？不可恢复。`)) return;
+    const next = cur.filter((_, i) => !memSelected.has(i));
+    memSelected = new Set();
+    commitMemory(next);
   });
 
   // 侧栏只列「有内容的」会话：空的「新对话」草稿在用户发出第一条消息之前不进列表
