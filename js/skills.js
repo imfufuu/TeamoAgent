@@ -33,17 +33,31 @@ export const BUNDLED_SKILLS = [
     ].join('\n'),
   },
   {
+    id: 'structured-diagrams',
+    tag: 'diagram',
+    description: '图表/流程/思维导图走 SVG、Mermaid、DOT 或 Markdown 快捷语法，不走生图',
+    match: (plan, text) => /图表|统计图|折线图|柱状图|饼图|散点图|s[-－—–]?t|位移[-－—–]?时间|路程[-－—–]?时间|流程图|思维导图|脑图|架构图|Mermaid|Graphviz|DOT|SVG|chart|flowchart|mind\s*map|diagram/i.test(String(text || '')),
+    body: [
+      '## Skill: structured-diagrams',
+      '- 统计图、折线图、柱状图、饼图、散点图、物理 s-t 图：直接用 Markdown 快捷语法 ```:::chart line 标题``` / ```:::chart st 标题``` 等，或写 SVG 文件后用 sandbox:// 嵌入。',
+      '- 流程图：优先用 :::flow 简短语法；复杂流程/时序图调用 render_mermaid 生成 SVG。',
+      '- 思维导图：用 :::mind；架构图/依赖图调用 render_dot 或写 SVG。禁止为这些任务调用 generate_image。',
+    ].join('\n'),
+  },
+  {
     id: 'image-generation',
     tag: 'image',
-    description: '出图必须调用 generate_image，禁止用文字代替',
+    description: '照片/插画/海报等栅格出图才调用 generate_image',
     match: (plan, text) => {
+      const s = String(text || '');
+      if (/图表|统计图|折线图|柱状图|饼图|散点图|s[-－—–]?t|流程图|思维导图|脑图|架构图|Mermaid|Graphviz|DOT|SVG|chart|flowchart|mind\s*map|diagram/i.test(s)) return false;
       if (plan && (plan.route === 'image' || (plan.needImage != null && plan.needImage >= 0.55))) return true;
-      return /画一|生成.*图|改图|插画|出张图|generate.?image/i.test(String(text || ''));
+      return /画一|生成.*图|改图|插画|出张图|海报|封面|照片|头像|generate.?image/i.test(s);
     },
     body: [
       '## Skill: image-generation',
-      '- 用户要图：调用 generate_image。model 只能是网关 ID（gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。',
-      '- 改图用 reference_paths 指向沙箱内图片。不要用 ASCII / 纯文字描述代替真实出图。',
+      '- 用户要照片/插画/海报/头像等栅格画面：调用 generate_image。model 只能是会话 runtime 指定的生图模型 ID。',
+      '- 改图用 reference_paths 指向沙箱内图片。统计图、流程图、思维导图、架构图不属于本技能，禁止调用 generate_image。',
     ].join('\n'),
   },
   {

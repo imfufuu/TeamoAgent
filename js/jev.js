@@ -141,9 +141,9 @@ export const TURN_QUESTIONS = {
     'No code execution required',
   ),
   need_image: noul(
-    'Is the user asking to generate or edit an image?',
-    'Wants a picture created or an existing picture changed',
-    'Not an image task',
+    'Is the user asking to generate or edit a raster/photographic/illustrative image, excluding charts, flowcharts, mind maps, architecture diagrams, SVG/Mermaid/DOT, and data visualizations?',
+    'Wants a picture, illustration, poster, icon, or existing photo/image changed',
+    'Not an image task; structured diagrams/charts should be SVG/Mermaid/DOT/client-rendered, not image generation',
   ),
   need_dispatch: noul(
     'Should the main agent dispatch a specialist subagent (review, research, writing, data analysis) rather than answering alone?',
@@ -154,7 +154,7 @@ export const TURN_QUESTIONS = {
     chat: 'Direct answer with little or no tools',
     tools: 'Use sandbox, files, git, or fetch tools',
     search: 'Must search the live web first',
-    image: 'Generate or edit an image',
+    image: 'Generate or edit a raster/illustrative image (not charts/diagrams)',
   }),
   difficulty: score('How hard is this request for a coding agent?', [
     'trivial greeting or single fact',
@@ -219,7 +219,7 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
     lines.push('- 本题大概率不需要实时检索。不要为了检索而检索；没有新事实要核实时直接答。');
   }
   if (route === 'image' || (image != null && image >= 0.6)) {
-    lines.push('- 用户要的是图：必须调用 generate_image（或带 reference_paths 的编辑），不要用文字/ASCII 代替出图。');
+    lines.push('- 只有用户要照片/插画/海报/图标等栅格画面时才调用 generate_image；统计图、物理 s-t 图、流程图、思维导图、架构图必须用 SVG / Mermaid / DOT / :::chart / :::flow / :::mind，禁止走生图模型。');
   }
   if (code != null && code >= 0.6) {
     lines.push(sandboxEnabled === false

@@ -683,8 +683,17 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(chart, /class="md-chart md-chart-bar"/);
   assert.match(chart, /<svg/);
   assert.match(chart, /月销量/);
-  const stChart = renderMarkdown(':::st 散点\n1, 3\n2, 7\n:::');
-  assert.match(stChart, /md-chart-scatter/);
+  const stChart = renderMarkdown(':::st 匀速直线运动\n0, 0\n1, 5\n2, 10\n:::');
+  assert.match(stChart, /md-chart-st/);
+  assert.match(stChart, /t \/ s/);
+  assert.match(stChart, /s \/ m/);
+  assert.doesNotMatch(stChart, /md-chart-scatter/);
+  const flow = renderMarkdown(':::flow 注册流程\n开始 -> 填写 ->|通过| 完成\n填写 ->|失败| 修改\n:::');
+  assert.match(flow, /md-diagram-flow/);
+  assert.match(flow, /md-flow-arrow/);
+  const mind = renderMarkdown(':::mind 复习计划\n- 力学\n  - s-t 图\n- 电学\n:::');
+  assert.match(mind, /md-diagram-mind/);
+  assert.match(mind, /复习计划/);
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
@@ -709,6 +718,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(OUTPUT_SPEC, /:::center/);
   assert.match(OUTPUT_SPEC, /:::right/);
   assert.match(OUTPUT_SPEC, /:::chart/);
+  assert.match(OUTPUT_SPEC, /:::flow/);
+  assert.match(OUTPUT_SPEC, /:::mind/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
@@ -1169,6 +1180,18 @@ test('未配置 Key / 缺 prompt：不发请求并返回可读错误', async () 
     const noPrompt = await executeTool('generate_image', {}, { fs, apiKey: 'k', onUi: () => {} });
     assert.ok(noPrompt.includes('prompt'), '缺 prompt 应提示参数');
     assert.equal(called, 0, '两种情况都不应发起网络请求');
+  } finally { globalThis.fetch = realFetch; }
+});
+test('generate_image 拦截结构化图表/流程/思维导图，避免误调用生图模型', async () => {
+  const realFetch = globalThis.fetch;
+  let called = 0;
+  globalThis.fetch = async () => { called++; return new Response('{}', { status: 200 }); };
+  try {
+    const fs = createFS();
+    const out = await executeTool('generate_image', { prompt: '生成一张物理 s-t 图，展示匀速直线运动' }, { fs, apiKey: 'k', onUi: () => {} });
+    assert.match(out, /拒绝执行/);
+    assert.match(out, /:::chart/);
+    assert.equal(called, 0, '图表任务不应触发生图网络请求');
   } finally { globalThis.fetch = realFetch; }
 });
 test('Nano Banana 生成：POST /v1beta/models/…:generateContent，遍历 parts 取 inlineData', async () => {
@@ -3314,7 +3337,10 @@ test('skills：目录进稳定层；匹配才加载正文；蒸馏有门槛', as
   const idx = sk.formatSkillsIndex();
   assert.match(idx, /<available_skills>/);
   assert.match(idx, /web-research/);
-  assert.equal(sk.BUNDLED_SKILLS.length, 5);
+  assert.equal(sk.BUNDLED_SKILLS.length, 6);
+  const diagramBody = sk.selectSkillBodies({}, '生成一个 s-t 图和流程图');
+  assert.match(diagramBody, /Skill: structured-diagrams/);
+  assert.ok(!/Skill: image-generation/.test(diagramBody), '结构化图示不应加载生图技能');
   const searchBody = sk.selectSkillBodies({ route: 'search', needSearch: 0.9 }, '今天汇率');
   assert.match(searchBody, /Skill: web-research/);
   assert.ok(!/Skill: image-generation/.test(searchBody), '不应把无关技能正文全塞进去');
@@ -3757,10 +3783,14 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(ui, /再次确认/);
   assert.match(html, /id="files-count"/);
   assert.match(html, /id="files-n"/);
+  assert.match(html, /id="files-zip"/);
   assert.match(html, /files-card/);
   assert.match(html, /data-panel-tab=\"memory\"/);
   assert.match(ui, /暂无文件/);
   assert.match(css, /\.files-card/);
+  assert.match(css, /\.file-list[^}]*overflow-y: auto/s);
+  assert.match(ui, /ZIP ≈/);
+  assert.match(ui, /zipEstimateBytes/);
   assert.match(ui, /产品上限 120MB/);
   assert.equal(/resolveStorageQuota\(SANDBOX_STORAGE_CAP\)\.then/.test(ui), false);
   assert.match(html, /id="cmd-palette"/);
@@ -4135,7 +4165,7 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
 
 
 
-group('.59 暂停宣传片 / 快捷 SVG 图表 / 选择框无跳过');
+group('.60 图表修复 / 结构化图示 / 沙箱 ZIP 估算');
 test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
   const fsp = await import('node:fs');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -4148,7 +4178,7 @@ test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
   assert.match(js, /e\.key\.toLowerCase\(\) === 'p'/);
   assert.match(css, /html\.paused \.film-pause/);
 });
-test('快捷 SVG 图表语法覆盖柱状/折线/st散点/饼图', async () => {
+test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思维导图', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -4157,7 +4187,13 @@ test('快捷 SVG 图表语法覆盖柱状/折线/st散点/饼图', async () => {
   for (const kw of ['bar', 'line', 'scatter', 'st', 'pie', '柱状图', '折线图', '散点图', '饼图']) assert.match(ui, new RegExp(kw));
   assert.match(ui, /renderQuickChart/);
   assert.match(css, /\.md-chart-svg/);
+  assert.match(css, /\.md-diagram/);
+  assert.match(ui, /renderQuickDiagram/);
+  assert.match(ui, /md-diagram-flow/);
+  assert.match(ui, /md-diagram-mind/);
   assert.match(cfg, /:::chart bar\|line\|scatter\|st\|pie/);
+  assert.match(cfg, /:::flow/);
+  assert.match(cfg, /:::mind/);
 });
 test('选择框删除跳过入口', async () => {
   const fsp = await import('node:fs');

@@ -14,6 +14,12 @@ import { evaluateExpression, formatMathResult } from './mathtool.js';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 
+
+const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
+function looksStructuredDiagramPrompt(prompt) {
+  return STRUCTURED_DIAGRAM_RE.test(String(prompt || ''));
+}
+
 export const TOOL_DEFS = [
   {
     name: 'execute_javascript',
@@ -156,6 +162,7 @@ export const TOOL_DEFS = [
     name: 'generate_image',
     description:
       '调用文生图模型生成图片。不要传 model：一律用用户在模型菜单选定的生图模型（会话 runtime 会写明当前 ID）。' +
+      '禁止把统计图/折线图/柱状图/饼图/s-t 图/流程图/思维导图/架构图交给本工具；这些必须用 :::chart / :::flow / :::mind、render_mermaid、render_dot 或 SVG。' +
       'GPT Image 走 POST /v1/images/generations；给了 reference_paths 则走 /v1/images/edits。' +
       'gemini-3.1-flash-image（Nano Banana 2）走 Gemini 原生 generateContent，不要发到 /v1/images/*。' +
       '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则进入「图片编辑」模式，按 prompt 指令修改原图。' +
@@ -165,7 +172,7 @@ export const TOOL_DEFS = [
     parameters: {
       type: 'object',
       properties: {
-        prompt: { type: 'string', description: '画面描述（生成模式）或修改指令（编辑模式），如「一只在键盘上打字的橘猫，插画风格」' },
+        prompt: { type: 'string', description: '画面描述（生成模式）或修改指令（编辑模式）。不要用于统计图、流程图、思维导图、架构图；那些请用 SVG / Mermaid / DOT / :::chart。' },
         compare_paths: { type: 'array', items: { type: 'string' }, description: '可选：两张沙箱图片路径，做本地差分/对比，不调用生图' },
         reference_paths: { type: 'array', items: { type: 'string' }, description: '可选：沙箱内参考图路径数组（如 ["uploads/cat.png"]）；提供即进入编辑模式' },
         size: { type: 'string', enum: IMAGE_SIZES, description: `输出尺寸（宽x高像素），默认 ${'auto'} 由模型决定` },
@@ -362,7 +369,7 @@ export const TOOL_DEFS = [
   {
     name: 'render_mermaid',
     description:
-      '把 Mermaid 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画流程图。支持 flowchart/graph（TD/LR）与 sequenceDiagram。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
+      '把 Mermaid 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画流程图/时序图。支持 flowchart/graph（TD/LR）与 sequenceDiagram。思维导图可直接在回复里用 :::mind 快捷语法。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
     parameters: {
       type: 'object',
       properties: {
@@ -375,7 +382,7 @@ export const TOOL_DEFS = [
   {
     name: 'render_dot',
     description:
-      '把 Graphviz DOT 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画架构图。支持 digraph/graph、a -> b、[label=...]、rankdir=LR。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
+      '把 Graphviz DOT 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画架构图/依赖图。支持 digraph/graph、a -> b、[label=...]、rankdir=LR。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
     parameters: {
       type: 'object',
       properties: {
@@ -671,12 +678,17 @@ async function executeToolBody(name, args, ctx) {
           emit({ status: 'ok', fsChange: true, note: `已对比 ${comparePaths[0]} ↔ ${comparePaths[1]}` });
           return report.markdown + `\n- 报告：${outPath}`;
         }
+        const prompt = String(args.prompt || '').trim();
+        if (!prompt) return 'generate_image 缺少 prompt 参数。';
+        if (looksStructuredDiagramPrompt(prompt)) {
+          const msg = '已拦截：统计图/物理 s-t 图/流程图/思维导图/架构图应使用 SVG、Mermaid、DOT 或 Markdown 快捷图表（:::chart / :::flow / :::mind），不能调用生图模型。';
+          emit({ status: 'error', error: { message: msg } });
+          return `generate_image 拒绝执行：${msg}`;
+        }
         if (!ctx.apiKey) {
           emit({ status: 'error', error: { message: '未配置 API Key' } });
           return '未配置 TeamoRouter API Key，无法调用图像模型。';
         }
-        const prompt = String(args.prompt || '').trim();
-        if (!prompt) return 'generate_image 缺少 prompt 参数。';
         // 会话菜单选定的生图模型优先：对话模型常在 args.model 里填 gpt-image-2，
         // 会把用户刚选的 Nano Banana 盖掉。args.model 只作纠错提示，不覆盖菜单。
         const session = resolveImageModel(ctx.imageModel || DEFAULT_IMAGE_MODEL, DEFAULT_IMAGE_MODEL);

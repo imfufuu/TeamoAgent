@@ -884,10 +884,10 @@ a { color: var(--fg); }
 .files-card-titles { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
 .files-card-name { font-size: 12.5px; font-weight: 600; letter-spacing: .01em; color: var(--fg); }
 .files-card-meta {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 8px 12px; flex-wrap: wrap;
   font-size: 11.5px; color: var(--fg-3);
 }
-.files-count, .files-n { font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
+.files-count, .files-n, .files-zip { font-size: 11.5px; color: var(--fg-3); white-space: nowrap; }
 .files-card-acts { display: flex; align-items: center; gap: 2px; flex-shrink: 0; margin-top: 1px; }
 .files-icon-btn {
   width: 24px; height: 24px; border-radius: 6px; color: var(--fg-3);
@@ -898,7 +898,7 @@ a { color: var(--fg); }
 .files-icon-btn.danger:hover { color: #b42318; background: #fdf2f2; }
 [data-theme="dark"] .files-icon-btn.danger:hover { color: #e8b4b4; background: #3a1f1f; }
 .side-label-btns { display: flex; align-items: center; gap: 5px; }
-.file-list { display: flex; flex-direction: column; gap: 1px; padding: 6px 6px 10px; }
+.file-list { display: flex; flex-direction: column; gap: 1px; padding: 6px 6px 10px; flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .file-item, .ft-row {
   display: flex; justify-content: flex-start; align-items: center; gap: 8px;
   padding: 7px 10px; border: 0; border-radius: 8px; cursor: pointer;
@@ -1150,19 +1150,35 @@ a { color: var(--fg); }
 .md-align-center { text-align: center; }
 .md-align-right { text-align: right; }
 .md-align-center > *, .md-align-right > * { text-align: inherit; }
-.md-chart { margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.md-chart, .md-diagram { margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .md-chart-svg {
   display: block; width: min(720px, 100%); height: auto;
   background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px;
 }
-.md-chart-title { font: 650 18px var(--sans); fill: var(--fg); }
-.md-chart-axis { stroke: var(--fg-3); stroke-width: 1; opacity: .7; }
-.md-chart-grid { stroke: var(--line-2); stroke-width: 1; opacity: .75; }
-.md-chart-tick, .md-chart-label { font: 11px var(--mono); fill: var(--fg-3); }
-.md-chart-line { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
-.md-chart-dot { fill: var(--bg); stroke: var(--fg); stroke-width: 2; }
+.md-chart-title { font-family: var(--sans); font-size: 17px; font-weight: 650; fill: var(--fg); }
+.md-chart-axis { stroke: var(--fg-3); stroke-width: 1; opacity: .75; }
+.md-chart-grid { stroke: var(--line-2); stroke-width: 1; opacity: .72; }
+.md-chart-tick, .md-chart-label { font-family: var(--mono); font-size: 10.5px; fill: var(--fg-3); }
+.md-chart-axis-label { font-family: var(--sans); font-size: 11.5px; fill: var(--fg-2); }
+.md-chart-line { fill: none; stroke: var(--accent); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
+.md-chart-st-line { stroke: #0ea5e9; }
+.md-chart-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
 .md-chart-bar, .md-chart-slice, .md-chart-point { opacity: .9; }
 .md-chart-error { margin: 8px 0; color: var(--fg-3); font-size: 12px; }
+.md-diagram-svg { width: min(820px, 100%); }
+.md-diagram-link { fill: none; stroke: color-mix(in oklab, var(--fg-3) 72%, transparent); stroke-width: 1.6; stroke-linecap: round; }
+.md-diagram-arrow { fill: color-mix(in oklab, var(--fg-3) 78%, transparent); }
+.md-diagram-edge-label { font-family: var(--sans); font-size: 10.5px; fill: var(--fg-2); paint-order: stroke; stroke: var(--bg-soft); stroke-width: 3px; stroke-linejoin: round; }
+.md-diagram-node rect, .md-mind-node rect { fill: color-mix(in oklab, var(--accent) 12%, var(--bg)); stroke: color-mix(in oklab, var(--accent) 30%, var(--line)); stroke-width: 1.1; }
+.md-diagram-node text, .md-mind-node text { font-family: var(--sans); font-size: 12.5px; font-weight: 650; fill: var(--fg); pointer-events: none; }
+.md-diagram-node-1 rect, .md-mind-node.branch-1 rect { fill: color-mix(in oklab, #0ea5e9 13%, var(--bg)); stroke: color-mix(in oklab, #0ea5e9 34%, var(--line)); }
+.md-diagram-node-2 rect, .md-mind-node.branch-2 rect { fill: color-mix(in oklab, #10b981 13%, var(--bg)); stroke: color-mix(in oklab, #10b981 34%, var(--line)); }
+.md-diagram-node-3 rect, .md-mind-node.branch-3 rect { fill: color-mix(in oklab, #f59e0b 14%, var(--bg)); stroke: color-mix(in oklab, #f59e0b 34%, var(--line)); }
+.md-diagram-node-4 rect, .md-mind-node.branch-4 rect { fill: color-mix(in oklab, #ef4444 12%, var(--bg)); stroke: color-mix(in oklab, #ef4444 34%, var(--line)); }
+.md-diagram-node-5 rect, .md-mind-node.branch-5 rect { fill: color-mix(in oklab, #a855f7 13%, var(--bg)); stroke: color-mix(in oklab, #a855f7 34%, var(--line)); }
+.md-mind-node.root rect { fill: color-mix(in oklab, var(--accent) 20%, var(--bg)); stroke: color-mix(in oklab, var(--accent) 45%, var(--line)); stroke-width: 1.4; }
+.md-mind-node.leaf text { font-size: 11px; font-weight: 560; fill: var(--fg-2); }
+.md-mind-link { stroke-width: 1.4; }
 .choice-box {
   margin: 12px 0 4px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);

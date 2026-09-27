@@ -29,7 +29,8 @@ export function formatRuntime({ now, model, imageModel, filesNote, webNote, rela
   const lines = ['# TeamoAgent runtime'];
   if (now) lines.push(`当前时间：${now instanceof Date ? now.toISOString() : String(now)}`);
   if (model) lines.push(`Session model: ${model}`);
-  if (imageModel) lines.push(`生图模型：${imageModel}（generate_image 必须用这个 ID，不要传 model 参数）`);
+  if (imageModel) lines.push(`生图模型：${imageModel}（generate_image 必须用这个 ID，不要传 model 参数；仅用于照片/插画/海报等栅格画面，统计图/流程图/思维导图/架构图禁止用生图）`);
+  lines.push('图表规范：折线图/柱状图/饼图/散点图/物理 s-t 图用 Markdown 快捷语法 :::chart；流程图用 :::flow 或 render_mermaid；思维导图用 :::mind；架构/依赖图用 render_dot / SVG。不要为这些调用 generate_image。');
   const extra = join([filesNote, webNote, relayNote]);
   return extra ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n');
 }

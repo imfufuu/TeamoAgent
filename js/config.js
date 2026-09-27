@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.59';
+export const APP_VERSION = '2026.9.26.60';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -221,7 +221,8 @@ export const OUTPUT_SPEC = [
   '- 折叠栏（次要内容或答案，默认收起，少用）：\\n:::fold 标题\\n内容\\n:::',
   '- 文学创作或需要精细排版时，可用 :::font 楷体|宋体|仿宋|黑体|行楷|serif|jp 包裹段落切换字体。日常聊天、写代码、分析文件不要换字体。格式：\\n:::font 楷体\\n正文\\n:::',
   '- 居中 / 右对齐排版：可用 :::center … :::、:::right … :::，或 :::align center|right … ::: 包裹 Markdown 段落；只在诗歌、题签、署名等需要版式时使用。',
-  '- 快捷 SVG 图表：柱状/折线/散点(st)/饼图可直接用 :::chart bar|line|scatter|st|pie 标题 包裹数据行（每行「标签, 数值」；散点图可写「x, y」）。客户端会渲染为内联 SVG；统计图不要再硬塞 Mermaid xychart-beta。',
+  '- 快捷 SVG 图表：柱状/折线/散点/物理 s-t 图/饼图可直接用 :::chart bar|line|scatter|st|pie 标题 包裹数据行（每行「标签, 数值」；散点/物理 s-t 图写「x或t, y或s」）。客户端会渲染为内联 SVG；统计图不要再硬塞 Mermaid xychart-beta。',
+  '- 快捷图示：流程图可用 :::flow 标题 包裹「开始 -> 处理 -> 结束」；思维导图可用 :::mind 标题 包裹 Markdown 层级列表。图表/流程图/思维导图/架构图必须走 SVG/Mermaid/DOT/客户端图表，不要调用 generate_image。',
   '- 长文目录：标题用 ## / ###；目录用 [节名](#slug) 链到同文标题（slug 为标题小写、空格改 -，中文标题可原样作锚）。',
 ].join('\n');
 
@@ -246,13 +247,13 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
     '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文，也会搜图片/二进制的 mime、宽高、体积与 ASCII strings（不跳过 data URL）；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP。用户上传的 .zip 会原样落到 uploads/，需要内容时再 unzip_file，不要以为已经解开。',
-    '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果写入沙箱 outputs/。工具芯片里不会出现预览；随后的回复必须用 ![说明](sandbox://outputs/image-001.png) 把图嵌进正文。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
+    '- generate_image：调用文生图模型生成照片/插画/海报等栅格图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果写入沙箱 outputs/。工具芯片里不会出现预览；随后的回复必须用 ![说明](sandbox://outputs/image-001.png) 把图嵌进正文。统计图、物理 s-t 图、流程图、思维导图、架构图禁止使用本工具，应改用 :::chart / :::flow / :::mind、render_mermaid、render_dot 或 SVG。',
     '- get_current_time：获取当前时间。',
     '- remember：跨会话长效记忆。只记真正重要、跨会话仍有用的内容：用户明确说「记住」、稳定偏好、身份、长期项目、不可恢复的约定。严禁记闲聊、问候、一次性任务、临时路径、本轮步骤。过时了就 forget；不确定先 list。记忆会出现在之后每个对话里。',
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',
     '- evaluate_expression：本地求值纯数学表达式（pi、sin、sqrt、^、阶乘），不必开沙箱。',
     '- execute_sql：会话内 SQLite 方言（CREATE/INSERT/SELECT/UPDATE/DELETE，库文件默认 data/app.db）。不必开代码沙箱。不要为查数去写 Python sqlite3。不做 JOIN。',
-    '- render_mermaid / render_dot：把流程图/架构图渲染成 SVG 写入 outputs/，随后用 ![说明](sandbox://outputs/diagram-001.svg) 嵌入正文。不要用 generate_image 硬画示意图。',
+    '- render_mermaid / render_dot：把流程图/时序图/架构图渲染成 SVG 写入 outputs/，随后用 ![说明](sandbox://outputs/diagram-001.svg) 嵌入正文。思维导图优先用 :::mind；不要用 generate_image 硬画结构化图示。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',
     '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。返回的是全文，不要当成摘要；需要再核对时 read_file 对应的 .ocr.md。',
