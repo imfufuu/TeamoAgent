@@ -7,6 +7,7 @@
 @property --line { syntax: "<color>"; inherits: true; initial-value: #e8e8e8; }
 
 :root {
+  --theme-speed: .45s;
   --bg: #ffffff;
   --bg-soft: #fafafa;
   --bg-hover: #f4f4f4;
@@ -43,19 +44,18 @@
 html, body { height: 100%; overflow: hidden; } /* 页面本身永不滚动，滚动只发生在消息区内 */
 html {
   transition:
-    --bg .55s var(--ease), --bg-soft .55s var(--ease), --fg .55s var(--ease),
-    --fg-2 .55s var(--ease), --fg-3 .55s var(--ease), --line .55s var(--ease),
-    background-color .55s var(--ease), color .55s var(--ease);
+    --bg var(--theme-speed) var(--ease), --bg-soft var(--theme-speed) var(--ease), --fg var(--theme-speed) var(--ease),
+    --fg-2 var(--theme-speed) var(--ease), --fg-3 var(--theme-speed) var(--ease), --line var(--theme-speed) var(--ease),
+    background-color var(--theme-speed) var(--ease), color var(--theme-speed) var(--ease);
 }
 body {
   font-family: var(--font);
   background: var(--bg);
   color: var(--fg);
-  transition: background-color .55s var(--ease), color .55s var(--ease);
   font-size: 14px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
-  transition: background .35s var(--ease), color .35s var(--ease);
+  transition: background-color var(--theme-speed) var(--ease), color var(--theme-speed) var(--ease);
 }
 .mono { font-family: var(--mono); font-size: .92em; }
 button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; }
@@ -78,7 +78,7 @@ a { color: var(--fg); }
   height: 100vh;
   height: 100dvh; /* 移动 Safari：地址栏收起时不被底部工具栏遮住 */
   overflow: hidden; /* 内容再长也只让 .messages 内部滚动 */
-  transition: grid-template-columns .4s var(--ease);
+  transition: grid-template-columns .4s var(--ease), background-color var(--theme-speed) var(--ease);
 }
 .sidebar { grid-area: side; }
 .main { grid-area: main; }
@@ -115,25 +115,20 @@ a { color: var(--fg); }
   .logo .ver-badge { display: none; }
   #sidebar-toggle { min-width: 36px; min-height: 36px; padding: 6px; }
 }
-/* 超窄屏：沙箱面板浮层化（更宽时始终并入网格，绝不遮挡） */
-@media (max-width: 860px) {
+/* 中等宽度起面板改浮层，避免侧栏+面板同时挤占主栏导致顶栏胶囊错位 */
+@media (max-width: 1180px) {
   .app { --pnw: 0px; }
-  /* 窄屏：沙箱面板自底部垂直滑入，铺满视口（不再半宽侧滑）。关闭靠面板内 ✕ / Esc。 */
   #sandbox-panel {
     position: fixed; left: 0; right: 0; top: 0; bottom: 0;
     width: 100%; height: 100%; height: 100dvh;
     z-index: 52; box-shadow: var(--shadow-lg);
-    border-left: none; border-radius: 14px 14px 0 0;
+    border-left: none; border-radius: 0;
     padding-bottom: env(safe-area-inset-bottom);
   }
   #sandbox-panel.collapsed { transform: translateY(105%); }
   #sandbox-panel:not(.collapsed) { transform: none; }
-  #sandbox-panel::before {
-    content: ''; display: block; flex-shrink: 0;
-    width: 36px; height: 4px; margin: 8px auto 0; border-radius: 2px;
-    background: var(--line-2);
-  }
 }
+.app:has(#sandbox-panel:not(.collapsed)) #panel-toggle { visibility: hidden; pointer-events: none; }
 
 /* ── 侧栏 ────────────────────────────────────────────────────────────── */
 .sidebar {
@@ -141,7 +136,7 @@ a { color: var(--fg); }
   border-right: 1px solid var(--line);
   background: var(--bg);
   min-width: 0; overflow: hidden;
-  transition: background .35s var(--ease), border-color .35s var(--ease);
+  transition: background-color var(--theme-speed) var(--ease), border-color var(--theme-speed) var(--ease);
 }
 .app:has(.sidebar.collapsed) .sidebar { border-right-color: transparent; }
 .logo { display: flex; align-items: center; gap: 10px; padding: 20px 14px 16px 20px; min-width: 0; }
@@ -278,19 +273,21 @@ a { color: var(--fg); }
 /* 会话记录列表 */
 .cp-list { overflow-y: auto; flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 3px; padding-bottom: 6px; }
 .sess-item {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  flex: 0 0 auto; min-height: 44px;
-  padding: 8px 9px; border-radius: 9px; cursor: pointer;
-  border: 1px solid transparent;
-  transition: background .18s var(--ease), border-color .18s var(--ease);
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  flex: 0 0 auto; min-height: 58px;
+  padding: 12px 12px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--bg-soft);
+  box-shadow: 0 1px 2px rgba(0,0,0,.04), 0 6px 16px rgba(0,0,0,.04);
+  transition: background-color var(--theme-speed) var(--ease), border-color var(--theme-speed) var(--ease), box-shadow .22s var(--ease);
   animation: fadeUp .35s var(--ease) both;
 }
-.sess-item:hover { background: var(--bg-hover); }
-.sess-item.active { background: var(--bg-soft); border-color: var(--line); }
+.sess-item:hover { background: var(--bg-hover); box-shadow: 0 2px 4px rgba(0,0,0,.05), 0 8px 20px rgba(0,0,0,.06); }
+.sess-item.active { background: var(--bg); border-color: var(--fg-3); box-shadow: 0 1px 2px rgba(0,0,0,.05), 0 10px 24px rgba(0,0,0,.08); }
 .sess-item.active .sess-title { font-weight: 700; }
-.sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.sess-title { font-size: 12.5px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sess-meta { font-size: 10px; line-height: 1.3; color: var(--fg-3); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.sess-title { font-size: 13.5px; line-height: 1.35; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess-meta { font-size: 11px; line-height: 1.35; color: var(--fg-3); font-family: var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sess-del, .sess-rename {
   flex-shrink: 0; font-size: 10px; color: var(--fg-3); padding: 3px 5px; border-radius: 6px;
   opacity: 0; transition: all .18s var(--ease);
@@ -334,10 +331,11 @@ a { color: var(--fg); }
 .side-footer-btns { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ── 主区 ────────────────────────────────────────────────────────────── */
-.main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); }
+.main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); transition: background-color var(--theme-speed) var(--ease); }
 .topbar {
   display: flex; align-items: center; gap: 10px;
   padding: 12px 24px; border-bottom: 1px solid var(--line);
+  transition: background-color var(--theme-speed) var(--ease), border-color var(--theme-speed) var(--ease);
 }
 .status { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--fg-2); flex: 1; min-width: 0; }
 /* 顶栏不确定进度条：本轮请求进行中（连接 / 生成 / 沙箱执行）*/
@@ -776,7 +774,7 @@ a { color: var(--fg); }
   max-width: 760px; margin: 0 auto; display: flex; align-items: flex-end; gap: 10px;
   border: 1px solid var(--line); border-radius: 16px; padding: 10px 10px 10px 18px;
   background: var(--bg-soft);
-  transition: border-color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease);
+  transition: background-color var(--theme-speed) var(--ease), border-color .25s var(--ease), box-shadow .25s var(--ease), transform .25s var(--ease);
 }
 .composer:focus-within { border-color: var(--fg-3); box-shadow: var(--shadow); transform: translateY(-1px); }
 #composer-input {
@@ -835,26 +833,34 @@ a { color: var(--fg); }
 .panel {
   border-left: 1px solid var(--line); display: flex; flex-direction: column;
   min-width: 0; overflow: hidden; background: var(--bg);
-  transition: transform .35s var(--ease), background .35s var(--ease), border-color .35s var(--ease);
+  transition: transform .35s var(--ease), background-color var(--theme-speed) var(--ease), border-color var(--theme-speed) var(--ease);
 }
 .panel.collapsed { border-left-color: transparent; }
 .panel-tabs { display: flex; border-bottom: 1px solid var(--line); align-items: stretch; flex-shrink: 0; }
-.panel-tab-label {
+.panel-tab {
   flex: 1; padding: 12px 16px; font-size: 12px; font-weight: 600; letter-spacing: .1em;
-  color: var(--fg); border-bottom: 2px solid var(--fg); display: flex; align-items: center;
+  color: var(--fg-3); border-bottom: 2px solid transparent; display: flex; align-items: center; justify-content: center;
+  background: transparent;
 }
+.panel-tab.on { color: var(--fg); border-bottom-color: var(--fg); }
+.panel-tab:hover { color: var(--fg); }
+.panel-tab-label { display: none; }
 #panel-close {
   flex: 0 0 auto; min-width: 44px; min-height: 44px; margin: 0 4px 0 0; align-self: center;
   color: var(--fg-2);
 }
 #panel-close:hover { color: var(--fg); background: var(--bg-hover); }
-.panel-body { flex: 1; overflow-y: auto; padding: 12px; }
+.panel-body { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; min-height: 0; }
+.panel-body[hidden] { display: none !important; }
+#tab-memory .mem-card { flex: 1; max-height: none; }
+#tab-memory .mem-list { max-height: none; flex: 1; }
 
 .empty-hint { color: var(--fg-3); font-size: 11.5px; text-align: left; padding: 10px 12px 16px; line-height: 1.6; }
 
 .files-card {
   border: 1px solid var(--line); border-radius: 14px; background: var(--bg);
   overflow: hidden; display: flex; flex-direction: column; min-height: 0; flex: 1;
+  transition: background-color var(--theme-speed) var(--ease), border-color var(--theme-speed) var(--ease);
 }
 .files-card-head {
   display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
@@ -1027,10 +1033,11 @@ a { color: var(--fg); }
   #status-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
   .time-stats { display: none; } /* 窄屏优先保证胶囊可点，耗时在消息头里还能看到 */
   .topbar-right {
-    flex: 0 1 auto; margin-left: auto; justify-content: flex-end; flex-wrap: nowrap;
+    flex: 1 1 auto; min-width: 0; margin-left: 4px; justify-content: flex-start; flex-wrap: nowrap;
     overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch;
-    padding: 4px 2px; margin-top: -4px; margin-bottom: -4px; max-width: min(72vw, 100%);
+    padding: 4px 2px; margin-top: -4px; margin-bottom: -4px; max-width: none;
   }
+  #thinking-toggle, .think-picker { flex: 0 0 auto; position: relative; z-index: 2; }
   .topbar-right::-webkit-scrollbar { display: none; }
   .pill { flex: 0 0 auto; padding: 8px 12px; font-size: 12.5px; min-height: 40px; gap: 6px; }
   .pill .pill-ico { width: 14px; height: 14px; }
@@ -1042,7 +1049,7 @@ a { color: var(--fg); }
   .msg-head { flex-wrap: nowrap; justify-content: flex-start; gap: 6px; margin-bottom: 6px; }
   .msg-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
   .msg-meta { flex: 0 0 auto; white-space: nowrap; margin-left: 0; } /* 紧跟模型名，不要右对齐 */
-  .md-body { font-size: 14.5px; line-height: 1.72; }
+  .md-body { font-size: 14.5px; line-height: 1.65; }
   .md-body pre { font-size: 12px; -webkit-overflow-scrolling: touch; }
   .md-body table { display: block; overflow-x: auto; }
   .md-body img { max-width: 100%; height: auto; }

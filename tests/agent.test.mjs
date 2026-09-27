@@ -657,6 +657,11 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(fold, /详细推导/);
   assert.match(fold, /chip-detail/);
   assert.equal(/<details/.test(fold), false, '折叠栏不用原生 details（焦点黑框）');
+  const lit = renderMarkdown('上文\n\n:::font 楷体\n春风又绿江南岸\n:::\n');
+  assert.match(lit, /class="md-font md-font-kai"/);
+  assert.match(lit, /春风又绿江南岸/);
+  const serif = renderMarkdown(':::font serif\nOnce upon a time\n:::');
+  assert.match(serif, /md-font-serif/);
   const choice = renderMarkdown('请拍板\n\n:::choice 部署方式\n- GitHub Pages\n- 自建\n:::');
   assert.match(choice, /class="choice-box"/);
   assert.match(choice, /class="choice-head"/);
@@ -682,6 +687,7 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(OUTPUT_SPEC, /sandbox:\/\//);
   assert.match(OUTPUT_SPEC, /:::choice/);
   assert.match(OUTPUT_SPEC, /:::fold/);
+  assert.match(OUTPUT_SPEC, /:::font/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
@@ -3379,7 +3385,7 @@ test('会话记录卡片不被底栏版本/用量挤扁', async () => {
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const item = css.slice(css.indexOf('.sess-item {'), css.indexOf('.sess-item:hover'));
   assert.match(item, /flex:\s*0 0 auto/, '会话卡片高度不随侧栏剩余空间收缩');
-  assert.match(item, /min-height:\s*44px/);
+  assert.match(item, /min-height:\s*58px/);
   const foot = css.slice(css.indexOf('.side-footer {'), css.indexOf('.transport {'));
   assert.match(foot, /flex-shrink:\s*0/, '底栏自己占位，不抢会话列表');
   assert.match(css, /#transport-badge, #build-stamp, #conv-stats \{[^}]*white-space:\s*nowrap/, '底栏长文案省略而不是撑高');
@@ -3493,6 +3499,10 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(htmlApp, /id=\"memory-list\"/, '长效记忆在右侧沙箱面板');
   assert.match(htmlApp, /id=\"memory-del\"/);
   assert.ok(htmlApp.indexOf('id="sandbox-panel"') < htmlApp.indexOf('id="memory-list"'), '记忆跟沙箱文件在同一右侧面板');
+  assert.ok(htmlApp.indexOf('id="tab-files"') < htmlApp.indexOf('id="tab-memory"'));
+  assert.ok(htmlApp.indexOf('id="memory-section"') > htmlApp.indexOf('id="tab-memory"'), '记忆不得嵌在文件卡内');
+  const filesChunk = htmlApp.slice(htmlApp.indexOf('id="tab-files"'), htmlApp.indexOf('id="tab-memory"'));
+  assert.equal(filesChunk.includes('memory-section'), false, '文件 tab 不含记忆');
   assert.equal(htmlApp.includes('id="memory-add"'), false, '记忆面板不支持手写');
   assert.equal(htmlApp.includes('id="memory-input"'), false);
   assert.match(htmlApp, /id=\"img-lightbox\"/);
@@ -3597,13 +3607,17 @@ test('非 PDF 字节给出可读失败，不抛', async () => {
 
 
 group('2026.09.22.15 布局与高亮');
-test('侧栏与沙箱面板共用 860 断点，避免中间宽度错位', async () => {
+test('侧栏 860、面板浮层 1180，开面板时藏顶栏胶囊', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.equal((css.match(/@media \(max-width: 860px\)/g) || []).length >= 2, true);
+  assert.match(css, /@media \(max-width: 1180px\)/);
   assert.equal(/@media \(max-width: 760px\)/.test(css), false, '面板不再单独用 760');
   assert.match(ui, /max-width: 860px/);
+  assert.match(ui, /max-width: 1180px/);
+  assert.match(css, /#sandbox-panel:not\(\.collapsed\)\) #panel-toggle/);
+  assert.match(css, /border-radius:\s*0/);
 });
 test('代码块语言在左侧、复制始终可见；用户气泡反色链接', async () => {
   const fsp = await import('node:fs');
@@ -3683,7 +3697,7 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(html, /id="files-count"/);
   assert.match(html, /id="files-n"/);
   assert.match(html, /files-card/);
-  assert.match(html, /panel-tab-label/);
+  assert.match(html, /data-panel-tab=\"memory\"/);
   assert.match(ui, /暂无文件/);
   assert.match(css, /\.files-card/);
   assert.match(ui, /产品上限 120MB/);
@@ -3902,6 +3916,50 @@ test('render_mermaid / render_dot：写出 SVG 并提示 sandbox 嵌入', async 
   assert.match(fs.read('outputs/diagram-003.svg'), /Alice/);
   const bad = await executeTool('render_mermaid', { code: 'not a diagram' }, { fs, onUi: () => {} });
   assert.match(bad, /失败/);
+});
+
+
+group('.55 会话卡片 / 记忆并列 / 主题同速 / 思考可见 / 删会话 / 文学字体');
+test('会话卡片加高且有质感边框', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const item = css.slice(css.indexOf('.sess-item {'), css.indexOf('.sess-item:hover'));
+  assert.match(item, /min-height:\s*58px/);
+  assert.match(item, /box-shadow/);
+  assert.match(item, /border:\s*1px solid var\(--line\)/);
+});
+test('主题色过渡全屏同一 --theme-speed', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /--theme-speed:\s*\.45s/);
+  assert.equal(/background-color \.55s/.test(css), false);
+  assert.equal(/background \.35s var\(--ease\), color \.35s/.test(css), false);
+  assert.match(css, /html \{[\s\S]*?var\(--theme-speed\)/);
+  assert.match(css, /body \{[\s\S]*?var\(--theme-speed\)/);
+});
+test('移动端顶栏思考胶囊从左侧露出可横滑', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.topbar-right \{[\s\S]*justify-content:\s*flex-start/);
+  assert.equal(/max-width:\s*min\(72vw/.test(css), false);
+});
+test('打开会话强制滚到最新；忙时只禁删当前会话', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const rb = ui.slice(ui.indexOf('function rebuildMessages'), ui.indexOf('function attachToolResult'));
+  assert.match(rb, /scrollToBottom\(true\)/);
+  assert.match(ui, /getBusy\(\) && wasActive/);
+  assert.match(ui, /不能删这一条/);
+});
+test('文学字体本地 OFL 文件与 :::font 提示词', async () => {
+  const fsp = await import('node:fs');
+  const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(cfg, /:::font/);
+  assert.match(html, /fonts\/literary\.css/);
+  assert.equal(fsp.existsSync(new URL('../fonts/SourceSerif4-Regular.ttf', import.meta.url)), true);
+  assert.equal(fsp.existsSync(new URL('../fonts/NotoSerif-Regular.ttf', import.meta.url)), true);
+  assert.match(html, /font-src 'self' data: https:\/\/fonts\.gstatic\.com/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

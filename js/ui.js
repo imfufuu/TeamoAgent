@@ -333,6 +333,22 @@ export function renderMarkdown(src) {
     folds.push({ title: String(title || '').trim(), body });
     return `\n\n\uE000FOLD${folds.length - 1}\uE000\n\n`;
   });
+  const FONT_ALIAS = {
+    楷体: 'kai', 楷: 'kai', kai: 'kai', kaiti: 'kai',
+    宋体: 'song', 宋: 'song', song: 'song', songti: 'song',
+    仿宋: 'fangsong', fangsong: 'fangsong',
+    黑体: 'heiti', 黑: 'heiti', heiti: 'heiti', sans: 'heiti',
+    行楷: 'xingkai', xingkai: 'xingkai',
+    serif: 'serif', latin: 'serif', 衬线: 'serif',
+    jp: 'jp', 日文: 'jp', japanese: 'jp',
+  };
+  const fonts = [];
+  t = t.replace(/^:::font[ \t]+(.+)\n([\s\S]*?)^:::[ \t]*$/gm, (_, name, body) => {
+    const raw = String(name || '').trim();
+    const cls = FONT_ALIAS[raw] || FONT_ALIAS[raw.toLowerCase()] || 'serif';
+    fonts.push({ cls, body });
+    return `\n\n\uE000FONT${fonts.length - 1}\uE000\n\n`;
+  });
 
   const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
     const { lang, code } = codeBlocks[+i];
@@ -346,8 +362,16 @@ export function renderMarkdown(src) {
       const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
       return `<div class="md-fold" role="button" tabindex="0"><span class="chip-ico">${ICON.chevRight || ''}</span><span class="chip-name">${esc(f.title)}</span><div class="chip-detail"><div class="fold-inner md-fold-body">${inner}</div></div></div>`;
     };
+    const fontAt = (_, i) => {
+      const f = fonts[+i];
+      const innerMd = getMd();
+      const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
+      return `<div class="md-font md-font-${f.cls}">${inner}</div>`;
+    };
     let out = html.replace(/<p>\s*\uE000FOLD(\d+)\uE000\s*<\/p>/g, foldAt)
-      .replace(/\uE000FOLD(\d+)\uE000/g, foldAt);
+      .replace(/\uE000FOLD(\d+)\uE000/g, foldAt)
+      .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
+      .replace(/\uE000FONT(\d+)\uE000/g, fontAt);
     if (peeled.blocks.length) out += peeled.blocks.map(choiceHtml).join('');
     return out;
   };
@@ -864,12 +888,15 @@ export function mountUI(store, agent) {
       const del = $('.sess-del', node);
       if (del) del.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (getBusy()) return toast('请等待当前回合结束', 'warn');
-        if (!confirm(`删除会话「${s.title || '新对话'}」？不可恢复。`)) return;
         const wasActive = s.id === store.state.activeSessionId;
+        if (getBusy() && wasActive) return toast('当前会话正在输出，不能删这一条', 'warn');
+        if (!confirm(`删除会话「${s.title || '新对话'}」？不可恢复。`)) return;
         store.deleteSession(s.id);
-        if (wasActive) agent.loadFiles(store.state.files);
-        rebuildMessages(); renderSessions(); renderFiles(); updateStats(); updateModelBtn();
+        if (wasActive) {
+          agent.loadFiles(store.state.files);
+          rebuildMessages(); renderFiles(); updateStats(); updateModelBtn();
+        }
+        renderSessions();
         toast('会话已删除');
       });
       const rename = $('.sess-rename', node);
@@ -978,7 +1005,7 @@ export function mountUI(store, agent) {
   const backdrop = $('#overlay-backdrop');
   const fab = $('#sidebar-fab');
   const mqSidebar = window.matchMedia('(max-width: 860px)');
-  const mqPanel = window.matchMedia('(max-width: 860px)');
+  const mqPanel = window.matchMedia('(max-width: 1180px)');
 
   function updateBackdrop() {
     const show = (mqSidebar.matches && sidebar.classList.contains('sidebar-open'))
@@ -1011,6 +1038,16 @@ export function mountUI(store, agent) {
   }
   $('#panel-toggle').addEventListener('click', () => setPanelCollapsed(!panel.classList.contains('collapsed')));
   $('#panel-close')?.addEventListener('click', () => setPanelCollapsed(true));
+  $$('[data-panel-tab]').forEach((b) => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.panelTab;
+      $$('[data-panel-tab]').forEach((x) => x.classList.toggle('on', x.dataset.panelTab === id));
+      const files = $('#tab-files');
+      const mem = $('#tab-memory');
+      if (files) files.hidden = id !== 'files';
+      if (mem) mem.hidden = id !== 'memory';
+    });
+  });
   $('#sidebar-toggle').addEventListener('click', () => {
     if (mqSidebar.matches) setSidebarOpen(false);
     else sidebar.classList.add('collapsed');
@@ -1655,6 +1692,7 @@ export function mountUI(store, agent) {
     // 把 tool 结果回填到芯片
     for (const m of store.state.messages) if (m.role === 'tool') attachToolResult(m);
     refreshActionVisibility();
+    scrollToBottom(true);
   }
 
   function attachToolResult(toolMsg) {
