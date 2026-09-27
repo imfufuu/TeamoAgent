@@ -13,6 +13,7 @@ const world = document.getElementById('world');
 const shots = [...document.querySelectorAll('.shot')];
 const beatBar = document.getElementById('beat-bar');
 const explore = document.getElementById('explore');
+const exploreCta = explore && explore.querySelector('.explore-cta');
 const skip = document.getElementById('film-skip');
 const nav = document.querySelector('.nav');
 const themeBtn = document.getElementById('theme-toggle');
@@ -266,21 +267,20 @@ function setLoadProgress(p, text) {
   if (loadLabel) loadLabel.textContent = text || (x >= 1 ? '影片已就绪' : `正在加载影片 ${Math.round(x * 100)}%`);
 }
 
+function setExploreReady(on) {
+  if (explore) explore.classList.toggle('waiting', !on);
+  if (exploreCta) exploreCta.disabled = !on;
+}
+
 function markAudioReady(label) {
   audioReady = true;
-  if (explore) {
-    explore.disabled = false;
-    explore.classList.remove('waiting');
-  }
+  setExploreReady(true);
   setLoadProgress(1, label || '影片已就绪');
 }
 
 async function prefetchAudio() {
   if (!audio) { markAudioReady(); return; }
-  if (explore) {
-    explore.disabled = true;
-    explore.classList.add('waiting');
-  }
+  setExploreReady(false);
   setLoadProgress(0.02, '正在加载影片');
   loadAbort = new AbortController();
   const src = audio.getAttribute('src') || 'assets/audio/teamo-home.mp3';
@@ -430,17 +430,9 @@ if (reduce) {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
-  explore && explore.addEventListener('click', requestFilm);
-  const gateEl = document.getElementById('gate');
-  gateEl && gateEl.addEventListener('click', (e) => {
-    if (e.target.closest('#gate-skip')) return;
-    requestFilm();
-  });
+  exploreCta && exploreCta.addEventListener('click', requestFilm);
   skip && skip.addEventListener('click', skipFilm);
-  gateSkip && gateSkip.addEventListener('click', (e) => {
-    e.stopPropagation();
-    openSite(true);
-  });
+  gateSkip && gateSkip.addEventListener('click', () => openSite(true));
   prefetchAudio();
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;
