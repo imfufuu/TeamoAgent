@@ -687,7 +687,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(systemPrompt(), /上海初中业余编程爱好者/);
   assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
   assert.match(systemPrompt(), /不是 Kiro/);
-  assert.match(systemPrompt(), /茶沫（TeamoAgent）/);
+  assert.match(systemPrompt(), /团团（TeamoAgent）/);
+  assert.match(systemPrompt(), /Team（团队）/);
 });
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
