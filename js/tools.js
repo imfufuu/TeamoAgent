@@ -200,7 +200,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'unzip_file',
-    description: '解压沙箱中的 ZIP 到目标目录（支持 STORE 与 DEFLATE）。用户上传的 .zip 也会自动解到 uploads/。',
+    description: '解压沙箱中的 ZIP 到目标目录（支持 STORE 与 DEFLATE）。用户上传的 .zip 会原样落在 uploads/，需要内容时调用本工具，不要假设已经解开。',
     parameters: {
       type: 'object',
       properties: {

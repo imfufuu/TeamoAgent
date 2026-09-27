@@ -16,7 +16,7 @@ import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
-import { unpackZip } from './unzip.js';
+
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -95,6 +95,7 @@ function hydrateSandboxMedia(root, fs) {
     if (/^data:image\//i.test(String(raw))) {
       img.src = raw;
       if (!img.alt) img.alt = p;
+      img.classList.add('zoomable');
       continue;
     }
     const card = document.createElement('div');
@@ -120,7 +121,7 @@ function renderAttachments(atts) {
     if (a.kind === 'image') {
       const src = safeImgSrc(a.dataUrl);
       return src
-        ? `<a class="att-img" href="${src}" target="_blank" rel="noopener noreferrer" title="${esc(a.name)}"><img src="${src}" alt="${esc(a.name)}"></a>`
+        ? `<button type="button" class="att-img" title="${esc(a.name)}"><img src="${src}" alt="${esc(a.name)}"></button>`
         : `<span class="att-file mono" title="内容未持久化">🖼 ${esc(a.name)}（已省略）</span>`;
     }
     return `<span class="att-file mono" title="${esc(a.name)}">📄 ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
@@ -1182,8 +1183,8 @@ export function mountUI(store, agent) {
     saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
-      <h2>TeamoAgent</h2>
-      <p>基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
+      <h2>茶沫</h2>
+      <p>TeamoAgent · 基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => {
           const shown = x.title || (mqPanel.matches ? shortSuggest(x.text) : x.text);
@@ -1375,39 +1376,67 @@ export function mountUI(store, agent) {
     // 工具芯片
     const chips = $('.tool-chips', wrap);
     if (m.toolCalls && m.toolCalls.length) {
-      if (chips.children.length !== m.toolCalls.length) {
+      const groups = [];
+      const seen = new Map();
+      for (const t of m.toolCalls) {
+        if (t.name === 'write_file') continue;
+        if (!seen.has(t.name)) {
+          const g = { name: t.name, items: [] };
+          seen.set(t.name, g);
+          groups.push(g);
+        }
+        seen.get(t.name).items.push(t);
+      }
+      const sig = groups.map((g) => g.items.map((t) => t.id).join('+')).join('|');
+      if (chips.dataset.sig !== sig) {
+        chips.dataset.sig = sig;
         chips.innerHTML = '';
-        for (const t of m.toolCalls) {
+        for (const g of groups) {
           const chip = el('div', 'chip');
-          chip.dataset.callId = t.id;
-          // 图标用 SVG（线性扳手），未完成时缓慢转动、完成后停下（.done 由 attachToolResult 打上）
-          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(t.name)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
+          const ids = g.items.map((t) => t.id);
+          chip.dataset.callIds = ids.join(',');
+          chip.dataset.callId = ids[0] || '';
+          const label = g.items.length > 1 ? `${g.name} ×${g.items.length}` : g.name;
+          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(label)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
           chip.addEventListener('click', (e) => {
-            if (e.target.closest('.chip-copy')) return; // 入参/出参只复制，不展开详情
+            if (e.target.closest('.chip-copy')) return;
             chip.classList.toggle('expanded');
           });
           const detail = el('div', 'chip-detail mono');
           chip.appendChild(detail);
           chip._detail = detail;
-          chip._args = t.args;
+          chip._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
+          chip._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
+          chip._outs = {};
           chips.appendChild(chip);
         }
       }
-      for (const [i, chip] of $$('.chip', chips).entries()) {
-        if (m.toolCalls[i]) chip._args = m.toolCalls[i].args;
-        // 流式期间参数仍在增长，持续刷新；完成后定格
+      const toolOut = (id) => {
+        const tm = store.state.messages.find((x) => x.role === 'tool' && x.toolCallId === id);
+        return tm ? String(tm.content || '') : '';
+      };
+      for (const chip of $$('.chip', chips)) {
+        const ids = String(chip.dataset.callIds || chip.dataset.callId || '').split(',').filter(Boolean);
+        const items = (m.toolCalls || []).filter((t) => ids.includes(t.id));
+        if (items.length) {
+          chip._items = items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
+          chip._args = items.length === 1 ? items[0].args : items.map((t) => t.args);
+        }
+        if (!chip._outs) chip._outs = {};
+        for (const id of ids) {
+          const out = toolOut(id);
+          if (out) chip._outs[id] = out;
+        }
+        const outs = ids.map((id) => chip._outs[id]).filter((x) => x != null);
+        chip._out = outs.join('\n\n');
         if (!chip._renderedArgs || !m.done) {
-          chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
+          const argHtml = items.length > 1
+            ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
+            : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
+          const resHtml = outs.length ? `<pre class="chip-result">${esc(chip._out)}</pre>` : '';
+          chip._detail.innerHTML = argHtml + resHtml;
           chip._renderedArgs = !!m.done;
         }
-        const tc = m.toolCalls[i];
-        let shot = tc && chipImages.get(tc.id);
-        // 刷新页面后 chipImages 是空的：用持久化在工具调用记录里的图补上（水合后再取回 dataUrl）
-        if (!shot && tc && tc.image) {
-          shot = { dataUrl: tc.image, path: tc.imagePath, width: tc.width, height: tc.height };
-          chipImages.set(tc.id, shot);
-        }
-        // 生图预览改走正文 ![alt](sandbox://path)，芯片里不再插图
         if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
           chip.classList.add('done');
           chip.classList.remove('running');
@@ -1424,7 +1453,7 @@ export function mountUI(store, agent) {
         chips.after(ed);
       }
       const paths = [...new Set(edited.map((c) => String(c.args.path)))];
-      const label = paths.length === 1 ? 'Edited file 1' : `Edited files ${paths.length}`;
+      const label = paths.length === 1 ? 'Edited File' : 'Edited Files';
       ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>${label}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
     } else if (ed) ed.remove();
     // meta（无 msg-head 的续消息没有该节点）
@@ -1539,27 +1568,49 @@ export function mountUI(store, agent) {
   }
 
   function attachToolResult(toolMsg) {
-    const chip = $(`.chip[data-call-id="${CSS.escape(toolMsg.toolCallId)}"]`, msgList);
+    const id = toolMsg.toolCallId;
+    const chip = $$('.chip', msgList).find((c) => String(c.dataset.callIds || c.dataset.callId || '').split(',').includes(id));
     if (!chip) return;
     const body = String(toolMsg.content || '');
-    const ok = !body.startsWith('工具执行失败')
+    const okOne = !body.startsWith('工具执行失败')
       && !body.startsWith('图像模型调用失败')
       && !body.startsWith('图像调用在发起前失败')
       && !/── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(body);
+    if (!chip._outs) chip._outs = {};
+    chip._outs[id] = body;
+    const ids = String(chip.dataset.callIds || chip.dataset.callId || '').split(',').filter(Boolean);
+    const outs = ids.map((x) => chip._outs[x]).filter((x) => x != null);
+    const allIn = outs.length >= ids.length && ids.length > 0;
+    const ok = outs.every((b) => b && !b.startsWith('工具执行失败')
+      && !b.startsWith('图像模型调用失败')
+      && !b.startsWith('图像调用在发起前失败')
+      && !/── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(b));
     const dm = /执行耗时 (\d+)ms/.exec(body);
     const dur = dm ? fmtSpan(Number(dm[1])) : '';
     const errTxt = body.slice(0, 400);
-    $('.chip-state', chip).innerHTML = ok
-      ? `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
-      : `<span class="chip-fail" title="${esc(errTxt)}">✗</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
-    $('.chip-state', chip).classList.toggle('bad', !ok);
-    $('.chip-state', chip).title = ok ? '' : errTxt;
-    chip.classList.add('done');        // 图标停止转动（含刷新页面后重建的芯片）
-    chip.classList.toggle('ok', ok);
-    chip.classList.toggle('fail', !ok);
-    chip.classList.remove('running');
-    chip._out = String(toolMsg.content || '');
-    chip._detail.innerHTML = `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div><pre class="chip-result">${esc(chip._out)}</pre>`;
+    const st = $('.chip-state', chip);
+    if (st) {
+      if (!allIn) st.textContent = `${outs.length}/${ids.length}`;
+      else {
+        st.innerHTML = ok
+          ? `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
+          : `<span class="chip-fail" title="${esc(errTxt)}">✗</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
+        st.classList.toggle('bad', !ok);
+        st.title = ok ? '' : errTxt;
+      }
+    }
+    if (allIn) {
+      chip.classList.add('done');
+      chip.classList.toggle('ok', ok);
+      chip.classList.toggle('fail', !ok);
+      chip.classList.remove('running');
+    }
+    chip._out = outs.join('\n\n');
+    const items = chip._items || [];
+    const argHtml = items.length > 1
+      ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
+      : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
+    chip._detail.innerHTML = `${argHtml}<pre class="chip-result">${esc(chip._out)}</pre>`;
     chip._renderedArgs = true;
   }
 
@@ -1816,30 +1867,17 @@ export function mountUI(store, agent) {
           toast(`${f.name}：已转成图片${more}，发送后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
-          const buf = await f.arrayBuffer();
-          const got = await unpackZip(buf);
-          if (!got.ok) { toast(`${f.name}：${got.error}`, 'err', 5200); continue; }
-          const stem = String(f.name || 'archive').replace(/\.zip$/i, '').replace(/[\\/:*?"<>|]+/g, '_') || 'archive';
-          const dest = `uploads/${stem}`;
-          const written = [];
-          for (const ent of got.files) {
-            const path = `${dest}/${ent.path}`;
-            try { agent.fs.write(path, ent.content); written.push(path); } catch { /* */ }
-          }
-          try { store.state.files = agent.fs.export(); store.notify(); renderFiles(); } catch { /* */ }
-          const listing = written.slice(0, 40).map((p) => `- ${p}`).join('\n');
-          const note = `已解压 ZIP「${f.name}」到 ${dest}/（${written.length} 个文件）。\n${listing}${written.length > 40 ? '\n…' : ''}\n文本用 read_file，图片用 analyze_image。`;
           pending.push({
             id: Math.random().toString(36).slice(2),
-            kind: 'text',
-            name: `${stem}.zip.txt`,
-            mime: 'text/plain',
-            size: note.length,
-            text: note,
+            kind: 'file',
+            name: f.name,
+            mime: f.type || 'application/zip',
+            size: f.size,
+            dataUrl: await readAs('dataURL', f),
             source: 'zip',
             originalName: f.name,
           });
-          toast(`${f.name}：已解压 ${written.length} 个文件到 ${dest}/`, 'ok', 4200);
+          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请让茶沫用 unzip_file 解压`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
@@ -1995,6 +2033,36 @@ export function mountUI(store, agent) {
   }
   syncComposerPh();
   if (mqPanel.addEventListener) mqPanel.addEventListener('change', () => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
+
+  function openLightbox(src, alt) {
+    const box = $('#img-lightbox');
+    const pic = $('#img-lightbox-pic');
+    if (!box || !pic || !src) return;
+    pic.src = src;
+    pic.alt = alt || '';
+    box.hidden = false;
+  }
+  function closeLightbox() {
+    const box = $('#img-lightbox');
+    if (!box) return;
+    box.hidden = true;
+    const pic = $('#img-lightbox-pic');
+    if (pic) pic.removeAttribute('src');
+  }
+  const lightbox = $('#img-lightbox');
+  if (lightbox) lightbox.addEventListener('click', (e) => {
+    if (e.target === lightbox || e.target.closest('.img-lightbox-x')) closeLightbox();
+  });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#img-lightbox') && !$('#img-lightbox').hidden) closeLightbox(); });
+  document.addEventListener('click', (e) => {
+    const img = e.target.closest('img');
+    if (!img || img.id === 'img-lightbox-pic') return;
+    if (!img.closest('.md-body, .att-img, .fv-img, .file-viewer')) return;
+    const src = img.currentSrc || img.src;
+    if (!src) return;
+    e.preventDefault();
+    openLightbox(src, img.alt);
+  });
 
   // 复制工具入参/出参 JSON（不触发展开）
   msgList.addEventListener('click', (e) => {

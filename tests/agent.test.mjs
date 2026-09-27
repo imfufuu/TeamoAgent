@@ -687,7 +687,7 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(systemPrompt(), /上海初中业余编程爱好者/);
   assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
   assert.match(systemPrompt(), /不是 Kiro/);
-  assert.match(systemPrompt(), /只回答 TeamoAgent/);
+  assert.match(systemPrompt(), /茶沫（TeamoAgent）/);
 });
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
@@ -1201,6 +1201,8 @@ test('文本与图片都落 uploads/，同名同内容复用、不同内容加�
   assert.deepEqual(copyAttachmentsToFS(fs, [{ kind: 'image', name: 'cat.png', dataUrl: 'data:image/png;base64,BBB' }]),
     ['uploads/cat-2.png'], '同名不同内容应加序号，不覆盖上一轮');
   assert.equal(fs.read('uploads/cat.png'), 'data:image/png;base64,AAA', '原文件保持不变');
+  const z = copyAttachmentsToFS(fs, [{ kind: 'file', name: 'src.zip', dataUrl: 'data:application/zip;base64,UEs=' }]);
+  assert.deepEqual(z, ['uploads/src.zip'], 'ZIP 原样落入 uploads，不解压');
 });
 test('文件名安全化：路径分隔与控制字符不越出 uploads/', () => {
   const fs = createFS();
@@ -3366,10 +3368,12 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(ui, /class=\"msg-user-bar\"/);
   const htmlApp = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(htmlApp, /id=\"tok-pop\"/);
-  assert.match(htmlApp, /id=\"memory-list\"/, '侧栏长效记忆面板');
+  assert.match(htmlApp, /id=\"memory-list\"/, '长效记忆在右侧沙箱面板');
   assert.match(htmlApp, /id=\"memory-del\"/);
+  assert.ok(htmlApp.indexOf('id="sandbox-panel"') < htmlApp.indexOf('id="memory-list"'), '记忆跟沙箱文件在同一右侧面板');
   assert.equal(htmlApp.includes('id="memory-add"'), false, '记忆面板不支持手写');
   assert.equal(htmlApp.includes('id="memory-input"'), false);
+  assert.match(htmlApp, /id=\"img-lightbox\"/);
   assert.match(ui, /mem-bubble/);
   assert.match(ui, /memSelected/);
   assert.equal(htmlApp.includes('id="tok-break"'), false);
@@ -3489,7 +3493,10 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
-  assert.match(ui, /paths\.length === 1 \? 'Edited file 1'/);
+  assert.match(ui, /paths\.length === 1 \? 'Edited File' : 'Edited Files'/);
+  assert.match(ui, /t\.name === 'write_file'\) continue/, 'write_file 不单独出芯片');
+  assert.match(ui, /×\$\{g\.items\.length\}/, '相同工具多次调用折叠');
+  assert.equal(/unpackZip/.test(ui), false, 'ZIP 上传不再自动解压');
 });
 test('execute_python schema 含 packages', async () => {
   const py = TOOL_DEFS.find((t) => t.name === 'execute_python');
@@ -3599,7 +3606,7 @@ test('createZip → unpackZip 往返文本与防 zip-slip', async () => {
   const bad = await un.unpackZip(evilBuf);
   assert.ok(!bad.files.some((f) => f.path.includes('..') || f.path.startsWith('/')), JSON.stringify(bad.files));
   const src = (await import('node:fs')).readFileSync(new URL('../js/unzip.js', import.meta.url), 'utf8');
-  assert.match(src, /maxFiles = 128/);
+  assert.equal(/maxFiles/.test(src), false, 'ZIP 不解压条目数上限');
 });
 test('zip_files / unzip_file 工具读写沙箱', async () => {
   const fs = createFS();

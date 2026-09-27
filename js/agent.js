@@ -50,7 +50,7 @@ export function copyAttachmentsToFS(fs, attachments = []) {
   const written = [];
   const taken = new Set(fs.list().map((f) => f.path));
   for (const a of attachments || []) {
-    const content = a.kind === 'image' ? a.dataUrl : a.text;
+    const content = a.kind === 'text' ? a.text : (a.dataUrl || a.text);
     if (content == null || content === '') continue;
     const base = `uploads/${safeName(a.name)}`;
     let path = base;

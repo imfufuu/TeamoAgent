@@ -79,7 +79,7 @@ function sniffEntry(path, bytes) {
 /**
  * @returns {Promise<{ok:boolean, files:{path:string, kind:string, content:string}[], error?:string}>}
  */
-export async function unpackZip(bytes, { maxFiles = 128, maxUncompressed = 24 * 1024 * 1024 } = {}) {
+export async function unpackZip(bytes, { maxUncompressed = 24 * 1024 * 1024 } = {}) {
   const u8 = toU8(bytes);
   if (!isZipBytes(u8)) return { ok: false, files: [], error: '不是 ZIP 文件' };
   const eocd = findEocd(u8);
@@ -111,7 +111,6 @@ export async function unpackZip(bytes, { maxFiles = 128, maxUncompressed = 24 * 
     if (name.endsWith('/')) continue;
     const rel = safeRelPath(name);
     if (!rel) continue;
-    if (files.length >= maxFiles) return { ok: false, files, error: `条目超过 ${maxFiles} 个，已停止` };
     if (method !== 0 && method !== 8) continue;
     if (localOff + 30 > u8.length) continue;
     if (u32(u8, localOff) !== 0x04034b50) continue;

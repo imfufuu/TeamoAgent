@@ -525,7 +525,7 @@ a { color: var(--fg); }
 .md-body th { background: var(--bg-hover); font-weight: 700; }
 .md-body tbody tr:nth-child(even) { background: var(--bg-soft); }
 .md-body hr { border: none; border-top: 1px solid var(--line); margin: 1.2em 0; }
-.md-body img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); }
+.md-body img { max-width: 100%; border-radius: 8px; border: 1px solid var(--line); cursor: zoom-in; }
 /* generate_image 工具芯片内的出图预览（点击可新标签查看，不折叠芯片）*/
 .chip-img { width: 100%; margin: 6px 0 2px; max-width: min(360px, 100%); }
 .chip-img img { width: 100%; height: auto; display: block; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-soft); }
@@ -694,6 +694,7 @@ a { color: var(--fg); }
 
 /* 用户气泡内附件展示 */
 .att-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.att-img { background: none; border: 0; padding: 0; cursor: zoom-in; }
 .att-img img {
   max-width: 180px; max-height: 140px; border-radius: 10px; display: block;
   border: 1px solid var(--line-2); transition: transform .25s var(--ease);
@@ -896,7 +897,22 @@ a { color: var(--fg); }
 .file-viewer.open { display: flex; animation: fadeUp .3s var(--ease) both; }
 .file-viewer-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 600; }
 .file-viewer pre { flex: 1; overflow: auto; padding: 12px 14px; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; word-break: break-all; }
-#tab-files { position: relative; display: flex; flex-direction: column; min-height: 0; gap: 0; }
+#tab-files { position: relative; display: flex; flex-direction: column; min-height: 0; gap: 12px; }
+.mem-card { flex: 0 1 auto; max-height: 42%; }
+.mem-card .mem-list { max-height: 240px; padding: 8px 12px 12px; }
+.img-lightbox {
+  position: fixed; inset: 0; z-index: 120;
+  background: rgba(8, 8, 8, .78);
+  display: flex; align-items: center; justify-content: center;
+  padding: 28px;
+}
+.img-lightbox[hidden] { display: none !important; }
+.img-lightbox img { max-width: min(96vw, 1400px); max-height: 92vh; object-fit: contain; border-radius: 10px; box-shadow: var(--shadow-lg); }
+.img-lightbox-x {
+  position: absolute; top: 14px; right: 16px; font-size: 22px; line-height: 1;
+  color: #fff; padding: 6px 10px; border-radius: 8px; background: transparent;
+}
+.img-lightbox-x:hover { background: rgba(255,255,255,.12); }
 
 /* ── 弹窗 ────────────────────────────────────────────────────────────── */
 .modal {
