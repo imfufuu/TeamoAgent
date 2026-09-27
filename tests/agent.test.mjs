@@ -3405,7 +3405,10 @@ test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
   assert.match(ui, /class="think-ico"/);
   assert.match(css, /\.think-hidden \{[^}]*padding-left:\s*0/, '隐藏思考说明不要再叠一层缩进');
   assert.match(ui, /onReasoning/, '可见思考要流式上屏，不能等正文结束');
+  assert.match(ui, /onToolDelta/, '工具参数要边流边画，不能等本轮结束');
   assert.match(ui, /thinkLive/, '思考完自动折叠');
+  assert.match(ui, /think-stream/, '思考流式用纯文本，避免每帧重跑 markdown 把折叠高度打回 0');
+  assert.match(ui, /dataset.sig/, '思考块骨架只建一次');
   assert.equal(/el\('details', 'edited-files'\)/.test(ui), false, 'Edited File 与思考过程同构，不用 details');
 });
 test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
@@ -3960,6 +3963,35 @@ test('文学字体本地 OFL 文件与 :::font 提示词', async () => {
   assert.equal(fsp.existsSync(new URL('../fonts/SourceSerif4-Regular.ttf', import.meta.url)), true);
   assert.equal(fsp.existsSync(new URL('../fonts/NotoSerif-Regular.ttf', import.meta.url)), true);
   assert.match(html, /font-src 'self' data: https:\/\/fonts\.gstatic\.com/);
+});
+
+
+group('.56 思考/工具流式与楷仿宋字体');
+test('tool_delta 必须 emit 到界面，不能只写 store', async () => {
+  const fsp = await import('node:fs');
+  const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const block = ag.slice(ag.indexOf("case 'tool_delta'"), ag.indexOf("case 'web_search'"));
+  assert.match(block, /emit\('onToolDelta'/);
+  assert.match(block, /toolCalls: acc\.result\(\)/);
+});
+test('楷体仿宋不得回退成宋体 Noto Serif SC', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../fonts/literary.css', import.meta.url), 'utf8');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const kai = css.slice(css.indexOf('.md-font-kai {'), css.indexOf('.md-font-song {'));
+  const fang = css.slice(css.indexOf('.md-font-fangsong {'), css.indexOf('.md-font-heiti {'));
+  assert.match(kai, /LXGW WenKai TC/);
+  assert.equal(/Noto Serif SC/.test(kai), false, '楷体栈里不能有宋体');
+  assert.match(fang, /Cactus Classical Serif/);
+  assert.equal(/Noto Serif SC/.test(fang), false, '仿宋栈里不能有宋体');
+  assert.match(html, /family=LXGW\+WenKai\+TC/);
+  assert.match(html, /family=Cactus\+Classical\+Serif/);
+});
+test('流式展开时 chip-detail 取消 0fr 动画', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.reasoning\.live > \.chip-detail/);
+  assert.match(css, /\.chip\.live > \.chip-detail/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

@@ -1,4 +1,5 @@
-/* 文学排版字体：本地 OFL 西文 + 系统中文/日文 + Google Fonts 补全（仅 :::font 块启用） */
+/* 文学排版字体：仅 :::font 块启用。日常聊天仍用页面默认字体。
+   楷体不得回退到 Noto Serif SC（宋），仿宋不得回退到宋体。 */
 @font-face {
   font-family: "Teamo Serif";
   src: url("./SourceSerif4-Regular.ttf") format("truetype");
@@ -17,19 +18,22 @@
 
 .md-font { line-height: 1.85; letter-spacing: .02em; }
 .md-font-kai {
-  font-family: "LXGW WenKai", "STKaiti", "Kaiti SC", "KaiTi", "Noto Serif SC", "Teamo Noto Serif", serif;
+  font-family: "LXGW WenKai TC", "Klee One", "STKaiti", "Kaiti SC", "KaiTi", "KaiTi_GB2312", cursive, serif;
+  font-synthesis: none;
 }
 .md-font-song {
   font-family: "Noto Serif SC", "Songti SC", "STSong", "SimSun", "Teamo Serif", "Teamo Noto Serif", serif;
 }
 .md-font-fangsong {
-  font-family: "STFangsong", "FangSong", "Noto Serif SC", "Songti SC", "Teamo Serif", serif;
+  font-family: "Cactus Classical Serif", "STFangsong", "FangSong", "FangSong_GB2312", "cwTeXFangSong", serif;
+  font-synthesis: none;
+  letter-spacing: .06em;
 }
 .md-font-heiti {
   font-family: "Noto Sans SC", "Heiti SC", "STHeiti", "SimHei", "PingFang SC", "Microsoft YaHei", sans-serif;
 }
 .md-font-xingkai {
-  font-family: "Ma Shan Zheng", "STXingkai", "Xingkai SC", "LXGW WenKai", "KaiTi", cursive, serif;
+  font-family: "Ma Shan Zheng", "STXingkai", "Xingkai SC", "LXGW WenKai TC", "Klee One", cursive, serif;
 }
 .md-font-serif {
   font-family: "Teamo Serif", "Teamo Noto Serif", "Source Serif 4", "Noto Serif", "Georgia", "Times New Roman", serif;

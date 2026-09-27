@@ -461,6 +461,22 @@ export function mountUI(store, agent) {
   const msgNodes = new Map();
 
   let rafPending = false;
+  let rafMsg = null;
+  const schedulePaint = (m) => {
+    if (!m || !msgNodes.get(m.id)) return;
+    rafMsg = m;
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => {
+      rafPending = false;
+      const msg = rafMsg;
+      rafMsg = null;
+      if (!msg) return;
+      const w = msgNodes.get(msg.id);
+      if (w) paintAssistant(w, msg);
+      scrollToBottom();
+    });
+  };
 
   // ── 主题 ──
   const applyTheme = () => document.documentElement.dataset.theme = store.state.settings.theme;
@@ -1393,6 +1409,7 @@ export function mountUI(store, agent) {
     }
     // 思考过程与工具芯片同构：整行 click + .expanded + .chip-detail，不用 <details>
     // 有可见思考正文时边流边展开；思考结束（正文/工具出现或 round done）自动折叠。
+    // 流式时只改 fold-inner，禁止整段 innerHTML（会把 0fr→1fr 动画打回 0 高，看起来像没流式）。
     let reason = $('.reasoning', wrap);
     const thinkPending = live && thinkOn && !m.cancelled && !showThink && !hiddenThink;
     if (showThink || hiddenThink || thinkPending) {
@@ -1403,6 +1420,7 @@ export function mountUI(store, agent) {
           reason.classList.toggle('expanded');
           wrap._reasonUser = reason.classList.contains('expanded');
         });
+        reason.innerHTML = `<span class="think-ico">${ICON.thinking || ''}</span><span class="mono chip-name"></span><span class="chip-state"></span><div class="chip-detail reason-detail"><div class="fold-inner"></div></div>`;
         wrap.insertBefore(reason, body);
       }
       const bits = [];
@@ -1411,16 +1429,28 @@ export function mountUI(store, agent) {
       if (hiddenThink && m.usage && m.usage.reasoning) bits.push(`${m.usage.reasoning} tok`);
       if (m.reasoningMs) bits.push(fmtSpan(m.reasoningMs));
       const title = (showThink || thinkPending) ? '思考过程' : '已思考';
+      const nameEl = $('.chip-name', reason);
+      const stateEl = $('.chip-state', reason);
+      if (nameEl) nameEl.textContent = title;
+      if (stateEl) stateEl.textContent = bits.join(' · ');
+      const inner = $('.fold-inner', reason);
       const detail = showThink
-        ? renderMarkdown(m.reasoning)
+        ? (live ? `<pre class="think-stream">${esc(m.reasoning)}</pre>` : renderMarkdown(m.reasoning))
         : (hiddenThink
           ? '<div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div>'
           : '');
-      reason.innerHTML = `<span class="think-ico">${ICON.thinking || ''}</span><span class="mono chip-name">${title}</span><span class="chip-state">${esc(bits.join(' · '))}</span><div class="chip-detail reason-detail"><div class="fold-inner">${detail}</div></div>`;
-      hydrateSandboxMedia($('.reason-detail', reason) || reason, agent.fs);
-      bindFoldRows($('.reason-detail', reason) || reason);
-      const thinkLive = live && !!m.reasoning && !m.text && !(m.toolCalls && m.toolCalls.length);
+      const sig = `${live ? 'live' : 'done'}:${(m.reasoning || '').length}:${hiddenThink ? 1 : 0}`;
+      if (inner && inner.dataset.sig !== sig) {
+        inner.dataset.sig = sig;
+        inner.innerHTML = detail;
+        if (!live) {
+          hydrateSandboxMedia($('.reason-detail', reason) || reason, agent.fs);
+          bindFoldRows($('.reason-detail', reason) || reason);
+        }
+      }
+      const thinkLive = live && (thinkPending || !!m.reasoning) && !m.text && !(m.toolCalls && m.toolCalls.length);
       const autoOpen = thinkLive;
+      reason.classList.toggle('live', thinkLive);
       reason.classList.toggle('expanded', wrap._reasonUser == null ? autoOpen : !!wrap._reasonUser);
     } else if (reason) {
       reason.remove();
@@ -1510,6 +1540,7 @@ export function mountUI(store, agent) {
           chip._detail.innerHTML = `<div class="fold-inner">${argHtml}${resHtml}</div>`;
           chip._renderedArgs = !!m.done;
         }
+        chip.classList.toggle('live', live && !chip.classList.contains('done'));
         if (chip._userToggle == null) chip.classList.toggle('expanded', !chip.classList.contains('done'));
         if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
           chip.classList.add('done');
@@ -2359,20 +2390,9 @@ export function mountUI(store, agent) {
       else wrap.appendChild(chip);
     },
     onAssistantStart(m) { appendMessage(m); },
-    onDelta(m, text) {
-      const wrap = msgNodes.get(m.id);
-      if (!wrap) return;
-      if (rafPending) return;
-      rafPending = true;
-      requestAnimationFrame(() => { rafPending = false; paintAssistant(wrap, m); scrollToBottom(); });
-    },
-    onReasoning(m) {
-      const wrap = msgNodes.get(m.id);
-      if (!wrap) return;
-      if (rafPending) return;
-      rafPending = true;
-      requestAnimationFrame(() => { rafPending = false; paintAssistant(wrap, m); scrollToBottom(); });
-    },
+    onDelta(m) { schedulePaint(m); },
+    onReasoning(m) { schedulePaint(m); },
+    onToolDelta(m) { schedulePaint(m); },
     onAssistantDone(m) {
       const wrap = msgNodes.get(m.id);
       if (wrap) paintAssistant(wrap, m);

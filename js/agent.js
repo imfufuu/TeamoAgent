@@ -418,11 +418,12 @@ export function createAgent(store, hooks = {}) {
                   case 'tool_delta': {
                     acc.push(ev);
                     sawToolDelta = true;
-                    // 流式期间增量刷新工具芯片（节流 300ms）
-                    const now = performance.now();
-                    if (now - lastChipPaint > 300) {
+                    // 流式期间把半成品 toolCalls 推到界面（节流约一帧），不能只写 store 不 emit
+                    const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+                    if (now - lastChipPaint > 50) {
                       lastChipPaint = now;
                       store.updateMessage(assistantMsg.id, { toolCalls: acc.result() });
+                      emit('onToolDelta', assistantMsg);
                     }
                     break;
                   }

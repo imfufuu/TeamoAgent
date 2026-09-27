@@ -602,8 +602,14 @@ a { color: var(--fg); }
 .reasoning.expanded .chip-detail,
 .md-fold.expanded > .chip-detail,
 .edited-files.expanded > .chip-detail,
-.explored-files.expanded > .chip-detail {
+.explored-files.expanded > .chip-detail,
+.reasoning.live > .chip-detail,
+.chip.live > .chip-detail {
   grid-template-rows: 1fr; opacity: 1;
+}
+.reasoning.live > .chip-detail,
+.chip.live > .chip-detail {
+  transition: none;
 }
 .chip-detail > .fold-inner { overflow: hidden; min-height: 0; }
 .chip-args { margin: 4px 0; word-break: break-all; }
@@ -740,6 +746,11 @@ a { color: var(--fg); }
 .reasoning .chip-name { color: var(--fg-3); font-weight: 500; }
 .reasoning:hover .chip-name { color: var(--fg-3); }
 .reasoning .chip-detail { font-size: 12.5px; padding-left: 21px; line-height: 1.65; }
+.reasoning .think-stream {
+  margin: 0; padding: 0; border: none; background: none;
+  white-space: pre-wrap; word-break: break-word;
+  font-family: inherit; font-size: inherit; color: inherit; line-height: inherit;
+}
 .reasoning .chip-state { color: var(--fg-3); font-family: var(--mono); }
 .md-fold .chip-name, .edited-files .chip-name, .explored-files .chip-name { color: var(--fg-3); font-weight: 500; }
 .md-fold .chip-ico { transition: transform .28s var(--ease); }
