@@ -21,33 +21,34 @@ const billboard = document.getElementById('billboard');
 const curtain = document.getElementById('curtain');
 
 const SCENES = [
-  { beat: 0, x: 0, y: 80, z: 920, rx: 16, ry: -22, rz: 0, focus: 'logo', title: '' },
-  { beat: 4, x: 0, y: 0, z: 150, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TEAMOAGENT' },
-  { beat: 8, x: 0, y: -460, z: 210, rx: 8, ry: 6, rz: 0, focus: 'copy', title: '浏览器里的智能体' },
-  { beat: 12, x: 20, y: -440, z: 130, rx: 2, ry: -6, rz: 0, focus: 'copy' },
-  { beat: 16, x: 480, y: 70, z: 360, rx: 6, ry: 18, rz: 0, focus: 'sandbox', title: '沙箱隔离执行' },
-  { beat: 20, x: 460, y: 40, z: 140, rx: 0, ry: 6, rz: 0, focus: 'sandbox' },
-  { beat: 24, x: -520, y: 240, z: 340, rx: -6, ry: -16, rz: 0, focus: 'files', title: '工作区 120 MB' },
-  { beat: 28, x: -500, y: 200, z: 130, rx: 0, ry: -4, rz: 0, focus: 'files' },
-  { beat: 32, x: 160, y: -360, z: 440, rx: 10, ry: 8, rz: 0, focus: 'image', title: '出图与识图' },
-  { beat: 36, x: 140, y: -320, z: 150, rx: 2, ry: -8, rz: 0, focus: 'image' },
-  { beat: 40, x: -240, y: -10, z: 190, rx: 0, ry: 12, rz: 0, focus: 'ultra', title: '思考档 Off → Ultra' },
-  { beat: 44, x: -220, y: 16, z: 120, rx: -4, ry: -4, rz: 0, focus: 'ultra' },
-  { beat: 48, x: 80, y: 400, z: 320, rx: -10, ry: 4, rz: 0, focus: 'term', title: '跑起来，结果落盘' },
-  { beat: 52, x: 60, y: 360, z: 140, rx: -4, ry: 0, rz: 0, focus: 'term' },
-  { beat: 56, x: 620, y: -210, z: 280, rx: 8, ry: -18, rz: 0, focus: 'tools', title: '差分 · 搜索 · JSON' },
-  { beat: 60, x: 600, y: -180, z: 140, rx: 0, ry: -6, rz: 0, focus: 'tools' },
-  { beat: 64, x: -620, y: -170, z: 260, rx: 6, ry: 16, rz: 0, focus: 'zip', title: 'ZIP 打包带走' },
-  { beat: 68, x: -600, y: -140, z: 130, rx: 0, ry: 6, rz: 0, focus: 'zip' },
-  { beat: 72, x: 0, y: 20, z: 640, rx: 6, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
-  { beat: 84, x: 0, y: 0, z: 220, rx: 0, ry: 0, rz: 0, focus: 'logo', title: '' },
-  { beat: 92, x: 0, y: 0, z: 900, rx: 4, ry: 0, rz: 0, focus: 'logo' },
-  { beat: 100, x: 0, y: 0, z: 1400, rx: 2, ry: 0, rz: 0, focus: '', title: '' },
+  { beat: 0, x: 0, y: 36, z: 980, rx: 6, ry: -8, rz: 0, focus: 'logo', title: '' },
+  { beat: 4, x: 0, y: 0, z: 280, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TEAMOAGENT' },
+  { beat: 8, x: 0, y: -720, z: 320, rx: 3, ry: 3, rz: 0, focus: 'copy', title: '浏览器里的智能体' },
+  { beat: 12, x: 0, y: -700, z: 260, rx: 0, ry: -2, rz: 0, focus: 'copy' },
+  { beat: 16, x: 820, y: 40, z: 400, rx: 2, ry: 8, rz: 0, focus: 'sandbox', title: '沙箱隔离执行' },
+  { beat: 20, x: 800, y: 24, z: 280, rx: 0, ry: 3, rz: 0, focus: 'sandbox' },
+  { beat: 24, x: -840, y: 180, z: 400, rx: -2, ry: -8, rz: 0, focus: 'files', title: '工作区 120 MB' },
+  { beat: 28, x: -820, y: 160, z: 280, rx: 0, ry: -3, rz: 0, focus: 'files' },
+  { beat: 32, x: 220, y: -680, z: 420, rx: 4, ry: 3, rz: 0, focus: 'image', title: '出图与识图' },
+  { beat: 36, x: 200, y: -660, z: 280, rx: 1, ry: -3, rz: 0, focus: 'image' },
+  { beat: 40, x: -300, y: 0, z: 340, rx: 0, ry: 6, rz: 0, focus: 'ultra', title: '思考档 Off → Ultra' },
+  { beat: 44, x: -280, y: 8, z: 260, rx: -1, ry: -2, rz: 0, focus: 'ultra' },
+  { beat: 48, x: 60, y: 760, z: 380, rx: -4, ry: 2, rz: 0, focus: 'term', title: '跑起来，结果落盘' },
+  { beat: 52, x: 40, y: 740, z: 280, rx: -2, ry: 0, rz: 0, focus: 'term' },
+  { beat: 56, x: 900, y: -260, z: 400, rx: 3, ry: -8, rz: 0, focus: 'tools', title: '差分 · 搜索 · JSON' },
+  { beat: 60, x: 880, y: -240, z: 300, rx: 0, ry: -3, rz: 0, focus: 'tools' },
+  { beat: 64, x: -900, y: -220, z: 400, rx: 2, ry: 8, rz: 0, focus: 'zip', title: 'ZIP 打包带走' },
+  { beat: 68, x: -880, y: -200, z: 300, rx: 0, ry: 3, rz: 0, focus: 'zip' },
+  { beat: 72, x: 0, y: 10, z: 720, rx: 2, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
+  { beat: 84, x: 0, y: 0, z: 300, rx: 0, ry: 0, rz: 0, focus: 'logo', title: '' },
+  { beat: 92, x: 0, y: 0, z: 980, rx: 2, ry: 0, rz: 0, focus: 'logo' },
+  { beat: 100, x: 0, y: 0, z: 1400, rx: 0, ry: 0, rz: 0, focus: '', title: '' },
 ];
 
 const FILM_SEC = 47.65;
 const CURTAIN_SEC = 5;
 const BLACK_SEC = 2.5;
+const OPEN_FADE = 1.2;
 
 let playing = false;
 let raf = 0;
@@ -82,14 +83,43 @@ function camAt(beatF) {
   const next = SCENES[Math.min(i + 1, SCENES.length - 1)];
   const span = Math.max(0.0001, next.beat - cur.beat);
   const u = smoother((beatF - cur.beat) / span);
+  const same = cur.focus === next.focus;
+  // 换镜先拉远再落到下一物，避免主体被挤到画幅边缘后直接裁掉
+  const far = Math.max(cur.z, next.z) + (same ? 0 : WHIP * 90);
+  if (same) {
+    return {
+      x: lerp(cur.x, next.x, u),
+      y: lerp(cur.y, next.y, u),
+      z: lerp(cur.z, next.z, u),
+      rx: lerp(cur.rx, next.rx, u),
+      ry: lerp(cur.ry, next.ry, u),
+      rz: lerp(cur.rz, next.rz, u),
+      focus: cur.focus,
+      title: cur.title,
+    };
+  }
+  if (u < 0.42) {
+    const t = smoother(u / 0.42);
+    return {
+      x: cur.x,
+      y: cur.y,
+      z: lerp(cur.z, far, t),
+      rx: lerp(cur.rx, 0, t),
+      ry: lerp(cur.ry, 0, t),
+      rz: lerp(cur.rz, 0, t),
+      focus: cur.focus,
+      title: cur.title,
+    };
+  }
+  const t = smoother((u - 0.42) / 0.58);
   return {
-    x: lerp(cur.x, next.x, u),
-    y: lerp(cur.y, next.y, u),
-    z: lerp(cur.z, next.z, u),
-    rx: lerp(cur.rx, next.rx, u),
-    ry: lerp(cur.ry, next.ry, u),
-    rz: lerp(cur.rz, next.rz, u),
-    focus: u < 0.5 ? cur.focus : next.focus,
+    x: lerp(cur.x, next.x, t),
+    y: lerp(cur.y, next.y, t),
+    z: lerp(far, next.z, t),
+    rx: lerp(0, next.rx, t),
+    ry: lerp(0, next.ry, t),
+    rz: lerp(0, next.rz, t),
+    focus: t < 0.22 ? cur.focus : next.focus,
     title: cur.title,
   };
 }
@@ -132,8 +162,13 @@ function nowSec() {
 
 function paintCurtain(t) {
   if (!curtain) return;
-  const u = t - (FILM_SEC - CURTAIN_SEC);
   curtain.style.transition = 'none';
+  if (t < OPEN_FADE) {
+    curtain.style.background = '#000';
+    curtain.style.opacity = String(1 - smoother(t / OPEN_FADE));
+    return;
+  }
+  const u = t - (FILM_SEC - CURTAIN_SEC);
   if (u <= 0) {
     curtain.style.opacity = '0';
     curtain.style.background = '#000';
@@ -294,6 +329,11 @@ async function startFilm() {
   lastBeat = -1;
   lastTitle = '';
   slam('');
+  if (curtain) {
+    curtain.style.transition = 'none';
+    curtain.style.background = '#000';
+    curtain.style.opacity = '1';
+  }
   root.classList.remove('gate', 'open');
   root.classList.add('scoring');
   lockScroll(true);
@@ -391,8 +431,16 @@ if (reduce) {
   root.classList.remove('open', 'scoring');
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
   explore && explore.addEventListener('click', requestFilm);
+  const gateEl = document.getElementById('gate');
+  gateEl && gateEl.addEventListener('click', (e) => {
+    if (e.target.closest('#gate-skip')) return;
+    requestFilm();
+  });
   skip && skip.addEventListener('click', skipFilm);
-  gateSkip && gateSkip.addEventListener('click', () => openSite(true));
+  gateSkip && gateSkip.addEventListener('click', (e) => {
+    e.stopPropagation();
+    openSite(true);
+  });
   prefetchAudio();
   window.addEventListener('keydown', (e) => {
     if (e.metaKey || e.ctrlKey || e.altKey) return;

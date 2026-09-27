@@ -100,10 +100,13 @@ html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181
   font-family: var(--mono); font-size: 11px; letter-spacing: .2em;
   text-transform: uppercase; color: var(--fg-3);
 }
+html.gate .gate { cursor: pointer; }
+html.gate:has(#explore.waiting) .gate { cursor: wait; }
 .explore {
   appearance: none; background: none; border: 0; cursor: pointer;
   color: var(--fg); display: flex; flex-direction: column; align-items: center;
-  gap: 14px; padding: 8px 12px 4px; position: relative;
+  gap: 14px; padding: 28px 36px 20px; position: relative;
+  min-width: min(88vw, 420px);
 }
 .explore-mark {
   width: 84px; height: 84px; display: grid; place-items: center;
@@ -226,20 +229,20 @@ html.gate .glow {
 .shot {
   position: absolute; left: 0; top: 0;
   transform-style: preserve-3d;
-  opacity: .16;
-  filter: blur(14px);
-  transition: opacity .55s var(--film), filter .55s var(--film);
+  opacity: 0;
+  filter: none;
+  transition: opacity .7s var(--film);
 }
-.shot.focus { opacity: 1; filter: none; z-index: 2; }
+.shot.focus { opacity: 1; z-index: 2; }
 .shot[data-id="logo"] { transform: translate3d(0, 0, 0); }
-.shot[data-id="copy"] { transform: translate3d(0, -460px, 80px); }
-.shot[data-id="sandbox"] { transform: translate3d(480px, 60px, -320px) rotateY(-18deg); }
-.shot[data-id="files"] { transform: translate3d(-520px, 220px, -200px) rotateY(16deg); }
-.shot[data-id="image"] { transform: translate3d(160px, -360px, -480px) rotateX(8deg); }
-.shot[data-id="ultra"] { transform: translate3d(-240px, -20px, 280px); }
-.shot[data-id="term"] { transform: translate3d(80px, 400px, -160px) rotateX(-10deg); }
-.shot[data-id="tools"] { transform: translate3d(620px, -200px, 120px) rotateY(20deg); }
-.shot[data-id="zip"] { transform: translate3d(-620px, -160px, -80px) rotateY(-16deg); }
+.shot[data-id="copy"] { transform: translate3d(0, -710px, 40px); }
+.shot[data-id="sandbox"] { transform: translate3d(810px, 30px, -180px) rotateY(-10deg); }
+.shot[data-id="files"] { transform: translate3d(-830px, 170px, -100px) rotateY(10deg); }
+.shot[data-id="image"] { transform: translate3d(210px, -670px, -240px) rotateX(4deg); }
+.shot[data-id="ultra"] { transform: translate3d(-290px, 5px, 160px); }
+.shot[data-id="term"] { transform: translate3d(50px, 750px, -80px) rotateX(-5deg); }
+.shot[data-id="tools"] { transform: translate3d(890px, -250px, 60px) rotateY(10deg); }
+.shot[data-id="zip"] { transform: translate3d(-890px, -210px, 40px) rotateY(-10deg); }
 .shot-inner {
   transform: translate(-50%, -50%);
   transform-style: preserve-3d;
@@ -311,7 +314,7 @@ html.gate .glow {
 }
 .film-skip:hover { color: #f4f1ea; }
 
-.mark { width: min(42vw, 340px); height: min(42vw, 340px); color: #f4f1ea; position: relative; }
+.mark { width: min(34vw, 260px); height: min(34vw, 260px); color: #f4f1ea; position: relative; }
 .mark svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 30px 50px rgba(0,0,0,.45)); }
 .brand-plate {
   margin-top: 28px; text-align: center;
@@ -346,19 +349,21 @@ html.gate .glow {
 }
 
 .prop-card {
-  width: min(78vw, 520px);
+  width: min(58vw, 380px);
   background:
     linear-gradient(180deg, rgba(255,255,255,.1), transparent 22%),
     linear-gradient(180deg, #1a1a16, #10100e);
   border: 1px solid rgba(244,241,234,.16);
-  border-radius: 22px; padding: 28px 26px 22px;
+  border-radius: 20px; padding: 22px 20px 18px;
   box-shadow:
     0 40px 90px rgba(0,0,0,.45),
     inset 0 1px 0 rgba(255,255,255,.18),
     inset 0 -1px 0 rgba(0,0,0,.45);
 }
-.prop-card .k { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .45; margin-bottom: 14px; }
-.prop-card h3 { font-family: var(--serif); font-size: clamp(36px, 7vw, 56px); font-weight: 500; letter-spacing: -.03em; }
+.prop-card .k { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .45; margin-bottom: 12px; }
+.prop-card h3 { font-family: var(--serif); font-size: clamp(26px, 4.6vw, 38px); font-weight: 500; letter-spacing: -.03em; }
+.tools-board { width: min(50vw, 320px); }
+.tools-board h3 { font-size: clamp(22px, 3.8vw, 30px); }
 .prop-card p { margin-top: 10px; font-size: 15px; line-height: 1.6; color: rgba(244,241,234,.62); }
 .pills { display: flex; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
 .pills span {
@@ -367,7 +372,7 @@ html.gate .glow {
 }
 
 .tree {
-  width: min(72vw, 420px); border-radius: 20px;
+  width: min(62vw, 360px); border-radius: 20px;
   border: 1px solid rgba(244,241,234,.16);
   background:
     linear-gradient(180deg, rgba(255,255,255,.08), transparent 20%),
@@ -383,7 +388,7 @@ html.gate .glow {
 .tree .sz { font-family: var(--mono); font-size: 11px; opacity: .4; }
 
 .poster {
-  width: min(70vw, 380px); aspect-ratio: 1;
+  width: min(52vw, 300px); aspect-ratio: 1;
   border-radius: 28px;
   background:
     radial-gradient(circle at 32% 24%, rgba(255,255,255,.16), transparent 36%),
@@ -398,10 +403,10 @@ html.gate .glow {
 .poster svg { width: 42%; height: 42%; }
 
 .think-hero {
-  text-align: center; width: min(80vw, 560px);
+  text-align: center; width: min(72vw, 480px);
 }
 .think-hero .ultra {
-  font-family: var(--serif); font-size: clamp(64px, 14vw, 140px);
+  font-family: var(--serif); font-size: clamp(48px, 10vw, 96px);
   font-weight: 500; letter-spacing: -.04em; line-height: .9;
   background: linear-gradient(135deg, #c4b5fd, #fb7185, #fde68a, #c4b5fd);
   background-size: 220% 220%;
@@ -409,10 +414,10 @@ html.gate .glow {
   animation: silk 6s linear infinite;
 }
 @keyframes silk { to { background-position: 100% 0; } }
-.think-hero p { margin-top: 18px; font-size: 16px; color: rgba(244,241,234,.55); letter-spacing: .08em; }
+.think-hero p { margin-top: 16px; font-size: 14px; color: rgba(244,241,234,.55); letter-spacing: .06em; }
 
 .term {
-  width: min(82vw, 560px); border-radius: 18px; overflow: hidden;
+  width: min(68vw, 440px); border-radius: 18px; overflow: hidden;
   border: 1px solid rgba(244,241,234,.16);
   background:
     linear-gradient(180deg, rgba(255,255,255,.07), transparent 18%),

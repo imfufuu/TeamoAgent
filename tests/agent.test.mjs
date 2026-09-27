@@ -1746,6 +1746,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /id="gate-skip"/);
   assert.match(home, /class="gate-beats"/);
   assert.match(home, /播放介绍片/);
+  assert.equal(home.includes('思考五档'), false, '思考档是七档');
+  assert.equal(home.includes('上限 128'), false, 'ZIP 已去掉条目上限');
   assert.match(home, /id="gate-load"/);
   assert.match(home, /正在加载影片/);
   assert.match(home, /<h2>现在就开始<\/h2>/);
