@@ -653,8 +653,10 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(toc, /class="[^"]*md-jump/);
   assert.equal(/href="#hello-world"[^>]*target="_blank"/.test(toc), false, '文内锚点不要新窗口');
   const fold = renderMarkdown('上文\n\n:::fold 详细推导\n隐藏答案\n:::\n');
-  assert.match(fold, /<details class="md-fold">/);
-  assert.match(fold, /<summary>详细推导<\/summary>/);
+  assert.match(fold, /class="md-fold"/);
+  assert.match(fold, /详细推导/);
+  assert.match(fold, /chip-detail/);
+  assert.equal(/<details/.test(fold), false, '折叠栏不用原生 details（焦点黑框）');
   const choice = renderMarkdown('请拍板\n\n:::choice 部署方式\n- GitHub Pages\n- 自建\n:::');
   assert.match(choice, /class="choice-box"/);
   assert.match(choice, /class="choice-head"/);
@@ -3395,6 +3397,10 @@ test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
   assert.ok(ICON.thinking.includes('stroke="currentColor"'));
   assert.match(ui, /ICON\.thinking/, '深度思考提示要带思考图标');
   assert.match(ui, /class="think-ico"/);
+  assert.match(css, /\.think-hidden \{[^}]*padding-left:\s*0/, '隐藏思考说明不要再叠一层缩进');
+  assert.match(ui, /onReasoning/, '可见思考要流式上屏，不能等正文结束');
+  assert.match(ui, /thinkLive/, '思考完自动折叠');
+  assert.equal(/el\('details', 'edited-files'\)/.test(ui), false, 'Edited File 与思考过程同构，不用 details');
 });
 test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', async () => {
   const fsp = await import('node:fs');

@@ -111,6 +111,23 @@ function hydrateSandboxMedia(root, fs) {
     img.replaceWith(card);
   }
 }
+
+function bindFoldRows(root) {
+  if (!root) return;
+  for (const n of root.querySelectorAll('.md-fold')) {
+    if (n.dataset.bound) continue;
+    n.dataset.bound = '1';
+    const toggle = () => n.classList.toggle('expanded');
+    n.addEventListener('click', (e) => {
+      if (e.target.closest('a, button, .chip-copy')) return;
+      toggle();
+    });
+    n.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+}
+
 const fmtSize = (n) => (n == null ? '' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`);
 
 const contextBudgetLabel = (model) => {
@@ -327,7 +344,7 @@ export function renderMarkdown(src) {
       const f = folds[+i];
       const innerMd = getMd();
       const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
-      return `<details class="md-fold"><summary>${esc(f.title)}</summary><div class="md-fold-body">${inner}</div></details>`;
+      return `<div class="md-fold" role="button" tabindex="0"><span class="chip-ico">${ICON.chevRight || ''}</span><span class="chip-name">${esc(f.title)}</span><div class="chip-detail"><div class="fold-inner md-fold-body">${inner}</div></div></div>`;
     };
     let out = html.replace(/<p>\s*\uE000FOLD(\d+)\uE000\s*<\/p>/g, foldAt)
       .replace(/\uE000FOLD(\d+)\uE000/g, foldAt);
@@ -1217,6 +1234,7 @@ export function mountUI(store, agent) {
           <button class="act" data-act="copy" title="复制这条消息">${ICON.copy || ''}<span>复制</span></button>
         </div>
         </div>`;
+      bindFoldRows($('.md-body', wrap) || wrap);
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.act === 'copy') {
           navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
@@ -1308,9 +1326,7 @@ export function mountUI(store, agent) {
     const thinkOn = m.reasoningLevel !== 'off';
     const showThink = thinkOn && m.reasoning;
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
-    if (live && thinkOn && !m.text) {
-      html += `<div class="thinking-line"><span class="think-ico">${ICON.thinking || ''}</span>深度思考中<span class="dots">…</span></div>`;
-    } else if (live && noOutputYet) {
+    if (live && noOutputYet && !thinkOn) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
       html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
@@ -1322,6 +1338,7 @@ export function mountUI(store, agent) {
     }
     body.innerHTML = html;
     hydrateSandboxMedia(body, agent.fs);
+    bindFoldRows(body);
     const msgs = store.state.messages;
     const idx = msgs.findIndex((x) => x.id === m.id);
     const followedByUser = idx >= 0 && msgs.slice(idx + 1).some((x) => x.role === 'user' && !x.silent);
@@ -1329,28 +1346,36 @@ export function mountUI(store, agent) {
       if (!m.done || followedByUser) box.remove();
     }
     // 思考过程与工具芯片同构：整行 click + .expanded + .chip-detail，不用 <details>
+    // 有可见思考正文时边流边展开；思考结束（正文/工具出现或 round done）自动折叠。
     let reason = $('.reasoning', wrap);
-    if (m.done && (showThink || hiddenThink)) {
+    const thinkPending = live && thinkOn && !m.cancelled && !showThink && !hiddenThink;
+    if (showThink || hiddenThink || thinkPending) {
       if (!reason) {
         reason = el('div', 'reasoning');
         reason.addEventListener('click', (e) => {
           if (e.target.closest('a, button, .chip-copy')) return;
           reason.classList.toggle('expanded');
-          wrap._reasonOpen = reason.classList.contains('expanded');
+          wrap._reasonUser = reason.classList.contains('expanded');
         });
         wrap.insertBefore(reason, body);
       }
       const bits = [];
+      if (thinkPending) bits.push('思考中');
       if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
       if (hiddenThink && m.usage && m.usage.reasoning) bits.push(`${m.usage.reasoning} tok`);
       if (m.reasoningMs) bits.push(fmtSpan(m.reasoningMs));
-      const title = showThink ? '思考过程' : '已思考';
+      const title = (showThink || thinkPending) ? '思考过程' : '已思考';
       const detail = showThink
         ? renderMarkdown(m.reasoning)
-        : '<div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div>';
-      reason.innerHTML = `<span class="chip-ico think-ico">${ICON.thinking || ''}</span><span class="mono chip-name">${title}</span><span class="chip-state">${esc(bits.join(' · '))}</span><div class="chip-detail reason-detail">${detail}</div>`;
+        : (hiddenThink
+          ? '<div class="think-hidden">该模型在网关侧做了推理，但不返回可见思考文本。DeepSeek、GLM、Claude Haiku 会显示正文。</div>'
+          : '');
+      reason.innerHTML = `<span class="think-ico">${ICON.thinking || ''}</span><span class="mono chip-name">${title}</span><span class="chip-state">${esc(bits.join(' · '))}</span><div class="chip-detail reason-detail"><div class="fold-inner">${detail}</div></div>`;
       hydrateSandboxMedia($('.reason-detail', reason) || reason, agent.fs);
-      reason.classList.toggle('expanded', !!wrap._reasonOpen);
+      bindFoldRows($('.reason-detail', reason) || reason);
+      const thinkLive = live && !!m.reasoning && !m.text && !(m.toolCalls && m.toolCalls.length);
+      const autoOpen = thinkLive;
+      reason.classList.toggle('expanded', wrap._reasonUser == null ? autoOpen : !!wrap._reasonUser);
     } else if (reason) {
       reason.remove();
     }
@@ -1401,6 +1426,7 @@ export function mountUI(store, agent) {
           chip.addEventListener('click', (e) => {
             if (e.target.closest('.chip-copy')) return;
             chip.classList.toggle('expanded');
+            chip._userToggle = chip.classList.contains('expanded');
           });
           const detail = el('div', 'chip-detail mono');
           chip.appendChild(detail);
@@ -1434,9 +1460,10 @@ export function mountUI(store, agent) {
             ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
             : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
           const resHtml = outs.length ? `<pre class="chip-result">${esc(chip._out)}</pre>` : '';
-          chip._detail.innerHTML = argHtml + resHtml;
+          chip._detail.innerHTML = `<div class="fold-inner">${argHtml}${resHtml}</div>`;
           chip._renderedArgs = !!m.done;
         }
+        if (chip._userToggle == null) chip.classList.toggle('expanded', !chip.classList.contains('done'));
         if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
           chip.classList.add('done');
           chip.classList.remove('running');
@@ -1476,11 +1503,16 @@ export function mountUI(store, agent) {
     let ed = $('.edited-files', wrap);
     if (paths.length) {
       if (!ed) {
-        ed = el('details', 'edited-files');
+        ed = el('div', 'edited-files');
+        ed.addEventListener('click', (e) => {
+          if (e.target.closest('a, button, .chip-copy')) return;
+          ed.classList.toggle('expanded');
+          ed._userToggle = ed.classList.contains('expanded');
+        });
         chips.after(ed);
       }
       const label = paths.length === 1 ? 'Edited File' : 'Edited Files';
-      ed.innerHTML = `<summary><span class="think-ico">${ICON.edited || ''}</span>${label}</summary><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+      ed.innerHTML = `<span class="chip-ico think-ico">${ICON.edited || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
       if (idxA >= 0) {
         for (let i = idxA - 1; i >= 0; i--) {
           const x = msgsAll[i];
@@ -1641,13 +1673,14 @@ export function mountUI(store, agent) {
       chip.classList.toggle('ok', ok);
       chip.classList.toggle('fail', !ok);
       chip.classList.remove('running');
+      if (chip._userToggle == null) chip.classList.remove('expanded');
     }
     chip._out = outs.join('\n\n');
     const items = chip._items || [];
     const argHtml = items.length > 1
       ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
       : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
-    chip._detail.innerHTML = `${argHtml}<pre class="chip-result">${esc(chip._out)}</pre>`;
+    chip._detail.innerHTML = `<div class="fold-inner">${argHtml}<pre class="chip-result">${esc(chip._out)}</pre></div>`;
     chip._renderedArgs = true;
   }
 
@@ -2268,6 +2301,13 @@ export function mountUI(store, agent) {
     },
     onAssistantStart(m) { appendMessage(m); },
     onDelta(m, text) {
+      const wrap = msgNodes.get(m.id);
+      if (!wrap) return;
+      if (rafPending) return;
+      rafPending = true;
+      requestAnimationFrame(() => { rafPending = false; paintAssistant(wrap, m); scrollToBottom(); });
+    },
+    onReasoning(m) {
       const wrap = msgNodes.get(m.id);
       if (!wrap) return;
       if (rafPending) return;
