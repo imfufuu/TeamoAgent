@@ -84,7 +84,7 @@ const choiceHtml = (block) => {
   const q = esc(block.title || '请选择');
   const opts = parseChoiceOpts(block.body);
   const buttons = opts.map((o) => `<button type="button" class="choice-opt" data-choice-send="${esc(o)}">${esc(o)}</button>`).join('');
-  return `<div class="choice-box" role="group" aria-label="${q}"><div class="choice-q">${q}</div><div class="choice-opts">${buttons}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div>`;
+  return `<div class="choice-box" role="group" aria-label="${q}"><div class="choice-head"><div class="choice-q">${q}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div><div class="choice-opts">${buttons}</div></div>`;
 };
 function hydrateSandboxMedia(root, fs) {
   if (!root || !fs) return;
@@ -762,6 +762,56 @@ export function mountUI(store, agent) {
       : `${t.getMonth() + 1}/${t.getDate()}`;
     return `${n} 轮 · ${time}`;
   }
+  function renderMemory() {
+    const box = $('#memory-list');
+    if (!box) return;
+    const list = Array.isArray(store.state.memory) ? store.state.memory : [];
+    box.innerHTML = '';
+    if (!list.length) {
+      box.innerHTML = '<div class="mem-empty">只记重要约定、偏好和身份。闲聊不会出现在这里。</div>';
+      return;
+    }
+    for (const [i, f] of list.entries()) {
+      const text = String(f && (f.text || f) || '').trim();
+      if (!text) continue;
+      const row = el('div', 'mem-row');
+      row.innerHTML = `<span class="mem-text">${esc(text)}</span><button type="button" class="mem-del" data-mem="${i}" title="删除这条">${ICON.trash || '×'}</button>`;
+      box.appendChild(row);
+    }
+  }
+  function commitMemory(next) {
+    store.state.memory = Array.isArray(next) ? next : [];
+    if (typeof store.save === 'function') store.save(true);
+    renderMemory();
+  }
+  const memForm = $('#memory-add');
+  if (memForm) memForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const input = $('#memory-input');
+    const text = String((input && input.value) || '').replace(/\s+/g, ' ').trim().slice(0, 160);
+    if (text.length < 8) return toast('至少 8 个字，且应是跨会话仍有用的事实', 'warn');
+    const cur = Array.isArray(store.state.memory) ? store.state.memory : [];
+    const key = text.toLowerCase();
+    if (cur.some((f) => String(f.text || f).toLowerCase() === key)) return toast('已经有这条记忆', 'warn');
+    commitMemory([{ text, ts: Date.now() }, ...cur].slice(0, 20));
+    if (input) input.value = '';
+  });
+  const memListEl = $('#memory-list');
+  if (memListEl) memListEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mem]');
+    if (!btn) return;
+    const i = Number(btn.getAttribute('data-mem'));
+    const cur = Array.isArray(store.state.memory) ? store.state.memory.slice() : [];
+    if (i >= 0 && i < cur.length) { cur.splice(i, 1); commitMemory(cur); }
+  });
+  const memClear = $('#memory-clear');
+  if (memClear) memClear.addEventListener('click', () => {
+    const n = (store.state.memory || []).length;
+    if (!n) return;
+    if (!confirm(`清空全部 ${n} 条长效记忆？不可恢复。`)) return;
+    commitMemory([]);
+  });
+
   // 侧栏只列「有内容的」会话：空的「新对话」草稿在用户发出第一条消息之前不进列表
   //（store.listableSessions 负责过滤，「＋ 新建」也会复用空草稿，不堆 invisible 记录）
   function renderSessions() {
@@ -796,6 +846,7 @@ export function mountUI(store, agent) {
       }
       box.appendChild(node);
     }
+    renderMemory();
   }
 
   // 就地改名：Enter 提交、Esc 取消、失焦提交；改名后 titleSource='user'，
@@ -1253,11 +1304,16 @@ export function mountUI(store, agent) {
     html += renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
+    if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
+      html += '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
+    }
     body.innerHTML = html;
     hydrateSandboxMedia(body, agent.fs);
-    const lastAsst = [...store.state.messages].reverse().find((x) => x.role === 'assistant');
+    const msgs = store.state.messages;
+    const idx = msgs.findIndex((x) => x.id === m.id);
+    const followedByUser = idx >= 0 && msgs.slice(idx + 1).some((x) => x.role === 'user' && !x.silent);
     for (const box of $$('.choice-box', body)) {
-      box.classList.toggle('stale', !m.done || getBusy() || (lastAsst && lastAsst.id !== m.id));
+      if (!m.done || followedByUser) box.remove();
     }
     // 思考过程与工具芯片同构：整行 click + .expanded + .chip-detail，不用 <details>
     let reason = $('.reasoning', wrap);
@@ -1461,7 +1517,7 @@ export function mountUI(store, agent) {
     // 入场动画只给最后一条：旧写法每追加一条就重扫整个列表（n 条消息 → n 次全量
     // querySelectorAll，长会话首屏明显卡顿），而且语义也只是「别给历史消息加动画」
     for (const m of store.state.messages) {
-      if (m.role === 'tool') continue;
+      if (m.role === 'tool' || m.silent) continue;
       appendMessage(m);
     }
     for (const n of $$('.msg', msgList)) n.classList.remove('enter');
@@ -1862,17 +1918,17 @@ export function mountUI(store, agent) {
     }
     const opt = e.target.closest('[data-choice-send]');
     if (opt) {
-      if (opt.closest('.choice-box.stale') || getBusy()) return;
+      if (getBusy()) return;
       const text = opt.getAttribute('data-choice-send') || '';
       if (!text || !store.state.apiKey) return;
+      for (const box of $$('.choice-box', msgList)) box.remove();
       agent.send(text, []);
       return;
     }
     const skip = e.target.closest('[data-choice-skip]');
     if (skip) {
-      if (skip.closest('.choice-box.stale') || getBusy()) return;
-      if (!store.state.apiKey) return;
-      agent.send('跳过', []);
+      e.preventDefault();
+      for (const box of $$('.choice-box', msgList)) box.remove();
       return;
     }
     const dl = e.target.closest('[data-sb-dl]');
@@ -2072,7 +2128,10 @@ export function mountUI(store, agent) {
       // 兼容只传文本的旧调用方（缓存错配时会出现）：退化为「最近一条还没上屏的 user 消息」
       const msg = (m && m.id) ? m : [...store.state.messages].reverse().find((x) => x.role === 'user' && !msgNodes.has(x.id));
       if (!msg || !msg.id || msgNodes.has(msg.id)) return;
-      appendMessage(msg);
+      if (!msg.silent) {
+        for (const box of $$('.choice-box', msgList)) box.remove();
+        appendMessage(msg);
+      }
       refreshActionVisibility();
     },
     onJevPlan(m) {
@@ -2131,6 +2190,7 @@ export function mountUI(store, agent) {
     onToolResult(call, result) {
       renderFiles();
       updateStats();
+      renderMemory();
       // 同步回填对话流中的工具芯片（成功 ✓ / 失败红点 + 展开详情）
       attachToolResult({ toolCallId: call.id, content: result });
     },

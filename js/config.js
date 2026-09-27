@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.38';
+export const APP_VERSION = '2026.9.26.39';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -217,7 +217,7 @@ export const OUTPUT_SPEC = [
   '- 你也可以回答非代码话题（闲聊、解释、规划、写作、常识）。不要把每句话都当成编程任务，不必为了用工具而用工具。',
   '- 大工程先给文件列表与接口，再每次只实现一个文件、每次最多改 1–3 个函数。一次做不完就在末尾单独一行写 <<<CONTINUE>>>，等用户让你继续。不要一次输出整个项目。',
   '- 沙箱文件：要让用户看见沙箱里的图或文件，用 Markdown 图片语法 ![说明](sandbox://相对路径)，例如 ![示例](sandbox://outputs/example.png)。不要输出 data URL，不要写 HTML <img>。',
-  '- 选择框（重要决策，且必须是本条回复的最后一块；可连续多个）：\\n:::choice 问题\\n- 选项一\\n- 选项二\\n:::\\n用户点选项即发送该选项；系统提供「跳过」。不要在段中或工具循环中途输出。',
+  '- 选择框：只用于需要用户拍板的重要决策。必须是本条回复的最后一个块（可连续多个 :::choice），后面不许再有任何文字、代码或折叠栏。客户端只渲染文末完整块；用户点选项、「跳过」或发出下一条消息后选择框消失。禁止在段中或工具循环中途输出。格式：\n:::choice 问题\n- 选项一\n- 选项二\n:::',
   '- 折叠栏（次要内容或答案，默认收起，少用）：\\n:::fold 标题\\n内容\\n:::',
   '- 长文目录：标题用 ## / ###；目录用 [节名](#slug) 链到同文标题（slug 为标题小写、空格改 -，中文标题可原样作锚）。',
 ].join('\n');
@@ -245,7 +245,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- zip_files / unzip_file：压缩或解压沙箱里的 ZIP（zip_files 写入 archives/ 等路径；unzip_file 解到指定目录）。用户上传的 .zip 会自动解开。',
     '- generate_image：调用文生图模型生成图片。不要传 model 参数，一律用 runtime 里的「生图模型」（用户在菜单选定的，可能是 gemini-3.1-flash-image / Nano Banana 2，或 gpt-image-2 / gpt-image-2.5-sunburst / gpt-image-2.5-flare）。GPT Image 走 POST /v1/images/generations（编辑 POST /v1/images/edits）；Nano Banana 走 Gemini 原生 generateContent，不要发到 /v1/images/*。传 reference_paths 指向沙箱内图片时转为「图片编辑」。生成结果写入沙箱 outputs/。工具芯片里不会出现预览；随后的回复必须用 ![说明](sandbox://outputs/image-001.png) 把图嵌进正文。用户要求「画一张图 / 改图 / 换背景」时使用本工具，不要用文字描述代替真实出图。',
     '- get_current_time：获取当前时间。',
-    '- remember：跨会话长效记忆。用户偏好、身份、长期项目、明确约定值得记下时自己调用（action=add）；过时了就 forget；不确定先 list。不要记本轮任务步骤或临时路径。记忆会出现在之后每个对话里。',
+    '- remember：跨会话长效记忆。只记真正重要、跨会话仍有用的内容：用户明确说「记住」、稳定偏好、身份、长期项目、不可恢复的约定。严禁记闲聊、问候、一次性任务、临时路径、本轮步骤。过时了就 forget；不确定先 list。记忆会出现在之后每个对话里。',
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',

@@ -5,7 +5,7 @@
 //   1. 追加 user  2. Jev System-1（fail-open）  3. 装配/复用 cached 系统提示
 //   4. 预检压缩（>50% 窗口）  5. 注入 ephemeral（Jev / 技能正文 / 预算）
 //   6. 可中断流式调用  7. 有 tool_calls → 并行安全工具并发，写回，回到 5
-//   8. 终态：蒸馏会话技能；压缩丢轮前已把用户问题写入 memory
+//   8. 终态：蒸馏会话技能；长效记忆只来自 remember / 侧栏面板（不自动记闲聊）
 //
 // 架构要点：
 //   · 提示词稳定：身份+技能目录不随时间/Jev/沙箱快照抖动（见 js/prompt.js）
@@ -25,7 +25,7 @@ import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IM
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
-import { formatMemory, upsertFacts, factsFromDigest } from './memory.js';
+import { formatMemory } from './memory.js';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -191,10 +191,7 @@ export function createAgent(store, hooks = {}) {
     const { messages } = store.state;
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
-    const { messages: compacted, droppedCount, droppedDigest } = compactMessages(messages, budget, { preflight: true });
-    if (droppedDigest) {
-      store.state.memory = upsertFacts(store.state.memory, factsFromDigest(droppedDigest));
-    }
+    const { messages: compacted, droppedCount } = compactMessages(messages, budget, { preflight: true });
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
     const webOn = store.state.settings.webEnabled !== false && relayOk;
     const st = store.state.settings || {};
@@ -386,10 +383,7 @@ export function createAgent(store, hooks = {}) {
         let streamed = false;
         const streamT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
-        let attempt = 0;
-        while (true) {
-          try {
-            await streamChat({
+        const pull = () => streamChat({
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
               thinking: turn.thinking, // Off 时不发思考参数；流里若仍夹带 reasoning 也不入库
@@ -466,6 +460,10 @@ export function createAgent(store, hooks = {}) {
                 }
               },
             });
+        let attempt = 0;
+        while (true) {
+          try {
+            await pull();
             break; // 流正常结束
           } catch (err) {
             const transient = err.status === undefined || err.status >= 500 || err.status === 429;
@@ -479,6 +477,26 @@ export function createAgent(store, hooks = {}) {
             }
             throw err;
           }
+        }
+
+        let lengthContinues = 0;
+        while (
+          !acc.result().length
+          && /^(length|max_tokens|max_output_tokens)$/i.test(String(finishReason || ''))
+          && lengthContinues < 2
+          && text
+          && !signal.aborted
+        ) {
+          lengthContinues++;
+          const cont = store.pushMessage({
+            role: 'user',
+            text: '请从截断处接着写完，不要重复已经输出的内容。',
+            silent: true,
+          });
+          finishReason = null;
+          try { await pull(); } catch { break; }
+          const ix = store.state.messages.findIndex((m) => m.id === cont.id);
+          if (ix >= 0) store.state.messages.splice(ix, 1);
         }
 
         const toolCalls = acc.result();
@@ -495,7 +513,7 @@ export function createAgent(store, hooks = {}) {
           durationMs: Math.round(nowT - streamT0),
           usage: usage.input != null || usage.output != null || usage.reasoning != null ? { ...usage } : undefined,
           thoughtHidden: !!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)),
-          finishReason, done: true, transport: getTransport(),
+          finishReason, done: true, lengthContinues: lengthContinues || undefined, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
         });
         emit('onAssistantDone', assistantMsg);

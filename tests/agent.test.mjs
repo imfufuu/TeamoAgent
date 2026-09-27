@@ -657,6 +657,7 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(fold, /<summary>详细推导<\/summary>/);
   const choice = renderMarkdown('请拍板\n\n:::choice 部署方式\n- GitHub Pages\n- 自建\n:::');
   assert.match(choice, /class="choice-box"/);
+  assert.match(choice, /class="choice-head"/);
   assert.match(choice, /data-choice-send="GitHub Pages"/);
   assert.match(choice, /data-choice-skip/);
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
@@ -1886,6 +1887,9 @@ test('agent.js 与 tools.js 的沙箱工具清单一致（本地副本，防 lin
   const fsp = await import('node:fs');
   const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.ok(!/import\s*\{[^}]*toolsFor/.test(src), 'agent.js 不得 import 新增具名导出（混版缓存会白屏）');
+  assert.match(src, /从截断处接着写完/, '输出顶到 max_tokens 时自动续写');
+  assert.match(src, /lengthContinues < 2/);
+  assert.ok(!/factsFromDigest/.test(src), '压缩丢轮不再自动写入长效记忆');
   const tools = await import('../js/tools.js');
   const local = /const CODE_TOOL_NAMES = \[([^\]]*)\]/.exec(src)[1].split(',').map((x) => x.trim().replace(/'/g, ''));
   assert.deepEqual(local, tools.CODE_TOOL_NAMES, '两份清单必须同步');
@@ -3208,7 +3212,7 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
     assert.match(sys[0].content, /子智能体委派（dispatch_subagent）/);
     assert.match(sys[0].content, /不是 Max\/Ultra/);
     assert.equal((calls[0].body.tools || []).some((t) => (t.function && t.function.name) === 'dispatch_subagent'), false, '默认 Medium 不得委派');
-    assert.equal(calls[0].body.max_tokens, 1024, '闲聊输出上限约 1k');
+    assert.equal(calls[0].body.max_tokens, 4096, '闲聊/长文输出上限 4k，避免句中被砍断');
     const joined = sys.map((m) => m.content).join('\n');
     assert.match(joined, /本轮未联网/);
   } finally { globalThis.fetch = realFetch; }
@@ -3352,6 +3356,8 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(ui, /class=\"msg-user-bar\"/);
   const htmlApp = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(htmlApp, /id=\"tok-pop\"/);
+  assert.match(htmlApp, /id=\"memory-list\"/, '侧栏长效记忆面板');
+  assert.match(htmlApp, /id=\"memory-add\"/);
   assert.equal(htmlApp.includes('id="tok-break"'), false);
   assert.equal(ui.includes('details class="reasoning"'), false, '思考过程不得再用 details');
   assert.match(ui, /classList\.toggle\('expanded'\)/);

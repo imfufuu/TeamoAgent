@@ -308,8 +308,8 @@ export const TOOL_DEFS = [
   {
     name: 'remember',
     description:
-      '跨会话长效记忆。自行判断是否值得记下：用户偏好、身份、长期项目、明确约定。不要记本轮步骤或临时文件路径。' +
-      'action=add 写入一条短事实；forget 按关键词删除；list 列出当前记忆。记忆会在之后每个对话的系统提示里出现。',
+      '跨会话长效记忆。只记真正重要的内容：用户明确要求记住、稳定偏好、身份、长期项目、不可恢复的约定。' +
+      '严禁记闲聊、问候、一次性任务、临时路径或本轮步骤。action=add 写入一条短事实；forget 按关键词删除；list 列出当前记忆。',
     parameters: {
       type: 'object',
       properties: {
