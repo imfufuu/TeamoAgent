@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.9.26.46" />
+<meta name="app-version" content="2026.9.26.47" />
 <meta name="app-release" content="V1.2" />
 <meta name="description" content="TeamoAgent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>TeamoAgent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.9.26.46" />
+<link rel="stylesheet" href="css/home.css?v=2026.9.26.47" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -65,7 +65,7 @@
     </article>
     <article class="shot" data-id="copy">
       <div class="shot-inner">
-        <div class="copy-hero">智能体</div>
+        <div class="copy-hero">Web Agent</div>
       </div>
     </article>
     <article class="shot" data-id="sandbox">
@@ -132,7 +132,7 @@ RMSE = 0.5831
         <div class="prop-card zip-board">
           <div class="k">Archive</div>
           <h3>ZIP 打包</h3>
-          <p>压缩、解压，刷新后工作区还在。</p>
+          <p>压缩、解压上限 128 条。刷新后工作区还在。</p>
           <div class="pills"><span>zip_files</span><span>unzip_file</span></div>
         </div>
       </div>
@@ -195,7 +195,7 @@ RMSE = 0.5831
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2.5H7A1.5 1.5 0 0 0 5.5 4v16A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V8Z"/><path d="M14 2.8V7a1.5 1.5 0 0 0 1.5 1.5H20"/></svg>
         <h3>工作区</h3>
-        <p>读写、追加、局部替换、复制删除、正则搜索、文本差分、JSON 整理。ZIP 打包带走，容量 120 MB。</p>
+        <p>读写、追加、局部替换、复制删除、正则搜索、文本差分、JSON 整理。ZIP 打包解压上限 128 条，容量 120 MB。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2.2"/><circle cx="8.8" cy="8.8" r="1.8"/><path d="m4.5 18.5 4.6-4.6a1.8 1.8 0 0 1 2.55 0l5.35 5.35"/><path d="M14.5 14.2l1.7-1.7a1.8 1.8 0 0 1 2.55 0l1.75 1.75"/></svg>
@@ -345,7 +345,7 @@ RMSE = 0.5831
 </main>
 
 <footer>
-  <span>TeamoAgent V1.2 · 构建 2026.9.26.46</span>
+  <span>TeamoAgent V1.2 · 构建 2026.9.26.47</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
@@ -355,6 +355,6 @@ RMSE = 0.5831
   </span>
 </footer>
 </div>
-<script type="module" src="js/home.js?v=2026.9.26.46"></script>
+<script type="module" src="js/home.js?v=2026.9.26.47"></script>
 </body>
 </html>
