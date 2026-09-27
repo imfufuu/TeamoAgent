@@ -666,7 +666,7 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(choice, /class="choice-box"/);
   assert.match(choice, /class="choice-head"/);
   assert.match(choice, /data-choice-send="GitHub Pages"/);
-  assert.match(choice, /data-choice-skip/);
+  assert.equal(choice.includes('data-choice-skip'), false, '选择框不再提供跳过按钮');
   const choices = renderMarkdown('请拍板\n\n:::choice 问题一\n- A\n- B\n:::\n\n:::choice 问题二\n- C\n- D\n:::');
   assert.equal((choices.match(/class="choice-box/g) || []).length, 1, '连续多个选择框要合成一个框');
   assert.match(choices, /data-choice-count="2"/);
@@ -679,6 +679,12 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(centered, /题签/);
   const righted = renderMarkdown(':::align right\n署名\n:::');
   assert.match(righted, /md-align md-align-right/);
+  const chart = renderMarkdown(':::chart bar 月销量\n一月, 12\n二月, 18\n:::');
+  assert.match(chart, /class="md-chart md-chart-bar"/);
+  assert.match(chart, /<svg/);
+  assert.match(chart, /月销量/);
+  const stChart = renderMarkdown(':::st 散点\n1, 3\n2, 7\n:::');
+  assert.match(stChart, /md-chart-scatter/);
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
@@ -702,6 +708,7 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(OUTPUT_SPEC, /:::font/);
   assert.match(OUTPUT_SPEC, /:::center/);
   assert.match(OUTPUT_SPEC, /:::right/);
+  assert.match(OUTPUT_SPEC, /:::chart/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
@@ -1793,6 +1800,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.equal(home.includes('思考五档'), false, '思考档是七档');
   assert.equal(home.includes('上限 128'), false, 'ZIP 已去掉条目上限');
   assert.match(home, /id="gate-load"/);
+  assert.match(home, /id="film-pause"/);
   assert.match(home, /正在加载影片/);
   assert.match(home, /<h2>现在就开始<\/h2>/);
   assert.equal(/cta-block[\s\S]{0,80}现在就开始。/.test(home), false);
@@ -1850,6 +1858,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /正在加载影片/);
   assert.match(homeJs, /createObjectURL/);
   assert.match(homeJs, /requestFilm/);
+  assert.match(homeJs, /pauseLocked/);
+  assert.match(homeJs, /FILM_SEC - CURTAIN_SEC/, '最后五秒渐变不可暂停');
+  assert.match(homeJs, /togglePause/);
   assert.match(homeJs, /gate-skip/);
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
@@ -1879,6 +1890,8 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeCss, /#ff5f57/);
   assert.match(homeCss, /#febc2e/);
   assert.match(homeCss, /#28c840/);
+  assert.match(homeCss, /\.film-pause/);
+  assert.match(homeCss, /html\.paused \.stage::after/);
 });
 
 
@@ -4082,7 +4095,7 @@ test('居中/右对齐语法与样式已注册', async () => {
 
 
 group('.58 选择框串联/宣传片整合/Git 内置');
-test('多题选择框合成一个框，支持逐题选择、回退与粒子跳过', async () => {
+test('多题选择框合成一个框，支持逐题选择与回退清除', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -4090,9 +4103,9 @@ test('多题选择框合成一个框，支持逐题选择、回退与粒子跳�
   assert.match(ui, /data-choice-count/);
   assert.match(ui, /data-choice-back/);
   assert.match(ui, /choiceReplyText/);
-  assert.match(ui, /choice-particle/);
-  assert.match(css, /\.choice-box\.dissolving/);
-  assert.match(css, /@keyframes choiceParticle/);
+  assert.match(ui, /answers\.length = target/, '回退时要清掉目标题与后续旧选择');
+  assert.equal(/data-choice-skip/.test(ui), false, '选择框跳过已删除');
+  assert.equal(/choice-particle/.test(ui + css), false, '跳过粒子特效随跳过入口删除');
 });
 test('宣传片片尾现在就开始有整合景深，元素放大且切镜变慢', async () => {
   const fsp = await import('node:fs');
@@ -4118,6 +4131,39 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
   assert.match(net, /git version TeamoGit/);
   assert.match(tools, /内置轻量 Git/);
   assert.match(tools, /gitRun\(\{ command: args\.command[\s\S]{0,120}fs \}\)/);
+});
+
+
+
+group('.59 暂停宣传片 / 快捷 SVG 图表 / 选择框无跳过');
+test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
+  const fsp = await import('node:fs');
+  const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const js = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  assert.match(home, /id="film-pause"/);
+  assert.match(js, /function setPaused/);
+  assert.match(js, /pauseLocked\(t\)/);
+  assert.match(js, /FILM_SEC - CURTAIN_SEC/);
+  assert.match(js, /e\.key\.toLowerCase\(\) === 'p'/);
+  assert.match(css, /html\.paused \.film-pause/);
+});
+test('快捷 SVG 图表语法覆盖柱状/折线/st散点/饼图', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(ui, /CHART_ALIAS/);
+  for (const kw of ['bar', 'line', 'scatter', 'st', 'pie', '柱状图', '折线图', '散点图', '饼图']) assert.match(ui, new RegExp(kw));
+  assert.match(ui, /renderQuickChart/);
+  assert.match(css, /\.md-chart-svg/);
+  assert.match(cfg, /:::chart bar\|line\|scatter\|st\|pie/);
+});
+test('选择框删除跳过入口', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.equal(/data-choice-skip|choice-skip|dismissChoiceBox/.test(ui + css), false);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

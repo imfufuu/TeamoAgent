@@ -98,8 +98,140 @@ const choiceHtml = (blocks) => {
     return `<div class="choice-qblock${i === 0 ? ' active' : ''}" data-choice-idx="${i}"><div class="choice-qrow"><span class="choice-step">${i + 1}/${count}</span><div class="choice-q">${q}</div></div><div class="choice-opts">${buttons}</div></div>`;
   }).join('');
   const label = esc(count > 1 ? `选择框（${count} 个问题）` : (safe[0].title || '请选择'));
-  return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
+  return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
+
+const CHART_ALIAS = {
+  bar: 'bar', bars: 'bar', 柱状图: 'bar', 柱状: 'bar', 条形图: 'bar',
+  line: 'line', 折线图: 'line', 折线: 'line', 趋势图: 'line',
+  scatter: 'scatter', scat: 'scatter', st: 'scatter', 散点图: 'scatter', 散点: 'scatter',
+  pie: 'pie', 饼图: 'pie', 饼: 'pie', 环形图: 'pie',
+};
+const CHART_KIND_LABEL = { bar: '柱状图', line: '折线图', scatter: '散点图', pie: '饼图' };
+const CHART_COLORS = ['#4f46e5', '#0ea5e9', '#10b981', '#f59e0b', '#ef4444', '#a855f7', '#14b8a6', '#f97316'];
+const chartNum = (s) => {
+  const n = Number(String(s || '').replace(/[%％,，]/g, '').trim());
+  return Number.isFinite(n) ? n : null;
+};
+const splitChartLine = (line) => String(line || '').split(/[,	|，、]+|\s{2,}|\s*[:：]\s*/).map((x) => x.trim()).filter(Boolean);
+function parseChartInfo(info, directKind = '') {
+  const raw = String(info || '').trim();
+  if (directKind) return { kind: CHART_ALIAS[directKind] || 'bar', title: raw };
+  const parts = raw.split(/\s+/).filter(Boolean);
+  const first = parts.shift() || 'bar';
+  const kind = CHART_ALIAS[first.toLowerCase()] || CHART_ALIAS[first] || 'bar';
+  return { kind, title: parts.join(' ') };
+}
+function parseSeriesRows(body, kind) {
+  const rows = [];
+  for (const raw of String(body || '').split('\n')) {
+    const line = raw.trim();
+    if (!line || line.startsWith('#') || /^[-|\s]+$/.test(line)) continue;
+    if (/^(label|name|x)\s*[,|\t:：]/i.test(line)) continue;
+    if (kind === 'scatter') {
+      const cells = splitChartLine(line);
+      const nums = cells.map(chartNum);
+      if (nums.length >= 2 && nums[0] != null && nums[1] != null) {
+        rows.push({ label: String(rows.length + 1), x: nums[0], value: nums[1] });
+        continue;
+      }
+      if (cells.length >= 3 && nums[1] != null && nums[2] != null) {
+        rows.push({ label: cells[0], x: nums[1], value: nums[2] });
+        continue;
+      }
+    }
+    let label = '', val = null;
+    const cells = splitChartLine(line);
+    if (cells.length >= 2) { label = cells[0]; val = chartNum(cells[1]); }
+    if (val == null) {
+      const m = /^(.*?)[\s,，|:：]+(-?\d+(?:\.\d+)?%?)\s*$/.exec(line);
+      if (m) { label = m[1].trim(); val = chartNum(m[2]); }
+    }
+    if (label && val != null) rows.push({ label, value: val });
+  }
+  return rows.slice(0, 24);
+}
+function chartScales(rows, w, h, m) {
+  const vals = rows.map((r) => r.value);
+  let min = Math.min(0, ...vals), max = Math.max(0, ...vals);
+  if (min === max) { min -= 1; max += 1; }
+  const plotW = w - m.l - m.r, plotH = h - m.t - m.b;
+  const y = (v) => m.t + (max - v) / (max - min) * plotH;
+  return { min, max, plotW, plotH, y };
+}
+function axisSvg(rows, w, h, m, sc) {
+  const bits = [];
+  for (let i = 0; i <= 4; i++) {
+    const v = sc.min + (sc.max - sc.min) * i / 4;
+    const y = sc.y(v);
+    bits.push(`<line x1="${m.l}" y1="${y.toFixed(1)}" x2="${w - m.r}" y2="${y.toFixed(1)}" class="md-chart-grid"/>`);
+    bits.push(`<text x="${m.l - 8}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="md-chart-tick">${esc(Number(v.toFixed(2)).toString())}</text>`);
+  }
+  bits.push(`<line x1="${m.l}" y1="${m.t}" x2="${m.l}" y2="${h - m.b}" class="md-chart-axis"/>`);
+  bits.push(`<line x1="${m.l}" y1="${h - m.b}" x2="${w - m.r}" y2="${h - m.b}" class="md-chart-axis"/>`);
+  const step = Math.max(1, Math.ceil(rows.length / 8));
+  rows.forEach((r, i) => {
+    if (i % step) return;
+    const x = m.l + (i + .5) * sc.plotW / Math.max(1, rows.length);
+    bits.push(`<text x="${x.toFixed(1)}" y="${h - 18}" text-anchor="middle" class="md-chart-tick">${esc(String(r.label).slice(0, 10))}</text>`);
+  });
+  return bits.join('');
+}
+function renderQuickChart(kind, body, title = '') {
+  const rows = parseSeriesRows(body, kind);
+  const label = title || CHART_KIND_LABEL[kind] || '图表';
+  if (!rows.length) return `<div class="md-chart-error">图表数据为空。示例：<code>一月, 12</code></div>`;
+  const w = 720, h = 360, m = { l: 58, r: 28, t: 54, b: 56 };
+  let inner = `<text x="${m.l}" y="30" class="md-chart-title">${esc(label)}</text>`;
+  if (kind === 'pie') {
+    const vals = rows.map((r) => Math.max(0, r.value));
+    const total = vals.reduce((a, b) => a + b, 0) || 1;
+    const cx = w / 2, cy = h / 2 + 8, r = 105;
+    let a0 = -Math.PI / 2;
+    rows.forEach((row, i) => {
+      const a1 = a0 + (Math.max(0, row.value) / total) * Math.PI * 2;
+      const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+      const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+      const large = a1 - a0 > Math.PI ? 1 : 0;
+      inner += `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+      const mid = (a0 + a1) / 2;
+      const lx = cx + (r + 48) * Math.cos(mid), ly = cy + (r + 48) * Math.sin(mid);
+      inner += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${Math.cos(mid) >= 0 ? 'start' : 'end'}" class="md-chart-label">${esc(row.label)} ${Math.round(row.value / total * 100)}%</text>`;
+      a0 = a1;
+    });
+  } else if (kind === 'scatter') {
+    const xs = rows.map((r) => r.x);
+    let minX = Math.min(...xs), maxX = Math.max(...xs);
+    if (minX === maxX) { minX -= 1; maxX += 1; }
+    const sc = chartScales(rows, w, h, m);
+    const x = (v) => m.l + (v - minX) / (maxX - minX) * sc.plotW;
+    inner += axisSvg(rows, w, h, m, sc);
+    rows.forEach((row, i) => {
+      inner += `<circle cx="${x(row.x).toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="5" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-point"><title>${esc(row.label)}: ${esc(row.x)}, ${esc(row.value)}</title></circle>`;
+    });
+  } else {
+    const sc = chartScales(rows, w, h, m);
+    inner += axisSvg(rows, w, h, m, sc);
+    if (kind === 'bar') {
+      const bw = sc.plotW / rows.length * .62;
+      const zero = sc.y(0);
+      rows.forEach((row, i) => {
+        const x = m.l + (i + .5) * sc.plotW / rows.length - bw / 2;
+        const y = sc.y(Math.max(row.value, 0));
+        const hh = Math.max(1, Math.abs(sc.y(row.value) - zero));
+        inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="5" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-bar"><title>${esc(row.label)}: ${esc(row.value)}</title></rect>`;
+      });
+    } else {
+      const pts = rows.map((row, i) => `${(m.l + (rows.length === 1 ? .5 : i / (rows.length - 1)) * sc.plotW).toFixed(1)},${sc.y(row.value).toFixed(1)}`);
+      inner += `<polyline points="${pts.join(' ')}" class="md-chart-line"/>`;
+      rows.forEach((row, i) => {
+        const x = m.l + (rows.length === 1 ? .5 : i / (rows.length - 1)) * sc.plotW;
+        inner += `<circle cx="${x.toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="4" class="md-chart-dot"><title>${esc(row.label)}: ${esc(row.value)}</title></circle>`;
+      });
+    }
+  }
+  return `<div class="md-chart md-chart-${kind}"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg">${inner}</svg></div>`;
+}
 function hydrateSandboxMedia(root, fs) {
   if (!root || !fs) return;
   for (const img of root.querySelectorAll('img[data-sandbox]')) {
@@ -361,6 +493,12 @@ export function renderMarkdown(src) {
     aligns.push({ cls: key, body });
     return `\n\n\uE000ALIGN${aligns.length - 1}\uE000\n\n`;
   });
+  const charts = [];
+  t = t.replace(/^:::(?:chart[ \t]+([^\n]+)|(bar|bars|line|scatter|scat|st|pie|柱状图|柱状|条形图|折线图|折线|趋势图|散点图|散点|饼图|饼|环形图)[ \t]*([^\n]*))\n([\s\S]*?)^:::[ \t]*$/gm, (_, info, direct, restTitle, body) => {
+    const spec = parseChartInfo(info || restTitle || '', direct ? String(direct).toLowerCase() : '');
+    charts.push({ ...spec, body });
+    return `\n\n\uE000CHART${charts.length - 1}\uE000\n\n`;
+  });
   const FONT_ALIAS = {
     楷体: 'kai', 楷: 'kai', kai: 'kai', kaiti: 'kai',
     宋体: 'song', 宋: 'song', song: 'song', songti: 'song',
@@ -402,10 +540,16 @@ export function renderMarkdown(src) {
       const inner = innerMd ? innerMd.render(a.body) : `<p>${esc(a.body)}</p>`;
       return `<div class="md-align md-align-${a.cls}">${inner}</div>`;
     };
+    const chartAt = (_, i) => {
+      const c = charts[+i];
+      return renderQuickChart(c.kind, c.body, c.title);
+    };
     let out = html.replace(/<p>\s*\uE000FOLD(\d+)\uE000\s*<\/p>/g, foldAt)
       .replace(/\uE000FOLD(\d+)\uE000/g, foldAt)
       .replace(/<p>\s*\uE000ALIGN(\d+)\uE000\s*<\/p>/g, alignAt)
       .replace(/\uE000ALIGN(\d+)\uE000/g, alignAt)
+      .replace(/<p>\s*\uE000CHART(\d+)\uE000\s*<\/p>/g, chartAt)
+      .replace(/\uE000CHART(\d+)\uE000/g, chartAt)
       .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
       .replace(/\uE000FONT(\d+)\uE000/g, fontAt);
     if (peeled.blocks.length) out += choiceHtml(peeled.blocks);
@@ -2205,27 +2349,6 @@ export function mountUI(store, agent) {
     const qs = $$('.choice-qblock', box).map((b, i) => (($('.choice-q', b) || {}).textContent || `问题 ${i + 1}`).trim());
     return answers.map((a, i) => `${qs[i] || `问题 ${i + 1}`}：${a}`).join('\n');
   }
-  function dismissChoiceBox(box, particles = false) {
-    if (!box) return;
-    if (!particles || reduce) { box.remove(); return; }
-    if (box.classList.contains('dissolving')) return;
-    const n = 42;
-    const frag = document.createDocumentFragment();
-    for (let i = 0; i < n; i++) {
-      const p = document.createElement('span');
-      p.className = 'choice-particle';
-      const ang = (Math.PI * 2 * i) / n + (Math.random() - .5) * .55;
-      const dist = 32 + Math.random() * 110;
-      p.style.setProperty('--dx', `${Math.cos(ang) * dist}px`);
-      p.style.setProperty('--dy', `${Math.sin(ang) * dist}px`);
-      p.style.setProperty('--d', `${Math.random() * 120}ms`);
-      frag.appendChild(p);
-    }
-    box.appendChild(frag);
-    box.classList.add('dissolving');
-    window.setTimeout(() => box.remove(), 760);
-  }
-
   // 复制代码块按钮（事件委托）
   msgList.addEventListener('click', (e) => {
     const btn = e.target.closest('.copy-code');
@@ -2276,7 +2399,11 @@ export function mountUI(store, agent) {
       e.preventDefault();
       const box = back.closest('.choice-box');
       if (!box) return;
-      setChoiceStep(box, (Number(box.dataset.choiceStep || 0) || 0) - 1);
+      const target = Math.max(0, (Number(box.dataset.choiceStep || 0) || 0) - 1);
+      const answers = readChoiceAnswers(box);
+      answers.length = target; // 回退即清掉目标题及其后的旧选择状态
+      writeChoiceAnswers(box, answers);
+      setChoiceStep(box, target);
       return;
     }
     const choiceJump = e.target.closest('[data-choice-jump]');
@@ -2285,14 +2412,6 @@ export function mountUI(store, agent) {
       const box = choiceJump.closest('.choice-box');
       if (!box) return;
       setChoiceStep(box, Number(choiceJump.getAttribute('data-choice-jump') || 0));
-      return;
-    }
-    const skip = e.target.closest('[data-choice-skip]');
-    if (skip) {
-      e.preventDefault();
-      const box = skip.closest('.choice-box');
-      if (box) dismissChoiceBox(box, true);
-      else for (const b of $$('.choice-box', msgList)) dismissChoiceBox(b, true);
       return;
     }
     const dl = e.target.closest('[data-sb-dl]');

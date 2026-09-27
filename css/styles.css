@@ -1150,6 +1150,19 @@ a { color: var(--fg); }
 .md-align-center { text-align: center; }
 .md-align-right { text-align: right; }
 .md-align-center > *, .md-align-right > * { text-align: inherit; }
+.md-chart { margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.md-chart-svg {
+  display: block; width: min(720px, 100%); height: auto;
+  background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px;
+}
+.md-chart-title { font: 650 18px var(--sans); fill: var(--fg); }
+.md-chart-axis { stroke: var(--fg-3); stroke-width: 1; opacity: .7; }
+.md-chart-grid { stroke: var(--line-2); stroke-width: 1; opacity: .75; }
+.md-chart-tick, .md-chart-label { font: 11px var(--mono); fill: var(--fg-3); }
+.md-chart-line { fill: none; stroke: var(--fg); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.md-chart-dot { fill: var(--bg); stroke: var(--fg); stroke-width: 2; }
+.md-chart-bar, .md-chart-slice, .md-chart-point { opacity: .9; }
+.md-chart-error { margin: 8px 0; color: var(--fg-3); font-size: 12px; }
 .choice-box {
   margin: 12px 0 4px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
@@ -1182,23 +1195,6 @@ a { color: var(--fg); }
 .choice-back, .choice-progress { font-family: var(--mono); font-size: 11px; color: var(--fg-3); }
 .choice-back { text-decoration: underline; text-underline-offset: 2px; }
 .choice-back:disabled { opacity: .35; text-decoration: none; cursor: default; }
-.choice-skip {
-  margin: 0; flex: 0 0 auto; font-size: 12px; color: var(--fg-3);
-  text-decoration: underline; text-underline-offset: 2px; white-space: nowrap;
-}
-.choice-box.dissolving { pointer-events: none; animation: choiceVanish .7s var(--ease) forwards; }
-.choice-box.dissolving > :not(.choice-particle) { opacity: 0; transform: scale(.985); transition: opacity .22s var(--ease), transform .22s var(--ease); }
-.choice-particle {
-  position: absolute; left: 50%; top: 50%; z-index: 3;
-  width: 4px; height: 4px; border-radius: 50%; background: var(--fg);
-  opacity: .55; pointer-events: none;
-  animation: choiceParticle .72s var(--ease) var(--d, 0ms) forwards;
-}
-@keyframes choiceParticle {
-  from { transform: translate(-50%, -50%) scale(1); opacity: .65; }
-  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.15); opacity: 0; }
-}
-@keyframes choiceVanish { to { opacity: 0; transform: translateY(3px) scale(.99); } }
 .choice-box.stale { display: none; }
 .trunc-note { margin-top: 8px; font-size: 12px; color: var(--fg-3); }
 .edited-files, .explored-files { width: 100%; color: var(--fg-2); }

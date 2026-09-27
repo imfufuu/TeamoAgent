@@ -20,6 +20,7 @@ const beatBar = document.getElementById('beat-bar');
 const explore = document.getElementById('explore');
 const exploreCta = explore && explore.querySelector('.explore-cta');
 const skip = document.getElementById('film-skip');
+const pauseBtn = document.getElementById('film-pause');
 const nav = document.querySelector('.nav');
 const themeBtn = document.getElementById('theme-toggle');
 const bill = document.getElementById('bill-text');
@@ -57,6 +58,8 @@ const BLACK_SEC = 2.5;
 const OPEN_FADE = 1.2;
 
 let playing = false;
+let paused = false;
+let pauseAt = 0;
 let raf = 0;
 let lastBeat = -1;
 let lastTitle = '';
@@ -170,6 +173,31 @@ function nowSec() {
   return (performance.now() - t0) / 1000;
 }
 
+function pauseLocked(t = nowSec()) {
+  return t >= FILM_SEC - CURTAIN_SEC;
+}
+function setPaused(on) {
+  if (!playing) return;
+  const t = Math.max(0, nowSec());
+  if (on && pauseLocked(t)) return; // 最后五秒黑→白收束不可暂停
+  paused = !!on;
+  root.classList.toggle('paused', paused);
+  if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
+  if (paused) {
+    pauseAt = t;
+    cancelAnimationFrame(raf);
+    if (audio) try { audio.pause(); } catch { /* ignore */ }
+    return;
+  }
+  t0 = performance.now() - pauseAt * 1000;
+  if (audio) {
+    try { audio.currentTime = pauseAt; audio.play().then(() => { t0 = performance.now() - audio.currentTime * 1000; }).catch(() => {}); } catch { /* ignore */ }
+  }
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(frame);
+}
+function togglePause() { setPaused(!paused); }
+
 function paintCurtain(t) {
   if (!curtain) return;
   curtain.style.transition = 'none';
@@ -196,8 +224,9 @@ function paintCurtain(t) {
 }
 
 function frame() {
-  if (!playing) return;
+  if (!playing || paused) return;
   const t = Math.max(0, nowSec());
+  if (pauseBtn) pauseBtn.disabled = pauseLocked(t);
   paintCurtain(t);
   if (t >= FILM_SEC) { openSite(); return; }
   const beatF = t / BEAT;
@@ -249,6 +278,8 @@ function openSite(instant) {
   if (root.classList.contains('open')) return;
   abortAudioLoad();
   playing = false;
+  paused = false;
+  root.classList.remove('paused');
   cancelAnimationFrame(raf);
   if (audio) try { audio.pause(); } catch { /* ignore */ }
   if (instant || reduce) {
@@ -337,6 +368,10 @@ function requestFilm() {
 async function startFilm() {
   lastBeat = -1;
   lastTitle = '';
+  paused = false;
+  pauseAt = 0;
+  root.classList.remove('paused');
+  if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = '暂停'; }
   slam('');
   if (curtain) {
     curtain.style.transition = 'none';
@@ -364,6 +399,8 @@ async function startFilm() {
 function skipFilm() {
   if (audio) { audio.pause(); audio.currentTime = 0; }
   playing = false;
+  paused = false;
+  root.classList.remove('paused');
   cancelAnimationFrame(raf);
   if (reduce || !curtain) { openSite(true); return; }
   const start = performance.now();
@@ -440,6 +477,7 @@ if (reduce) {
   root.classList.remove('open', 'scoring');
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
   exploreCta && exploreCta.addEventListener('click', requestFilm);
+  pauseBtn && pauseBtn.addEventListener('click', togglePause);
   skip && skip.addEventListener('click', skipFilm);
   gateSkip && gateSkip.addEventListener('click', () => openSite(true));
   prefetchAudio();
@@ -453,9 +491,14 @@ if (reduce) {
         e.preventDefault();
         openSite(true);
       }
-    } else if (root.classList.contains('scoring') && !root.classList.contains('leaving') && e.key === 'Escape') {
-      e.preventDefault();
-      skipFilm();
+    } else if (root.classList.contains('scoring') && !root.classList.contains('leaving')) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        skipFilm();
+      } else if (e.key === ' ' || e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        togglePause();
+      }
     }
   });
 }

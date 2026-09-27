@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.58';
+export const APP_VERSION = '2026.9.26.59';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -221,6 +221,7 @@ export const OUTPUT_SPEC = [
   '- 折叠栏（次要内容或答案，默认收起，少用）：\\n:::fold 标题\\n内容\\n:::',
   '- 文学创作或需要精细排版时，可用 :::font 楷体|宋体|仿宋|黑体|行楷|serif|jp 包裹段落切换字体。日常聊天、写代码、分析文件不要换字体。格式：\\n:::font 楷体\\n正文\\n:::',
   '- 居中 / 右对齐排版：可用 :::center … :::、:::right … :::，或 :::align center|right … ::: 包裹 Markdown 段落；只在诗歌、题签、署名等需要版式时使用。',
+  '- 快捷 SVG 图表：柱状/折线/散点(st)/饼图可直接用 :::chart bar|line|scatter|st|pie 标题 包裹数据行（每行「标签, 数值」；散点图可写「x, y」）。客户端会渲染为内联 SVG；统计图不要再硬塞 Mermaid xychart-beta。',
   '- 长文目录：标题用 ## / ###；目录用 [节名](#slug) 链到同文标题（slug 为标题小写、空格改 -，中文标题可原样作锚）。',
 ].join('\n');
 
