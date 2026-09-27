@@ -245,9 +245,9 @@ export const TOOL_DEFS = [
   {
     name: 'run_git',
     description:
-      '在本机工作区（server.py 所在目录的 ./workspace/）里执行 git 命令：可 clone/pull 仓库、status/diff/log 查看、' +
-      'add/commit 提交，也可 push（凭据由本机 git 配置提供，网站不接触）。服务端只允许 git 子命令白名单，' +
-      '不经过 shell，因此不能拼接管道或重定向。需要静态托管环境无法执行外部程序时，工具会明确说明并提示启动本地中继。',
+      '执行 git 命令。下载后的静态页面也内置轻量 Git，可在沙箱文件系统里 init/status/diff/add/commit/log/branch/checkout/reset；' +
+      '如本地中继 server.py 在跑，则优先使用本机工作区 ./workspace/ 的真实 git，可 clone/pull/push（凭据由本机 git 配置提供，网站不接触）。' +
+      '不经过 shell，因此不能拼接管道或重定向；无中继时远端网络操作会明确报错。',
     parameters: {
       type: 'object',
       properties: {
@@ -637,7 +637,7 @@ async function executeToolBody(name, args, ctx) {
       }
       case 'run_git': {
         emit({ status: 'running', note: String(args.command || 'git').slice(0, 46) });
-        const r = await gitRun({ command: args.command, repo: args.repo, timeoutSec: args.timeout_sec, signal: ctx.signal });
+        const r = await gitRun({ command: args.command, repo: args.repo, timeoutSec: args.timeout_sec, signal: ctx.signal, fs });
         if (!r.ok) {
           const msg = r.error || `git 退出码 ${r.code}\n${r.text}`;
           emit({ status: 'error', error: { message: String(msg).slice(0, 300) } });

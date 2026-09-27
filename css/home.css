@@ -229,7 +229,7 @@ html.gate .glow {
   transform-style: preserve-3d;
   opacity: 0;
   filter: none;
-  transition: opacity .7s var(--film);
+  transition: opacity 1.05s var(--film), filter 1.35s var(--film), transform 1.8s var(--film);
 }
 .shot.focus { opacity: 1; z-index: 2; }
 .shot[data-id="logo"] { transform: translate3d(0, 0, 0); }
@@ -241,6 +241,19 @@ html.gate .glow {
 .shot[data-id="term"] { transform: translate3d(50px, 750px, -80px) rotateX(-5deg); }
 .shot[data-id="tools"] { transform: translate3d(890px, -250px, 60px) rotateY(10deg); }
 .shot[data-id="zip"] { transform: translate3d(-890px, -210px, 40px) rotateY(-10deg); }
+html.integrating .vignette {
+  background: radial-gradient(ellipse at 50% 48%, transparent 24%, rgba(0,0,0,.38) 58%, rgba(0,0,0,.78) 100%);
+}
+html.integrating .shot { opacity: .78; filter: blur(1.2px) saturate(.82); }
+html.integrating .shot[data-id="logo"] { opacity: 1; filter: none; z-index: 5; transform: translate3d(0, 0, 150px) scale(.92); }
+html.integrating .shot[data-id="copy"] { transform: translate3d(0, -485px, -260px) scale(.75); }
+html.integrating .shot[data-id="sandbox"] { transform: translate3d(440px, -112px, -190px) rotateY(-8deg) scale(.82); }
+html.integrating .shot[data-id="files"] { transform: translate3d(-440px, -112px, -160px) rotateY(8deg) scale(.82); }
+html.integrating .shot[data-id="image"] { transform: translate3d(0, -340px, -150px) rotateX(3deg) scale(.84); }
+html.integrating .shot[data-id="ultra"] { transform: translate3d(0, 342px, -130px) scale(.78); }
+html.integrating .shot[data-id="term"] { transform: translate3d(455px, 235px, -210px) rotateX(-4deg) scale(.74); }
+html.integrating .shot[data-id="tools"] { transform: translate3d(-455px, 235px, -185px) rotateY(8deg) scale(.74); }
+html.integrating .shot[data-id="zip"] { transform: translate3d(0, 485px, -250px) rotateY(-4deg) scale(.72); }
 .shot-inner {
   transform: translate(-50%, -50%);
   transform-style: preserve-3d;
@@ -312,7 +325,7 @@ html.gate .glow {
 }
 .film-skip:hover { color: #f4f1ea; }
 
-.mark { width: min(34vw, 260px); height: min(34vw, 260px); color: #f4f1ea; position: relative; }
+.mark { width: min(38vw, 290px); height: min(38vw, 290px); color: #f4f1ea; position: relative; }
 .mark svg { width: 100%; height: 100%; display: block; filter: drop-shadow(0 30px 50px rgba(0,0,0,.45)); }
 .brand-plate {
   margin-top: 28px; text-align: center;
@@ -347,7 +360,7 @@ html.gate .glow {
 }
 
 .prop-card {
-  width: min(58vw, 380px);
+  width: min(62vw, 410px);
   background:
     linear-gradient(180deg, rgba(255,255,255,.1), transparent 22%),
     linear-gradient(180deg, #1a1a16, #10100e);
@@ -360,7 +373,7 @@ html.gate .glow {
 }
 .prop-card .k { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; text-transform: uppercase; opacity: .45; margin-bottom: 12px; }
 .prop-card h3 { font-family: var(--serif); font-size: clamp(26px, 4.6vw, 38px); font-weight: 500; letter-spacing: -.03em; }
-.tools-board { width: min(50vw, 320px); }
+.tools-board { width: min(54vw, 350px); }
 .tools-board h3 { font-size: clamp(22px, 3.8vw, 30px); }
 .prop-card p { margin-top: 10px; font-size: 15px; line-height: 1.6; color: rgba(244,241,234,.62); }
 .pills { display: flex; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
@@ -370,7 +383,7 @@ html.gate .glow {
 }
 
 .tree {
-  width: min(62vw, 360px); border-radius: 20px;
+  width: min(66vw, 390px); border-radius: 20px;
   border: 1px solid rgba(244,241,234,.16);
   background:
     linear-gradient(180deg, rgba(255,255,255,.08), transparent 20%),
@@ -386,7 +399,7 @@ html.gate .glow {
 .tree .sz { font-family: var(--mono); font-size: 11px; opacity: .4; }
 
 .poster {
-  width: min(52vw, 300px); aspect-ratio: 1;
+  width: min(56vw, 330px); aspect-ratio: 1;
   border-radius: 28px;
   background:
     radial-gradient(circle at 32% 24%, rgba(255,255,255,.16), transparent 36%),
@@ -401,7 +414,7 @@ html.gate .glow {
 .poster svg { width: 42%; height: 42%; }
 
 .think-hero {
-  text-align: center; width: min(72vw, 480px);
+  text-align: center; width: min(76vw, 520px);
 }
 .think-hero .ultra {
   font-family: var(--serif); font-size: clamp(48px, 10vw, 96px);
@@ -415,7 +428,7 @@ html.gate .glow {
 .think-hero p { margin-top: 16px; font-size: 14px; color: rgba(244,241,234,.55); letter-spacing: .06em; }
 
 .term {
-  width: min(68vw, 440px); border-radius: 18px; overflow: hidden;
+  width: min(72vw, 470px); border-radius: 18px; overflow: hidden;
   border: 1px solid rgba(244,241,234,.16);
   background:
     linear-gradient(180deg, rgba(255,255,255,.07), transparent 18%),

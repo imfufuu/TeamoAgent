@@ -1,6 +1,11 @@
 const BPM = 124;
 const BEAT = 60 / BPM; // ≈ 483.871ms；第 0 帧 = 第一拍
-const WHIP = 4; // 整段小节内滑到下一机位，不再短促砸镜
+const WHIP = 2.8; // 切镜只轻轻拉远，避免高速甩镜
+const SWITCH_OUT = 0.58; // 拉远阶段占比更长，镜头切换慢一点
+const FOCUS_CUT = 0.42;  // 更晚切到下一个主体
+const FILM_SCALE = 1.08; // 片中元素整体放大
+const INTEGRATE_START = 72;
+const INTEGRATE_END = 88;
 
 const root = document.documentElement;
 const saved = localStorage.getItem('teamo-home-theme');
@@ -97,10 +102,11 @@ function camAt(beatF) {
       rz: lerp(cur.rz, next.rz, u),
       focus: cur.focus,
       title: cur.title,
+      integrate: beatF >= INTEGRATE_START && beatF < INTEGRATE_END,
     };
   }
-  if (u < 0.42) {
-    const t = smoother(u / 0.42);
+  if (u < SWITCH_OUT) {
+    const t = smoother(u / SWITCH_OUT);
     return {
       x: cur.x,
       y: cur.y,
@@ -110,9 +116,10 @@ function camAt(beatF) {
       rz: lerp(cur.rz, 0, t),
       focus: cur.focus,
       title: cur.title,
+      integrate: beatF >= INTEGRATE_START && beatF < INTEGRATE_END,
     };
   }
-  const t = smoother((u - 0.42) / 0.58);
+  const t = smoother((u - SWITCH_OUT) / (1 - SWITCH_OUT));
   return {
     x: lerp(cur.x, next.x, t),
     y: lerp(cur.y, next.y, t),
@@ -120,14 +127,16 @@ function camAt(beatF) {
     rx: lerp(0, next.rx, t),
     ry: lerp(0, next.ry, t),
     rz: lerp(0, next.rz, t),
-    focus: t < 0.22 ? cur.focus : next.focus,
+    focus: t < FOCUS_CUT ? cur.focus : next.focus,
     title: cur.title,
+    integrate: beatF >= INTEGRATE_START && beatF < INTEGRATE_END,
   };
 }
 
 function applyCam(c) {
   if (!world) return;
-  world.style.transform = `translate3d(${-c.x}px, ${-c.y}px, ${-c.z}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg) rotateZ(${c.rz}deg)`;
+  world.style.transform = `translate3d(${-c.x}px, ${-c.y}px, ${-c.z}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg) rotateZ(${c.rz}deg) scale(${FILM_SCALE})`;
+  root.classList.toggle('integrating', !!c.integrate);
   for (const shot of shots) {
     const on = shot.dataset.id === c.focus;
     shot.classList.toggle('focus', on);
@@ -218,7 +227,7 @@ function pinTop() {
 }
 
 function finishOpen(instant) {
-  root.classList.remove('gate', 'scoring', 'leaving');
+  root.classList.remove('gate', 'scoring', 'leaving', 'integrating');
   root.classList.add('open');
   lockScroll(false);
   pinTop();
@@ -334,7 +343,7 @@ async function startFilm() {
     curtain.style.background = '#000';
     curtain.style.opacity = '1';
   }
-  root.classList.remove('gate', 'open');
+  root.classList.remove('gate', 'open', 'integrating');
   root.classList.add('scoring');
   lockScroll(true);
   applyCam(camAt(0));

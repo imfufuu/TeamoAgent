@@ -37,9 +37,9 @@ const toolsFor = (sandboxEnabled) =>
 // 只在中继里能用的工具：网页版（GitHub Pages）没有 server.py，这两个调到必然失败。
 // 实测后果：模型会拿 fetch_url 去「联网」，失败后要么编数字、要么说一堆环境限制，
 // 而真正可用的服务器网页搜索就在同一份请求里。没有中继时直接不提供，别给死路。
-const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'run_git']);
-const RELAY_OFF_NOTE = '\n\n【工具可用性】本环境没有本地中继（GitHub Pages / 未运行 server.py），因此 fetch_url 与 run_git '
-  + '本轮不在工具表里，顶栏「联网」也不可用。不要声称已经搜过网页。';
+const RELAY_ONLY_TOOLS = new Set(['fetch_url']);
+const RELAY_OFF_NOTE = '\n\n【工具可用性】本环境没有本地中继（GitHub Pages / 未运行 server.py），因此 fetch_url '
+  + '本轮不在工具表里，顶栏「联网」也不可用；run_git 仍可用内置沙箱 Git（不支持 clone/push 等远端网络操作）。不要声称已经搜过网页。';
 
 // 附件落盘文件名：去掉路径分隔与控制字符，避免越权写到 uploads/ 之外
 const safeName = (n) => String(n || 'file').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120) || 'file';

@@ -49,12 +49,12 @@ export const BUNDLED_SKILLS = [
   {
     id: 'git-workspace',
     tag: 'git',
-    description: '真实仓库操作走 run_git（本地中继）',
+    description: '仓库操作走 run_git（内置沙箱 Git / 本地中继真 Git）',
     match: (plan, text) => /git|仓库|commit|clone|pull request|\bpr\b|分支|rebase/i.test(String(text || '')),
     body: [
       '## Skill: git-workspace',
       '- 写操作前先 run_git status / diff。commit 信息用完整句子，不要经 shell 拼接。',
-      '- 没有本地中继时工具表里没有 run_git：说明限制，不要假装提交成功。',
+      '- 没有本地中继时 run_git 仍可做沙箱内 init/status/diff/add/commit/log；clone/push 等远端网络操作要说明需要中继。',
     ].join('\n'),
   },
   {

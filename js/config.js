@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.57';
+export const APP_VERSION = '2026.9.26.58';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -255,7 +255,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',
     '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。返回的是全文，不要当成摘要；需要再核对时 read_file 对应的 .ocr.md。',
-    '- run_git：在本机工作区 ./workspace/ 执行 git 命令（clone / status / diff / log / add / commit / push 等，服务端白名单校验、不经 shell）。用户提到仓库、提交、分支、PR 前的准备时用它在真实目录里干活；写操作前先 status/diff 确认。',
+    '- run_git：执行 git 命令。无本地中继时使用内置沙箱 Git（init/status/diff/add/commit/log/branch/checkout/reset），下载到本地也可用；有 server.py 中继时可在 ./workspace/ 里调用真实 git（clone/pull/push 等）。用户提到仓库、提交、分支、PR 前准备时使用；写操作前先 status/diff 确认。',
     allowDispatch
       ? '- dispatch_subagent：把任务委派给专业子智能体（同模型 + 专属提示词 + 工具子集 + 独立上下文）。本轮思考级别为 Max/Ultra，可以委派；遇到需要专业视角的活儿主动派，不要等用户点名；名录与触发条件见下方「子智能体委派」。'
       : '- dispatch_subagent：仅当用户把思考级别设为 Max 或 Ultra 时可用。本轮未开启，工具表里没有它。请自己直接完成任务，不要假装已经委派。',

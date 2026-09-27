@@ -1153,20 +1153,52 @@ a { color: var(--fg); }
 .choice-box {
   margin: 12px 0 4px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);
+  position: relative; overflow: hidden;
 }
 .choice-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.choice-title { font-size: 12px; color: var(--fg-3); font-family: var(--mono); letter-spacing: .06em; }
+.choice-qrow { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.choice-step { flex: 0 0 auto; font-family: var(--mono); font-size: 10.5px; color: var(--fg-3); }
 .choice-q { font-weight: 650; margin: 0; min-width: 0; }
+.choice-summary { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.choice-pill {
+  display: inline-flex; align-items: center; gap: 5px; max-width: 100%;
+  font-size: 11px; color: var(--fg-2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 3px 8px; background: var(--bg);
+}
+.choice-pill b { font-family: var(--mono); color: var(--fg-3); }
+.choice-qblock { display: none; }
+.choice-qblock.active { display: block; animation: choiceIn .2s var(--ease) both; }
+@keyframes choiceIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 .choice-opts { display: flex; flex-direction: column; gap: 6px; }
 .choice-opt {
   text-align: left; padding: 8px 10px; border-radius: 8px;
   border: 1px solid var(--line); background: var(--bg); color: var(--fg);
-  transition: border-color .2s, background .2s;
+  transition: border-color .2s, background .2s, transform .18s var(--ease);
 }
-.choice-opt:hover { border-color: var(--fg); background: var(--bg-hover); }
+.choice-opt:hover { border-color: var(--fg); background: var(--bg-hover); transform: translateY(-1px); }
+.choice-opt.selected { border-color: var(--fg); background: var(--fg); color: var(--bg); }
+.choice-nav { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 9px; }
+.choice-back, .choice-progress { font-family: var(--mono); font-size: 11px; color: var(--fg-3); }
+.choice-back { text-decoration: underline; text-underline-offset: 2px; }
+.choice-back:disabled { opacity: .35; text-decoration: none; cursor: default; }
 .choice-skip {
   margin: 0; flex: 0 0 auto; font-size: 12px; color: var(--fg-3);
   text-decoration: underline; text-underline-offset: 2px; white-space: nowrap;
 }
+.choice-box.dissolving { pointer-events: none; animation: choiceVanish .7s var(--ease) forwards; }
+.choice-box.dissolving > :not(.choice-particle) { opacity: 0; transform: scale(.985); transition: opacity .22s var(--ease), transform .22s var(--ease); }
+.choice-particle {
+  position: absolute; left: 50%; top: 50%; z-index: 3;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--fg);
+  opacity: .55; pointer-events: none;
+  animation: choiceParticle .72s var(--ease) var(--d, 0ms) forwards;
+}
+@keyframes choiceParticle {
+  from { transform: translate(-50%, -50%) scale(1); opacity: .65; }
+  to { transform: translate(calc(-50% + var(--dx)), calc(-50% + var(--dy))) scale(.15); opacity: 0; }
+}
+@keyframes choiceVanish { to { opacity: 0; transform: translateY(3px) scale(.99); } }
 .choice-box.stale { display: none; }
 .trunc-note { margin-top: 8px; font-size: 12px; color: var(--fg-3); }
 .edited-files, .explored-files { width: 100%; color: var(--fg-2); }

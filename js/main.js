@@ -59,8 +59,8 @@ window.addEventListener('beforeunload', () => store.save(true));
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') store.save(true);
 });
-// 本地中继探测（一次）：静态托管上没有 server.py —— fetch_url / run_git 调到必然失败，
-// 与其让模型在死路上浪费时间（实测它还会拿 fetch_url 假装联网），不如本轮就不给它这两个工具。
+// 本地中继探测（一次）：静态托管上没有 server.py —— fetch_url 调到必然失败；run_git 已有内置沙箱 Git，
+// 但网页抓取仍不能假装可用。与其让模型在死路上浪费时间，不如本轮不给 fetch_url。
 // 探测结果只影响工具表与系统提示词，不影响任何联网搜索（那走的是模型 API 自带格式）。
 relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {});
 

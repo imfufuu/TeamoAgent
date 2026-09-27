@@ -87,11 +87,18 @@ const peelChoices = (src) => {
   }
   return { rest, blocks };
 };
-const choiceHtml = (block) => {
-  const q = esc(block.title || '请选择');
-  const opts = parseChoiceOpts(block.body);
-  const buttons = opts.map((o) => `<button type="button" class="choice-opt" data-choice-send="${esc(o)}">${esc(o)}</button>`).join('');
-  return `<div class="choice-box" role="group" aria-label="${q}"><div class="choice-head"><div class="choice-q">${q}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div><div class="choice-opts">${buttons}</div></div>`;
+const choiceHtml = (blocks) => {
+  const list = (Array.isArray(blocks) ? blocks : [blocks]).filter(Boolean);
+  const safe = list.length ? list : [{ title: '请选择', body: '' }];
+  const count = safe.length;
+  const groups = safe.map((block, i) => {
+    const q = esc(block.title || `问题 ${i + 1}`);
+    const opts = parseChoiceOpts(block.body);
+    const buttons = opts.map((o) => `<button type="button" class="choice-opt" data-choice-send="${esc(o)}">${esc(o)}</button>`).join('');
+    return `<div class="choice-qblock${i === 0 ? ' active' : ''}" data-choice-idx="${i}"><div class="choice-qrow"><span class="choice-step">${i + 1}/${count}</span><div class="choice-q">${q}</div></div><div class="choice-opts">${buttons}</div></div>`;
+  }).join('');
+  const label = esc(count > 1 ? `选择框（${count} 个问题）` : (safe[0].title || '请选择'));
+  return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div><button type="button" class="choice-skip" data-choice-skip>跳过</button></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 function hydrateSandboxMedia(root, fs) {
   if (!root || !fs) return;
@@ -401,7 +408,7 @@ export function renderMarkdown(src) {
       .replace(/\uE000ALIGN(\d+)\uE000/g, alignAt)
       .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
       .replace(/\uE000FONT(\d+)\uE000/g, fontAt);
-    if (peeled.blocks.length) out += peeled.blocks.map(choiceHtml).join('');
+    if (peeled.blocks.length) out += choiceHtml(peeled.blocks);
     return out;
   };
 
@@ -2164,6 +2171,61 @@ export function mountUI(store, agent) {
     agent.send(text, atts);
   }
 
+  function readChoiceAnswers(box) {
+    try { return JSON.parse(box.dataset.choiceAnswers || '[]'); } catch { return []; }
+  }
+  function writeChoiceAnswers(box, answers) {
+    box.dataset.choiceAnswers = JSON.stringify((answers || []).map((x) => String(x || '')));
+  }
+  function setChoiceStep(box, step) {
+    if (!box) return;
+    const blocks = $$('.choice-qblock', box);
+    const count = blocks.length || Number(box.dataset.choiceCount || 1) || 1;
+    const idx = Math.max(0, Math.min(count - 1, Number(step) || 0));
+    box.dataset.choiceStep = String(idx);
+    blocks.forEach((b, i) => b.classList.toggle('active', i === idx));
+    const answers = readChoiceAnswers(box);
+    const summary = $('[data-choice-summary]', box);
+    if (summary) {
+      summary.innerHTML = answers.length
+        ? answers.map((a, i) => a ? `<button type="button" class="choice-pill" data-choice-jump="${i}" title="回到第 ${i + 1} 题"><b>${i + 1}</b>${esc(a)}</button>` : '').join('')
+        : '';
+    }
+    blocks.forEach((b, i) => {
+      const ans = answers[i] || '';
+      for (const opt of $$('.choice-opt', b)) opt.classList.toggle('selected', !!ans && opt.getAttribute('data-choice-send') === ans);
+    });
+    const back = $('[data-choice-back]', box);
+    if (back) back.disabled = idx <= 0;
+    const progress = $('[data-choice-progress]', box);
+    if (progress) progress.textContent = `${idx + 1} / ${count}`;
+  }
+  function choiceReplyText(box) {
+    const answers = readChoiceAnswers(box);
+    const qs = $$('.choice-qblock', box).map((b, i) => (($('.choice-q', b) || {}).textContent || `问题 ${i + 1}`).trim());
+    return answers.map((a, i) => `${qs[i] || `问题 ${i + 1}`}：${a}`).join('\n');
+  }
+  function dismissChoiceBox(box, particles = false) {
+    if (!box) return;
+    if (!particles || reduce) { box.remove(); return; }
+    if (box.classList.contains('dissolving')) return;
+    const n = 42;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < n; i++) {
+      const p = document.createElement('span');
+      p.className = 'choice-particle';
+      const ang = (Math.PI * 2 * i) / n + (Math.random() - .5) * .55;
+      const dist = 32 + Math.random() * 110;
+      p.style.setProperty('--dx', `${Math.cos(ang) * dist}px`);
+      p.style.setProperty('--dy', `${Math.sin(ang) * dist}px`);
+      p.style.setProperty('--d', `${Math.random() * 120}ms`);
+      frag.appendChild(p);
+    }
+    box.appendChild(frag);
+    box.classList.add('dissolving');
+    window.setTimeout(() => box.remove(), 760);
+  }
+
   // 复制代码块按钮（事件委托）
   msgList.addEventListener('click', (e) => {
     const btn = e.target.closest('.copy-code');
@@ -2188,16 +2250,49 @@ export function mountUI(store, agent) {
     const opt = e.target.closest('[data-choice-send]');
     if (opt) {
       if (getBusy()) return;
+      const box = opt.closest('.choice-box');
+      const block = opt.closest('.choice-qblock');
+      if (!box || !block) return;
       const text = opt.getAttribute('data-choice-send') || '';
-      if (!text || !store.state.apiKey) return;
-      for (const box of $$('.choice-box', msgList)) box.remove();
-      agent.send(text, []);
+      if (!text) return;
+      const idx = Number(block.dataset.choiceIdx || box.dataset.choiceStep || 0) || 0;
+      const count = Number(box.dataset.choiceCount || $$('.choice-qblock', box).length || 1) || 1;
+      const answers = readChoiceAnswers(box);
+      answers.length = idx;
+      answers[idx] = text;
+      writeChoiceAnswers(box, answers);
+      if (idx + 1 < count) {
+        setChoiceStep(box, idx + 1);
+        return;
+      }
+      if (!store.state.apiKey) { openKeyModal(); toast('请先配置 TeamoRouter API Key', 'warn'); setChoiceStep(box, idx); return; }
+      const reply = choiceReplyText(box) || text;
+      for (const b of $$('.choice-box', msgList)) b.remove();
+      agent.send(reply, []);
+      return;
+    }
+    const back = e.target.closest('[data-choice-back]');
+    if (back) {
+      e.preventDefault();
+      const box = back.closest('.choice-box');
+      if (!box) return;
+      setChoiceStep(box, (Number(box.dataset.choiceStep || 0) || 0) - 1);
+      return;
+    }
+    const choiceJump = e.target.closest('[data-choice-jump]');
+    if (choiceJump) {
+      e.preventDefault();
+      const box = choiceJump.closest('.choice-box');
+      if (!box) return;
+      setChoiceStep(box, Number(choiceJump.getAttribute('data-choice-jump') || 0));
       return;
     }
     const skip = e.target.closest('[data-choice-skip]');
     if (skip) {
       e.preventDefault();
-      for (const box of $$('.choice-box', msgList)) box.remove();
+      const box = skip.closest('.choice-box');
+      if (box) dismissChoiceBox(box, true);
+      else for (const b of $$('.choice-box', msgList)) dismissChoiceBox(b, true);
       return;
     }
     const dl = e.target.closest('[data-sb-dl]');

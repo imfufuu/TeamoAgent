@@ -1,4 +1,4 @@
-// ─── 网络能力：网页抓取 / git（浏览器既没有跨域抓取能力，也没有执行外部程序的能力）
+// ─── 网络能力：网页抓取 / git（git 内置轻量引擎；联网 git 仍走中继）
 //
 // 分层：
 //   ① 本地中继 server.py 的 /api/fetch、/api/git —— 同源、无 CORS 与 CSP 限制、可抓任意页面
@@ -40,7 +40,7 @@ export async function relayAvailable(signal) {
 /** 测试/页面切换部署环境时重置探测缓存 */
 export function resetRelayProbe() { relayOk = null; relayProbe = null; }
 
-export const RELAY_HINT = '需要本地中继：在项目目录执行 python3 server.py 后打开 http://localhost:8787（Pages 静态托管没有服务端，抓取与 git 只能走本地中继）';
+export const RELAY_HINT = '需要本地中继：在项目目录执行 python3 server.py 后打开 http://localhost:8787（Pages 静态托管没有服务端，网页抓取和远端 git 网络操作需要中继）';
 
 // ── HTML → 纯文本（纯函数，可在 node 里单测）─────────────────────────
 export function htmlToText(html) {
@@ -158,32 +158,264 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
   };
 }
 
-// ── git（只有本地中继能跑真 git）───────────────────────────────────────
-export async function gitRun({ command, repo, timeoutSec = 25, signal } = {}) {
+
+// ── 内置轻量 Git（沙箱内，无本地中继也能用）────────────────────────────
+// 目标不是复刻系统 git 的所有网络能力，而是让下载后的静态项目在浏览器沙箱里
+// 直接具备 init/status/diff/add/commit/log/branch/checkout/reset 等核心版本管理能力。
+function splitGitArgs(cmd) {
+  const out = [];
+  const re = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|(\S+)/g;
+  for (let m; (m = re.exec(String(cmd || ''))); ) out.push((m[1] ?? m[2] ?? m[3] ?? '').replace(/\\(["'\\])/g, '$1'));
+  return out;
+}
+function cleanRepo(repo) {
+  return String(repo || '').trim().replace(/^\/+|\/+$/g, '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/');
+}
+function joinRepo(base, rel) { return base ? `${base}/${rel}` : rel; }
+function metaPath(base) { return joinRepo(base, '.git/teamo.json'); }
+function relPath(base, path) {
+  const p = String(path || '');
+  if (!base) return p;
+  return p.startsWith(base + '/') ? p.slice(base.length + 1) : '';
+}
+function readMeta(fs, base) {
+  try { return JSON.parse(fs.read(metaPath(base))); } catch { return null; }
+}
+function writeMeta(fs, base, meta) { fs.write(metaPath(base), JSON.stringify(meta, null, 2)); }
+function emptyMeta() { return { version: 1, head: 'main', branches: { main: null }, commits: {}, index: {} }; }
+function workTree(fs, base) {
+  const out = {};
+  const prefix = base ? base + '/' : '';
+  for (const f of fs.list()) {
+    const p = String(f.path || '');
+    if (base && !p.startsWith(prefix)) continue;
+    const rel = relPath(base, p);
+    if (!rel || rel.startsWith('.git/')) continue;
+    out[rel] = fs.read(p);
+  }
+  return out;
+}
+function headCommit(meta) { return meta && meta.branches ? meta.branches[meta.head] || null : null; }
+function headTree(meta) {
+  const id = headCommit(meta);
+  return id && meta.commits[id] ? { ...(meta.commits[id].tree || {}) } : {};
+}
+function simpleHash(s) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+function sameTree(a, b) {
+  const ks = new Set([...Object.keys(a || {}), ...Object.keys(b || {})]);
+  for (const k of ks) if ((a || {})[k] !== (b || {})[k]) return false;
+  return true;
+}
+function pathArgs(args) { return args.filter((x) => x && !x.startsWith('-')); }
+function selectedPath(rel, paths) {
+  if (!paths.length || paths.includes('.') || paths.includes('./')) return true;
+  return paths.some((p) => {
+    const x = String(p || '').replace(/^\.\//, '').replace(/^\/+|\/+$/g, '');
+    return rel === x || rel.startsWith(x + '/');
+  });
+}
+function stageTree(meta) {
+  const tree = headTree(meta);
+  for (const [p, v] of Object.entries(meta.index || {})) {
+    if (v == null) delete tree[p]; else tree[p] = v;
+  }
+  return tree;
+}
+function statusText(meta, work) {
+  const head = headTree(meta);
+  const staged = stageTree(meta);
+  const keys = [...new Set([...Object.keys(head), ...Object.keys(staged), ...Object.keys(work)])].sort();
+  const lines = [];
+  for (const k of keys) {
+    const h = Object.prototype.hasOwnProperty.call(head, k) ? head[k] : undefined;
+    const s = Object.prototype.hasOwnProperty.call(staged, k) ? staged[k] : undefined;
+    const w = Object.prototype.hasOwnProperty.call(work, k) ? work[k] : undefined;
+    let ix = ' ';
+    if (s !== h) ix = h === undefined ? 'A' : (s === undefined ? 'D' : 'M');
+    let wt = ' ';
+    const base = ix !== ' ' ? s : h;
+    if (w !== base) wt = w === undefined ? 'D' : (base === undefined ? '?' : 'M');
+    if (ix !== ' ' || wt !== ' ') lines.push(`${ix}${wt} ${k}`);
+  }
+  return lines.join('\n');
+}
+function diffTrees(a, b, only = []) {
+  const keys = [...new Set([...Object.keys(a || {}), ...Object.keys(b || {})])].sort().filter((k) => selectedPath(k, only));
+  const out = [];
+  for (const k of keys) {
+    const oldV = (a || {})[k];
+    const newV = (b || {})[k];
+    if (oldV === newV) continue;
+    out.push(`diff --git a/${k} b/${k}`);
+    if (oldV === undefined) out.push('new file mode 100644');
+    if (newV === undefined) out.push('deleted file mode 100644');
+    out.push(`--- ${oldV === undefined ? '/dev/null' : 'a/' + k}`);
+    out.push(`+++ ${newV === undefined ? '/dev/null' : 'b/' + k}`);
+    out.push('@@');
+    if (oldV !== undefined) String(oldV).split('\n').forEach((l) => out.push(`-${l}`));
+    if (newV !== undefined) String(newV).split('\n').forEach((l) => out.push(`+${l}`));
+  }
+  return out.join('\n');
+}
+function restoreWorkTree(fs, base, tree) {
+  const cur = workTree(fs, base);
+  for (const p of Object.keys(cur)) if (!Object.prototype.hasOwnProperty.call(tree, p)) fs.remove(joinRepo(base, p));
+  for (const [p, v] of Object.entries(tree || {})) fs.write(joinRepo(base, p), v);
+}
+function parseMessage(args) {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-m' || args[i] === '--message') return String(args[i + 1] || '').trim();
+    if (args[i].startsWith('-m') && args[i].length > 2) return args[i].slice(2).trim();
+    if (args[i].startsWith('--message=')) return args[i].slice(10).trim();
+  }
+  return '';
+}
+function localGitRun({ command, repo, fs } = {}) {
+  if (!fs || typeof fs.list !== 'function') return { ok: false, error: `git 命令需要本地中继或沙箱文件系统。${RELAY_HINT}` };
+  const parts = splitGitArgs(command);
+  if (parts[0] === 'git') parts.shift();
+  const sub = parts.shift() || '';
+  const base = cleanRepo(repo);
+  const cwd = base ? `sandbox://${base}` : 'sandbox://';
+  if (!sub) return { ok: false, error: 'run_git 需要 command，例如 "git status --short"' };
+  if (sub === '--version' || sub === 'version') return { ok: true, code: 0, cwd, text: 'git version TeamoGit 0.1 (browser embedded)', note: '内置沙箱 Git' };
+  if (['clone', 'fetch', 'pull', 'push'].includes(sub)) {
+    return { ok: false, code: 2, cwd, text: `内置浏览器 Git 当前支持沙箱内 init/status/diff/add/commit/log/branch/checkout/reset；${sub} 这类远端网络操作需要本地中继或后续配置 CORS 代理。`, note: '内置沙箱 Git' };
+  }
+  let meta = readMeta(fs, base);
+  if (sub === 'init') {
+    meta = meta || emptyMeta();
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `Initialized empty TeamoGit repository in ${joinRepo(base, '.git') || '.git'}/`, note: '内置沙箱 Git' };
+  }
+  if (!meta) return { ok: false, code: 128, cwd, text: 'fatal: not a git repository (or any of the parent directories): .git', note: '内置沙箱 Git' };
+  const work = workTree(fs, base);
+  if (sub === 'status') {
+    const short = parts.includes('--short') || parts.includes('-s');
+    const s = statusText(meta, work);
+    return { ok: true, code: 0, cwd, text: short ? s : (s || `On branch ${meta.head}\nnothing to commit, working tree clean`), note: '内置沙箱 Git' };
+  }
+  if (sub === 'add') {
+    const args = parts;
+    const paths = pathArgs(args);
+    const all = !paths.length || args.includes('-A') || args.includes('--all') || paths.includes('.');
+    const head = headTree(meta);
+    let n = 0;
+    for (const [rel, val] of Object.entries(work)) if (selectedPath(rel, paths)) { meta.index[rel] = val; n++; }
+    if (all) for (const rel of Object.keys(head)) if (!Object.prototype.hasOwnProperty.call(work, rel)) { meta.index[rel] = null; n++; }
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `staged ${n} path(s)`, note: '内置沙箱 Git' };
+  }
+  if (sub === 'diff') {
+    const cached = parts.includes('--cached') || parts.includes('--staged');
+    const paths = pathArgs(parts);
+    const a = cached ? headTree(meta) : stageTree(meta);
+    const b = cached ? stageTree(meta) : work;
+    return { ok: true, code: 0, cwd, text: diffTrees(a, b, paths), note: '内置沙箱 Git' };
+  }
+  if (sub === 'commit') {
+    const message = parseMessage(parts);
+    if (!message) return { ok: false, code: 1, cwd, text: 'Aborting commit due to empty commit message.', note: '内置沙箱 Git' };
+    const next = stageTree(meta);
+    if (sameTree(next, headTree(meta))) return { ok: false, code: 1, cwd, text: 'nothing to commit, working tree clean', note: '内置沙箱 Git' };
+    const parent = headCommit(meta);
+    const stamp = new Date().toISOString();
+    const id = simpleHash(`${parent || ''}\n${message}\n${stamp}\n${JSON.stringify(next)}`);
+    meta.commits[id] = { id, parent, message, ts: stamp, tree: next };
+    meta.branches[meta.head] = id;
+    meta.index = {};
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `[${meta.head} ${id}] ${message}\n ${Object.keys(next).length} file(s) in snapshot`, note: '内置沙箱 Git' };
+  }
+  if (sub === 'log') {
+    const oneline = parts.includes('--oneline');
+    let limit = 20;
+    const dashN = parts.find((x) => /^-\d+$/.test(x));
+    if (dashN) limit = Math.abs(Number(dashN));
+    const ni = parts.indexOf('-n');
+    if (ni >= 0) limit = Number(parts[ni + 1]) || limit;
+    const mx = parts.find((x) => x.startsWith('--max-count='));
+    if (mx) limit = Number(mx.slice(12)) || limit;
+    const lines = [];
+    let id = headCommit(meta);
+    while (id && lines.length < limit && meta.commits[id]) {
+      const c = meta.commits[id];
+      lines.push(oneline ? `${id} ${c.message}` : `commit ${id}\nDate: ${c.ts}\n\n    ${c.message}\n`);
+      id = c.parent;
+    }
+    return { ok: true, code: 0, cwd, text: lines.join(oneline ? '\n' : '\n'), note: '内置沙箱 Git' };
+  }
+  if (sub === 'branch') {
+    const names = parts.filter((x) => x && !x.startsWith('-'));
+    if (!names.length) {
+      const lines = Object.keys(meta.branches).sort().map((b) => `${b === meta.head ? '*' : ' '} ${b}`);
+      return { ok: true, code: 0, cwd, text: lines.join('\n'), note: '内置沙箱 Git' };
+    }
+    const name = cleanRepo(names[0]).replace(/\//g, '-');
+    if (!name) return { ok: false, code: 1, cwd, text: 'fatal: invalid branch name', note: '内置沙箱 Git' };
+    if (Object.prototype.hasOwnProperty.call(meta.branches, name)) return { ok: false, code: 1, cwd, text: `fatal: a branch named '${name}' already exists`, note: '内置沙箱 Git' };
+    meta.branches[name] = headCommit(meta);
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `branch ${name} created`, note: '内置沙箱 Git' };
+  }
+  if (sub === 'checkout' || sub === 'switch') {
+    let create = false;
+    let name = '';
+    for (let i = 0; i < parts.length; i++) {
+      if (parts[i] === '-b' || parts[i] === '-c') { create = true; name = parts[i + 1] || ''; break; }
+      if (!parts[i].startsWith('-')) { name = parts[i]; break; }
+    }
+    name = cleanRepo(name).replace(/\//g, '-');
+    if (!name) return { ok: false, code: 1, cwd, text: 'fatal: missing branch name', note: '内置沙箱 Git' };
+    if (create) meta.branches[name] = headCommit(meta);
+    if (!Object.prototype.hasOwnProperty.call(meta.branches, name)) return { ok: false, code: 1, cwd, text: `error: pathspec '${name}' did not match any branch`, note: '内置沙箱 Git' };
+    meta.head = name; meta.index = {};
+    restoreWorkTree(fs, base, headTree(meta));
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `Switched to branch '${name}'`, note: '内置沙箱 Git' };
+  }
+  if (sub === 'reset' && parts.includes('--hard')) {
+    meta.index = {};
+    restoreWorkTree(fs, base, headTree(meta));
+    writeMeta(fs, base, meta);
+    return { ok: true, code: 0, cwd, text: `HEAD is now at ${headCommit(meta) || '(empty)'}`, note: '内置沙箱 Git' };
+  }
+  if (sub === 'rev-parse' && parts.includes('--show-toplevel')) return { ok: true, code: 0, cwd, text: cwd, note: '内置沙箱 Git' };
+  return { ok: false, code: 2, cwd, text: `内置 Git 暂不支持子命令：git ${sub}`, note: '内置沙箱 Git' };
+}
+
+// ── git：优先本地中继真 git；无中继时回退内置沙箱 Git ─────────────────
+export async function gitRun({ command, repo, timeoutSec = 25, signal, fs } = {}) {
   const cmd = String(command || '').trim();
   if (!cmd) return { ok: false, error: 'run_git 需要 command，例如 "git status --short"' };
-  if (!(await relayAvailable(signal))) return { ok: false, error: `git 命令需要本地中继（浏览器里无法执行外部程序）。${RELAY_HINT}` };
-  let res;
-  try {
-    res = await fetch(RELAY.git, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({ command: cmd, repo: repo ? String(repo) : '', timeout: Number(timeoutSec) || 25 }),
-      signal,
-    });
-  } catch (err) {
-    return { ok: false, error: `git 中继请求失败：${err.message}` };
+  if (await relayAvailable(signal)) {
+    let res;
+    try {
+      res = await fetch(RELAY.git, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ command: cmd, repo: repo ? String(repo) : '', timeout: Number(timeoutSec) || 25 }),
+        signal,
+      });
+    } catch (err) {
+      return { ok: false, error: `git 中继请求失败：${err.message}` };
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: `git 中继拒绝执行（HTTP ${res.status}）：${j.error || res.statusText}` };
+    const out = [j.stdout, j.stderr].filter((x) => x && String(x).trim()).join('\n── stderr ──\n');
+    return {
+      ok: j.code === 0,
+      code: j.code,
+      cwd: j.cwd || '',
+      text: out || `（无输出，退出码 ${j.code}）`,
+      note: j.note || '',
+    };
   }
-  const j = await res.json().catch(() => ({}));
-  if (!res.ok) return { ok: false, error: `git 中继拒绝执行（HTTP ${res.status}）：${j.error || res.statusText}` };
-  const out = [j.stdout, j.stderr].filter((x) => x && String(x).trim()).join('\n── stderr ──\n');
-  return {
-    ok: j.code === 0,
-    code: j.code,
-    cwd: j.cwd || '',
-    text: out || `（无输出，退出码 ${j.code}）`,
-    note: j.note || '',
-  };
+  return localGitRun({ command: cmd, repo, fs });
 }
 
 export const NET_TOOLS_AVAILABLE_NOTE = RELAY_HINT;

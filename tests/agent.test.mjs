@@ -668,10 +668,12 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(choice, /data-choice-send="GitHub Pages"/);
   assert.match(choice, /data-choice-skip/);
   const choices = renderMarkdown('请拍板\n\n:::choice 问题一\n- A\n- B\n:::\n\n:::choice 问题二\n- C\n- D\n:::');
-  assert.equal((choices.match(/class="choice-box"/g) || []).length, 2, '连续多个选择框要分开渲染');
+  assert.equal((choices.match(/class="choice-box/g) || []).length, 1, '连续多个选择框要合成一个框');
+  assert.match(choices, /data-choice-count="2"/);
   assert.match(choices, /问题一/);
   assert.match(choices, /问题二/);
-  assert.equal(/aria-label="问题一"[\s\S]*问题二[\s\S]*data-choice-send="A"[\s\S]*data-choice-send="D"/.test(choices), false, '第一个问题不能吞掉第二个问题的选项');
+  assert.match(choices, /data-choice-back/);
+  assert.match(choices, /data-choice-summary/);
   const centered = renderMarkdown(':::center\n**题签**\n:::');
   assert.match(centered, /md-align md-align-center/);
   assert.match(centered, /题签/);
@@ -1819,6 +1821,9 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.equal(/@keyframes ctaKick/.test(homeCss), false);
   assert.equal(/ctaPulse/.test(homeCss), false);
   assert.match(homeCss, /shot\.focus/);
+  assert.match(homeCss, /html\.integrating \.shot/);
+  assert.match(homeCss, /html\.integrating \.shot\[data-id="sandbox"\]/);
+  assert.match(homeCss, /blur\(1\.2px\)/, '现在就开始时要有景深效果');
   assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
   assert.equal(/explore-label[\s\S]{0,280}animation:\s*sheen/.test(homeCss), false);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
@@ -1826,6 +1831,11 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
   assert.match(homeJs, /const SCENES =/);
   assert.match(homeJs, /const WHIP/);
+  assert.match(homeJs, /const SWITCH_OUT = 0\.58/, '镜头切换要比旧版慢');
+  assert.match(homeJs, /const FILM_SCALE = 1\.08/, '片中元素整体放大');
+  assert.match(homeJs, /INTEGRATE_START = 72/);
+  assert.match(homeJs, /classList\.toggle\('integrating'/);
+  assert.match(homeJs, /translate3d[\s\S]{0,100}scale\(\$\{FILM_SCALE\}\)/);
   assert.match(homeJs, /translate3d/);
   assert.match(homeJs, /const FILM_SEC/);
   assert.match(homeJs, /const CURTAIN_SEC = 5/);
@@ -2463,12 +2473,28 @@ test('fetch_url 命中二进制/JS 渲染页面时给出可读原因', async () 
       assert.match(r.error, /mode="raw"/, '空页面要提示改用 raw 自己解析（markdown 抽取器是第三方，已移除）');
     });
 });
-test('run_git：无中继明确拒绝（浏览器执行不了外部程序）', async () => {
+test('run_git：无中继但有沙箱 FS 时走内置 Git', async () => {
+  await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({})), async (net) => {
+    const fs = createFS({ 'a.txt': 'one\n' });
+    let r = await net.gitRun({ command: 'git init', fs });
+    assert.equal(r.ok, true);
+    assert.match(r.note || '', /内置沙箱 Git/);
+    r = await net.gitRun({ command: 'git add .', fs });
+    assert.equal(r.ok, true);
+    r = await net.gitRun({ command: 'git commit -m "first"', fs });
+    assert.equal(r.ok, true);
+    assert.match(r.text, /first/);
+    fs.write('a.txt', 'two\n');
+    r = await net.gitRun({ command: 'git diff', fs });
+    assert.match(r.text, /-one/);
+    assert.match(r.text, /\+two/);
+  });
+});
+test('run_git：无中继且无沙箱 FS 时才提示限制', async () => {
   await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({})), async (net) => {
     const r = await net.gitRun({ command: 'git status' });
     assert.equal(r.ok, false);
-    assert.match(r.error, /需要本地中继/);
-    assert.match(r.error, /python3 server\.py/);
+    assert.match(r.error, /本地中继或沙箱文件系统/);
   });
 });
 test('run_git：中继回退出码非 0 时算失败但保留输出', async () => {
@@ -2756,7 +2782,7 @@ test('有中继且打开联网时提供 fetch_url', async () => {
     assert.ok(names.includes('fetch_url'), `开联网应有 fetch_url：${names.join(',')}`);
   } finally { globalThis.fetch = realFetch; await drainSaves(); }
 });
-test('没有本地中继时，只在本地可用的工具（fetch_url / run_git）不进请求', async () => {
+test('没有本地中继时，只摘掉 fetch_url，run_git 仍走内置沙箱 Git', async () => {
   const calls = [];
   await withNetFetch(async (url) => { if (url.startsWith('/api/health')) return new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } });
     return jsonResponse({ choices: [{ message: { content: 'ok' } }] }); }, async () => {
@@ -2770,10 +2796,11 @@ test('没有本地中继时，只在本地可用的工具（fetch_url / run_git�
       await agent.send('随便问一句');
       const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
       assert.equal(names.includes('fetch_url'), false, `没中继就不该提供 fetch_url：${names.join(',')}`);
-      assert.equal(names.includes('run_git'), false);
+      assert.equal(names.includes('run_git'), true, 'run_git 无中继时也应提供内置沙箱 Git');
       assert.ok(names.includes('write_file'), '其它工具照常提供');
       const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
-      assert.match(sys, /没有本地中继/, '要告诉模型为什么少了两个工具');
+      assert.match(sys, /没有本地中继/, '要告诉模型为什么少了 fetch_url');
+      assert.match(sys, /内置沙箱 Git/);
     } finally { globalThis.fetch = realFetch; }
   });
 });
@@ -2970,7 +2997,7 @@ test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
   assert.deepEqual(byName.fetch_url.parameters.required, ['url']);
   assert.deepEqual(byName.fetch_url.parameters.properties.mode.enum, ['text', 'raw'], 'markdown 模式依赖第三方抽取器，必须移除');
   assert.ok(byName.run_git.parameters.required.includes('command'));
-  assert.ok(/git /.test(byName.run_git.description), '描述里要写清 git 走本地中继');
+  assert.ok(/内置轻量 Git/.test(byName.run_git.description), '描述里要写清无中继也有内置 Git');
   assert.ok(TOOL_DEFS.length >= 10, `工具总数：${TOOL_DEFS.length}`);
 });
 test('系统提示词提到了抓取与 git、并说明联网不是工具（漂移守卫）', async () => {
@@ -2997,13 +3024,19 @@ test('executeTool(fetch_url) 失败时返回可读原因（不抛）', async () 
   const out = await executeTool('fetch_url', { url: 'javascript:alert(1)' }, { fs: createFS(), onUi: () => {} });
   assert.match(out, /^fetch_url 失败：/, out);
 });
-test('executeTool(run_git) 无中继时返回带修复说明的失败', async () => {
+test('executeTool(run_git) 无中继时可在沙箱内 init/add/commit/log', async () => {
   await withNetFetch(async (url) => (url.startsWith('/api/health') ? NO_RELAY['/api/health']() : jsonResponse({})), async () => {
+    const fs = createFS({ 'src/a.js': 'console.log(1)\n' });
     const ev = [];
-    const out = await executeTool('run_git', { command: 'git status' }, { fs: createFS(), onUi: (p) => ev.push(p) });
-    assert.match(out, /^run_git 失败：git 命令需要本地中继/, out.slice(0, 40));
-    assert.equal(ev[ev.length - 1].status, 'error');
-    assert.match(ev[ev.length - 1].error.message, /python3 server\.py/);
+    let out = await executeTool('run_git', { command: 'git init' }, { fs, onUi: (p) => ev.push(p) });
+    assert.match(out, /内置沙箱 Git/);
+    out = await executeTool('run_git', { command: 'git add .' }, { fs, onUi: (p) => ev.push(p) });
+    assert.match(out, /staged/);
+    out = await executeTool('run_git', { command: 'git commit -m "init"' }, { fs, onUi: (p) => ev.push(p) });
+    assert.match(out, /init/);
+    out = await executeTool('run_git', { command: 'git log --oneline -1' }, { fs, onUi: (p) => ev.push(p) });
+    assert.match(out, /init/);
+    assert.equal(ev[ev.length - 1].status, 'ok');
   });
 });
 test('抓取与 git 工具在关闭沙箱时依然可用（它们不依赖 Worker）', async () => {
@@ -4044,6 +4077,47 @@ test('居中/右对齐语法与样式已注册', async () => {
   assert.match(css, /\.md-align-right/);
   assert.match(cfg, /:::center/);
   assert.match(cfg, /:::right/);
+});
+
+
+
+group('.58 选择框串联/宣传片整合/Git 内置');
+test('多题选择框合成一个框，支持逐题选择、回退与粒子跳过', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(ui, /choiceHtml\(peeled\.blocks\)/, '多个 choice 必须合成一个框');
+  assert.match(ui, /data-choice-count/);
+  assert.match(ui, /data-choice-back/);
+  assert.match(ui, /choiceReplyText/);
+  assert.match(ui, /choice-particle/);
+  assert.match(css, /\.choice-box\.dissolving/);
+  assert.match(css, /@keyframes choiceParticle/);
+});
+test('宣传片片尾现在就开始有整合景深，元素放大且切镜变慢', async () => {
+  const fsp = await import('node:fs');
+  const js = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  assert.match(js, /const SWITCH_OUT = 0\.58/);
+  assert.match(js, /const FOCUS_CUT = 0\.42/);
+  assert.match(js, /const FILM_SCALE = 1\.08/);
+  assert.match(js, /INTEGRATE_START = 72/);
+  assert.match(js, /root\.classList\.toggle\('integrating'/);
+  assert.match(css, /html\.integrating \.shot\[data-id="logo"\]/);
+  assert.match(css, /html\.integrating \.shot\[data-id="term"\]/);
+  assert.match(css, /html\.integrating \.vignette/);
+});
+test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎', async () => {
+  const fsp = await import('node:fs');
+  const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const net = fsp.readFileSync(new URL('../js/net.js', import.meta.url), 'utf8');
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url'\]\)/);
+  assert.match(ag, /内置沙箱 Git/);
+  assert.match(net, /function localGitRun/);
+  assert.match(net, /git version TeamoGit/);
+  assert.match(tools, /内置轻量 Git/);
+  assert.match(tools, /gitRun\(\{ command: args\.command[\s\S]{0,120}fs \}\)/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──
