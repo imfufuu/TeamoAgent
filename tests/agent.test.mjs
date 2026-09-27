@@ -3254,6 +3254,16 @@ test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAM
   assert.match(css, /\.msg-meta \{ flex: 0 0 auto; white-space: nowrap/);
   assert.equal(/\.msg-model \{[^}]*flex:\s*1 1 auto/.test(css), false, '模型名不得撑满把 tok 顶到右侧');
 });
+test('会话记录卡片不被底栏版本/用量挤扁', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const item = css.slice(css.indexOf('.sess-item {'), css.indexOf('.sess-item:hover'));
+  assert.match(item, /flex:\s*0 0 auto/, '会话卡片高度不随侧栏剩余空间收缩');
+  assert.match(item, /min-height:\s*44px/);
+  const foot = css.slice(css.indexOf('.side-footer {'), css.indexOf('.transport {'));
+  assert.match(foot, /flex-shrink:\s*0/, '底栏自己占位，不抢会话列表');
+  assert.match(css, /#transport-badge, #build-stamp, #conv-stats \{[^}]*white-space:\s*nowrap/, '底栏长文案省略而不是撑高');
+});
 test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
