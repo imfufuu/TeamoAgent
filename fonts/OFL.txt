@@ -1,5 +1,6 @@
 Source Serif 4 — SIL Open Font License 1.1 — https://github.com/adobe-fonts/source-serif
 Noto Serif — SIL Open Font License 1.1 — https://fonts.google.com/noto/specimen/Noto+Serif
 LXGW WenKai TC / Klee One — SIL Open Font License 1.1 — 楷体
-Cactus Classical Serif — SIL Open Font License 1.1 — 仿宋风格（刻本明体）
+Zhuque Fangsong — SIL Open Font License 1.1 — 朱雀仿宋（网页切片字体，CSS 由 jsDelivr/npm @free-fonts/zhuque-fangsong 加载）
+Cactus Classical Serif — SIL Open Font License 1.1 — 仿宋兜底（刻本明体）
 Noto Sans SC / Noto Serif SC / Noto Serif JP / Ma Shan Zheng — SIL Open Font License 1.1

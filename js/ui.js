@@ -69,12 +69,21 @@ const parseChoiceOpts = (body) => {
 const peelChoices = (src) => {
   const blocks = [];
   let rest = String(src || '').replace(/[ \t]+\n/g, '\n').replace(/\s+$/, '');
-  const re = /(?:^|\n):::choice(?:[ \t]+([^\n]*))?\n([\s\S]*?)\n:::$/;
-  while (true) {
-    const m = rest.match(re);
-    if (!m) break;
-    blocks.unshift({ title: (m[1] || '').trim(), body: m[2] });
-    rest = rest.slice(0, rest.length - m[0].length).replace(/\s+$/, '');
+  // 从文末向前剥离完整 :::choice 块。旧版正则会把连续多个 choice
+  // 贪成「第一个问题 + 所有选项」，导致第二个问题不渲染。
+  const openRe = /(?:^|\n):::choice(?:[ \t]+([^\n]*))?[ \t]*\n/g;
+  while (/\n:::[ \t]*$/.test(rest)) {
+    const close = rest.match(/\n:::[ \t]*$/);
+    if (!close || close.index == null) break;
+    const beforeClose = rest.slice(0, close.index);
+    let last = null;
+    openRe.lastIndex = 0;
+    for (let m; (m = openRe.exec(beforeClose)); ) last = m;
+    if (!last) break;
+    const title = (last[1] || '').trim();
+    const body = beforeClose.slice(last.index + last[0].length);
+    blocks.unshift({ title, body });
+    rest = beforeClose.slice(0, last.index).replace(/\s+$/, '');
   }
   return { rest, blocks };
 };
@@ -333,6 +342,18 @@ export function renderMarkdown(src) {
     folds.push({ title: String(title || '').trim(), body });
     return `\n\n\uE000FOLD${folds.length - 1}\uE000\n\n`;
   });
+  const ALIGN_ALIAS = {
+    center: 'center', centre: 'center', 居中: 'center', 居中对齐: 'center', 中: 'center',
+    right: 'right', 右: 'right', 右对齐: 'right', 靠右: 'right',
+  };
+  const aligns = [];
+  t = t.replace(/^:::(?:align[ \t]+(.+?)|([Cc]enter|[Rr]ight|居中|右对齐))[ \t]*\n([\s\S]*?)^:::[ \t]*$/gm, (_, a, b, body) => {
+    const raw = String(a || b || '').trim();
+    const key = ALIGN_ALIAS[raw] || ALIGN_ALIAS[raw.toLowerCase()] || '';
+    if (!key) return _;
+    aligns.push({ cls: key, body });
+    return `\n\n\uE000ALIGN${aligns.length - 1}\uE000\n\n`;
+  });
   const FONT_ALIAS = {
     楷体: 'kai', 楷: 'kai', kai: 'kai', kaiti: 'kai',
     宋体: 'song', 宋: 'song', song: 'song', songti: 'song',
@@ -368,8 +389,16 @@ export function renderMarkdown(src) {
       const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
       return `<div class="md-font md-font-${f.cls}">${inner}</div>`;
     };
+    const alignAt = (_, i) => {
+      const a = aligns[+i];
+      const innerMd = getMd();
+      const inner = innerMd ? innerMd.render(a.body) : `<p>${esc(a.body)}</p>`;
+      return `<div class="md-align md-align-${a.cls}">${inner}</div>`;
+    };
     let out = html.replace(/<p>\s*\uE000FOLD(\d+)\uE000\s*<\/p>/g, foldAt)
       .replace(/\uE000FOLD(\d+)\uE000/g, foldAt)
+      .replace(/<p>\s*\uE000ALIGN(\d+)\uE000\s*<\/p>/g, alignAt)
+      .replace(/\uE000ALIGN(\d+)\uE000/g, alignAt)
       .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
       .replace(/\uE000FONT(\d+)\uE000/g, fontAt);
     if (peeled.blocks.length) out += peeled.blocks.map(choiceHtml).join('');
@@ -816,9 +845,31 @@ export function mountUI(store, agent) {
   keyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') $('#key-save').click(); });
 
   // ── 会话记录（侧栏只做记录与切换；回滚全部在对话区）─────────────────
+  function sessionActivityAt(s) {
+    const msgs = (s && Array.isArray(s.messages)) ? s.messages : [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const ts = Number(msgs[i] && msgs[i].ts);
+      if (ts > 0) return ts;
+    }
+    return Number((s && (s.createdAt || s.updatedAt)) || Date.now());
+  }
+  function startOfDay(ts) {
+    const d = new Date(ts || Date.now());
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+  function sessionSpanLabel(ts) {
+    const days = Math.floor((startOfDay(Date.now()) - startOfDay(ts)) / 86400000);
+    if (days <= 0) return '今天';
+    if (days === 1) return '昨天';
+    if (days === 2) return '前天';
+    if (days <= 6) return '7天内';
+    if (days <= 29) return '30天内';
+    return '更早';
+  }
   function sessionMeta(s) {
-    const n = s.messages.filter((m) => m.role === 'user').length;
-    const t = new Date(s.updatedAt || s.createdAt);
+    const n = (s.messages || []).filter((m) => m.role === 'user').length;
+    const t = new Date(sessionActivityAt(s));
     const time = t.toDateString() === new Date().toDateString()
       ? t.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
       : `${t.getMonth() + 1}/${t.getDate()}`;
@@ -895,7 +946,15 @@ export function mountUI(store, agent) {
       box.appendChild(el('div', 'sess-empty-hint', '还没有会话记录'));
       return;
     }
+    let lastSpan = '';
     for (const s of list) {
+      const span = sessionSpanLabel(sessionActivityAt(s));
+      if (span !== lastSpan) {
+        const sep = el('div', 'sess-date-sep');
+        sep.textContent = span;
+        box.appendChild(sep);
+        lastSpan = span;
+      }
       const node = el('div', 'sess-item' + (s.id === store.state.activeSessionId ? ' active' : ''));
       node.innerHTML = `<span class="sess-main"><span class="sess-title">${esc(s.title || '新对话')}</span><span class="sess-meta">${sessionMeta(s)}</span></span>`
         + `<button class="sess-rename" type="button" title="重命名会话">${ICON.pencil || ''}</button>`

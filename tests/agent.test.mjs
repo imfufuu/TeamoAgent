@@ -667,6 +667,16 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(choice, /class="choice-head"/);
   assert.match(choice, /data-choice-send="GitHub Pages"/);
   assert.match(choice, /data-choice-skip/);
+  const choices = renderMarkdown('请拍板\n\n:::choice 问题一\n- A\n- B\n:::\n\n:::choice 问题二\n- C\n- D\n:::');
+  assert.equal((choices.match(/class="choice-box"/g) || []).length, 2, '连续多个选择框要分开渲染');
+  assert.match(choices, /问题一/);
+  assert.match(choices, /问题二/);
+  assert.equal(/aria-label="问题一"[\s\S]*问题二[\s\S]*data-choice-send="A"[\s\S]*data-choice-send="D"/.test(choices), false, '第一个问题不能吞掉第二个问题的选项');
+  const centered = renderMarkdown(':::center\n**题签**\n:::');
+  assert.match(centered, /md-align md-align-center/);
+  assert.match(centered, /题签/);
+  const righted = renderMarkdown(':::align right\n署名\n:::');
+  assert.match(righted, /md-align md-align-right/);
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
@@ -688,6 +698,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(OUTPUT_SPEC, /:::choice/);
   assert.match(OUTPUT_SPEC, /:::fold/);
   assert.match(OUTPUT_SPEC, /:::font/);
+  assert.match(OUTPUT_SPEC, /:::center/);
+  assert.match(OUTPUT_SPEC, /:::right/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
@@ -3385,7 +3397,7 @@ test('会话记录卡片不被底栏版本/用量挤扁', async () => {
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const item = css.slice(css.indexOf('.sess-item {'), css.indexOf('.sess-item:hover'));
   assert.match(item, /flex:\s*0 0 auto/, '会话卡片高度不随侧栏剩余空间收缩');
-  assert.match(item, /min-height:\s*58px/);
+  assert.match(item, /min-height:\s*50px/);
   const foot = css.slice(css.indexOf('.side-footer {'), css.indexOf('.transport {'));
   assert.match(foot, /flex-shrink:\s*0/, '底栏自己占位，不抢会话列表');
   assert.match(css, /#transport-badge, #build-stamp, #conv-stats \{[^}]*white-space:\s*nowrap/, '底栏长文案省略而不是撑高');
@@ -3923,11 +3935,12 @@ test('render_mermaid / render_dot：写出 SVG 并提示 sandbox 嵌入', async 
 
 
 group('.55 会话卡片 / 记忆并列 / 主题同速 / 思考可见 / 删会话 / 文学字体');
-test('会话卡片加高且有质感边框', async () => {
+test('会话卡片保持质感但不再过大', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const item = css.slice(css.indexOf('.sess-item {'), css.indexOf('.sess-item:hover'));
-  assert.match(item, /min-height:\s*58px/);
+  assert.match(item, /min-height:\s*50px/);
+  assert.match(item, /padding:\s*9px 10px/);
   assert.match(item, /box-shadow/);
   assert.match(item, /border:\s*1px solid var\(--line\)/);
 });
@@ -3982,16 +3995,55 @@ test('楷体仿宋不得回退成宋体 Noto Serif SC', async () => {
   const fang = css.slice(css.indexOf('.md-font-fangsong {'), css.indexOf('.md-font-heiti {'));
   assert.match(kai, /LXGW WenKai TC/);
   assert.equal(/Noto Serif SC/.test(kai), false, '楷体栈里不能有宋体');
-  assert.match(fang, /Cactus Classical Serif/);
+  assert.match(fang, /Zhuque Fangsong/);
   assert.equal(/Noto Serif SC/.test(fang), false, '仿宋栈里不能有宋体');
   assert.match(html, /family=LXGW\+WenKai\+TC/);
-  assert.match(html, /family=Cactus\+Classical\+Serif/);
+  assert.match(html, /@free-fonts\/zhuque-fangsong/);
 });
 test('流式展开时 chip-detail 取消 0fr 动画', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.reasoning\.live > \.chip-detail/);
   assert.match(css, /\.chip\.live > \.chip-detail/);
+});
+
+
+group('.57 会话排序/时间分组/对齐语法/多选择框');
+test('会话列表按最后消息时间排序，切换会话不改变顺序', async () => withLS(async () => {
+  const { createStore } = await import('../js/state.js?order=' + Date.now());
+  const st = storeNoWeb(createStore());
+  const now = Date.now();
+  st.pushMessage({ role: 'user', text: '旧会话' });
+  const oldId = st.state.activeSessionId;
+  st.state.sessions.find((s) => s.id === oldId).messages[0].ts = now - 86400000;
+  st.createSession();
+  st.pushMessage({ role: 'user', text: '新会话' });
+  const newId = st.state.activeSessionId;
+  st.state.sessions.find((s) => s.id === newId).messages[0].ts = now;
+  assert.deepEqual(st.listableSessions().map((s) => s.id), [newId, oldId]);
+  assert.equal(st.switchSession(oldId), true);
+  assert.deepEqual(st.listableSessions().map((s) => s.id), [newId, oldId], '点击旧会话不应把它顶到最上面');
+  await drainSaves();
+}));
+test('会话记录显示时间跨度分组，UI 有今天/昨天/前天/7天内/30天内', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(ui, /function sessionSpanLabel/);
+  for (const s of ['今天', '昨天', '前天', '7天内', '30天内']) assert.match(ui, new RegExp(s));
+  assert.match(ui, /sess-date-sep/);
+  assert.match(css, /\.sess-date-sep/);
+});
+test('居中/右对齐语法与样式已注册', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(ui, /ALIGN_ALIAS/);
+  assert.match(css, /\.md-align-center/);
+  assert.match(css, /\.md-align-right/);
+  assert.match(cfg, /:::center/);
+  assert.match(cfg, /:::right/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

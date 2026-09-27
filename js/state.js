@@ -10,7 +10,15 @@ function newSession(title = '', model = '', imageModel = '') {
   return { id: uid(), title, model, imageModel, createdAt: Date.now(), updatedAt: Date.now(), messages: [], checkpoints: [], undoBranch: null, files: {}, stats: { lastMs: 0, totalMs: 0 } };
 }
 
-const sortByUpdated = (list) => [...(list || [])].sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+const sessionActivityAt = (s) => {
+  const msgs = (s && Array.isArray(s.messages)) ? s.messages : [];
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const ts = Number(msgs[i] && msgs[i].ts);
+    if (ts > 0) return ts;
+  }
+  return Number((s && (s.createdAt || s.updatedAt)) || 0);
+};
+const sortByActivity = (list) => [...(list || [])].sort((a, b) => sessionActivityAt(b) - sessionActivityAt(a));
 const cleanTitle = (t) => String(t || '').replace(/[\r\n\t]+/g, ' ').replace(/^[「“"'`\s]+|[」”"'`\s]+$/g, '').replace(/[。.]$/, '').trim().slice(0, 48);
 
 // 会话未记录模型时（历史数据），回退到最后一条 assistant 消息所用的模型
@@ -398,11 +406,11 @@ export function createStore(onChange) {
       return true;
     },
     sortedSessions() {
-      return sortByUpdated(state.sessions);
+      return sortByActivity(state.sessions);
     },
     // 侧栏只列有内容的会话（导入/历史数据都带消息，正常显示）
     listableSessions() {
-      return sortByUpdated(state.sessions.filter((s) => (s.messages || []).length > 0));
+      return sortByActivity(state.sessions.filter((s) => (s.messages || []).length > 0));
     },
     // 一键清除所有会话记录：全部丢掉，只留一个新的空草稿
     clearAllSessions() {
