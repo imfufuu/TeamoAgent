@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.2';
-export const APP_VERSION = '2026.9.26.50';
+export const APP_VERSION = '2026.9.26.51';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -247,6 +247,9 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- get_current_time：获取当前时间。',
     '- remember：跨会话长效记忆。只记真正重要、跨会话仍有用的内容：用户明确说「记住」、稳定偏好、身份、长期项目、不可恢复的约定。严禁记闲聊、问候、一次性任务、临时路径、本轮步骤。过时了就 forget；不确定先 list。记忆会出现在之后每个对话里。',
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',
+    '- evaluate_expression：本地求值纯数学表达式（pi、sin、sqrt、^、阶乘），不必开沙箱。',
+    '- execute_sql：会话内 SQLite 方言（CREATE/INSERT/SELECT/UPDATE/DELETE，库文件默认 data/app.db）。不必开代码沙箱。不要为查数去写 Python sqlite3。不做 JOIN。',
+    '- render_mermaid / render_dot：把流程图/架构图渲染成 SVG 写入 outputs/，随后用 ![说明](sandbox://outputs/diagram-001.svg) 嵌入正文。不要用 generate_image 硬画示意图。',
     '- fetch_url：抓取一个具体网址的正文（文档、issue、CHANGELOG、API 响应）。只在本地中继（server.py 的 /api/fetch）可用时使用；抓到的长正文会自动写入沙箱 web/，可 read_file 续读或交给子智能体。',
     '- 本产品已去掉模型原生网页搜索（各模型不稳定）。GitHub Pages 等无本地中继环境里「联网」开关不可用。有本地中继时可用 fetch_url 抓取具体网址。不要声称已经搜过网页。',
     '- analyze_image：分析沙箱中的图片（OCR/描述/读图表）。对话模型看不见图片，必须走这个工具。返回的是全文，不要当成摘要；需要再核对时 read_file 对应的 .ocr.md。',

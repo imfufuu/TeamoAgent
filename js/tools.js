@@ -10,6 +10,9 @@ import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts } from './memory.js';
+import { evaluateExpression, formatMathResult } from './mathtool.js';
+import { runSql, formatSqlResult } from './sqltool.js';
+import { renderMermaid, renderDot } from './diagram.js';
 
 export const TOOL_DEFS = [
   {
@@ -320,6 +323,58 @@ export const TOOL_DEFS = [
     },
   },
   {
+    name: 'evaluate_expression',
+    description:
+      '本地求值纯数学表达式，不必开沙箱。支持 + - * / % ^ **、括号、阶乘 !、隐式乘法（2pi、2(1+3)）、常数 pi/e/tau/phi，函数 sin/cos/tan/asin/acos/atan/atan2/sqrt/abs/floor/ceil/round/exp/log/log10/log2/min/max/pow/hypot。degrees=true 时三角函数用角度。不要为四则运算或函数值调用 execute_javascript。',
+    parameters: {
+      type: 'object',
+      properties: {
+        expression: { type: 'string', description: '数学表达式，如 2^10 + sqrt(2)*pi' },
+        degrees: { type: 'boolean', description: 'true=三角函数用角度，默认弧度' },
+      },
+      required: ['expression'],
+    },
+  },
+  {
+    name: 'execute_sql',
+    description:
+      '在会话沙箱里跑 SQL（SQLite 方言，不必开代码沙箱开关）。CREATE TABLE / INSERT / SELECT / UPDATE / DELETE / DROP；WHERE、ORDER BY、LIMIT、GROUP BY 与 COUNT/SUM/AVG/MIN/MAX。库文件默认 data/app.db（JSON）。不做 JOIN 或子查询。不要为建表查数去写 Python sqlite3。',
+    parameters: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string', description: '一条或多条 SQL，分号分隔' },
+        db: { type: 'string', description: '库文件路径，默认 data/app.db' },
+      },
+      required: ['sql'],
+    },
+  },
+  {
+    name: 'render_mermaid',
+    description:
+      '把 Mermaid 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画流程图。支持 flowchart/graph（TD/LR）与 sequenceDiagram。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'Mermaid 源码' },
+        path: { type: 'string', description: '可选：从沙箱读取源码，代替 code' },
+        out: { type: 'string', description: '输出路径，默认自动编号 outputs/diagram-NNN.svg' },
+      },
+    },
+  },
+  {
+    name: 'render_dot',
+    description:
+      '把 Graphviz DOT 源码渲染成 SVG 写入沙箱 outputs/，不要用 generate_image 硬画架构图。支持 digraph/graph、a -> b、[label=...]、rankdir=LR。随后回复必须用 ![说明](sandbox://outputs/diagram-001.svg) 把图嵌进正文。',
+    parameters: {
+      type: 'object',
+      properties: {
+        code: { type: 'string', description: 'DOT 源码' },
+        path: { type: 'string', description: '可选：从沙箱读取源码，代替 code' },
+        out: { type: 'string', description: '输出路径，默认自动编号 outputs/diagram-NNN.svg' },
+      },
+    },
+  },
+  {
     name: 'dispatch_subagent',
     description:
       '把专业任务委派给子智能体（同模型、专属系统提示词与工具子集，独立上下文），无需用户点名即可调用。' +
@@ -353,6 +408,16 @@ export function normalizeFsPath(p) {
   const parts = String(p == null ? '' : p).trim().split('/').map((s) => s.trim()).filter((s) => s && s !== '.');
   if (!parts.length || parts.includes('..') || /[\u0000-\u001f]/.test(parts.join('/'))) return '';
   return parts.join('/');
+}
+
+function nextOutputPath(fs, prefix, ext) {
+  let last = 0;
+  const re = new RegExp(`^outputs/${prefix}-(\\d+)\\.[^.]*$`);
+  for (const f of fs.list()) {
+    const m = re.exec(f.path);
+    if (m) last = Math.max(last, Number(m[1]));
+  }
+  return `outputs/${prefix}-${String(last + 1).padStart(3, '0')}.${ext}`;
 }
 
 function readToolText(args, fs) {
@@ -784,6 +849,42 @@ async function executeToolBody(name, args, ctx) {
         commit(next);
         emit({ status: 'ok', note: `记下 ${next[0] && next[0].text}` });
         return `已记下（跨会话保留，最多 20 条）：${next[0] && next[0].text}`;
+      }
+      case 'evaluate_expression': {
+        emit({ status: 'running', note: '求值…' });
+        const out = evaluateExpression(args.expression, { degrees: !!args.degrees });
+        emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? out.text : out.error, error: out.ok ? undefined : { message: out.error } });
+        return formatMathResult(out, args.expression);
+      }
+      case 'execute_sql': {
+        emit({ status: 'running', note: 'SQL…' });
+        const dbPath = normalizeFsPath(args.db) || 'data/app.db';
+        let raw = '';
+        try { raw = fs.read(dbPath); } catch { raw = ''; }
+        const out = runSql(args.sql, raw);
+        if (out.ok && out.db != null) {
+          fs.write(dbPath, out.db);
+          emit({ status: 'ok', fsChange: true, note: `SQL → ${dbPath}` });
+        } else {
+          emit({ status: 'error', error: { message: out.error } });
+        }
+        return formatSqlResult(out, { dbPath });
+      }
+      case 'render_mermaid':
+      case 'render_dot': {
+        emit({ status: 'running', note: name === 'render_dot' ? 'DOT…' : 'Mermaid…' });
+        const src = readToolText(args, fs);
+        if (src.error) { emit({ status: 'error', error: { message: src.error } }); return src.error; }
+        const code = String(src.text || args.code || '').trim();
+        const out = name === 'render_dot' ? renderDot(code) : renderMermaid(code);
+        if (!out.ok) {
+          emit({ status: 'error', error: { message: out.error } });
+          return `${name} 失败：${out.error}`;
+        }
+        const path = normalizeFsPath(args.out) || nextOutputPath(fs, 'diagram', 'svg');
+        fs.write(path, out.svg);
+        emit({ status: 'ok', fsChange: true, note: `已写入 ${path}` });
+        return `[图已渲染] ${path}（${out.kind || 'svg'}）\n在随后的回复里写 ![说明](sandbox://${path})，不要用 generate_image 硬画，也不要依赖芯片预览。`;
       }
       case 'unzip_file': {
         const path = normalizeFsPath(args.path);

@@ -96,6 +96,12 @@ function hydrateSandboxMedia(root, fs) {
       img.classList.add('zoomable');
       continue;
     }
+    if (/\.svg$/i.test(p) && /<svg[\s>]/i.test(String(raw))) {
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(raw)}`;
+      if (!img.alt) img.alt = p;
+      img.classList.add('zoomable');
+      continue;
+    }
     const card = document.createElement('div');
     card.className = 'sb-file' + (raw ? '' : ' missing');
     const name = esc((p.split('/').pop() || p));

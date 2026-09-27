@@ -13,7 +13,7 @@ import { createStore } from '../js/state.js';
 import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor } from '../js/context.js';
 import { thinkingParamsFor } from '../js/config.js';
 import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
-import { TOOL_DEFS, executeTool } from '../js/tools.js';
+import { TOOL_DEFS, executeTool, toolsFor } from '../js/tools.js';
 import { createAgent, copyAttachmentsToFS } from '../js/agent.js';
 
 // 联网开关在本轮改动里默认是开的（走模型 API 自带格式），而下面这些既有用例只校验
@@ -1881,7 +1881,7 @@ test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体�
   assert.deepEqual(names(subagentTools(false, writer)).sort(), ['list_files', 'read_file', 'write_file']);
   const analyst = findSubagent('data-analyst');
   assert.ok(names(subagentTools(true, analyst)).includes('execute_python'), '开沙箱时该有代码执行');
-  assert.ok(!names(subagentTools(false, analyst)).some((n) => n.startsWith('execute_')), '关沙箱时不该有代码执行');
+  assert.ok(!names(subagentTools(false, analyst)).some((n) => ['execute_javascript', 'execute_python', 'execute_cpp'].includes(n)), '关沙箱时不该有代码执行');
   assert.equal(subagentTools(true, findSubagent('code-reviewer')), null, '纯推理子智能体不给工具');
   for (const a of SUBAGENTS) {
     assert.ok(!names(subagentTools(true, a)).includes('dispatch_subagent'), `${a.id} 不得再委派（防递归）`);
@@ -2833,7 +2833,7 @@ test('Agent 回合：联网来源写进消息（切会话后还在），提示�
 group('工具层：抓取与 git 工具的对外契约');
 test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
   const byName = Object.fromEntries(TOOL_DEFS.map((t) => [t.name, t]));
-  for (const n of ['fetch_url', 'run_git', 'search_files', 'diff_text', 'json_tool', 'delete_file', 'copy_file']) assert.ok(byName[n], `缺少工具 ${n}`);
+  for (const n of ['fetch_url', 'run_git', 'search_files', 'diff_text', 'json_tool', 'delete_file', 'copy_file', 'evaluate_expression', 'execute_sql', 'render_mermaid', 'render_dot']) assert.ok(byName[n], `缺少工具 ${n}`);
   assert.ok(!byName.web_search, '不能再有 web_search 工具');
   assert.ok(byName.analyze_image, '识图工具');
   assert.ok(byName.write_file.parameters.properties.mode);
@@ -3731,6 +3731,56 @@ test('关闭沙箱仍能跑 regex；可与只读工具并行', async () => {
     ['parallel', 0, 2],
     ['serial', 2, 3],
   ]);
+});
+
+group('SQL / 数学表达式 / 示意图');
+test('evaluate_expression：四则、函数、角度、拒绝任意代码', async () => {
+  const fs = createFS();
+  const n = await executeTool('evaluate_expression', { expression: '2^10 + 3*4' }, { fs, onUi: () => {} });
+  assert.match(n, /value: 1036/);
+  const s = await executeTool('evaluate_expression', { expression: 'sqrt(9)*pi' }, { fs, onUi: () => {} });
+  assert.match(s, /value: /);
+  const deg = await executeTool('evaluate_expression', { expression: 'sin(90)', degrees: true }, { fs, onUi: () => {} });
+  assert.match(deg, /value: 1\b/);
+  const bad = await executeTool('evaluate_expression', { expression: 'process.exit(1)' }, { fs, onUi: () => {} });
+  assert.match(bad, /失败|未知标识符/);
+  const empty = await executeTool('evaluate_expression', { expression: '' }, { fs, onUi: () => {} });
+  assert.match(empty, /不能为空/);
+  assert.ok(toolsFor(false).some((t) => t.name === 'evaluate_expression'), '关沙箱仍可用');
+});
+test('execute_sql：建表插入查询更新删除', async () => {
+  const fs = createFS();
+  const create = await executeTool('execute_sql', { sql: "CREATE TABLE t (id INTEGER, name TEXT); INSERT INTO t VALUES (1, 'a'), (2, 'b'); SELECT name FROM t WHERE id = 1;" }, { fs, onUi: () => {} });
+  assert.match(create, /已创建表/);
+  assert.match(create, /已插入 2 行/);
+  assert.match(create, /\ba\b/);
+  assert.ok(fs.read('data/app.db').includes('teamo-sql'));
+  const upd = await executeTool('execute_sql', { sql: "UPDATE t SET name = 'c' WHERE id = 1; SELECT name FROM t ORDER BY id;" }, { fs, onUi: () => {} });
+  assert.match(upd, /已更新 1 行/);
+  assert.match(upd, /c/);
+  const del = await executeTool('execute_sql', { sql: 'DELETE FROM t WHERE id = 2; SELECT COUNT(*) AS n FROM t;' }, { fs, onUi: () => {} });
+  assert.match(del, /已删除 1 行/);
+  assert.match(del, /\b1\b/);
+  const fail = await executeTool('execute_sql', { sql: '' }, { fs, onUi: () => {} });
+  assert.match(fail, /不能为空/);
+  assert.ok(toolsFor(false).some((t) => t.name === 'execute_sql'));
+});
+test('render_mermaid / render_dot：写出 SVG 并提示 sandbox 嵌入', async () => {
+  const fs = createFS();
+  const m = await executeTool('render_mermaid', { code: 'flowchart TD\n  A[开始] --> B{判断}\n  B -->|是| C[好]' }, { fs, onUi: () => {} });
+  assert.match(m, /outputs\/diagram-001\.svg/);
+  assert.match(m, /sandbox:\/\/outputs\/diagram-001\.svg/);
+  const svg = fs.read('outputs/diagram-001.svg');
+  assert.match(svg, /<svg/);
+  assert.match(svg, /开始/);
+  const d = await executeTool('render_dot', { code: 'digraph { a -> b [label="go"]; }' }, { fs, onUi: () => {} });
+  assert.match(d, /outputs\/diagram-002\.svg/);
+  assert.match(fs.read('outputs/diagram-002.svg'), /<svg/);
+  const seq = await executeTool('render_mermaid', { code: 'sequenceDiagram\n  Alice->>Bob: 你好' }, { fs, onUi: () => {} });
+  assert.match(seq, /diagram-003/);
+  assert.match(fs.read('outputs/diagram-003.svg'), /Alice/);
+  const bad = await executeTool('render_mermaid', { code: 'not a diagram' }, { fs, onUi: () => {} });
+  assert.match(bad, /失败/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──
