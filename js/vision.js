@@ -69,18 +69,22 @@ async function oneShot(body, apiKey, signal) {
   return { text, finishReason };
 }
 
-/** 用识图模型看一张图（data URL 或 http URL），返回模型文字。长度上限会自动续写。 */
-export async function analyzeImage({ apiKey, prompt, dataUrl, signal }) {
+/** 用识图模型看一张或多张图（data URL 或 http URL），返回模型文字。长度上限会自动续写。 */
+export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal }) {
   if (!apiKey) throw new Error('未配置 API Key');
-  if (!dataUrl) throw new Error('没有可分析的图片');
+  const urls = [];
+  for (const u of (Array.isArray(dataUrls) ? dataUrls : [])) {
+    if (u) urls.push(u);
+  }
+  if (dataUrl && !urls.includes(dataUrl)) urls.unshift(dataUrl);
+  if (!urls.length) throw new Error('没有可分析的图片');
   const text = String(prompt || DEFAULT_VISION_PROMPT).trim() || DEFAULT_VISION_PROMPT;
-  const messages = [{
-    role: 'user',
-    content: [
-      { type: 'text', text },
-      { type: 'image_url', image_url: { url: dataUrl } },
-    ],
+  const content = [{
+    type: 'text',
+    text: urls.length > 1 ? `${text}\n（共 ${urls.length} 张，按顺序分别分析每一张，用 Markdown 二级标题标出第几张。）` : text,
   }];
+  for (const u of urls) content.push({ type: 'image_url', image_url: { url: u } });
+  const messages = [{ role: 'user', content }];
   let disableReasoning = true;
   const parts = [];
   for (let i = 0; i < VISION_CONTINUES; i++) {

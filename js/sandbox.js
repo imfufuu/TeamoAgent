@@ -157,7 +157,7 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
         finish(e.data);
       };
       worker.onerror = (e) => finish({ __workerError: e.message || '加载失败' });
-      worker.postMessage({ code, files });
+      worker.postMessage({ code, files, packages });
     }).catch((err) => resolve({ __workerError: err.message }));
   });
 
@@ -213,26 +213,31 @@ async function detectCppCompiler() {
   } catch { /* 网络失败保留默认 g142 */ }
 }
 
-export async function runCpp(code) {
+export async function runCpp(code, opts = {}) {
   const t0 = performance.now();
   const dur = () => Math.round(performance.now() - t0);
+  const extraFiles = Array.isArray(opts.files) ? opts.files.filter((f) => f && f.filename) : [];
+  const stdin = opts.stdin == null ? '' : String(opts.stdin);
+  const argv = Array.isArray(opts.args) ? opts.args.map((a) => String(a)) : [];
   try {
     if (!cppCompilerDetected) { cppCompilerDetected = true; await detectCppCompiler(); }
+    const payload = {
+      source: code,
+      options: {
+        userArguments: '-O2 -std=c++20',
+        executeParameters: { args: argv, stdin },
+        compilerOptions: { executorRequest: true }, // 关键：executorRequest 才是「编译并执行」
+        filters: { execute: true },
+        tools: [],
+      },
+      lang: 'c++',
+      allowStoreCodeDebug: true,
+    };
+    if (extraFiles.length) payload.files = extraFiles.map((f) => ({ filename: String(f.filename), contents: String(f.contents ?? '') }));
     const res = await fetch(`${CE_BASE}/api/compiler/${cppCompilerId}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        source: code,
-        options: {
-          userArguments: '-O2 -std=c++20',
-          executeParameters: { args: [], stdin: '' },
-          compilerOptions: { executorRequest: true }, // 关键：executorRequest 才是「编译并执行」
-          filters: { execute: true },
-          tools: [],
-        },
-        lang: 'c++',
-        allowStoreCodeDebug: true,
-      }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) return { ok: false, logs: [], error: { message: `Compiler Explorer HTTP ${res.status}` }, durationMs: dur() };
     const j = await res.json();

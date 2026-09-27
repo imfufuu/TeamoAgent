@@ -1,5 +1,6 @@
 // ─── 本地工作台工具：搜文件 / 差分 / JSON / 复制删除 ───────────────────
 // 纯函数，浏览器与 Node 都能跑。不碰网关、不执行任意代码。
+import { dataUrlToBytes, sniffImage } from './api.js';
 
 const MAX_HAY = 400000;
 const MAX_HITS = 80;
@@ -10,6 +11,49 @@ function clip(s, n) {
   const t = String(s == null ? '' : s);
   if (t.length <= n) return t;
   return `${t.slice(0, n)}…`;
+}
+
+function extractPrintable(u8, max = 8000) {
+  const out = [];
+  let cur = '';
+  const bytes = u8 || [];
+  for (let i = 0; i < bytes.length && out.join('\n').length < max; i++) {
+    const c = bytes[i];
+    if (c >= 32 && c < 127) cur += String.fromCharCode(c);
+    else {
+      if (cur.length >= 4) out.push(cur);
+      cur = '';
+    }
+  }
+  if (cur.length >= 4) out.push(cur);
+  return out.join('\n');
+}
+
+function haystackFor(path, raw) {
+  const s = raw == null ? '' : String(raw);
+  if (!s.startsWith('data:')) return s.length > MAX_HAY ? s.slice(0, MAX_HAY) : s;
+  const mime = (s.match(/^data:([^;,]+)/i) || [, 'application/octet-stream'])[1];
+  let bytes;
+  try {
+    const got = dataUrlToBytes(s);
+    bytes = got && got.bytes ? got.bytes : got;
+  } catch { bytes = new Uint8Array(); }
+  const sniff = sniffImage(bytes) || {};
+  const lines = [
+    `PATH ${path}`,
+    `MIME ${mime}`,
+    `BYTES ${bytes.length}`,
+  ];
+  if (sniff.mime) lines.push(`SNIFF ${sniff.mime}`);
+  if (sniff.width && sniff.height) {
+    lines.push(`SIZE ${sniff.width}x${sniff.height}`);
+    lines.push(`WIDTH ${sniff.width}`);
+    lines.push(`HEIGHT ${sniff.height}`);
+  }
+  const strings = extractPrintable(bytes);
+  if (strings) lines.push('STRINGS', strings);
+  const text = lines.join('\n');
+  return text.length > MAX_HAY ? text.slice(0, MAX_HAY) : text;
 }
 
 export function searchFiles(fs, { pattern, flags = '', prefix = '' } = {}) {
@@ -23,8 +67,7 @@ export function searchFiles(fs, { pattern, flags = '', prefix = '' } = {}) {
     if (pre && !f.path.startsWith(pre)) continue;
     let raw;
     try { raw = String(fs.read(f.path)); } catch { continue; }
-    if (raw.startsWith('data:')) continue;
-    const text = raw.length > MAX_HAY ? raw.slice(0, MAX_HAY) : raw;
+    const text = haystackFor(f.path, raw);
     re.lastIndex = 0;
     const m = re.exec(text);
     if (!m) continue;

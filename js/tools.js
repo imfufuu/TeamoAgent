@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, sniffImage } from './api.js';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
@@ -28,7 +28,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等），已装库刷新后仍会重装。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage（通常走浏览器缓存）。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {
@@ -40,13 +40,18 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_cpp',
-    description: '编译并执行 C++ 代码（通过 Compiler Explorer 公共服务远程执行：g++ -O2 -std=c++20）。代码需包含 main 函数；stdout/stderr 与退出码会被捕获。注意：远程服务，需数秒网络往返；不能访问虚拟文件系统；适合算法验证与性能测试。',
+    description: '编译并执行 C++ 代码（通过 Compiler Explorer 公共服务远程执行：g++ -O2 -std=c++20）。代码需包含 main 函数；stdout/stderr 与退出码会被捕获。注意：远程服务，需数秒网络往返。可用 path 读沙箱主文件，files/dir 附带头文件与其它源码（#include "…" 也会自动从沙箱查找），stdin / args 传给程序。适合算法验证与性能测试。',
     parameters: {
       type: 'object',
       properties: {
-        code: { type: 'string', description: '完整的 C++ 程序（含 #include 与 main）' },
+        code: { type: 'string', description: '完整的 C++ 程序（含 #include 与 main）；若给了 path 则可省略' },
+        path: { type: 'string', description: '可选：沙箱内主文件路径，如 src/main.cpp' },
+        files: { type: 'array', items: { type: 'string' }, description: '可选：一并提交的沙箱路径（头文件/其它 .cpp）' },
+        dir: { type: 'string', description: '可选：把该目录下的 C/C++ 源与头文件全部提交' },
+        stdin: { type: 'string', description: '可选：程序标准输入' },
+        stdin_path: { type: 'string', description: '可选：从沙箱文件读 stdin' },
+        args: { type: 'array', items: { type: 'string' }, description: '可选：传给 main 的命令行参数' },
       },
-      required: ['code'],
     },
   },
   {
@@ -155,11 +160,13 @@ export const TOOL_DEFS = [
       'gemini-3.1-flash-image（Nano Banana 2）走 Gemini 原生 generateContent，不要发到 /v1/images/*。' +
       '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则进入「图片编辑」模式，按 prompt 指令修改原图。' +
       '结果以 data URL 写入沙箱 outputs/ 目录（可下载/打包/继续编辑），并在对话中直接展示。' +
+      '传 compare_paths=[图A, 图B] 时只做本地对比（尺寸/字节/是否相同），不调用生图，无 Key 也能用。' +
       '生图耗时较长（实测 30–65 秒，超时上限 300 秒）。需要出图时请调用本工具，不要只用文字描述画面。',
     parameters: {
       type: 'object',
       properties: {
         prompt: { type: 'string', description: '画面描述（生成模式）或修改指令（编辑模式），如「一只在键盘上打字的橘猫，插画风格」' },
+        compare_paths: { type: 'array', items: { type: 'string' }, description: '可选：两张沙箱图片路径，做本地差分/对比，不调用生图' },
         reference_paths: { type: 'array', items: { type: 'string' }, description: '可选：沙箱内参考图路径数组（如 ["uploads/cat.png"]）；提供即进入编辑模式' },
         size: { type: 'string', enum: IMAGE_SIZES, description: `输出尺寸（宽x高像素），默认 ${'auto'} 由模型决定` },
         quality: { type: 'string', enum: IMAGE_QUALITIES, description: '质量档位，默认 auto' },
@@ -178,14 +185,18 @@ export const TOOL_DEFS = [
   {
     name: 'analyze_image',
     description:
-      '分析一张图片（OCR、描述画面、读图表）。对话模型本身是纯文本，不能直接看图：必须调用本工具。' +
+      '分析一张或多张图片（OCR、描述画面、读图表）。对话模型本身是纯文本，不能直接看图：必须调用本工具。' +
       `内部固定使用 ${VISION_TOOL_MODEL}，不要把该模型当对话模型选。` +
-      'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；也可以不传 path 而分析用户本轮刚上传的图。' +
+      'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；paths / prefix 可批量。' +
+      '文件名形如 foo-p01.jpg、foo-p02.jpg 的 PDF 页图会自动整批 OCR。' +
+      '也可以不传 path 而分析用户本轮刚上传的图。' +
       '返回完整识别结果（不会截成摘要）；全文同时写入沙箱同名 .ocr.md，可用 read_file 再读。',
     parameters: {
       type: 'object',
       properties: {
         path: { type: 'string', description: '沙箱图片路径，如 uploads/photo.png 或 outputs/image-001.png' },
+        paths: { type: 'array', items: { type: 'string' }, description: '可选：多张图一次 OCR，按顺序分析' },
+        prefix: { type: 'string', description: '可选：只分析以此路径前缀开头的图片（如 uploads/scan-）' },
         prompt: { type: 'string', description: '分析要求，如「读出图中全部文字」或「描述这张架构图」；缺省为全面描述' },
       },
     },
@@ -249,7 +260,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'search_files',
-    description: '在沙箱文件正文里按 JavaScript 正则搜索（跳过 data URL 图片）。返回路径、行号与片段。写完代码要核对字符串、或在多文件里找引用时用，不要口搜。',
+    description: '在沙箱文件正文里按 JavaScript 正则搜索。图片与二进制（含 data URL）会搜 mime、宽高、体积与 ASCII strings，不跳过。返回路径、行号与片段。写完代码要核对字符串、或在多文件里找引用时用，不要口搜。',
     parameters: {
       type: 'object',
       properties: {
@@ -494,7 +505,21 @@ async function executeToolBody(name, args, ctx) {
       }
       case 'execute_cpp': {
         emit({ status: 'running', lang: 'cpp', note: '远程编译执行中…' });
-        const out = await runCpp(args.code || '');
+        let code = String(args.code || '');
+        const mainPath = normalizeFsPath(args.path);
+        if (!code.trim() && mainPath) {
+          try { code = String(fs.read(mainPath)); }
+          catch { return `execute_cpp 失败：找不到 ${mainPath}`; }
+        }
+        if (!code.trim()) return 'execute_cpp 缺少 code 或 path。';
+        const extraFiles = collectCppFiles(fs, args, code, mainPath);
+        let stdin = args.stdin != null ? String(args.stdin) : '';
+        if (!stdin && args.stdin_path) {
+          const sp = normalizeFsPath(args.stdin_path);
+          try { stdin = String(fs.read(sp)); } catch { /* 保持空 stdin */ }
+        }
+        const argv = Array.isArray(args.args) ? args.args.map((a) => String(a)) : [];
+        const out = await runCpp(code, { files: extraFiles, stdin, args: argv });
         emit({ status: out.ok ? 'ok' : 'error', lang: 'cpp', logs: out.logs, error: out.error, durationMs: out.durationMs });
         return formatExecResult('C++', out);
       }
@@ -633,6 +658,19 @@ async function executeToolBody(name, args, ctx) {
         return report;
       }
       case 'generate_image': {
+        const comparePaths = (Array.isArray(args.compare_paths) ? args.compare_paths : [])
+          .map((p) => normalizeFsPath(p)).filter(Boolean);
+        if (comparePaths.length >= 2) {
+          const report = compareSandboxImages(fs, comparePaths[0], comparePaths[1]);
+          if (report.error) {
+            emit({ status: 'error', error: { message: report.error } });
+            return `图像对比失败：${report.error}`;
+          }
+          const outPath = nextOutputPath(fs, 'compare', 'md');
+          try { fs.write(outPath, report.markdown); } catch { /* 仍回正文 */ }
+          emit({ status: 'ok', fsChange: true, note: `已对比 ${comparePaths[0]} ↔ ${comparePaths[1]}` });
+          return report.markdown + `\n- 报告：${outPath}`;
+        }
         if (!ctx.apiKey) {
           emit({ status: 'error', error: { message: '未配置 API Key' } });
           return '未配置 TeamoRouter API Key，无法调用图像模型。';
@@ -727,33 +765,34 @@ async function executeToolBody(name, args, ctx) {
           emit({ status: 'error', error: { message: '未配置 API Key' } });
           return '未配置 TeamoRouter API Key，无法调用识图模型。';
         }
-        let path = normalizeFsPath(args.path);
         const listImgs = () => fs.list().filter((f) => /\.(png|jpe?g|webp|gif)$/i.test(f.path)).map((f) => f.path);
-        if (!path) {
-          const imgs = listImgs();
-          if (imgs.length === 1) path = imgs[0];
-          else if (!imgs.length) return 'analyze_image 缺少 path：沙箱里还没有图片（用户上传会进 uploads/）。';
-          else return `analyze_image 缺少 path。沙箱中的图片：${imgs.join('、')}`;
-        }
-        let dataUrl = '';
-        try { dataUrl = fs.read(path); } catch { return `analyze_image 失败：找不到 ${path}（现有图片：${listImgs().join('、') || '无'}）`; }
-        if (!/^data:image\//i.test(dataUrl) && !/^https?:\/\//i.test(dataUrl)) {
-          return `analyze_image 失败：${path} 不是图片 data URL（当前是文本文件？）。`;
-        }
+        const paths = collectAnalyzePaths(fs, args, listImgs);
+        if (paths.error) return paths.error;
         const prompt = String(args.prompt || '').trim();
-        emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · ${path}）…` });
         try {
           const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-          const text = await analyzeImage({ apiKey: ctx.apiKey, prompt, dataUrl, signal: ctx.signal });
+          const chunks = [];
+          for (let i = 0; i < paths.length; i++) {
+            const path = paths[i];
+            let dataUrl = '';
+            try { dataUrl = fs.read(path); } catch { return `analyze_image 失败：找不到 ${path}（现有图片：${listImgs().join('、') || '无'}）`; }
+            if (!/^data:image\//i.test(dataUrl) && !/^https?:\/\//i.test(dataUrl)) {
+              return `analyze_image 失败：${path} 不是图片 data URL（当前是文本文件？）。`;
+            }
+            emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · ${i + 1}/${paths.length} · ${path}）…` });
+            const pagePrompt = paths.length > 1
+              ? `${prompt || '请完整分析这张图片：按阅读顺序转录全部可见文字。'}\n这是第 ${i + 1}/${paths.length} 页（${path}）。`
+              : prompt;
+            const pageText = await analyzeImage({ apiKey: ctx.apiKey, prompt: pagePrompt, dataUrl, signal: ctx.signal });
+            chunks.push(paths.length > 1 ? `## ${path}\n\n${pageText}` : pageText);
+          }
+          const text = chunks.join('\n\n');
           const ms = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0);
-          const slash = path.lastIndexOf('/');
-          const dir = slash >= 0 ? path.slice(0, slash + 1) : '';
-          const base = slash >= 0 ? path.slice(slash + 1) : path;
-          const stem = base.replace(/\.[^.]+$/, '') || 'image';
-          const ocrPath = `${dir}${stem}.ocr.md`;
+          const ocrPath = ocrOutPath(paths);
           try { fs.write(ocrPath, text); } catch { /* 落盘失败仍回全文 */ }
-          emit({ status: 'ok', note: `已分析 ${path}`, durationMs: ms });
-          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${path} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
+          const label = paths.length > 1 ? `${paths.length} 页` : paths[0];
+          emit({ status: 'ok', note: `已分析 ${label}`, durationMs: ms, fsChange: true });
+          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${paths.join('、')} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });
@@ -939,6 +978,9 @@ function formatExecResult(lang, out) {
     const apis = lang === 'JavaScript' ? 'console, files' : 'FILES, result';
     parts.push(`[env: ${env}; apis: ${apis}; files_keys: ${JSON.stringify(shown)}${more}]`);
   }
+  if (lang === 'Python' && Array.isArray(out.installed)) {
+    parts.push(`[包缓存] 本会话已装：${out.installed.length ? out.installed.join(', ') : '（无）'}。同一 Worker 不重装；刷新后新运行时再 loadPackage，通常走浏览器缓存。`);
+  }
   parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
   return `[${lang} 沙箱]\n${parts.join('\n')}`;
 }
@@ -948,4 +990,139 @@ function u8ToB64(u8) {
   let s = '';
   for (let i = 0; i < u8.length; i += chunk) s += String.fromCharCode(...u8.subarray(i, i + chunk));
   return btoa(s);
+}
+
+function collectCppFiles(fs, args, code, mainPath) {
+  const map = new Map();
+  const put = (filename, contents) => {
+    const name = String(filename || '').replace(/\\/g, '/');
+    if (!name || map.has(name)) return;
+    map.set(name, String(contents ?? ''));
+  };
+  const addPath = (p, asName) => {
+    const n = normalizeFsPath(p);
+    if (!n || n === mainPath) return;
+    let contents;
+    try { contents = String(fs.read(n)); } catch { return; }
+    if (contents.startsWith('data:')) return;
+    put(asName || n.split('/').pop(), contents);
+  };
+  if (Array.isArray(args.files)) args.files.forEach((p) => addPath(p));
+  if (args.dir) {
+    const pre = String(normalizeFsPath(args.dir) || args.dir).replace(/\/?$/, '');
+    for (const f of fs.list()) {
+      if ((f.path === pre || f.path.startsWith(pre + '/')) && /\.(h|hpp|hh|hxx|c|cc|cpp|cxx|ipp|inc)$/i.test(f.path)) addPath(f.path);
+    }
+  }
+  const re = /#include\s+"([^"]+)"/g;
+  let m;
+  const hay = String(code || '');
+  while ((m = re.exec(hay))) {
+    const inc = String(m[1] || '').replace(/\\/g, '/');
+    const base = inc.split('/').pop();
+    const cands = fs.list().map((f) => f.path).filter((p) => p === inc || p.endsWith('/' + inc) || p.split('/').pop() === base);
+    const exact = cands.find((p) => p === inc) || cands.find((p) => p.endsWith('/' + inc)) || cands[0];
+    if (exact) addPath(exact, inc);
+  }
+  return [...map.entries()].map(([filename, contents]) => ({ filename, contents }));
+}
+
+function collectAnalyzePaths(fs, args, listImgs) {
+  const imgs = listImgs();
+  const out = [];
+  const add = (p) => {
+    const n = normalizeFsPath(p);
+    if (n && !out.includes(n)) out.push(n);
+  };
+  if (Array.isArray(args.paths)) args.paths.forEach(add);
+  if (args.path) add(args.path);
+  if (args.prefix) {
+    const pre = String(args.prefix);
+    for (const p of imgs) {
+      if (p === pre || p.startsWith(pre)) add(p);
+    }
+  }
+  if (out.length === 1) {
+    const m = /^(.*)-p(\d+)(\.[^.]+)$/i.exec(out[0]);
+    if (m) {
+      const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const re = new RegExp(`^${esc(m[1])}-p\\d+${esc(m[3])}$`, 'i');
+      const sibs = imgs.filter((p) => re.test(p)).sort((a, b) => {
+        const na = Number((/-p(\d+)/i.exec(a) || [])[1] || 0);
+        const nb = Number((/-p(\d+)/i.exec(b) || [])[1] || 0);
+        return na - nb;
+      });
+      if (sibs.length > 1) return sibs;
+    }
+  }
+  if (out.length) return out;
+  if (imgs.length === 1) return imgs;
+  if (!imgs.length) return { error: 'analyze_image 缺少 path：沙箱里还没有图片（用户上传会进 uploads/）。' };
+  return { error: `analyze_image 缺少 path。沙箱中的图片：${imgs.join('、')}` };
+}
+
+function ocrOutPath(paths) {
+  const first = paths[0] || 'image.png';
+  const m = /^(.*)-p\d+(\.[^.]+)$/i.exec(first);
+  const base = m ? m[1] : first.replace(/\.[^.]+$/, '');
+  return `${base}.ocr.md`;
+}
+
+function imageMeta(fs, path) {
+  let raw;
+  try { raw = fs.read(path); } catch { return { path, error: `找不到 ${path}` }; }
+  const s = raw == null ? '' : String(raw);
+  let u8 = null;
+  let mime = '';
+  if (s.startsWith('data:')) {
+    mime = (s.match(/^data:([^;,]+)/i) || [, ''])[1];
+    try {
+      const got = dataUrlToBytes(s);
+      u8 = got && got.bytes ? got.bytes : got;
+    } catch { u8 = null; }
+  } else {
+    try { u8 = new TextEncoder().encode(s); } catch { u8 = null; }
+  }
+  const sniff = u8 ? (sniffImage(u8) || {}) : {};
+  return {
+    path,
+    mime: sniff.mime || mime || 'unknown',
+    ext: sniff.ext || '',
+    width: sniff.width || 0,
+    height: sniff.height || 0,
+    bytes: u8 ? u8.length : s.length,
+    u8,
+  };
+}
+
+function bytesEqual(a, b) {
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+function fnv1a(u8) {
+  let h = 2166136261;
+  if (!u8) return '0';
+  for (let i = 0; i < u8.length; i++) {
+    h ^= u8[i];
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16).padStart(8, '0');
+}
+
+function compareSandboxImages(fs, aPath, bPath) {
+  const a = imageMeta(fs, aPath);
+  const b = imageMeta(fs, bPath);
+  if (a.error || b.error) return { error: a.error || b.error };
+  const sameBytes = bytesEqual(a.u8, b.u8);
+  const sameSize = a.width && b.width && a.width === b.width && a.height === b.height;
+  const lines = [
+    '[图像对比]',
+    `- A：${a.path} · ${a.mime} · ${a.bytes} 字节${a.width && a.height ? ` · ${a.width}x${a.height}` : ''} · fnv ${fnv1a(a.u8)}`,
+    `- B：${b.path} · ${b.mime} · ${b.bytes} 字节${b.width && b.height ? ` · ${b.width}x${b.height}` : ''} · fnv ${fnv1a(b.u8)}`,
+    `- 字节：${sameBytes ? '完全相同' : '不同'}（Δ ${b.bytes - a.bytes} 字节）`,
+    `- 尺寸：${sameSize ? '相同' : (a.width && b.width ? `${a.width}x${a.height} vs ${b.width}x${b.height}` : '至少一侧无法解析宽高')}`,
+  ];
+  return { markdown: lines.join('\n') };
 }

@@ -1,6 +1,6 @@
 // TeamoAgent · Python 沙箱 Worker（Pyodide / WebAssembly，独立同源文件）
 // 关键：经典 Worker 中 importScripts 加载后，loadPyodide 必须显式传 indexURL。
-// 第三方库：micropip.install；已装包名由主线程记到 localStorage，刷新后重装。
+// 第三方库：micropip.install；本 Worker 内 installed Set 去重。刷新后运行时重建，包名由主线程再传入，字节走浏览器缓存。
 const PY_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/';
 let loaded = null;
 const installed = new Set();

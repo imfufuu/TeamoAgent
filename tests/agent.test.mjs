@@ -1046,10 +1046,32 @@ test('工具已注册且参数齐全', () => {
   assert.ok(def, 'TOOL_DEFS 应包含 generate_image');
   assert.ok(def.description.includes('/v1/images/edits'), '描述应说明编辑模式');
   const props = def.parameters.properties;
-  for (const k of ['prompt', 'reference_paths', 'size', 'quality', 'output_format', 'model']) {
+  for (const k of ['prompt', 'reference_paths', 'size', 'quality', 'output_format', 'model', 'compare_paths']) {
     assert.ok(props[k], `参数 ${k} 缺失`);
   }
   assert.deepEqual(def.parameters.required, ['prompt']);
+});
+test('compare_paths：无 Key 也能对比两张本地图', async () => {
+  const fakePng = (w, h, extra = 0) => {
+    const png = Buffer.alloc(24 + extra);
+    png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    png.writeUInt32BE(w, 16); png.writeUInt32BE(h, 20);
+    return 'data:image/png;base64,' + png.toString('base64');
+  };
+  const fs = createFS({ 'outputs/a.png': fakePng(64, 32), 'outputs/b.png': fakePng(128, 64, 8) });
+  let hit = 0;
+  const orig = globalThis.fetch;
+  globalThis.fetch = async () => { hit++; return new Response('{}'); };
+  try {
+    const out = await executeTool('generate_image', { prompt: 'compare', compare_paths: ['outputs/a.png', 'outputs/b.png'] }, { fs });
+    assert.equal(hit, 0, '本地对比不得打网关');
+    assert.match(out, /图像对比/);
+    assert.match(out, /64x32/);
+    assert.match(out, /128x64/);
+    assert.match(out, /不同/);
+    assert.match(out, /outputs\/compare-001\.md/);
+    assert.ok(fs.read('outputs/compare-001.md').includes('图像对比'));
+  } finally { globalThis.fetch = orig; }
 });
 test('生成模式：POST /v1/images/generations + 图片落沙箱 outputs/', async () => {
   const realFetch = globalThis.fetch;
@@ -1874,6 +1896,62 @@ test('search_files / diff_text / json_tool / copy_file / delete_file 本地工�
   const del = await executeTool('delete_file', { path: 'keep.json' }, { fs });
   assert.match(del, /已删除/);
 });
+test('search_files 不跳过 data URL：能搜 mime / 宽高 / ASCII strings', async () => {
+  const png = Buffer.alloc(24);
+  png.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  png.writeUInt32BE(320, 16); png.writeUInt32BE(240, 20);
+  const bin = Buffer.from('xxxxHelloSandboxToolxxxx');
+  const fs = createFS({
+    'uploads/dot.png': 'data:image/png;base64,' + png.toString('base64'),
+    'bin/a.bin': 'data:application/octet-stream;base64,' + bin.toString('base64'),
+    'src/ok.js': 'const n = 42;\n',
+  });
+  const mimeHit = await executeTool('search_files', { pattern: 'image/png' }, { fs });
+  assert.match(mimeHit, /uploads\/dot\.png/);
+  const sizeHit = await executeTool('search_files', { pattern: '320x240' }, { fs });
+  assert.match(sizeHit, /uploads\/dot\.png/);
+  const strHit = await executeTool('search_files', { pattern: 'HelloSandboxTool' }, { fs });
+  assert.match(strHit, /bin\/a\.bin/);
+  const textHit = await executeTool('search_files', { pattern: 'const n = 42' }, { fs });
+  assert.match(textHit, /src\/ok\.js/);
+});
+test('execute_cpp 把沙箱多文件与 stdin 交给 Godbolt files', async () => {
+  const real = globalThis.fetch;
+  const bodies = [];
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/api/compilers')) {
+      return new Response(JSON.stringify([{ id: 'g142', semver: '14.2.0' }]), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (u.includes('/compile')) {
+      bodies.push(JSON.parse(opts.body));
+      return new Response(JSON.stringify({ code: 0, stdout: [{ text: 'ok-cpp' }], stderr: [] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('no', { status: 404 });
+  };
+  try {
+    const fs = createFS({
+      'src/main.cpp': '#include "util.h"\nint main(){ return 0; }\n',
+      'src/util.h': 'int n = 42;\n',
+      'src/in.txt': 'hello-stdin\n',
+    });
+    const out = await executeTool('execute_cpp', { path: 'src/main.cpp', stdin_path: 'src/in.txt', args: ['--quiet'] }, { fs });
+    assert.match(out, /ok-cpp/);
+    assert.equal(bodies.length, 1);
+    assert.ok(bodies[0].files && bodies[0].files.some((f) => f.filename === 'util.h' && f.contents.includes('int n = 42')), JSON.stringify(bodies[0].files));
+    assert.equal(bodies[0].options.executeParameters.stdin, 'hello-stdin\n');
+    assert.deepEqual(bodies[0].options.executeParameters.args, ['--quiet']);
+    assert.match(bodies[0].source, /#include "util.h"/);
+  } finally { globalThis.fetch = real; }
+});
+test('execute_python / execute_cpp 描述不再写「刷新后重装 / 无法访问文件系统」', () => {
+  const py = TOOL_DEFS.find((t) => t.name === 'execute_python');
+  const cpp = TOOL_DEFS.find((t) => t.name === 'execute_cpp');
+  assert.ok(!/刷新后仍会重装/.test(py.description));
+  assert.match(py.description, /不会重装|不重装/);
+  assert.ok(!/不能访问虚拟文件系统|无法访问虚拟文件系统/.test(cpp.description));
+  assert.match(cpp.description, /files\/dir|path\/files\/dir/);
+});
 test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体退化成纯推理', async () => {
   const { subagentTools } = await import('../js/agent.js');
   const names = (list) => (list || []).map((t) => t.name);
@@ -2049,6 +2127,38 @@ test('识图：content 为 parts 数组时拼成全文', async () => {
   try {
     const t = await analyzeImage({ apiKey: 'k', dataUrl: 'data:image/png;base64,AAA' });
     assert.equal(t, '甲乙');
+  } finally { globalThis.fetch = orig; }
+});
+test('analyze_image 批量 OCR：paths 与 PDF 页名 *-pNN 自动成批', async () => {
+  const png = 'data:image/png;base64,AAA';
+  const fs = createFS({
+    'uploads/scan-p01.jpg': png,
+    'uploads/scan-p02.jpg': png,
+    'uploads/scan-p03.jpg': png,
+  });
+  const bodies = [];
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (_url, init) => {
+    bodies.push(JSON.parse(init.body));
+    const n = bodies.length;
+    return new Response(JSON.stringify({
+      choices: [{ message: { role: 'assistant', content: '页' + n }, finish_reason: 'stop' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const { analyzeImage } = await import('../js/vision.js');
+    const multi = await analyzeImage({ apiKey: 'k', dataUrls: [png, png], prompt: '看两张' });
+    assert.equal(multi, '页' + bodies.length);
+    assert.equal(bodies[0].messages[0].content.filter((c) => c.type === 'image_url').length, 2);
+    const out = await executeTool('analyze_image', { path: 'uploads/scan-p01.jpg' }, { fs, apiKey: 'k' });
+    assert.match(out, /scan-p01\.jpg/);
+    assert.match(out, /scan-p02\.jpg/);
+    assert.match(out, /scan-p03\.jpg/);
+    assert.match(out, /uploads\/scan\.ocr\.md/);
+    const ocr = fs.read('uploads/scan.ocr.md');
+    assert.match(ocr, /## uploads\/scan-p01\.jpg/);
+    assert.match(ocr, /页/);
+    assert.equal(ocr.split('## ').length - 1, 3);
   } finally { globalThis.fetch = orig; }
 });
 test('compactMessages：识图全文在 preflight 时也不截断', () => {
