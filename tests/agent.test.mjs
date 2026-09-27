@@ -687,9 +687,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(systemPrompt(), /上海初中业余编程爱好者/);
   assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
   assert.match(systemPrompt(), /不是 Kiro/);
-  assert.match(systemPrompt(), /你是望舒/);
-  assert.match(systemPrompt(), /只称望舒/);
-  assert.equal(/团团|茶沫/.test(systemPrompt()), false);
+  assert.match(systemPrompt(), /只回答 TeamoAgent/);
+  assert.equal(/望舒|团团|茶沫/.test(systemPrompt()), false);
 });
 
 group('持久化（P0-3 回归：关闭页面不得丢最后一轮）');
@@ -2116,6 +2115,9 @@ test('死代码不再回来：zip 便捷入口 / 文件树 direct 字段 / 双�
   const tree = await import('../js/filetree.js');
   const [node] = tree.buildFileTree([{ path: 'a/b.txt', size: 3 }]);
   assert.ok(!('direct' in node), '无人读取的 direct 字段应删掉');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.ok(!/chipImages/.test(ui), '生图预览已改走正文，芯片图缓存是死代码');
+  assert.ok(!/webCapFor/.test(ui), 'ui 不再读 webCapFor（恒为 null）');
 });
 test('Worker 侧 Pyodide API 名称与陈旧全局（回归锚点）', async () => {
   const fsp = await import('node:fs');

@@ -6,7 +6,6 @@ import { createZip, fileBytesFromValue, withExtension } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport } from './api.js';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
-import { webCapFor, webCapNote } from './websearch.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { autoTitle } from './titler.js';
@@ -16,7 +15,6 @@ import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
-
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -1183,7 +1181,7 @@ export function mountUI(store, agent) {
     saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
-      <h2>望舒</h2>
+      <h2>TeamoAgent</h2>
       <p>TeamoAgent · 基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => {
@@ -1275,10 +1273,6 @@ export function mountUI(store, agent) {
     agent.regenerate();
   }
 
-  // ── 工具芯片里的图片输出（generate_image 的结果）─────────────────────
-  // 会话内按 callId 缓存：重绘/切换会话回来时仍能直接看到图（刷新页面后与
-  // 附件同策略不落盘，避免数 MB data URL 顶穿 localStorage）
-  const chipImages = new Map();
   function paintFoot(wrap, m) {
     const foot = $('.msg-foot', wrap);
     if (!foot) return;
@@ -1877,7 +1871,7 @@ export function mountUI(store, agent) {
             source: 'zip',
             originalName: f.name,
           });
-          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请让望舒用 unzip_file 解压`, 'ok', 4200);
+          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
@@ -2325,9 +2319,7 @@ export function mountUI(store, agent) {
         state.classList.remove('bad');
       }
       if (patch.image) {
-        chipImages.set(call.id, { dataUrl: patch.image, path: patch.imagePath, width: patch.width, height: patch.height });
-        // 把图记在工具调用记录上：刷新页面后能重新画出来，持久化时也才认得这是「重数据」
-        // （state.js 会把它挪到 IndexedDB，而不是塞进 5MB 的 localStorage）
+        // 图走正文 sandbox:// 占位，不在芯片里画。仍记在 toolCall 上，好进 IDB。
         call.image = patch.image;
         if (patch.imagePath) call.imagePath = patch.imagePath;
         if (patch.width) call.width = patch.width;
