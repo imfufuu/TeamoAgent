@@ -136,7 +136,7 @@ test('tool_use 块 + input_json_delta 拼接', () => {
   assert.equal(calls[0].name, 'execute_python');
   assert.deepEqual(calls[0].args, { code: 'print(1)' });
 });
-test('坏 JSON 参数降级为 __raw', () => {test('replace 语义：done 的完整 arguments 覆盖而非叠加', () => {
+test('replace 语义：done 的完整 arguments 覆盖而非叠加', () => {
   // Responses 协议既流式给 delta、又在 output_item.done 里给全量 arguments；
   // 聚合器必须用 replace 覆盖，否则参数变成两份拼接的坏 JSON（真实踩过）。
   const acc = createToolCallAccumulator();
@@ -147,7 +147,7 @@ test('坏 JSON 参数降级为 __raw', () => {test('replace 语义：done 的完
   acc.push({ index: 0, argsText: '', replace: true }); // 空全量不得抹掉已有增量
   assert.deepEqual(acc.result()[0].args, { a: 1 });
 });
-
+test('坏 JSON 参数降级为 __raw', () => {
   const acc = createToolCallAccumulator();
   acc.push({ index: 0, id: 'x', name: 'f', argsText: '{broken' });
   assert.deepEqual(acc.result()[0].args, { __raw: '{broken' });
@@ -1794,7 +1794,7 @@ test('app.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => 
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const { APP_VERSION } = await import('../js/config.js');
-  assert.match(APP_VERSION, /^\d{4}\.\d{1,2}\.\d{1,2}\.\d+$/, '版本形如 2026.9.26.1');
+  assert.match(APP_VERSION, /^2026\.9\.27\.\d+$/, 'V1.3 构建号必须以 2026.9.27 开头');
   for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
     const m = new RegExp(`${asset}\\?v=([\\d.]+)`).exec(html);
     assert.ok(m, `${asset.replace(/\\/g, '')} 应带 ?v=`);
@@ -3694,12 +3694,15 @@ test('非 PDF 字节给出可读失败，不抛', async () => {
 
 
 group('2026.09.22.15 布局与高亮');
-test('侧栏 860、面板浮层 1180，开面板时藏顶栏胶囊', async () => {
+test('侧栏 860、桌面面板右侧浮层，手机面板底部浮层，开面板时藏顶栏胶囊', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.equal((css.match(/@media \(max-width: 860px\)/g) || []).length >= 2, true);
   assert.match(css, /@media \(max-width: 1180px\)/);
+  assert.match(css, /#sandbox-panel\.collapsed \{ transform: translateX\(105%\); \}/);
+  assert.match(css, /@media \(max-width: 720px\)/);
+  assert.match(css, /#sandbox-panel\.collapsed \{ transform: translateY\(105%\); \}/);
   assert.equal(/@media \(max-width: 760px\)/.test(css), false, '面板不再单独用 760');
   assert.match(ui, /max-width: 860px/);
   assert.match(ui, /max-width: 1180px/);
@@ -4200,6 +4203,26 @@ test('选择框删除跳过入口', async () => {
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.equal(/data-choice-skip|choice-skip|dismissChoiceBox/.test(ui + css), false);
+});
+
+
+group('V1.3 正式版 / 桌面沙箱面板');
+test('V1.3 发布标识与 2026.9.27 构建号已同步', async () => {
+  const fsp = await import('node:fs');
+  const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  assert.equal(APP_RELEASE, 'V1.3');
+  assert.match(APP_VERSION, /^2026\.9\.27\.\d+$/);
+  assert.match(html, /TeamoAgent V1\.3 正式版/);
+  assert.match(home, /TeamoAgent V1\.3 · 构建 2026\.9\.27\.1/);
+});
+test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /桌面端仍从右侧展开/);
+  assert.match(css, /#sandbox-panel\.collapsed \{ transform: translateX\(105%\); \}/);
+  assert.match(css, /@media \(max-width: 720px\)[\s\S]*#sandbox-panel\.collapsed \{ transform: translateY\(105%\); \}/);
 });
 
 // ── 顺序执行（async 测试逐个 await）──

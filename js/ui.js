@@ -1429,7 +1429,7 @@ export function mountUI(store, agent) {
 
   // ── 侧栏 & 沙箱面板收起体系 ───────────────────────────────────────────
   // 宽屏：两者都并入网格（收起=列宽归零，展开=挤压布局，绝不遮挡内容）
-  // 窄屏：侧栏抽屉化与面板自底部全屏滑入（均 ≤860px），✕ / Esc 收回
+  // 中等桌面宽度：沙箱面板改右侧浮层；移动窄屏才自底部全屏滑入，✕ / Esc 收回
   const sidebar = $('.sidebar');
   const panel = $('#sandbox-panel');
   const backdrop = $('#overlay-backdrop');
@@ -1451,7 +1451,7 @@ export function mountUI(store, agent) {
     btn.setAttribute('aria-pressed', v ? 'false' : 'true');
     btn.title = v ? '沙箱面板已收起（文件树 / 下载 / 清空）：点开' : '沙箱面板已展开：点此收起';
     if (typeof syncCapLine === 'function') syncCapLine();
-    // 窄屏面板全屏盖住顶栏：打开时关掉侧栏；关闭靠面板内 ✕ / Esc，不依赖遮罩。
+    // 面板浮层会盖住内容：打开时关掉移动侧栏；关闭靠面板内 ✕ / Esc，也可点遮罩。
     if (!v && mqSidebar.matches) sidebar.classList.remove('sidebar-open');
     updateBackdrop();
   }
