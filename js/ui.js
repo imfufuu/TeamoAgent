@@ -1183,7 +1183,7 @@ export function mountUI(store, agent) {
     saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
-      <h2>团团</h2>
+      <h2>望舒</h2>
       <p>TeamoAgent · 基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => {
@@ -1877,7 +1877,7 @@ export function mountUI(store, agent) {
             source: 'zip',
             originalName: f.name,
           });
-          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请让团团用 unzip_file 解压`, 'ok', 4200);
+          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请让望舒用 unzip_file 解压`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
