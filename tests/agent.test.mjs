@@ -4296,6 +4296,32 @@ test('审核命中不入对话上下文；下一条消息清除提示；图片�
   }
 });
 
+test('图片/文本审核加载中可以终止，不会卡在连接/审核状态', async () => {
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    textModel: { classify: async () => new Promise(() => {}) },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    imageModel: { classify: async () => [] },
+  };
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.settings.contentModeration = true;
+    const seen = [];
+    const agent = createAgent(store, { onStatus: (s) => seen.push(s) });
+    const p = agent.send('一段普通文本，等待本地审核模型');
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(agent.getStatus(), 'moderating');
+    agent.abort();
+    await p;
+    assert.equal(agent.getStatus(), 'cancelled');
+    assert.deepEqual(store.state.messages, []);
+    assert.ok(seen.includes('moderating'));
+  } finally {
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+
 group('V1.3 正式版 / 桌面沙箱面板');
 test('V1.3 发布标识与 2026.9.27 构建号已同步', async () => {
   const fsp = await import('node:fs');

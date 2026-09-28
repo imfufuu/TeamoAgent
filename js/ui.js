@@ -2226,6 +2226,7 @@ export function mountUI(store, agent) {
   // ── 状态栏（连接/生成过程可见化：脉冲状态点 + 跳动点 + 实时耗时）──────
   const STATUS = {
     idle: ['', 'ok'],
+    moderating: ['审核内容中', 'busy'],
     connecting: ['连接模型中', 'busy'],
     thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
     executing: ['沙箱执行中', 'busy'], done: ['完成', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],
@@ -2241,7 +2242,7 @@ export function mountUI(store, agent) {
   }
   function setStatus(s) {
     const [label, cls] = STATUS[s] || STATUS.idle;
-    const busy = ['connecting', 'thinking', 'streaming', 'executing'].includes(s);
+    const busy = ['moderating', 'connecting', 'thinking', 'streaming', 'executing'].includes(s);
     if (busy) {
       if (!busySince) busySince = performance.now();
       statusDot.className = `dot busy ${s}`;
@@ -2265,9 +2266,9 @@ export function mountUI(store, agent) {
     // 顶栏不确定进度条：连接阶段更快，让用户一眼看出「正在等模型响应」
     const bar = $('#turn-bar');
     if (bar) bar.classList.toggle('on', busy);
-    if (bar) bar.classList.toggle('connecting', s === 'connecting');
+    if (bar) bar.classList.toggle('connecting', s === 'connecting' || s === 'moderating');
   }
-  function getBusy() { return ['connecting', 'thinking', 'streaming', 'executing'].includes(agent.getStatus()); }
+  function getBusy() { return ['moderating', 'connecting', 'thinking', 'streaming', 'executing'].includes(agent.getStatus()); }
 
   function updateTransportBadge() {
     const b = $('#transport-badge');

@@ -24,6 +24,32 @@ let nsfwReady;
 
 const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) || {};
 
+
+function abortError() {
+  if (typeof DOMException === 'function') return new DOMException('Aborted', 'AbortError');
+  const err = new Error('Aborted');
+  err.name = 'AbortError';
+  return err;
+}
+
+function isAbortError(err) {
+  return err && err.name === 'AbortError';
+}
+
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) throw abortError();
+}
+
+function withAbort(promise, signal) {
+  if (!signal) return Promise.resolve(promise);
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
+}
+
 function assetUrl(path) {
   return new URL(path, import.meta.url).href;
 }
@@ -316,56 +342,67 @@ async function imageFromDataUrl(dataUrl) {
   return img;
 }
 
-export async function moderateText({ text, attachments = [] } = {}) {
+export async function moderateText({ text, attachments = [], signal } = {}) {
+  throwIfAborted(signal);
   const payload = textPayload(text, attachments);
   if (!payload) return { blocked: false, score: 0, categories: [], skipped: 'empty' };
   const policy = policyTextHeuristic(payload);
   let modelDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   let semanticDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   try {
-    const model = await textModel();
-    const predictions = await model.classify([payload]);
+    const model = await withAbort(textModel(), signal);
+    throwIfAborted(signal);
+    const predictions = await withAbort(model.classify([payload]), signal);
     modelDecision = modelTextDecision(predictions);
   } catch (err) {
+    if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地文本 Toxicity 模型加载/推理失败，保留规则层结果', err);
     modelDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
   }
   try {
-    semanticDecision = await semanticTextDecision(payload);
+    throwIfAborted(signal);
+    semanticDecision = await withAbort(semanticTextDecision(payload), signal);
   } catch (err) {
+    if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地文本 USE 语义模型加载/推理失败，保留规则层结果', err);
     semanticDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
   }
   return mergeDecisions(policy, modelDecision, semanticDecision);
 }
 
-export async function moderateImages({ attachments = [], text = '' } = {}) {
+export async function moderateImages({ attachments = [], text = '', signal } = {}) {
+  throwIfAborted(signal);
   const imgs = (attachments || [])
     .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')))
     .slice(0, 6);
   if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images' };
   let model;
-  try { model = await imageModel(); } catch (err) {
+  try { model = await withAbort(imageModel(), signal); } catch (err) {
+    if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地图片审核模型加载失败，图片审核 fail-open', err);
     return { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
   }
   const decisions = [];
   for (const a of imgs) {
     try {
-      const img = await imageFromDataUrl(a.dataUrl);
-      const preds = await model.classify(img, 5);
+      throwIfAborted(signal);
+      const img = await withAbort(imageFromDataUrl(a.dataUrl), signal);
+      throwIfAborted(signal);
+      const preds = await withAbort(model.classify(img, 5), signal);
       decisions.push(policyImageDecision(preds, `${text || ''} ${a.name || ''}`));
     } catch (err) {
+      if (isAbortError(err)) throw err;
       decisions.push({ blocked: false, score: 0, categories: [], error: String(err && err.message || err) });
     }
   }
   return mergeDecisions(...decisions);
 }
 
-export async function moderateUserTurn({ text, attachments = [] } = {}) {
+export async function moderateUserTurn({ text, attachments = [], signal } = {}) {
+  throwIfAborted(signal);
   const [textResult, imageResult] = await Promise.all([
-    moderateText({ text, attachments }),
-    moderateImages({ text, attachments }),
+    moderateText({ text, attachments, signal }),
+    moderateImages({ text, attachments, signal }),
   ]);
   return { blocked: !!(textResult.blocked || imageResult.blocked), text: textResult, image: imageResult };
 }

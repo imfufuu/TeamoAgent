@@ -1,5 +1,5 @@
 // ─── Agent 核心：工具调用循环（Hermes 式回合生命周期）────────────────
-// idle → thinking → streaming → tool_executing → (loop) → done / error / cancelled
+// idle → moderating → thinking → streaming → tool_executing → (loop) → done / error / cancelled
 //
 // 回合（对齐 hermes-agent conversation_loop）：
 //   1. 追加 user  2. Jev System-1（fail-open）  3. 装配/复用 cached 系统提示
@@ -163,7 +163,7 @@ export function batchToolCalls(calls) {
 export function createAgent(store, hooks = {}) {
   const fs = createFS(store.state.files);
   let abortController = null;
-  let status = 'idle'; // idle | thinking | streaming | executing | done | error | cancelled
+  let status = 'idle'; // idle | moderating | thinking | streaming | executing | done | error | cancelled
 
   // UI 钩子统一经 emit 分发：钩子缺失或抛错都不得打断对话循环。
   // 线上教训：GitHub Pages 对 JS 子资源有 ~10 分钟缓存，浏览器可能拿到「新版 main.js +
@@ -570,7 +570,7 @@ export function createAgent(store, hooks = {}) {
     if (store.state.settings.contentModeration !== true) return { blocked: false, skipped: 'disabled' };
     const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     abortController = ctrl;
-    setStatus('connecting');
+    setStatus('moderating');
     try {
       return await moderateUserTurn({ text: userText, attachments, signal: ctrl ? ctrl.signal : undefined });
     } catch (err) {
@@ -579,7 +579,7 @@ export function createAgent(store, hooks = {}) {
       return { blocked: false, error: err && err.message ? err.message : String(err) };
     } finally {
       if (abortController === ctrl) abortController = null;
-      if (status === 'connecting') setStatus('idle');
+      if (status === 'moderating') setStatus('idle');
     }
   }
 
@@ -609,7 +609,11 @@ export function createAgent(store, hooks = {}) {
 
   return {
     getStatus: () => status,
-    abort: () => { abortController && abortController.abort(); },
+    abort: () => {
+      const ctrl = abortController;
+      if (ctrl) ctrl.abort();
+      if (status === 'moderating') setStatus('cancelled');
+    },
 
     async send(userText, attachments = []) {
       clearTransientModeration();
