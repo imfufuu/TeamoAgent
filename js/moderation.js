@@ -15,6 +15,7 @@ const TIMEOUTS = Object.freeze({
   semantic: 16000,
   imageModel: 30000,
   imageDecode: 8000,
+  imageFetch: 10000,
   imageClassify: 12000,
   nudityModel: 30000,
   nudityDetect: 12000,
@@ -32,6 +33,9 @@ const ORT_WASM_SIMD_URL = '../assets/vendor/ort-wasm-simd.wasm';
 const ORT_WASM_URL = '../assets/vendor/ort-wasm.wasm';
 const NUDENET_MODEL_URL = '../assets/moderation/nudenet-320n/model.onnx';
 const NUDENET_INPUT_SIZE = 224;
+const MAX_REMOTE_IMAGE_BYTES = 6 * 1024 * 1024;
+const IMAGE_URL_EXT_RE = /\.(?:png|jpe?g|webp|gif)(?:[?#]|$)/i;
+
 
 let tfReady;
 let toxicityReady;
@@ -161,6 +165,114 @@ async function imageModel() {
   return (await nsfwReady).model;
 }
 
+
+
+function isBlockedHost(hostname) {
+  const h = String(hostname || '').toLowerCase().replace(/^\[|\]$/g, '');
+  if (!h || h === 'localhost' || h.endsWith('.localhost')) return true;
+  if (h === '::1' || h === '0:0:0:0:0:0:0:1') return true;
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h);
+  if (!m) return false;
+  const [a, b] = m.slice(1).map((x) => Number(x));
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+function normalizeImageUrl(raw) {
+  const s = String(raw || '').trim().replace(/^<|>$/g, '').replace(/[，。；、]+$/g, '');
+  if (!s) return '';
+  if (/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(s)) return s;
+  try {
+    const u = new URL(s);
+    if (!/^https?:$/.test(u.protocol)) return '';
+    if (isBlockedHost(u.hostname)) return '';
+    return u.href;
+  } catch { return ''; }
+}
+
+function textImageCandidates(text = '') {
+  const body = String(text || '').slice(0, 24000);
+  const out = [];
+  const add = (raw, strong = false) => {
+    const url = normalizeImageUrl(raw);
+    if (!url) return;
+    if (!strong && !/^data:image\//i.test(url) && !IMAGE_URL_EXT_RE.test(url)) return;
+    if (!out.some((x) => x.url === url)) out.push({ url, strong });
+  };
+  body.replace(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^)]*["'])?\s*\)/gi, (_, a, b) => { add(a || b, true); return _; });
+  body.replace(/https?:\/\/[^\s<>"'`\])]+/gi, (m) => { add(m, false); return m; });
+  body.replace(/data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+/gi, (m) => { add(m, true); return m; });
+  return out.slice(0, 4);
+}
+
+function imageNameFromUrl(url, idx = 0) {
+  try {
+    const u = new URL(url);
+    const last = decodeURIComponent((u.pathname.split('/').filter(Boolean).pop() || '').slice(0, 80));
+    return last || `remote-image-${idx + 1}.png`;
+  } catch { return `remote-image-${idx + 1}.png`; }
+}
+
+async function blobToDataUrl(blob) {
+  if (typeof FileReader !== 'undefined') {
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result || ''));
+      r.onerror = () => reject(new Error('远程图片读取失败'));
+      r.readAsDataURL(blob);
+    });
+  }
+  if (blob && typeof blob.arrayBuffer === 'function' && typeof Buffer !== 'undefined') {
+    const buf = Buffer.from(await blob.arrayBuffer());
+    return `data:${blob.type || 'image/png'};base64,${buf.toString('base64')}`;
+  }
+  throw new Error('当前环境不能读取远程图片');
+}
+
+async function remoteImageToAttachment(url, signal, idx = 0) {
+  if (/^data:image\//i.test(url)) return { kind: 'image', name: `inline-image-${idx + 1}.png`, dataUrl: url, source: 'text-image-url', size: Math.round(url.length * 0.75) };
+  const hooks = testHooks();
+  if (typeof hooks.remoteImageDataUrl === 'function') {
+    const dataUrl = await hooks.remoteImageDataUrl(url);
+    return { kind: 'image', name: imageNameFromUrl(url, idx), dataUrl, source: 'text-image-url', originalUrl: url, size: Math.round(String(dataUrl || '').length * 0.75) };
+  }
+  if (typeof fetch !== 'function') throw new Error('当前环境不能下载远程图片');
+  const res = await withAbort(fetch(url, { mode: 'cors', credentials: 'omit', referrerPolicy: 'no-referrer', signal }), signal, 'imageFetch', timeoutFor('imageFetch', TIMEOUTS.imageFetch));
+  if (!res || !res.ok) throw new Error(`远程图片下载失败：HTTP ${res ? res.status : 0}`);
+  const type = String((res.headers && res.headers.get && res.headers.get('content-type')) || '').split(';')[0].trim().toLowerCase();
+  if (type && !/^image\/(?:png|jpe?g|webp|gif)$/.test(type)) throw new Error(`远程链接不是可审核图片：${type}`);
+  const len = Number(res.headers && res.headers.get && res.headers.get('content-length')) || 0;
+  if (len > MAX_REMOTE_IMAGE_BYTES) throw new Error('远程图片超过审核大小限制');
+  const blob = await withAbort(res.blob(), signal, 'imageFetch', timeoutFor('imageFetch', TIMEOUTS.imageFetch));
+  if (blob.size > MAX_REMOTE_IMAGE_BYTES) throw new Error('远程图片超过审核大小限制');
+  const dataUrl = await withAbort(blobToDataUrl(blob), signal, 'imageFetch', timeoutFor('imageFetch', TIMEOUTS.imageFetch));
+  return { kind: 'image', name: imageNameFromUrl(url, idx), dataUrl, source: 'text-image-url', originalUrl: url, size: blob.size || Math.round(dataUrl.length * 0.75) };
+}
+
+async function remoteImageAttachmentsFromText(text, signal) {
+  const candidates = textImageCandidates(text);
+  const out = [];
+  const errors = [];
+  for (let i = 0; i < candidates.length && out.length < 4; i++) {
+    try { out.push(await remoteImageToAttachment(candidates[i].url, signal, i)); }
+    catch (err) {
+      if (isAbortError(err)) throw err;
+      errors.push({ url: candidates[i].url, error: String(err && err.message || err), source: 'text-image-url' });
+    }
+  }
+  return { attachments: out, errors };
+}
+
+function policyImagePromptBypass(text = '', hasImage = false) {
+  if (!hasImage) return { blocked: false, score: 0, categories: [], skipped: 'no-image' };
+  const body = compactText(text, 2000);
+  if (!body) return { blocked: false, score: 0, categories: [], skipped: 'empty' };
+  const looksInternal = /(系统内测|内部测试|系统测试|系统指令|系统消息|开发者消息|system\s*(?:test|message|prompt)|developer\s*message|ignore\s+(?:previous|above)\s+instructions)/i.test(body);
+  const asksFixedReply = /(不需要输出任何内容|无需输出任何内容|不要输出任何内容|只(?:输出|回复|回答)|仅(?:输出|回复|回答)|输出[“"'`「『]?好的?[”"'`」』]?即可|reply\s+only|output\s+only)/i.test(body);
+  if (looksInternal && asksFixedReply) {
+    return { blocked: true, score: 0.94, categories: ['prompt_injection_image_bypass'], reason: 'prompt_injection_image_bypass', source: 'policy-v2' };
+  }
+  return { blocked: false, score: 0, categories: [], skipped: 'no-match' };
+}
 
 const NUDENET_LABELS = [
   'FEMALE_GENITALIA_COVERED', 'FACE_FEMALE', 'BUTTOCKS_EXPOSED', 'FEMALE_BREAST_EXPOSED',
@@ -575,12 +687,17 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
 
 export async function moderateImages({ attachments = [], text = '', signal } = {}) {
   throwIfAborted(signal);
-  const imgs = (attachments || [])
-    .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')))
-    .slice(0, 6);
-  if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images' };
+  const localImgs = (attachments || [])
+    .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')));
+  let remote = { attachments: [], errors: [] };
+  if (textImageCandidates(text).length) {
+    try { remote = await remoteImageAttachmentsFromText(text, signal); }
+    catch (err) { if (isAbortError(err)) throw err; remote = { attachments: [], errors: [{ error: String(err && err.message || err), source: 'text-image-url' }] }; }
+  }
+  const imgs = [...localImgs, ...remote.attachments].slice(0, 6);
+  if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images', parts: remote.errors };
   let nsfwModel = null;
-  const decisions = [];
+  const decisions = [...(remote.errors || [])];
   for (const a of imgs) {
     try {
       throwIfAborted(signal);
@@ -617,6 +734,9 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
 
 export async function moderateUserTurn({ text, attachments = [], signal } = {}) {
   throwIfAborted(signal);
+  const hasImage = (attachments || []).some((a) => a && a.kind === 'image') || textImageCandidates(text).length > 0;
+  const bypass = policyImagePromptBypass(text, hasImage);
+  if (bypass.blocked) return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } };
   const task = Promise.all([
     moderateText({ text, attachments, signal }),
     moderateImages({ text, attachments, signal }),
