@@ -4296,6 +4296,55 @@ test('审核命中不入对话上下文；下一条消息清除提示；图片�
   }
 });
 
+test('正常图片放行、敏感图片命中：本地图片审核路径可结束', async () => {
+  const mod = await import('../js/moderation.js');
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
+  const tinyJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/Ia//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAARD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAARD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAARD/2gAIAQEAAT8QH//Z';
+  globalThis.__TEamoModerationTestHooks = {
+    textModel: { classify: async () => [] },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    decodeImage: async (dataUrl) => ({ sample: dataUrl.includes('SENSITIVE_SAMPLE') ? 'sensitive' : 'normal' }),
+    imageModel: { classify: async (img) => img.sample === 'sensitive'
+      ? [{ className: 'Porn', probability: 0.72 }, { className: 'Neutral', probability: 0.28 }]
+      : [{ className: 'Neutral', probability: 0.96 }, { className: 'Drawing', probability: 0.04 }] },
+  };
+  try {
+    const ok = await mod.moderateUserTurn({ attachments: [
+      { kind: 'image', name: 'normal.png', dataUrl: tinyPng },
+      { kind: 'image', name: 'normal.jpg', dataUrl: tinyJpeg },
+    ] });
+    assert.equal(ok.blocked, false);
+    const bad = await mod.moderateUserTurn({ attachments: [
+      { kind: 'image', name: 'sensitive.png', dataUrl: tinyPng + 'SENSITIVE_SAMPLE' },
+    ] });
+    assert.equal(bad.blocked, true);
+    assert.ok(bad.image.categories.includes('adult_nsfw'));
+  } finally {
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+test('图片审核超时会 fail-open 结束，不会无限显示审核中', async () => {
+  const mod = await import('../js/moderation.js');
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    timeouts: { imageClassify: 10, imageDecode: 10, imageModel: 10, textModel: 10, textClassify: 10, semantic: 10, moderation: 50 },
+    textModel: { classify: async () => [] },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    decodeImage: async () => ({}),
+    imageModel: { classify: async () => new Promise(() => {}) },
+  };
+  try {
+    const r = await mod.moderateUserTurn({ attachments: [{ kind: 'image', name: 'slow.png', dataUrl: 'data:image/png;base64,AAAA' }] });
+    assert.equal(r.blocked, false);
+    assert.ok(r.image.parts.some((x) => x && /timeout/i.test(String(x.error || ''))));
+  } finally {
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+
 test('图片/文本审核加载中可以终止，不会卡在连接/审核状态', async () => {
   const oldHooks = globalThis.__TEamoModerationTestHooks;
   globalThis.__TEamoModerationTestHooks = {

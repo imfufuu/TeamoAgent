@@ -7,6 +7,16 @@ export const IMAGE_MODERATION_MODEL = 'local:nsfwjs-mobilenet-v2-mid-4.4.0';
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
 export const IMAGE_MODERATION_THRESHOLD = 0.70;
+export const MODERATION_TIMEOUT_MS = 45000;
+
+const TIMEOUTS = Object.freeze({
+  textModel: 30000,
+  textClassify: 12000,
+  semantic: 16000,
+  imageModel: 30000,
+  imageDecode: 8000,
+  imageClassify: 12000,
+});
 
 const TFJS_URL = '../assets/vendor/tf.min.js';
 const TOXICITY_URL = '../assets/vendor/toxicity.local.min.js';
@@ -36,17 +46,42 @@ function isAbortError(err) {
   return err && err.name === 'AbortError';
 }
 
+function timeoutError(label) {
+  const err = new Error(`${label || 'moderation'} timeout`);
+  err.name = 'ModerationTimeoutError';
+  return err;
+}
+
+function isTimeoutError(err) {
+  return err && err.name === 'ModerationTimeoutError';
+}
+
+function timeoutFor(label, fallback) {
+  const hooks = testHooks();
+  const v = hooks.timeouts && hooks.timeouts[label];
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
 function throwIfAborted(signal) {
   if (signal && signal.aborted) throw abortError();
 }
 
-function withAbort(promise, signal) {
-  if (!signal) return Promise.resolve(promise);
+function withAbort(promise, signal, label = 'moderation', timeoutMs = 0) {
   throwIfAborted(signal);
   return new Promise((resolve, reject) => {
-    const onAbort = () => reject(abortError());
-    signal.addEventListener('abort', onAbort, { once: true });
-    Promise.resolve(promise).then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+    let done = false;
+    let timer = null;
+    const finish = (fn, val) => {
+      if (done) return;
+      done = true;
+      if (timer) clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+      fn(val);
+    };
+    const onAbort = () => finish(reject, abortError());
+    if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    if (timeoutMs > 0) timer = setTimeout(() => finish(reject, timeoutError(label)), timeoutMs);
+    Promise.resolve(promise).then((v) => finish(resolve, v), (err) => finish(reject, err));
   });
 }
 
@@ -332,14 +367,19 @@ export function policyImageDecision(predictions, context = '') {
   return { blocked, score: nsfw, categories, reason: categories.join(', '), source: IMAGE_MODERATION_MODEL };
 }
 
-async function imageFromDataUrl(dataUrl) {
+async function imageFromDataUrl(dataUrl, signal) {
+  const hooks = testHooks();
+  if (hooks.decodeImage) return withAbort(hooks.decodeImage(dataUrl), signal, 'imageDecode', timeoutFor('imageDecode', TIMEOUTS.imageDecode));
   if (typeof Image === 'undefined') throw new Error('当前环境不能解码图片');
-  const img = new Image();
-  img.decoding = 'async';
-  img.src = dataUrl;
-  if (img.decode) await img.decode();
-  else await new Promise((resolve, reject) => { img.onload = resolve; img.onerror = reject; });
-  return img;
+  const task = new Promise((resolve, reject) => {
+    const img = new Image();
+    img.decoding = 'async';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('图片解码失败'));
+    img.src = dataUrl;
+    if (img.decode) img.decode().then(() => resolve(img), reject);
+  });
+  return withAbort(task, signal, 'imageDecode', timeoutFor('imageDecode', TIMEOUTS.imageDecode));
 }
 
 export async function moderateText({ text, attachments = [], signal } = {}) {
@@ -350,9 +390,9 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
   let modelDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   let semanticDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   try {
-    const model = await withAbort(textModel(), signal);
+    const model = await withAbort(textModel(), signal, 'textModel', timeoutFor('textModel', TIMEOUTS.textModel));
     throwIfAborted(signal);
-    const predictions = await withAbort(model.classify([payload]), signal);
+    const predictions = await withAbort(model.classify([payload]), signal, 'textClassify', timeoutFor('textClassify', TIMEOUTS.textClassify));
     modelDecision = modelTextDecision(predictions);
   } catch (err) {
     if (isAbortError(err)) throw err;
@@ -361,7 +401,7 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
   }
   try {
     throwIfAborted(signal);
-    semanticDecision = await withAbort(semanticTextDecision(payload), signal);
+    semanticDecision = await withAbort(semanticTextDecision(payload), signal, 'semantic', timeoutFor('semantic', TIMEOUTS.semantic));
   } catch (err) {
     if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地文本 USE 语义模型加载/推理失败，保留规则层结果', err);
@@ -377,7 +417,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
     .slice(0, 6);
   if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images' };
   let model;
-  try { model = await withAbort(imageModel(), signal); } catch (err) {
+  try { model = await withAbort(imageModel(), signal, 'imageModel', timeoutFor('imageModel', TIMEOUTS.imageModel)); } catch (err) {
     if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地图片审核模型加载失败，图片审核 fail-open', err);
     return { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
@@ -386,9 +426,9 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   for (const a of imgs) {
     try {
       throwIfAborted(signal);
-      const img = await withAbort(imageFromDataUrl(a.dataUrl), signal);
+      const img = await imageFromDataUrl(a.dataUrl, signal);
       throwIfAborted(signal);
-      const preds = await withAbort(model.classify(img, 5), signal);
+      const preds = await withAbort(model.classify(img, 5), signal, 'imageClassify', timeoutFor('imageClassify', TIMEOUTS.imageClassify));
       decisions.push(policyImageDecision(preds, `${text || ''} ${a.name || ''}`));
     } catch (err) {
       if (isAbortError(err)) throw err;
@@ -400,9 +440,10 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
 
 export async function moderateUserTurn({ text, attachments = [], signal } = {}) {
   throwIfAborted(signal);
-  const [textResult, imageResult] = await Promise.all([
+  const task = Promise.all([
     moderateText({ text, attachments, signal }),
     moderateImages({ text, attachments, signal }),
   ]);
+  const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', MODERATION_TIMEOUT_MS));
   return { blocked: !!(textResult.blocked || imageResult.blocked), text: textResult, image: imageResult };
 }
