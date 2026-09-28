@@ -84,7 +84,6 @@ async function copySelected() {
     try { document.execCommand('copy'); } catch { /* 忽略 */ }
     ta.remove();
   }
-  addLine('debug:copy', `已复制 ${lines.length} 行（${[...bodyEl.querySelectorAll('.tdw-row.tdw-sel')].length ? '所选' : '全部'}）`);
 }
 
 function clearSelection() {
@@ -139,12 +138,12 @@ const STYLE = `
 .tdw-entry:hover{opacity:1}
 .tdw-entry.on{background:var(--tdw-fg,#111);color:var(--tdw-bg,#fff)}
 .tdw{position:fixed;z-index:100000;display:flex;flex-direction:column;width:460px;height:360px;background:var(--tdw-bg,#fff);color:var(--tdw-fg,#111);
-  border:1.5px solid var(--tdw-fg,#111);border-radius:12px;box-shadow:0 10px 34px rgba(0,0,0,.28);
+  border:1.5px solid var(--tdw-fg,#111);border-radius:18px;box-shadow:0 10px 34px rgba(0,0,0,.28);
   font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:visible}
 .tdw.tdw-pop{animation:tdwPop .2s ease-out}
 @keyframes tdwPop{from{transform:scale(.72);opacity:0}to{transform:scale(1);opacity:1}}
 .tdw-head{display:flex;align-items:center;gap:7px;padding:7px 10px;background:var(--tdw-fg,#111);color:var(--tdw-bg,#fff);
-  cursor:grab;user-select:none;touch-action:none;border-radius:10.5px 10.5px 0 0;flex:none}
+  cursor:grab;user-select:none;touch-action:none;border-radius:16.5px 16.5px 0 0;flex:none}
 .tdw-head:active{cursor:grabbing}
 .tdw-title{font-weight:700;letter-spacing:.4px}
 .tdw-count{opacity:.65;font-size:11px}
@@ -169,16 +168,12 @@ const STYLE = `
 .tdw-jump{position:absolute;right:12px;bottom:34px;border:1px solid var(--tdw-fg,#111);background:var(--tdw-bg,#fff);color:var(--tdw-fg,#111);
   border-radius:999px;padding:3px 12px;font:inherit;font-size:11px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.2)}
 .tdw-hint{padding:3px 10px 6px;color:#888;font-size:10.5px;border-top:1px dashed rgba(128,128,128,.25);flex:none;user-select:none}
-/* 四角缩放手柄 */
-.tdw-rz{position:absolute;width:16px;height:16px;z-index:2;touch-action:none}
-.tdw-rz.nw{left:-4px;top:-4px;cursor:nwse-resize}
-.tdw-rz.ne{right:-4px;top:-4px;cursor:nesw-resize}
-.tdw-rz.sw{left:-4px;bottom:-4px;cursor:nesw-resize}
-.tdw-rz.se{right:-4px;bottom:-4px;cursor:nwse-resize}
-.tdw-rz::after{content:'';position:absolute;inset:4px;border-right:2.5px solid var(--tdw-fg,#111);border-bottom:2.5px solid var(--tdw-fg,#111);opacity:.5}
-.tdw-rz.nw::after{border-right:none;border-bottom:none;border-left:2.5px solid var(--tdw-fg,#111);border-top:2.5px solid var(--tdw-fg,#111)}
-.tdw-rz.ne::after{border-bottom:none;border-right:none;border-top:2.5px solid var(--tdw-fg,#111);border-right:2.5px solid var(--tdw-fg,#111);inset:4px 4px auto auto}
-.tdw-rz.sw::after{border-top:none;border-right:none;border-bottom:2.5px solid var(--tdw-fg,#111);border-left:2.5px solid var(--tdw-fg,#111);inset:auto auto 4px 4px}
+/* 缩放手柄：仅右下角顶点，弧线与面板圆角同心（视觉参考 iOS 圆角指示） */
+.tdw-rz{position:absolute;right:-6px;bottom:-6px;width:26px;height:26px;z-index:2;touch-action:none;cursor:nwse-resize}
+.tdw-rz::after{content:'';position:absolute;right:7px;bottom:7px;width:11px;height:11px;
+  border-right:2.5px solid var(--tdw-fg,#111);border-bottom:2.5px solid var(--tdw-fg,#111);
+  border-bottom-right-radius:100%;opacity:.9}
+.tdw-rz:hover::after{opacity:1;right:5px;bottom:5px}
 @media (prefers-color-scheme: dark){.tdw,.tdw-entry{--tdw-bg:#141414;--tdw-fg:#f2f2f2}}
 @media (prefers-reduced-motion: reduce){.tdw.tdw-pop{animation:none}}
 `;
@@ -231,8 +226,7 @@ function buildWindow() {
     <div class="tdw-body" aria-live="polite"></div>
     <button type="button" class="tdw-jump" hidden>↓ 回到底部</button>
     <div class="tdw-hint">点击行多选 · 全选/复制导出 · Ctrl+Alt+D 开关 · __teamoModDump() 控制台全文</div>
-    <div class="tdw-rz nw" data-rz="nw"></div><div class="tdw-rz ne" data-rz="ne"></div>
-    <div class="tdw-rz sw" data-rz="sw"></div><div class="tdw-rz se" data-rz="se"></div>`;
+    <div class="tdw-rz" data-rz="se" title="拖拽调整大小"></div>`;
   document.body.appendChild(root);
   bodyEl = root.querySelector('.tdw-body');
   countEl = root.querySelector('.tdw-count');
@@ -286,19 +280,13 @@ function buildWindow() {
   });
 
   // ── 四角缩放 ──
-  const dirs = { nw: { east: false, south: false }, ne: { east: true, south: false }, sw: { east: false, south: true }, se: { east: true, south: true } };
   root.querySelectorAll('.tdw-rz').forEach((h) => {
-    const dir = h.dataset.rz;
     h.addEventListener('pointerdown', (e) => {
       h.setPointerCapture && h.setPointerCapture(e.pointerId);
-      const start = { px: e.clientX, py: e.clientY, x: state.x, y: state.y, w: state.w, h: state.h };
-      const d = dirs[dir];
+      const start = { px: e.clientX, py: e.clientY, w: state.w, h: state.h };
       const move = (ev) => {
-        const dx = ev.clientX - start.px, dy = ev.clientY - start.py;
-        if (d.east) state.w = start.w + dx; else { state.w = start.w - dx; state.x = start.x + dx; }
-        if (d.south) state.h = start.h + dy; else { state.h = start.h - dy; state.y = start.y + dy; }
-        if (!d.east && state.w < MIN_W) { state.x -= (MIN_W - state.w); state.w = MIN_W; }
-        if (!d.south && state.h < MIN_H) { state.y -= (MIN_H - state.h); state.h = MIN_H; }
+        state.w = start.w + (ev.clientX - start.px);
+        state.h = start.h + (ev.clientY - start.py);
         applyState();
       };
       const up = () => {
@@ -318,13 +306,12 @@ function buildWindow() {
   // ── 按钮 / 行选择 ──
   root.addEventListener('click', (e) => {
     const act = e.target && e.target.dataset && e.target.dataset.act;
-    if (act === 'clear') { bodyEl.innerHTML = ''; rowCount = 0; if (countEl) countEl.textContent = '0'; }
+    if (act === 'clear') { bodyEl.innerHTML = ''; rowCount = 0; if (countEl) countEl.textContent = '0'; if (globalThis.__teamoModLog) globalThis.__teamoModLog.length = 0; }
     if (act === 'collapse') { collapsed = !collapsed; root.classList.toggle('collapsed', collapsed); e.target.textContent = collapsed ? '展开' : '收起'; applyState(); }
     if (act === 'all') {
       const rows = [...bodyEl.querySelectorAll('.tdw-row')];
       const allSel = rows.length && rows.every((r) => r.classList.contains('tdw-sel'));
       rows.forEach((r) => r.classList.toggle('tdw-sel', !allSel));
-      addLine('debug:select', allSel ? '已取消全选' : `已全选 ${rows.length} 行`);
     }
     if (act === 'copy') copySelected();
     if (act === 'close') destroyDebug(true);

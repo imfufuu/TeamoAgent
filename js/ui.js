@@ -1738,12 +1738,15 @@ export function mountUI(store, agent) {
       // 仅当上一条消息是 user 时渲染 msg-head，工具循环产生的后续 assistant 消息不再重复
       const idx = store.state.messages.findIndex((x) => x.id === m.id);
       const prev = idx > 0 ? store.state.messages[idx - 1] : null;
-      const showHead = !prev || prev.role === 'user';
       const moderationNotice = !!(m.transientModeration || (m.moderation && m.moderation.blocked));
+      // 审核拦截消息自带 Moderator 头像与名称：它前面不是 user（用户气泡已被移除），
+      // 旧逻辑 showHead 会判 false 导致「无图标无审核员」，这里强制显示
+      const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
       const headModel = m.model || store.state.model;
+      const headName = headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
       wrap.innerHTML = `
-        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headModel)}</span><span class="msg-meta"></span></div>` : ''}
+        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-toolbar"${moderationNotice ? ' hidden' : ''}>
@@ -2226,7 +2229,7 @@ export function mountUI(store, agent) {
   // ── 状态栏（连接/生成过程可见化：脉冲状态点 + 跳动点 + 实时耗时）──────
   const STATUS = {
     idle: ['', 'ok'],
-    moderating: ['审核内容中', 'busy'],
+    moderating: ['连接模型中', 'busy'],  // 对用户只显示「连接模型中」，不暴露审核过程（避免心理负担）；fail-closed 拦截时气泡会说明
     connecting: ['连接模型中', 'busy'],
     thinking: ['思考中', 'busy'], streaming: ['生成中', 'busy'],
     executing: ['沙箱执行中', 'busy'], done: ['完成', 'ok'], error: ['出错', 'err'], cancelled: ['已停止', 'warn'],

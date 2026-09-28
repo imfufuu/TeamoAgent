@@ -132,6 +132,16 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
   const ui = read('../js/ui.js');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  // 2026.9.27.15：缩放柄只留右下角 + 清空同步环形缓冲 + 不记录复制动作
+  assert.doesNotMatch(dw, /data-rz="nw"|data-rz="ne"|data-rz="sw"/, '缩放柄应只保留右下角');
+  assert.match(dw, /border-bottom-right-radius:100%/, '右下角应为弧线造型');
+  assert.match(dw, /__teamoModLog\) globalThis.__teamoModLog.length = 0/, '清空应同步日志环形缓冲');
+  assert.doesNotMatch(dw, /debug:copy|debug:select/, '复制/全选不应写日志');
+  // 中文快速通道 + 大图压缩 + 状态栏伪装 + 审核消息头部
+  assert.match(read('../js/moderation.js'), /text:cjk-fastpath/, 'CJK 快速通道应存在');
+  assert.match(read('../js/moderation.js'), /MOD_IMAGE_MAX_DIM = 1280/, '大图应压缩到 1280 再审核');
+  assert.match(ui, /moderating: \['连接模型中'/, '审核状态应对用户显示「连接模型中」');
+  assert.match(ui, /moderationNotice \|\| !prev \|\| prev.role === 'user'/, '审核消息应强制显示头部（图标+审核员）');
   const mod = read('../js/moderation.js');
   assert.match(mod, /IMAGE_TURN_BUDGET_MS = 90000/, '带图回合预算应为 90s');
   assert.match(mod, /degraded/, '图像模型未就绪应标记 degraded');

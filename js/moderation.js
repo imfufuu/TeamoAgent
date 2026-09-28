@@ -356,6 +356,24 @@ function imageSize(img) {
   return { width: img.naturalWidth || img.videoWidth || img.width || 0, height: img.naturalHeight || img.videoHeight || img.height || 0 };
 }
 
+// 审核用最大边长：NudeNet 输入 320 / NSFWJS 输入 224，1280 已远超模型需要；
+// 高分辨率截图/照片先等比缩小，省掉 NSFWJS 全尺寸 fromPixels 与二次插值的耗时
+const MOD_IMAGE_MAX_DIM = 1280;
+function downscaleForModeration(img) {
+  const { width, height } = imageSize(img);
+  const mx = Math.max(width, height);
+  if (!mx || mx <= MOD_IMAGE_MAX_DIM || typeof document === 'undefined') return img;
+  try {
+    const scale = MOD_IMAGE_MAX_DIM / mx;
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(width * scale));
+    c.height = Math.max(1, Math.round(height * scale));
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    return c;
+  } catch { return img; }
+}
+
 function makeNudeNetInput(img) {
   if (typeof document === 'undefined') throw new Error('当前环境不能进行 NudeNet 图片预处理');
   const { width, height } = imageSize(img);
@@ -489,6 +507,7 @@ const NSFW_SHARD_URLS = [
   '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard1of2',
   '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard2of2',
 ];
+const TOXIC_SHARD_URLS = [1, 2, 3, 4, 5, 6, 7].map((i) => `../assets/moderation/text-toxic/group1-shard${i}of7`);
 
 function prewarmImageModeration() {
   if (typeof document === 'undefined') return Promise.resolve(false);
@@ -502,15 +521,19 @@ function prewarmImageModeration() {
       fetchWarm(TFJS_URL, 'tf.js'),
       fetchWarm(NSFWJS_URL, 'nsfwjs.js'),
       fetchWarm(NSFW_MODEL_URL, 'nsfw-model.json'),
+      fetchWarm('../assets/moderation/text-toxic/model.json', 'toxic-model.json'),
       ...NSFW_SHARD_URLS.map((u) => fetchWarm(u, 'nsfw-shard')),
+      ...TOXIC_SHARD_URLS.map((u) => fetchWarm(u, 'toxic-shard')),
     ]);
     const nudity = nudityDetector().then(() => true).catch(() => false);
     const nsfw = imageModel().then(() => true).catch((err) => { mlog('prewarm:nsfwjs-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
-    return Promise.all([nudity, nsfw]);
+    // 文本 Toxicity（28MB）也预热：英文消息首审不再冷启动；USE 仍按需（仅英文触发）
+    const toxic = textModel().then(() => true).catch((err) => { mlog('prewarm:toxicity-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
+    return Promise.all([nudity, nsfw, toxic]).then(([n, s, t]) => [n, s, t]);
   })();
-  return warmup.then(([n, s]) => {
-    mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s });
-    return n || s;
+  return warmup.then(([n, s, t]) => {
+    mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s, toxicity: t });
+    return n || s || t;
   });
 }
 
@@ -760,9 +783,22 @@ async function imageFromDataUrl(dataUrl, signal) {
 
 export async function moderateText({ text, attachments = [], signal } = {}) {
   throwIfAborted(signal);
+  const t0 = performance.now();
   const payload = textPayload(text, attachments);
   if (!payload) return { blocked: false, score: 0, categories: [], skipped: 'empty' };
   const policy = policyTextHeuristic(payload);
+  mlog('text:policy', { blocked: policy.blocked, cats: policy.categories.length ? policy.categories : undefined, ms: ms(t0) });
+  // CJK 快速通道：Toxicity/USE 的词表都没有中文词条，对中文无判别力（中文防护由规则层覆盖）。
+  // 跳过后「你好」这类消息不再触发 28MB 文本模型冷加载（此前首次中文消息要等 30s+）。
+  const probe0 = compactText(payload, 400);
+  const letters0 = probe0.replace(/\s+/g, '') || ' ';
+  const cjk0 = (letters0.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/g) || []).length;
+  if (letters0.length && cjk0 / letters0.length >= 0.3) {
+    mlog('text:cjk-fastpath', { ms: ms(t0), note: '中文为主，仅规则层判定' });
+    return mergeDecisions(policy,
+      { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' },
+      { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' });
+  }
   let modelDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   let semanticDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
   try {
@@ -770,6 +806,7 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
     throwIfAborted(signal);
     const predictions = await withAbort(model.classify([payload]), signal, 'textClassify', timeoutFor('textClassify', TIMEOUTS.textClassify));
     modelDecision = modelTextDecision(predictions);
+    mlog('text:toxicity', { blocked: modelDecision.blocked, score: Math.round((modelDecision.score || 0) * 1000) / 1000, cats: modelDecision.categories.length ? modelDecision.categories : undefined });
   } catch (err) {
     if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地文本 Toxicity 模型加载/推理失败，保留规则层结果', err);
@@ -778,6 +815,7 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
   try {
     throwIfAborted(signal);
     semanticDecision = await withAbort(semanticTextDecision(payload), signal, 'semantic', timeoutFor('semantic', TIMEOUTS.semantic));
+    mlog('text:semantic', { blocked: semanticDecision.blocked, score: Math.round((semanticDecision.score || 0) * 1000) / 1000, cats: semanticDecision.categories.length ? semanticDecision.categories : undefined, skipped: semanticDecision.skipped });
   } catch (err) {
     if (isAbortError(err)) throw err;
     console.warn('[TeamoAgent] 本地文本 USE 语义模型加载/推理失败，保留规则层结果', err);
@@ -808,7 +846,12 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
     try {
       throwIfAborted(signal);
       const tDec = performance.now();
-      const img = await imageFromDataUrl(a.dataUrl, signal);
+      const img0 = await imageFromDataUrl(a.dataUrl, signal);
+      const img = downscaleForModeration(img0);
+      if (img !== img0) {
+        const o = imageSize(img0), n = imageSize(img);
+        mlog(`image#${i + 1}:downscaled`, { 原始: `${o.width}x${o.height}`, 缩放: `${n.width}x${n.height}` });
+      }
       mlog(`image#${i + 1}:decoded`, { name: a.name, bytes: Math.round((a.dataUrl || '').length * 0.75), ms: ms(tDec) });
       throwIfAborted(signal);
       let nudity = { blocked: false, score: 0, categories: [], skipped: 'not-run' };

@@ -4257,10 +4257,15 @@ test('文本审核确实执行本地模型判定，而不是只有敏感词规�
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
   };
   try {
-    const r = await mod.moderateText({ text: '隐晦文本，不含明显敏感词' });
+    // 2026.9.27.15 起 CJK 文本走快速通道（只规则层）；模型层判定用英文文本验证
+    const r = await mod.moderateText({ text: 'she whispered an explicit erotic scene description' });
     assert.equal(r.blocked, true);
     assert.ok(r.categories.includes('adult_sexual'));
     assert.ok(r.parts.some((x) => x && x.source === 'toxicity'));
+    // 中文快速通道：不再查模型层，规则层照常
+    const zh = await mod.moderateText({ text: '帮我写一首关于秋天的短诗' });
+    assert.equal(zh.blocked, false);
+    assert.ok((zh.parts || []).some((x) => x && x.skipped === 'cjk-unsupported'));
   } finally {
     if (old) globalThis.__TEamoModerationTestHooks = old;
     else delete globalThis.__TEamoModerationTestHooks;
@@ -4484,7 +4489,7 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
     store.state.settings.contentModeration = true;
     const seen = [];
     const agent = createAgent(store, { onStatus: (s) => seen.push(s) });
-    const p = agent.send('一段普通文本，等待本地审核模型');
+    const p = agent.send('a plain english sentence waiting for the local toxicity model');
     await new Promise((r) => setTimeout(r, 0));
     assert.equal(agent.getStatus(), 'moderating');
     agent.abort();
