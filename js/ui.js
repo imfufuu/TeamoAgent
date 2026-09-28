@@ -2435,6 +2435,7 @@ export function mountUI(store, agent) {
       try {
         if (IMG_RE.test(f.type)) {
           if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
+          if (globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('attachment');
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: f.type, size: f.size, dataUrl: await readAs('dataURL', f) });
         } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
           if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
@@ -2445,6 +2446,7 @@ export function mountUI(store, agent) {
             toast(`${f.name}：${got.error || '无法渲染 PDF'}`, 'err', 6000);
             continue;
           }
+          if (got.images.length && globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('pdf');
           for (const img of got.images) {
             pending.push({
               id: Math.random().toString(36).slice(2),

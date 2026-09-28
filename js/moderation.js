@@ -27,10 +27,11 @@ const USE_MODEL_URL = '../assets/moderation/text-use/model.json';
 const USE_VOCAB_URL = '../assets/moderation/text-use/vocab.json';
 const NSFWJS_URL = '../assets/vendor/nsfwjs.min.js';
 const NSFW_MODEL_URL = '../assets/moderation/nsfw-mobilenet-v2-mid/model.json';
-const ORT_URL = '../assets/vendor/ort.min.js';
+const ORT_URL = '../assets/vendor/ort.wasm.min.js';
 const ORT_WASM_SIMD_URL = '../assets/vendor/ort-wasm-simd.wasm';
 const ORT_WASM_URL = '../assets/vendor/ort-wasm.wasm';
 const NUDENET_MODEL_URL = '../assets/moderation/nudenet-320n/model.onnx';
+const NUDENET_INPUT_SIZE = 224;
 
 let tfReady;
 let toxicityReady;
@@ -206,15 +207,15 @@ function makeNudeNetInput(img) {
   sctx.fillStyle = '#000'; sctx.fillRect(0, 0, maxSize, maxSize);
   sctx.drawImage(img, 0, 0, width, height);
   const canvas = document.createElement('canvas');
-  canvas.width = 320; canvas.height = 320;
+  canvas.width = NUDENET_INPUT_SIZE; canvas.height = NUDENET_INPUT_SIZE;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(square, 0, 0, 320, 320);
-  const rgba = ctx.getImageData(0, 0, 320, 320).data;
-  const input = new Float32Array(1 * 3 * 320 * 320);
+  ctx.drawImage(square, 0, 0, NUDENET_INPUT_SIZE, NUDENET_INPUT_SIZE);
+  const rgba = ctx.getImageData(0, 0, NUDENET_INPUT_SIZE, NUDENET_INPUT_SIZE).data;
+  const input = new Float32Array(1 * 3 * NUDENET_INPUT_SIZE * NUDENET_INPUT_SIZE);
   for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
     input[p] = rgba[i] / 255;
-    input[320 * 320 + p] = rgba[i + 1] / 255;
-    input[2 * 320 * 320 + p] = rgba[i + 2] / 255;
+    input[NUDENET_INPUT_SIZE * NUDENET_INPUT_SIZE + p] = rgba[i + 1] / 255;
+    input[2 * NUDENET_INPUT_SIZE * NUDENET_INPUT_SIZE + p] = rgba[i + 2] / 255;
   }
   return { input, width, height, xPad: maxSize - width, yPad: maxSize - height };
 }
@@ -257,10 +258,10 @@ function postprocessNudeNet(output, meta) {
     if (score < 0.20 || classId < 0) continue;
     let x = Number(get(r, 0)) || 0, y = Number(get(r, 1)) || 0, w = Number(get(r, 2)) || 0, h = Number(get(r, 3)) || 0;
     x -= w / 2; y -= h / 2;
-    x = x * (meta.width + meta.xPad) / 320;
-    y = y * (meta.height + meta.yPad) / 320;
-    w = w * (meta.width + meta.xPad) / 320;
-    h = h * (meta.height + meta.yPad) / 320;
+    x = x * (meta.width + meta.xPad) / NUDENET_INPUT_SIZE;
+    y = y * (meta.height + meta.yPad) / NUDENET_INPUT_SIZE;
+    w = w * (meta.width + meta.xPad) / NUDENET_INPUT_SIZE;
+    h = h * (meta.height + meta.yPad) / NUDENET_INPUT_SIZE;
     x = Math.max(0, Math.min(x, meta.width));
     y = Math.max(0, Math.min(y, meta.height));
     w = Math.max(0, Math.min(w, meta.width - x));
@@ -283,9 +284,36 @@ async function moderateNudityImage(img, signal) {
   const det = await withAbort(nudityDetector(), signal, 'nudityModel', timeoutFor('nudityModel', TIMEOUTS.nudityModel));
   const meta = makeNudeNetInput(img);
   const ort = globalThis.ort;
-  const tensor = new ort.Tensor('float32', meta.input, [1, 3, 320, 320]);
+  const tensor = new ort.Tensor('float32', meta.input, [1, 3, NUDENET_INPUT_SIZE, NUDENET_INPUT_SIZE]);
   const output = await withAbort(det.session.run({ [det.inputName || det.session.inputNames[0]]: tensor }), signal, 'nudityDetect', timeoutFor('nudityDetect', TIMEOUTS.nudityDetect));
   return policyNudityDecision(postprocessNudeNet(output, meta));
+}
+
+
+function prefetchImageModerationAssets() {
+  if (typeof document === 'undefined') return;
+  for (const href of [ORT_URL, ORT_WASM_SIMD_URL, NUDENET_MODEL_URL]) {
+    const url = assetUrl(href);
+    if ([...document.querySelectorAll('link[rel="prefetch"],link[rel="preload"]')].some((x) => x.href === url)) continue;
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = url;
+    if (/\.wasm(?:\?|$)/.test(url)) link.as = 'fetch';
+    document.head.appendChild(link);
+  }
+}
+
+function prewarmImageModeration() {
+  if (typeof document === 'undefined') return Promise.resolve(false);
+  prefetchImageModerationAssets();
+  // 只预热 NudeNet：它是精确裸露拦截路径；NSFWJS 仍按需加载，避免所有用户额外下载 TFJS 图像模型。
+  return nudityDetector().then(() => true).catch(() => false);
+}
+
+if (typeof globalThis !== 'undefined') {
+  globalThis.__teamoPrewarmImageModeration = prewarmImageModeration;
+  const idle = globalThis.requestIdleCallback || ((fn) => setTimeout(fn, 2500));
+  if (typeof document !== 'undefined') idle(() => prefetchImageModerationAssets());
 }
 
 const zhSex = '(色情|情色|性爱|性交|做爱|裸照|裸体|露骨|淫秽|性行为|成人视频|黄片|约炮|裸聊|成人视频|成人小说)';
@@ -560,7 +588,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
       throwIfAborted(signal);
       let nudity = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
       try {
-        nudity = await withAbort(moderateNudityImage(img, signal), signal, 'nudityDetect', timeoutFor('nudityDetect', TIMEOUTS.nudityDetect));
+        nudity = await moderateNudityImage(img, signal);
       } catch (err) {
         if (isAbortError(err)) throw err;
         if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);

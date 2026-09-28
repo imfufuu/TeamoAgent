@@ -4215,7 +4215,7 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
     '../assets/vendor/toxicity.local.min.js',
     '../assets/vendor/use.min.js',
     '../assets/vendor/nsfwjs.min.js',
-    '../assets/vendor/ort.min.js',
+    '../assets/vendor/ort.wasm.min.js',
     '../assets/vendor/ort-wasm-simd.wasm',
     '../assets/moderation/text-toxic/model.json',
     '../assets/moderation/text-use/model.json',
@@ -4341,6 +4341,28 @@ test('NudeNet 裸露检测命中会直接拦截明显敏感图片', async () => 
   assert.equal(r.blocked, true);
   assert.ok(r.categories.includes('explicit_nudity'));
   assert.equal(mod.policyNudityDecision([{ class: 'FACE_FEMALE', score: 0.99 }]).blocked, false);
+});
+
+test('NudeNet 检测不被外层短超时提前 fail-open', async () => {
+  const mod = await import('../js/moderation.js');
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    timeouts: { nudityDetect: 5, imageModel: 5, imageClassify: 5 },
+    decodeImage: async () => ({ width: 1, height: 1 }),
+    nudityDecision: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      return { blocked: true, score: 0.76, categories: ['explicit_nudity'], source: 'mock-nudenet' };
+    },
+    imageModel: { classify: async () => [{ className: 'Neutral', probability: 0.99 }] },
+  };
+  try {
+    const r = await mod.moderateImages({ attachments: [{ kind: 'image', name: 'slow.png', dataUrl: 'data:image/png;base64,AAA' }], text: '' });
+    assert.equal(r.blocked, true);
+    assert.ok(r.categories.includes('explicit_nudity'));
+  } finally {
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
 });
 
 test('正常图片放行、敏感图片命中：本地图片审核路径可结束', async () => {
