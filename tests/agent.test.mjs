@@ -4215,15 +4215,19 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
     '../assets/vendor/toxicity.local.min.js',
     '../assets/vendor/use.min.js',
     '../assets/vendor/nsfwjs.min.js',
+    '../assets/vendor/ort.min.js',
+    '../assets/vendor/ort-wasm-simd.wasm',
     '../assets/moderation/text-toxic/model.json',
     '../assets/moderation/text-use/model.json',
     '../assets/moderation/text-use/vocab.json',
     '../assets/moderation/nsfw-mobilenet-v2-mid/model.json',
+    '../assets/moderation/nudenet-320n/model.onnx',
   ];
   for (const rel of paths) assert.ok(fsp.existsSync(new URL(rel, import.meta.url)), `${rel} 应随项目存在`);
   const src = fsp.readFileSync(new URL('../js/moderation.js', import.meta.url), 'utf8');
   assert.match(src, /local:tfjs-toxicity/);
-  assert.match(src, /local:nsfwjs/);
+  assert.match(src, /local:nudenet-320n/);
+  assert.match(src, /nsfwjs/);
   assert.doesNotMatch(src, /deepseek|chat\/completions|authHeaders|gatewayBase/i);
   const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
   const icons = fsp.readFileSync(new URL('../js/icons.js', import.meta.url), 'utf8');
@@ -4261,12 +4265,44 @@ test('文本审核确实执行本地模型判定，而不是只有敏感词规�
     else delete globalThis.__TEamoModerationTestHooks;
   }
 });
+test('发送后先显示用户气泡，再进入审核状态', async () => {
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    textModel: { classify: async () => [] },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
+    imageModel: { classify: async () => [] },
+  };
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.contentModeration = true;
+    const events = [];
+    const agent = createAgent(store, {
+      onUserMessage: (_text, msg) => events.push(['user', msg.text, msg.transientModeration]),
+      onStatus: (s) => events.push(['status', s]),
+    });
+    globalThis.fetch = async () => openaiTextTurn('ok');
+    await agent.send('普通图片说明');
+    assert.equal(events[0][0], 'user');
+    assert.equal(events[0][2], true);
+    assert.ok(events.findIndex((e) => e[0] === 'status' && e[1] === 'moderating') > 0);
+    assert.equal(store.state.messages[0].transientModeration, false);
+  } finally {
+    globalThis.fetch = realFetch;
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+
 test('审核命中不入对话上下文；下一条消息清除提示；图片通过审核前不进沙箱', async () => {
   const realFetch2 = globalThis.fetch;
   const oldHooks = globalThis.__TEamoModerationTestHooks;
   globalThis.__TEamoModerationTestHooks = {
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
     imageModel: { classify: async () => [] },
   };
   try {
@@ -4296,6 +4332,17 @@ test('审核命中不入对话上下文；下一条消息清除提示；图片�
   }
 });
 
+test('NudeNet 裸露检测命中会直接拦截明显敏感图片', async () => {
+  const mod = await import('../js/moderation.js');
+  const r = mod.policyNudityDecision([
+    { class: 'FACE_FEMALE', score: 0.88, box: [1, 2, 3, 4] },
+    { class: 'FEMALE_GENITALIA_EXPOSED', score: 0.76, box: [10, 20, 30, 40] },
+  ]);
+  assert.equal(r.blocked, true);
+  assert.ok(r.categories.includes('explicit_nudity'));
+  assert.equal(mod.policyNudityDecision([{ class: 'FACE_FEMALE', score: 0.99 }]).blocked, false);
+});
+
 test('正常图片放行、敏感图片命中：本地图片审核路径可结束', async () => {
   const mod = await import('../js/moderation.js');
   const oldHooks = globalThis.__TEamoModerationTestHooks;
@@ -4305,6 +4352,9 @@ test('正常图片放行、敏感图片命中：本地图片审核路径可结�
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     decodeImage: async (dataUrl) => ({ sample: dataUrl.includes('SENSITIVE_SAMPLE') ? 'sensitive' : 'normal' }),
+    nudityDecision: async (img) => img.sample === 'sensitive'
+      ? { blocked: true, score: 0.76, categories: ['explicit_nudity', 'female_genitalia_exposed'], source: 'mock-nudenet' }
+      : { blocked: false, score: 0, categories: [], source: 'mock-nudenet' },
     imageModel: { classify: async (img) => img.sample === 'sensitive'
       ? [{ className: 'Porn', probability: 0.72 }, { className: 'Neutral', probability: 0.28 }]
       : [{ className: 'Neutral', probability: 0.96 }, { className: 'Drawing', probability: 0.04 }] },
@@ -4319,7 +4369,7 @@ test('正常图片放行、敏感图片命中：本地图片审核路径可结�
       { kind: 'image', name: 'sensitive.png', dataUrl: tinyPng + 'SENSITIVE_SAMPLE' },
     ] });
     assert.equal(bad.blocked, true);
-    assert.ok(bad.image.categories.includes('adult_nsfw'));
+    assert.ok(bad.image.categories.includes('explicit_nudity'));
   } finally {
     if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
     else delete globalThis.__TEamoModerationTestHooks;
@@ -4333,12 +4383,14 @@ test('图片审核超时会 fail-open 结束，不会无限显示审核中', asy
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     decodeImage: async () => ({}),
+    nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
     imageModel: { classify: async () => new Promise(() => {}) },
   };
   try {
     const r = await mod.moderateUserTurn({ attachments: [{ kind: 'image', name: 'slow.png', dataUrl: 'data:image/png;base64,AAAA' }] });
     assert.equal(r.blocked, false);
-    assert.ok(r.image.parts.some((x) => x && /timeout/i.test(String(x.error || ''))));
+    const flatParts = (rows) => (rows || []).flatMap((x) => x && x.parts ? [x, ...flatParts(x.parts)] : [x]);
+    assert.ok(flatParts(r.image.parts).some((x) => x && /timeout/i.test(String(x.error || ''))));
   } finally {
     if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
     else delete globalThis.__TEamoModerationTestHooks;

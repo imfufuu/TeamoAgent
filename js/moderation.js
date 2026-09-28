@@ -3,7 +3,7 @@
 // 当前策略：成人色情也审核；文本保持较宽松阈值，图片 NSFW 达阈值即拦。
 
 export const TEXT_MODERATION_MODEL = 'local:tfjs-toxicity-1.2.2+use-semantic-policy-v2';
-export const IMAGE_MODERATION_MODEL = 'local:nsfwjs-mobilenet-v2-mid-4.4.0';
+export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-mobilenet-v2-mid';
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
 export const IMAGE_MODERATION_THRESHOLD = 0.70;
@@ -16,6 +16,8 @@ const TIMEOUTS = Object.freeze({
   imageModel: 30000,
   imageDecode: 8000,
   imageClassify: 12000,
+  nudityModel: 30000,
+  nudityDetect: 12000,
 });
 
 const TFJS_URL = '../assets/vendor/tf.min.js';
@@ -25,12 +27,17 @@ const USE_MODEL_URL = '../assets/moderation/text-use/model.json';
 const USE_VOCAB_URL = '../assets/moderation/text-use/vocab.json';
 const NSFWJS_URL = '../assets/vendor/nsfwjs.min.js';
 const NSFW_MODEL_URL = '../assets/moderation/nsfw-mobilenet-v2-mid/model.json';
+const ORT_URL = '../assets/vendor/ort.min.js';
+const ORT_WASM_SIMD_URL = '../assets/vendor/ort-wasm-simd.wasm';
+const ORT_WASM_URL = '../assets/vendor/ort-wasm.wasm';
+const NUDENET_MODEL_URL = '../assets/moderation/nudenet-320n/model.onnx';
 
 let tfReady;
 let toxicityReady;
 let semanticReady;
 let semanticVectorsReady;
 let nsfwReady;
+let nudityReady;
 
 const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) || {};
 
@@ -151,6 +158,134 @@ async function imageModel() {
     return { model };
   });
   return (await nsfwReady).model;
+}
+
+
+const NUDENET_LABELS = [
+  'FEMALE_GENITALIA_COVERED', 'FACE_FEMALE', 'BUTTOCKS_EXPOSED', 'FEMALE_BREAST_EXPOSED',
+  'FEMALE_GENITALIA_EXPOSED', 'MALE_BREAST_EXPOSED', 'ANUS_EXPOSED', 'FEET_EXPOSED',
+  'BELLY_COVERED', 'FEET_COVERED', 'ARMPITS_COVERED', 'ARMPITS_EXPOSED', 'FACE_MALE',
+  'BELLY_EXPOSED', 'MALE_GENITALIA_EXPOSED', 'ANUS_COVERED', 'FEMALE_BREAST_COVERED', 'BUTTOCKS_COVERED',
+];
+const NUDENET_BLOCK = new Set(['BUTTOCKS_EXPOSED', 'FEMALE_BREAST_EXPOSED', 'FEMALE_GENITALIA_EXPOSED', 'MALE_GENITALIA_EXPOSED', 'ANUS_EXPOSED']);
+
+async function nudityDetector() {
+  const hooks = testHooks();
+  if (hooks.nudityDetector) return hooks.nudityDetector;
+  if (globalThis.ort && nudityReady && nudityReady.session) return nudityReady;
+  nudityReady ||= loadScript(ORT_URL).then(async () => {
+    if (!globalThis.ort || !globalThis.ort.InferenceSession) throw new Error('ONNX Runtime Web 未初始化');
+    // GitHub Pages 没有 COOP/COEP，禁用多线程，避免 ORT 等待 SharedArrayBuffer/worker 造成卡住。
+    globalThis.ort.env.wasm.numThreads = 1;
+    globalThis.ort.env.wasm.proxy = false;
+    globalThis.ort.env.wasm.wasmPaths = {
+      'ort-wasm-simd.wasm': assetUrl(ORT_WASM_SIMD_URL),
+      'ort-wasm.wasm': assetUrl(ORT_WASM_URL),
+    };
+    const session = await globalThis.ort.InferenceSession.create(assetUrl(NUDENET_MODEL_URL), {
+      executionProviders: ['wasm'],
+      graphOptimizationLevel: 'all',
+    });
+    return { session, inputName: session.inputNames && session.inputNames[0] };
+  });
+  return nudityReady;
+}
+
+function imageSize(img) {
+  return { width: img.naturalWidth || img.videoWidth || img.width || 0, height: img.naturalHeight || img.videoHeight || img.height || 0 };
+}
+
+function makeNudeNetInput(img) {
+  if (typeof document === 'undefined') throw new Error('当前环境不能进行 NudeNet 图片预处理');
+  const { width, height } = imageSize(img);
+  if (!(width > 0 && height > 0)) throw new Error('图片尺寸无效');
+  const maxSize = Math.max(width, height);
+  const square = document.createElement('canvas');
+  square.width = maxSize; square.height = maxSize;
+  const sctx = square.getContext('2d', { willReadFrequently: true });
+  sctx.fillStyle = '#000'; sctx.fillRect(0, 0, maxSize, maxSize);
+  sctx.drawImage(img, 0, 0, width, height);
+  const canvas = document.createElement('canvas');
+  canvas.width = 320; canvas.height = 320;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(square, 0, 0, 320, 320);
+  const rgba = ctx.getImageData(0, 0, 320, 320).data;
+  const input = new Float32Array(1 * 3 * 320 * 320);
+  for (let i = 0, p = 0; i < rgba.length; i += 4, p++) {
+    input[p] = rgba[i] / 255;
+    input[320 * 320 + p] = rgba[i + 1] / 255;
+    input[2 * 320 * 320 + p] = rgba[i + 2] / 255;
+  }
+  return { input, width, height, xPad: maxSize - width, yPad: maxSize - height };
+}
+
+function iou(a, b) {
+  const ax2 = a[0] + a[2], ay2 = a[1] + a[3], bx2 = b[0] + b[2], by2 = b[1] + b[3];
+  const x1 = Math.max(a[0], b[0]), y1 = Math.max(a[1], b[1]), x2 = Math.min(ax2, bx2), y2 = Math.min(ay2, by2);
+  const inter = Math.max(0, x2 - x1) * Math.max(0, y2 - y1);
+  const union = a[2] * a[3] + b[2] * b[3] - inter;
+  return union > 0 ? inter / union : 0;
+}
+
+function nms(rows, threshold = 0.45) {
+  const keep = [];
+  const sorted = [...rows].sort((a, b) => b.score - a.score);
+  for (const row of sorted) {
+    if (!keep.some((k) => iou(k.box, row.box) > threshold)) keep.push(row);
+  }
+  return keep;
+}
+
+function postprocessNudeNet(output, meta) {
+  const tensor = Object.values(output || {})[0];
+  if (!tensor || !tensor.data || !tensor.dims) return [];
+  const dims = tensor.dims;
+  const data = tensor.data;
+  let rows = 0, channels = 0, get;
+  if (dims.length === 3 && dims[1] <= 64) {
+    channels = dims[1]; rows = dims[2]; get = (r, c) => data[c * rows + r];
+  } else if (dims.length === 3) {
+    rows = dims[1]; channels = dims[2]; get = (r, c) => data[r * channels + c];
+  } else return [];
+  const raw = [];
+  for (let r = 0; r < rows; r++) {
+    let classId = -1, score = 0;
+    for (let c = 4; c < channels; c++) {
+      const s = Number(get(r, c)) || 0;
+      if (s > score) { score = s; classId = c - 4; }
+    }
+    if (score < 0.20 || classId < 0) continue;
+    let x = Number(get(r, 0)) || 0, y = Number(get(r, 1)) || 0, w = Number(get(r, 2)) || 0, h = Number(get(r, 3)) || 0;
+    x -= w / 2; y -= h / 2;
+    x = x * (meta.width + meta.xPad) / 320;
+    y = y * (meta.height + meta.yPad) / 320;
+    w = w * (meta.width + meta.xPad) / 320;
+    h = h * (meta.height + meta.yPad) / 320;
+    x = Math.max(0, Math.min(x, meta.width));
+    y = Math.max(0, Math.min(y, meta.height));
+    w = Math.max(0, Math.min(w, meta.width - x));
+    h = Math.max(0, Math.min(h, meta.height - y));
+    raw.push({ class: NUDENET_LABELS[classId] || `CLASS_${classId}`, score, box: [x, y, w, h] });
+  }
+  return nms(raw.filter((x) => x.score >= 0.25)).map((x) => ({ ...x, box: x.box.map((v) => Math.round(v)) }));
+}
+
+export function policyNudityDecision(detections = []) {
+  const hits = (detections || []).filter((d) => NUDENET_BLOCK.has(d.class) && Number(d.score) >= 0.32);
+  const categories = hits.length ? ['explicit_nudity', ...new Set(hits.map((d) => d.class.toLowerCase()))] : [];
+  const score = Math.max(0, ...hits.map((d) => Number(d.score) || 0));
+  return { blocked: hits.length > 0, score, categories, reason: categories.join(', '), source: 'local:nudenet-320n', detections: hits.slice(0, 8) };
+}
+
+async function moderateNudityImage(img, signal) {
+  const hooks = testHooks();
+  if (typeof hooks.nudityDecision === 'function') return hooks.nudityDecision(img);
+  const det = await withAbort(nudityDetector(), signal, 'nudityModel', timeoutFor('nudityModel', TIMEOUTS.nudityModel));
+  const meta = makeNudeNetInput(img);
+  const ort = globalThis.ort;
+  const tensor = new ort.Tensor('float32', meta.input, [1, 3, 320, 320]);
+  const output = await withAbort(det.session.run({ [det.inputName || det.session.inputNames[0]]: tensor }), signal, 'nudityDetect', timeoutFor('nudityDetect', TIMEOUTS.nudityDetect));
+  return policyNudityDecision(postprocessNudeNet(output, meta));
 }
 
 const zhSex = '(色情|情色|性爱|性交|做爱|裸照|裸体|露骨|淫秽|性行为|成人视频|黄片|约炮|裸聊|成人视频|成人小说)';
@@ -416,20 +551,34 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
     .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')))
     .slice(0, 6);
   if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images' };
-  let model;
-  try { model = await withAbort(imageModel(), signal, 'imageModel', timeoutFor('imageModel', TIMEOUTS.imageModel)); } catch (err) {
-    if (isAbortError(err)) throw err;
-    console.warn('[TeamoAgent] 本地图片审核模型加载失败，图片审核 fail-open', err);
-    return { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
-  }
+  let nsfwModel = null;
   const decisions = [];
   for (const a of imgs) {
     try {
       throwIfAborted(signal);
       const img = await imageFromDataUrl(a.dataUrl, signal);
       throwIfAborted(signal);
-      const preds = await withAbort(model.classify(img, 5), signal, 'imageClassify', timeoutFor('imageClassify', TIMEOUTS.imageClassify));
-      decisions.push(policyImageDecision(preds, `${text || ''} ${a.name || ''}`));
+      let nudity = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
+      try {
+        nudity = await withAbort(moderateNudityImage(img, signal), signal, 'nudityDetect', timeoutFor('nudityDetect', TIMEOUTS.nudityDetect));
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);
+        nudity = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: 'local:nudenet-320n' };
+      }
+      if (nudity.blocked) { decisions.push(nudity); continue; }
+      let nsfw = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
+      try {
+        nsfwModel ||= await withAbort(imageModel(), signal, 'imageModel', timeoutFor('imageModel', TIMEOUTS.imageModel));
+        throwIfAborted(signal);
+        const preds = await withAbort(nsfwModel.classify(img, 5), signal, 'imageClassify', timeoutFor('imageClassify', TIMEOUTS.imageClassify));
+        nsfw = policyImageDecision(preds, `${text || ''} ${a.name || ''}`);
+      } catch (err) {
+        if (isAbortError(err)) throw err;
+        if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
+        nsfw = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: IMAGE_MODERATION_MODEL };
+      }
+      decisions.push(mergeDecisions(nudity, nsfw));
     } catch (err) {
       if (isAbortError(err)) throw err;
       decisions.push({ blocked: false, score: 0, categories: [], error: String(err && err.message || err) });

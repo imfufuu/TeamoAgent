@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.3 正式版** · 构建 `2026.9.27.6` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.3 正式版** · 构建 `2026.9.27.7` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -28,7 +28,7 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 
 - 沙箱跑 JS / Python / C++，改动写回工作区，可单个下载或整包 ZIP
 - 读改文件、哈希 / 正则 / ZIP、生图与识图（识图走专用工具，不塞进对话多模态）
-- 本地静态模型内容审核：文本 Toxicity + USE 语义/策略层、图片 NSFWJS 均从 `assets/moderation/` 加载，不调用网关；成人色情、NSFW 图片与高风险/公序良俗类内容会在主模型前拦截
+- 本地静态模型内容审核：文本 Toxicity + USE 语义/策略层、图片 NudeNet + NSFWJS 均从 `assets/moderation/` 加载，不调用网关；成人色情、NSFW 图片与高风险/公序良俗类内容会在主模型前拦截
 - 多会话、回滚、只覆盖「最近一条」的重新生成；思考从 Off 到 Ultra
 - 有本地中继时才能抓网页、跑 git；无中继时顶栏「联网」保持灰色
 

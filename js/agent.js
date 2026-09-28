@@ -591,6 +591,21 @@ export function createAgent(store, hooks = {}) {
     return removed;
   }
 
+  function removePreviewTurn(userMsg, checkpoint) {
+    let changed = false;
+    if (userMsg && userMsg.id) {
+      const before = store.state.messages.length;
+      store.state.messages = store.state.messages.filter((m) => m.id !== userMsg.id);
+      changed = changed || before !== store.state.messages.length;
+    }
+    if (checkpoint && checkpoint.id && Array.isArray(store.state.checkpoints)) {
+      const before = store.state.checkpoints.length;
+      store.state.checkpoints = store.state.checkpoints.filter((c) => c.id !== checkpoint.id);
+      changed = changed || before !== store.state.checkpoints.length;
+    }
+    if (changed) { store.notify(); emit('onModerationCleared', 1); }
+  }
+
   function blockByModeration(result) {
     setStatus('cancelled');
     const assistantMsg = store.pushMessage({
@@ -617,21 +632,26 @@ export function createAgent(store, hooks = {}) {
 
     async send(userText, attachments = []) {
       clearTransientModeration();
-      // 先审核，放行后才入会话、建检查点、复制附件到沙箱。被审核内容不进入上下文，
-      // 图片也不会先落到 uploads/ 再被拦截。
+      // 先把发送气泡画出来，再进入本地审核状态；审核通过前它是 transient，
+      // 不进模型上下文，也不会把图片写入沙箱。
+      const checkpoint = store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
+      const userMsg = store.pushMessage({
+        role: 'user', text: userText,
+        attachments: attachments.length ? attachments : undefined,
+        transientModeration: true,
+        moderationPending: true,
+      });
+      emit('onUserMessage', userText, userMsg);
       try {
         const moderation = await runContentModeration(userText, attachments);
-        if (moderation && moderation.blocked) { blockByModeration(moderation); return; }
+        if (moderation && moderation.blocked) { removePreviewTurn(userMsg, checkpoint); blockByModeration(moderation); return; }
       } catch (err) {
-        if (err && err.name === 'AbortError') { setStatus('cancelled'); emit('onCancelled'); return; }
+        if (err && err.name === 'AbortError') { removePreviewTurn(userMsg, checkpoint); setStatus('cancelled'); emit('onCancelled'); return; }
         console.warn('[TeamoAgent] 内容审核异常，已 fail-open 放行本轮', err);
       }
+      store.updateMessage(userMsg.id, { transientModeration: false, moderationPending: false });
       const copied = copyAttachmentsToFS(fs, attachments);
       if (copied.length) { syncFS(); store.notify(); emit('onFsChange', copied); }
-      store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
-      const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
-      // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
-      emit('onUserMessage', userText, userMsg);
       await runLoop();
     },
 

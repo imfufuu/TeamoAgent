@@ -1,4 +1,6 @@
 # Vendored browser-local moderation models and minified runtimes are generated assets.
 assets/moderation/**/group* binary
 assets/moderation/**/*.json -diff
+assets/moderation/**/*.onnx binary -diff
 assets/vendor/*.min.js -diff
+assets/vendor/*.wasm binary -diff
