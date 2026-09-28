@@ -48,6 +48,31 @@ let nudityReady;
 
 const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) || {};
 
+// ── β 诊断日志（构建 2026.9.27.12）────────────────────────────────────────
+// 背景：图片审核超时会按设计 fail-open 放行，但全链路无可见日志——「审核很久最后图进了沙箱」
+// 完全无法归因。β 版在每个阶段打点：控制台 [Teamo·审核] 前缀 + 环形缓冲 + 全局导出。
+// 用法：控制台执行 __teamoModDump() 复制完整时间线；__teamoModLog 为原始数组。
+const MOD_LOG_MAX = 400;
+const modLog = [];
+function mlog(stage, data = {}) {
+  const entry = { t: new Date().toISOString().slice(11, 23), stage, ...data };
+  modLog.push(entry);
+  if (modLog.length > MOD_LOG_MAX) modLog.splice(0, modLog.length - MOD_LOG_MAX);
+  try { console.log('%c[Teamo·审核]%c ' + stage + ' ' + JSON.stringify(data), 'color:#c00;font-weight:700', 'color:inherit'); }
+  catch { try { console.log('[Teamo·审核] ' + stage, data); } catch { /* 忽略序列化失败 */ } }
+  return entry;
+}
+if (typeof globalThis !== 'undefined') {
+  globalThis.__teamoModLog = modLog;
+  globalThis.__teamoModPush = (entry) => mlog(String(entry && entry.stage || 'external'), entry || {});
+  globalThis.__teamoModDump = () => {
+    for (const e of modLog) console.log(e.t, e.stage, JSON.stringify({ ...e, t: undefined, stage: undefined }));
+    console.log('共 ' + modLog.length + ' 条 · 复制上面全部内容即可反馈');
+    return JSON.stringify(modLog, null, 1);
+  };
+}
+const ms = (from) => Math.round(performance.now() - from);
+
 
 function abortError() {
   if (typeof DOMException === 'function') return new DOMException('Aborted', 'AbortError');
@@ -163,9 +188,12 @@ async function imageModel() {
     if (!globalThis.nsfwjs || typeof globalThis.nsfwjs.load !== 'function') throw new Error('NSFWJS 模型运行时未初始化');
     // 官方 mobilenet_v2_mid 是 SavedModel 转出的 graph-model（非 Keras layers），
     // 必须 type:'graph' 走 loadGraphModel；缺省的 loadLayersModel 会报 Improper config format。
+    const tLoad = performance.now();
+    mlog('nsfwjs:model-load-start', { note: '开始加载 NSFWJS 模型（graph 格式）' });
     const model = await globalThis.nsfwjs.load(assetUrl(NSFW_MODEL_URL), { size: 224, type: 'graph' });
+    mlog('nsfwjs:model-load-ready', { ms: ms(tLoad) });
     return { model };
-  });
+  }).catch((err) => { mlog('nsfwjs:model-load-fail', { error: String(err && err.message || err).slice(0, 200) }); throw err; });
   return (await nsfwReady).model;
 }
 
@@ -296,12 +324,15 @@ async function nudityDetector() {
     // wasmPaths 必须是「目录前缀」字符串：ORT 1.30 会自行拼接 ort-wasm-simd-threaded.mjs/.wasm。
     globalThis.ort.env.wasm.numThreads = 1;
     globalThis.ort.env.wasm.wasmPaths = assetUrl('../assets/vendor/');
+    const tLoad = performance.now();
+    mlog('nudity:ort-session-create', { note: '开始创建 ORT 会话（含 wasm+onnx 加载）' });
     const session = await globalThis.ort.InferenceSession.create(assetUrl(NUDENET_MODEL_URL), {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
     });
+    mlog('nudity:ort-session-ready', { ms: ms(tLoad) });
     return { session, inputName: session.inputNames && session.inputNames[0] };
-  });
+  }).catch((err) => { mlog('nudity:ort-session-fail', { error: String(err && err.message || err).slice(0, 200) }); throw err; });
   return nudityReady;
 }
 
@@ -394,18 +425,27 @@ export function policyNudityDecision(detections = []) {
 async function moderateNudityImage(img, signal) {
   const hooks = testHooks();
   if (typeof hooks.nudityDecision === 'function') return hooks.nudityDecision(img);
+  const t0 = performance.now();
   const det = await withAbort(nudityDetector(), signal, 'nudityModel', timeoutFor('nudityModel', TIMEOUTS.nudityModel));
   const meta = makeNudeNetInput(img);
   const ort = globalThis.ort;
   const tensor = new ort.Tensor('float32', meta.input, [1, 3, NUDENET_INPUT_SIZE, NUDENET_INPUT_SIZE]);
+  const tInfer = performance.now();
   const output = await withAbort(det.session.run({ [det.inputName || det.session.inputNames[0]]: tensor }), signal, 'nudityDetect', timeoutFor('nudityDetect', TIMEOUTS.nudityDetect));
-  return policyNudityDecision(postprocessNudeNet(output, meta));
+  const decision = policyNudityDecision(postprocessNudeNet(output, meta));
+  mlog('nudity:result', {
+    ms: ms(t0), inferMs: ms(tInfer),
+    blocked: decision.blocked, score: Math.round((decision.score || 0) * 1000) / 1000,
+    detections: (decision.detections || []).map((d) => `${d.class}@${d.score}${d.box ? ` [${d.box.join(',')}]` : ''}`) || undefined,
+  });
+  return decision;
 }
 
 
 function prefetchImageModerationAssets() {
   if (typeof document === 'undefined') return;
-  for (const href of [ORT_URL, ORT_WASM_THREAD_URL, NUDENET_MODEL_URL]) {
+  // β：TFJS + NSFWJS 资源也纳入预热——发送时冷加载 ~8.4MB 是超时 fail-open 的主因之一。
+  for (const href of [ORT_URL, ORT_WASM_THREAD_URL, NUDENET_MODEL_URL, NSFWJS_URL, NSFW_MODEL_URL]) {
     const url = assetUrl(href);
     if ([...document.querySelectorAll('link[rel="prefetch"],link[rel="preload"]')].some((x) => x.href === url)) continue;
     const link = document.createElement('link');
@@ -418,9 +458,15 @@ function prefetchImageModerationAssets() {
 
 function prewarmImageModeration() {
   if (typeof document === 'undefined') return Promise.resolve(false);
+  const t0 = performance.now();
+  mlog('prewarm:start', { note: 'NudeNet 与 NSFWJS 并行预热' });
   prefetchImageModerationAssets();
-  // 只预热 NudeNet：它是精确裸露拦截路径；NSFWJS 仍按需加载，避免所有用户额外下载 TFJS 图像模型。
-  return nudityDetector().then(() => true).catch(() => false);
+  const nudity = nudityDetector().then(() => true).catch(() => false);
+  const nsfw = imageModel().then(() => true).catch((err) => { mlog('prewarm:nsfwjs-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
+  return Promise.all([nudity, nsfw]).then(([n, s]) => {
+    mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s });
+    return n || s;
+  });
 }
 
 if (typeof globalThis !== 'undefined') {
@@ -697,8 +743,10 @@ export async function moderateText({ text, attachments = [], signal } = {}) {
 
 export async function moderateImages({ attachments = [], text = '', signal } = {}) {
   throwIfAborted(signal);
+  const tAll = performance.now();
   const localImgs = (attachments || [])
     .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')));
+  mlog('images:start', { 本地图片: localImgs.length, 文本远程图URL: textImageCandidates(text).length });
   let remote = { attachments: [], errors: [] };
   if (textImageCandidates(text).length) {
     try { remote = await remoteImageAttachmentsFromText(text, signal); }
@@ -708,49 +756,73 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images', parts: remote.errors };
   let nsfwModel = null;
   const decisions = [...(remote.errors || [])];
-  for (const a of imgs) {
+  for (let i = 0; i < imgs.length; i++) {
+    const a = imgs[i];
+    const tImg = performance.now();
     try {
       throwIfAborted(signal);
+      const tDec = performance.now();
       const img = await imageFromDataUrl(a.dataUrl, signal);
+      mlog(`image#${i + 1}:decoded`, { name: a.name, bytes: Math.round((a.dataUrl || '').length * 0.75), ms: ms(tDec) });
       throwIfAborted(signal);
       let nudity = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
       try {
         nudity = await moderateNudityImage(img, signal);
       } catch (err) {
         if (isAbortError(err)) throw err;
+        mlog(`image#${i + 1}:nudity-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
         if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);
         nudity = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: 'local:nudenet-320n' };
       }
-      if (nudity.blocked) { decisions.push(nudity); continue; }
+      if (nudity.blocked) { mlog(`image#${i + 1}:nudity-blocked`, { 总耗时: ms(tImg) }); decisions.push(nudity); continue; }
       let nsfw = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
       try {
-        nsfwModel ||= await withAbort(imageModel(), signal, 'imageModel', timeoutFor('imageModel', TIMEOUTS.imageModel));
+        if (!nsfwModel) {
+          const tM = performance.now();
+          mlog(`image#${i + 1}:nsfwjs-load-start`, { note: '首次需要 NSFWJS，若未预热此处包含下载' });
+          nsfwModel = await withAbort(imageModel(), signal, 'imageModel', timeoutFor('imageModel', TIMEOUTS.imageModel));
+          mlog(`image#${i + 1}:nsfwjs-load-ready`, { ms: ms(tM) });
+        }
         throwIfAborted(signal);
+        const tCls = performance.now();
         const preds = await withAbort(nsfwModel.classify(img, 5), signal, 'imageClassify', timeoutFor('imageClassify', TIMEOUTS.imageClassify));
+        const raw = predictionMap(preds);
+        mlog(`image#${i + 1}:nsfwjs-raw`, { ms: ms(tCls), drawings: Math.round((raw.drawings || 0) * 1000) / 1000, hentai: Math.round((raw.hentai || 0) * 1000) / 1000, neutral: Math.round((raw.neutral || 0) * 1000) / 1000, porn: Math.round((raw.porn || 0) * 1000) / 1000, sexy: Math.round((raw.sexy || 0) * 1000) / 1000 });
         nsfw = policyImageDecision(preds, `${text || ''} ${a.name || ''}`);
+        mlog(`image#${i + 1}:nsfwjs-verdict`, { blocked: nsfw.blocked, score: Math.round((nsfw.score || 0) * 1000) / 1000, cats: nsfw.categories });
       } catch (err) {
         if (isAbortError(err)) throw err;
+        mlog(`image#${i + 1}:nsfwjs-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
         if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
         nsfw = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: IMAGE_MODERATION_MODEL };
       }
-      decisions.push(mergeDecisions(nudity, nsfw));
+      const merged = mergeDecisions(nudity, nsfw);
+      mlog(`image#${i + 1}:final`, { blocked: merged.blocked, score: Math.round((merged.score || 0) * 1000) / 1000, cats: merged.categories, 总耗时: ms(tImg) });
+      decisions.push(merged);
     } catch (err) {
       if (isAbortError(err)) throw err;
+      mlog(`image#${i + 1}:pipeline-error`, { error: String(err && err.message || err).slice(0, 200) });
       decisions.push({ blocked: false, score: 0, categories: [], error: String(err && err.message || err) });
     }
   }
-  return mergeDecisions(...decisions);
+  const out = mergeDecisions(...decisions);
+  mlog('images:done', { 图片数: imgs.length, blocked: out.blocked, score: Math.round((out.score || 0) * 1000) / 1000, cats: out.categories, 总耗时: ms(tAll) });
+  return out;
 }
 
 export async function moderateUserTurn({ text, attachments = [], signal } = {}) {
   throwIfAborted(signal);
-  const hasImage = (attachments || []).some((a) => a && a.kind === 'image') || textImageCandidates(text).length > 0;
+  const t0 = performance.now();
+  const imgCount = (attachments || []).filter((a) => a && a.kind === 'image').length;
+  const hasImage = imgCount > 0 || textImageCandidates(text).length > 0;
   const bypass = policyImagePromptBypass(text, hasImage);
-  if (bypass.blocked) return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } };
+  if (bypass.blocked) { mlog('turn:blocked-by-prompt-bypass', {}); return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } }; }
+  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 总预算: `${MODERATION_TIMEOUT_MS}ms（超时将 fail-open 放行）` });
   const task = Promise.all([
     moderateText({ text, attachments, signal }),
     moderateImages({ text, attachments, signal }),
   ]);
   const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', MODERATION_TIMEOUT_MS));
+  mlog('turn:done', { blocked: !!(textResult.blocked || imageResult.blocked), 文本: textResult.blocked ? textResult.categories : 'pass', 图片: imageResult.blocked ? imageResult.categories : (imageResult.skipped || 'pass'), 总耗时: ms(t0) });
   return { blocked: !!(textResult.blocked || imageResult.blocked), text: textResult, image: imageResult };
 }

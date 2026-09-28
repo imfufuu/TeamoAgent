@@ -1,6 +1,6 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
 import { createStore } from './state.js';
-import { createAgent } from './agent.js?v=2026.9.27.11';
+import { createAgent } from './agent.js?v=2026.9.27.12';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
@@ -17,6 +17,7 @@ const hooks = {
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
+  onModerationFailOpen: (reason) => toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000),
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),

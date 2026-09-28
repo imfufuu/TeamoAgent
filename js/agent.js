@@ -26,7 +26,7 @@ import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
 import { formatMemory } from './memory.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.27.11';
+import { moderateUserTurn } from './moderation.js?v=2026.9.27.12';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -575,7 +575,10 @@ export function createAgent(store, hooks = {}) {
       return await moderateUserTurn({ text: userText, attachments, signal: ctrl ? ctrl.signal : undefined });
     } catch (err) {
       if (err && (err.name === 'AbortError' || (ctrl && ctrl.signal && ctrl.signal.aborted))) throw err;
-      console.warn('[TeamoAgent] 内容审核失败，已 fail-open 放行本轮', err);
+      const reason = err && err.name === 'ModerationTimeoutError' ? '总预算超时' : '异常';
+      console.warn(`[TeamoAgent] 内容审核${reason}，已 fail-open 放行本轮（附件会进沙箱）`, err);
+      if (typeof globalThis !== 'undefined' && globalThis.__teamoModPush) globalThis.__teamoModPush({ stage: 'turn:fail-open', reason, error: String(err && err.message || err).slice(0, 220) });
+      emit('onModerationFailOpen', reason);
       return { blocked: false, error: err && err.message ? err.message : String(err) };
     } finally {
       if (abortController === ctrl) abortController = null;
