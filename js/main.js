@@ -1,11 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
 import { createStore } from './state.js';
-import { createAgent } from './agent.js?v=2026.9.27.13';
+import { createAgent } from './agent.js?v=2026.9.27.14';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.9.27.13';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.9.27.14';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -21,6 +21,10 @@ const hooks = {
   onModerationFailOpen: (reason) => {
     globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-open', reason || '超时');
     toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000);
+  },
+  onModerationFailClosed: (reason) => {
+    globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-closed', reason || '超时');
+    toast('图片审核超时，本轮已阻止（图片未进沙箱）。模型在后台继续预热，稍后重发即可', 'warn', 9000);
   },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
@@ -44,7 +48,11 @@ const hooks = {
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { ui && ui.onCancelled && ui.onCancelled(); toast('已停止生成', 'warn'); ui && ui.updateStats(); },
   onModerationCleared: () => { ui && ui.rebuildMessages && ui.rebuildMessages(); ui && ui.renderSessions(); ui && ui.updateStats(); },
-  onModerationBlocked: () => { toast('该内容已被审核', 'warn', 6000); ui && ui.renderSessions(); ui && ui.updateStats(); },
+  onModerationBlocked: (_m, result) => {
+    const timedOut = !!(result && result.image && result.image.timeout);
+    toast(timedOut ? '图片审核超时，本轮已阻止（未进沙箱），请稍后重发' : '该内容已被审核', 'warn', 7000);
+    ui && ui.renderSessions(); ui && ui.updateStats();
+  },
   onError: (err) => {
     console.error(err);
     const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
@@ -71,6 +79,8 @@ try {
     }
   });
 } catch { /* 调试浮窗异常不阻塞主应用 */ }
+// 启动即后台预热图片审核模型（不等用户加附件）——慢网络给 26MB 资源留足下载窗口
+setTimeout(() => { try { globalThis.__teamoPrewarmImageModeration && globalThis.__teamoPrewarmImageModeration('startup'); } catch { /* 忽略 */ } }, 2000);
 // 这里不再 fs.import(state.files)：createAgent 已经用同一份 state.files 建好了 fs，
 // 再 import 一次不仅多余，还会把「挂载期间被清空的文件」重新灌回去（clearFiles 走的是
 // 同一批同步路径），表现为清空后文件又出现。

@@ -4448,7 +4448,7 @@ test('正常图片放行、敏感图片命中：本地图片审核路径可结�
     else delete globalThis.__TEamoModerationTestHooks;
   }
 });
-test('图片审核超时会 fail-open 结束，不会无限显示审核中', async () => {
+test('图片审核超时 fail-closed 拦截（2026.9.27.14 策略）：不放行、不无限审核中', async () => {
   const mod = await import('../js/moderation.js');
   const oldHooks = globalThis.__TEamoModerationTestHooks;
   globalThis.__TEamoModerationTestHooks = {
@@ -4461,7 +4461,9 @@ test('图片审核超时会 fail-open 结束，不会无限显示审核中', asy
   };
   try {
     const r = await mod.moderateUserTurn({ attachments: [{ kind: 'image', name: 'slow.png', dataUrl: 'data:image/png;base64,AAAA' }] });
-    assert.equal(r.blocked, false);
+    // fail-closed：图像模型没跑完 → 拦截（不再放行进沙箱）
+    assert.equal(r.blocked, true);
+    assert.equal(r.timeout, true);
     const flatParts = (rows) => (rows || []).flatMap((x) => x && x.parts ? [x, ...flatParts(x.parts)] : [x]);
     assert.ok(flatParts(r.image.parts).some((x) => x && /timeout/i.test(String(x.error || ''))));
   } finally {

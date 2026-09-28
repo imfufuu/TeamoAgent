@@ -126,8 +126,20 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /__teamoDebugToggle/, 'debugwindow 应暴露 ⌘K 桥');
   assert.match(dw, /__teamoDebugLog/, 'debugwindow 应暴露日志桥');
   assert.match(dw, /__teamoModSubscribe/, 'debugwindow 应订阅审核日志');
+  assert.match(dw, /tdw-rz/, '浮窗应有四角缩放手柄');
+  assert.match(dw, /tdw-entry/, '应有常驻快捷入口');
+  assert.match(dw, /copySelected|data-act="copy"/, '应支持复制导出');
+  assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
   const ui = read('../js/ui.js');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  const mod = read('../js/moderation.js');
+  assert.match(mod, /IMAGE_TURN_BUDGET_MS = 90000/, '带图回合预算应为 90s');
+  assert.match(mod, /degraded/, '图像模型未就绪应标记 degraded');
+  assert.match(mod, /prewarm:fetch/, '预热应逐文件上报下载进度');
+  assert.match(main, /__teamoPrewarmImageModeration && globalThis.__teamoPrewarmImageModeration\('startup'\)/, '启动应自动预热');
+  assert.match(main, /onModerationFailClosed/, 'main 应接 fail-closed 提示钩子');
+  const agent = read('../js/agent.js');
+  assert.match(agent, /turn:fail-closed/, '带图回合审核失败应 fail-closed');
 });
 
 console.log(results.join('\n'));

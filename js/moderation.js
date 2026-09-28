@@ -7,17 +7,18 @@ export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-mobilenet-v2-mi
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
 export const IMAGE_MODERATION_THRESHOLD = 0.70;
-export const MODERATION_TIMEOUT_MS = 45000;
+export const MODERATION_TIMEOUT_MS = 45000;      // 纯文本回合总预算
+export const IMAGE_TURN_BUDGET_MS = 90000;       // 带图回合总预算（模型资源大，慢网络放宽）
 
 const TIMEOUTS = Object.freeze({
   textModel: 30000,
   textClassify: 12000,
   semantic: 16000,
-  imageModel: 30000,
+  imageModel: 60000,
   imageDecode: 8000,
   imageFetch: 10000,
   imageClassify: 12000,
-  nudityModel: 30000,
+  nudityModel: 45000,
   nudityDetect: 12000,
 });
 
@@ -471,14 +472,43 @@ function prefetchImageModerationAssets() {
   }
 }
 
+// 显式预取（带 HTTP 缓存）：ORT/tf 内部自己 fetch 时不报进度，这里先拉一遍，
+// 浮窗能看到每个文件的字节数与耗时；随后运行时内部请求直接命中缓存。慢网络下这就是「审核要等多久」的可见答案。
+async function fetchWarm(href, label) {
+  const t0 = performance.now();
+  try {
+    const res = await fetch(assetUrl(href), { cache: 'force-cache' });
+    const buf = await res.arrayBuffer();
+    mlog('prewarm:fetch', { file: label, KB: Math.round(buf.byteLength / 1024), ms: ms(t0) });
+  } catch (err) {
+    mlog('prewarm:fetch-fail', { file: label, error: String(err && err.message || err).slice(0, 140) });
+  }
+}
+
+const NSFW_SHARD_URLS = [
+  '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard1of2',
+  '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard2of2',
+];
+
 function prewarmImageModeration() {
   if (typeof document === 'undefined') return Promise.resolve(false);
   const t0 = performance.now();
-  mlog('prewarm:start', { note: 'NudeNet 与 NSFWJS 并行预热' });
+  mlog('prewarm:start', { note: '先显式下载全部资源（可见进度），再创建两个模型会话' });
   prefetchImageModerationAssets();
-  const nudity = nudityDetector().then(() => true).catch(() => false);
-  const nsfw = imageModel().then(() => true).catch((err) => { mlog('prewarm:nsfwjs-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
-  return Promise.all([nudity, nsfw]).then(([n, s]) => {
+  const warmup = (async () => {
+    await Promise.all([
+      fetchWarm(ORT_WASM_THREAD_URL, 'ort-wasm'),
+      fetchWarm(NUDENET_MODEL_URL, 'nudenet.onnx'),
+      fetchWarm(TFJS_URL, 'tf.js'),
+      fetchWarm(NSFWJS_URL, 'nsfwjs.js'),
+      fetchWarm(NSFW_MODEL_URL, 'nsfw-model.json'),
+      ...NSFW_SHARD_URLS.map((u) => fetchWarm(u, 'nsfw-shard')),
+    ]);
+    const nudity = nudityDetector().then(() => true).catch(() => false);
+    const nsfw = imageModel().then(() => true).catch((err) => { mlog('prewarm:nsfwjs-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
+    return Promise.all([nudity, nsfw]);
+  })();
+  return warmup.then(([n, s]) => {
     mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s });
     return n || s;
   });
@@ -770,6 +800,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   const imgs = [...localImgs, ...remote.attachments].slice(0, 6);
   if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images', parts: remote.errors };
   let nsfwModel = null;
+  let imgFail = false; // 任一图片路径失败/超时 → degraded：fail-closed，宁可拦截不可放行
   const decisions = [...(remote.errors || [])];
   for (let i = 0; i < imgs.length; i++) {
     const a = imgs[i];
@@ -785,6 +816,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
         nudity = await moderateNudityImage(img, signal);
       } catch (err) {
         if (isAbortError(err)) throw err;
+        imgFail = true;
         mlog(`image#${i + 1}:nudity-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
         if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);
         nudity = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: 'local:nudenet-320n' };
@@ -807,6 +839,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
         mlog(`image#${i + 1}:nsfwjs-verdict`, { blocked: nsfw.blocked, score: Math.round((nsfw.score || 0) * 1000) / 1000, cats: nsfw.categories });
       } catch (err) {
         if (isAbortError(err)) throw err;
+        imgFail = true;
         mlog(`image#${i + 1}:nsfwjs-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
         if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
         nsfw = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: IMAGE_MODERATION_MODEL };
@@ -816,12 +849,14 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
       decisions.push(merged);
     } catch (err) {
       if (isAbortError(err)) throw err;
+      imgFail = true;
       mlog(`image#${i + 1}:pipeline-error`, { error: String(err && err.message || err).slice(0, 200) });
       decisions.push({ blocked: false, score: 0, categories: [], error: String(err && err.message || err) });
     }
   }
   const out = mergeDecisions(...decisions);
-  mlog('images:done', { 图片数: imgs.length, blocked: out.blocked, score: Math.round((out.score || 0) * 1000) / 1000, cats: out.categories, 总耗时: ms(tAll) });
+  if (!out.blocked && imgFail) out.degraded = true; // 图未明确放行而是「没审到」→ 标记降级
+  mlog('images:done', { 图片数: imgs.length, blocked: out.blocked, degraded: out.degraded || undefined, score: Math.round((out.score || 0) * 1000) / 1000, cats: out.categories, 总耗时: ms(tAll) });
   return out;
 }
 
@@ -832,12 +867,24 @@ export async function moderateUserTurn({ text, attachments = [], signal } = {}) 
   const hasImage = imgCount > 0 || textImageCandidates(text).length > 0;
   const bypass = policyImagePromptBypass(text, hasImage);
   if (bypass.blocked) { mlog('turn:blocked-by-prompt-bypass', {}); return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } }; }
-  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 总预算: `${MODERATION_TIMEOUT_MS}ms（超时将 fail-open 放行）` });
+  // 带图回合预算放宽到 90s（模型资源最大 26MB，慢网络友好）；纯文本仍 45s（规则层即时可用）
+  const budget = imgCount > 0 ? IMAGE_TURN_BUDGET_MS : MODERATION_TIMEOUT_MS;
+  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 总预算: `${budget}ms（带图超时将 fail-closed 拦截，纯文本 fail-open 放行）` });
   const task = Promise.all([
     moderateText({ text, attachments, signal }),
     moderateImages({ text, attachments, signal }),
   ]);
-  const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', MODERATION_TIMEOUT_MS));
+  const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', budget));
+  if (textResult.blocked) {
+    // 文本策略已拦截：整轮结果就是拦截，图像层状态随附（不再叠加 fail-closed 文案）
+    mlog('turn:done', { blocked: true, 文本: textResult.categories, 图片: imageResult.skipped || (imageResult.blocked ? imageResult.categories : 'pass'), 总耗时: ms(t0) });
+    return { blocked: true, text: textResult, image: imageResult };
+  }
+  if (!imageResult.blocked && imageResult.degraded) {
+    // 图片审核没能真正执行（模型未就绪/超时/出错）→ fail-closed：拦截本轮，图片绝不进沙箱
+    mlog('turn:blocked-degraded', { reason: '图像模型未就绪，fail-closed 拦截（后台继续预热，可重试）' });
+    return { blocked: true, timeout: true, text: textResult, image: { ...imageResult, blocked: true, timeout: true } };
+  }
   mlog('turn:done', { blocked: !!(textResult.blocked || imageResult.blocked), 文本: textResult.blocked ? textResult.categories : 'pass', 图片: imageResult.blocked ? imageResult.categories : (imageResult.skipped || 'pass'), 总耗时: ms(t0) });
   return { blocked: !!(textResult.blocked || imageResult.blocked), text: textResult, image: imageResult };
 }
