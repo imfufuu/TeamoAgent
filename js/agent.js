@@ -26,6 +26,7 @@ import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
 import { formatMemory } from './memory.js';
+import { moderateUserTurn } from './moderation.js';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -563,6 +564,39 @@ export function createAgent(store, hooks = {}) {
     }
   }
 
+  async function runContentModeration(userText, attachments) {
+    // 默认由 main.js 为正式应用打开；测试/嵌入方未显式开启时不额外加载模型。
+    if (store.state.settings.contentModeration !== true) return { blocked: false, skipped: 'disabled' };
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    abortController = ctrl;
+    setStatus('connecting');
+    try {
+      return await moderateUserTurn({ text: userText, attachments, signal: ctrl ? ctrl.signal : undefined });
+    } catch (err) {
+      if (err && (err.name === 'AbortError' || (ctrl && ctrl.signal && ctrl.signal.aborted))) throw err;
+      console.warn('[TeamoAgent] 内容审核失败，已 fail-open 放行本轮', err);
+      return { blocked: false, error: err && err.message ? err.message : String(err) };
+    } finally {
+      if (abortController === ctrl) abortController = null;
+      if (status === 'connecting') setStatus('idle');
+    }
+  }
+
+  function blockByModeration(result) {
+    setStatus('cancelled');
+    const assistantMsg = store.pushMessage({
+      role: 'assistant',
+      text: '该内容已被审核',
+      model: 'content-moderation',
+      done: true,
+      moderation: { blocked: true, text: result && result.text, image: result && result.image },
+    });
+    emit('onAssistantStart', assistantMsg);
+    emit('onAssistantDone', assistantMsg);
+    emit('onModerationBlocked', assistantMsg, result);
+    store.notify();
+  }
+
   return {
     getStatus: () => status,
     abort: () => { abortController && abortController.abort(); },
@@ -576,6 +610,13 @@ export function createAgent(store, hooks = {}) {
       const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
       // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
       emit('onUserMessage', userText, userMsg);
+      try {
+        const moderation = await runContentModeration(userText, attachments);
+        if (moderation && moderation.blocked) { blockByModeration(moderation); return; }
+      } catch (err) {
+        if (err && err.name === 'AbortError') { setStatus('cancelled'); emit('onCancelled'); return; }
+        console.warn('[TeamoAgent] 内容审核异常，已 fail-open 放行本轮', err);
+      }
       await runLoop();
     },
 

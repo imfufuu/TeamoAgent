@@ -7,6 +7,10 @@ import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
 
 const store = createStore();
+// 正式应用默认开启高阈值内容审核；测试/嵌入方未显式开启时不会额外消耗请求。
+if (!Object.prototype.hasOwnProperty.call(store.state.settings || {}, 'contentModeration')) {
+  store.state.settings.contentModeration = true;
+}
 
 // UI 先挂载（agent hooks 需要引用 ui 方法），再创建 agent 注入 hooks
 let ui = null;
@@ -36,6 +40,7 @@ const hooks = {
   },
   onTurnTiming: (ms) => ui && ui.onTurnTiming(ms),
   onCancelled: () => { ui && ui.onCancelled && ui.onCancelled(); toast('已停止生成', 'warn'); ui && ui.updateStats(); },
+  onModerationBlocked: () => { toast('该内容已被审核', 'warn', 6000); ui && ui.renderSessions(); ui && ui.updateStats(); },
   onError: (err) => {
     console.error(err);
     const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);

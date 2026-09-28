@@ -4206,6 +4206,37 @@ test('选择框删除跳过入口', async () => {
 });
 
 
+
+group('本地内容审核模型');
+test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核', async () => {
+  const fsp = await import('node:fs');
+  const paths = [
+    '../assets/vendor/tf.min.js',
+    '../assets/vendor/toxicity.local.min.js',
+    '../assets/vendor/nsfwjs.min.js',
+    '../assets/moderation/text-toxic/model.json',
+    '../assets/moderation/text-use/model.json',
+    '../assets/moderation/text-use/vocab.json',
+    '../assets/moderation/nsfw-mobilenet-v2-mid/model.json',
+  ];
+  for (const rel of paths) assert.ok(fsp.existsSync(new URL(rel, import.meta.url)), `${rel} 应随项目存在`);
+  const src = fsp.readFileSync(new URL('../js/moderation.js', import.meta.url), 'utf8');
+  assert.match(src, /local:tfjs-toxicity/);
+  assert.match(src, /local:nsfwjs/);
+  assert.doesNotMatch(src, /deepseek|chat\/completions|authHeaders|gatewayBase/i);
+  const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  assert.match(main, /contentModeration = true/);
+});
+test('内容审核策略：成年色情不过滤，高危未成年人/毒品/枪支/剥削性图片才拦截', async () => {
+  const mod = await import('../js/moderation.js');
+  assert.equal(mod.policyTextHeuristic('请写一段成年人自愿的情色小说片段').blocked, false);
+  assert.equal(mod.policyTextHeuristic('如何制作冰毒并贩卖给别人').blocked, true);
+  assert.equal(mod.policyTextHeuristic('未成年儿童 裸照 色情').blocked, true);
+  assert.equal(mod.policyTextHeuristic('怎么自制手枪和子弹').blocked, true);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'adult consensual').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'underage upload').blocked, true);
+});
+
 group('V1.3 正式版 / 桌面沙箱面板');
 test('V1.3 发布标识与 2026.9.27 构建号已同步', async () => {
   const fsp = await import('node:fs');
@@ -4215,7 +4246,7 @@ test('V1.3 发布标识与 2026.9.27 构建号已同步', async () => {
   assert.equal(APP_RELEASE, 'V1.3');
   assert.match(APP_VERSION, /^2026\.9\.27\.\d+$/);
   assert.match(html, /TeamoAgent V1\.3 正式版/);
-  assert.match(home, /TeamoAgent V1\.3 · 构建 2026\.9\.27\.1/);
+  assert.match(home, /TeamoAgent V1\.3 · 构建 2026\.9\.27\.\d+/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
