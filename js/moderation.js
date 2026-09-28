@@ -5,7 +5,7 @@
 export const TEXT_MODERATION_MODEL = 'local:tfjs-toxicity-1.2.2+policy-v1';
 export const IMAGE_MODERATION_MODEL = 'local:nsfwjs-mobilenet-v2-mid-4.4.0';
 export const TEXT_MODERATION_THRESHOLD = 0.9;
-export const IMAGE_MODERATION_THRESHOLD = 0.98;
+export const IMAGE_MODERATION_THRESHOLD = 0.70;
 
 const TFJS_URL = '../assets/vendor/tf.min.js';
 const TOXICITY_URL = '../assets/vendor/toxicity.local.min.js';
@@ -174,8 +174,8 @@ export function policyImageDecision(predictions, context = '') {
   if (porn >= 0.65) categories.push('porn');
   if (hentai >= 0.65) categories.push('hentai');
   if (sexy >= 0.75) categories.push('sexy');
-  if (contextRisk && nsfw >= 0.75) categories.push('exploitative_nsfw');
-  // 成年色情不拦：只有 NSFW 置信很高且上下文指向未成年/非自愿/剥削时才取消任务。
+  if (contextRisk && nsfw >= IMAGE_MODERATION_THRESHOLD) categories.push('exploitative_nsfw');
+  // 成年色情不拦：只有 NSFW 置信达到图片阈值且上下文指向未成年/非自愿/剥削时才取消任务。
   const blocked = contextRisk && nsfw >= IMAGE_MODERATION_THRESHOLD;
   return { blocked, score: Math.min(1, nsfw), categories, reason: categories.join(', '), source: IMAGE_MODERATION_MODEL };
 }

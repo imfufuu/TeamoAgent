@@ -4233,7 +4233,10 @@ test('内容审核策略：成年色情不过滤，高危未成年人/毒品/枪
   assert.equal(mod.policyTextHeuristic('如何制作冰毒并贩卖给别人').blocked, true);
   assert.equal(mod.policyTextHeuristic('未成年儿童 裸照 色情').blocked, true);
   assert.equal(mod.policyTextHeuristic('怎么自制手枪和子弹').blocked, true);
+  assert.equal(mod.IMAGE_MODERATION_THRESHOLD, 0.70);
   assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'adult consensual').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.69 }], 'underage upload').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.70 }], 'underage upload').blocked, true);
   assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'underage upload').blocked, true);
 });
 
