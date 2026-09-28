@@ -9,7 +9,7 @@ TeamoAgent 本体以 MIT 许可发布（见 [LICENSE](./LICENSE)）。
 |---|---|---|---|
 | [markdown-it](https://github.com/markdown-it/markdown-it) | 14.3.2 | MIT | Markdown 渲染（`assets/md/markdown-it.min.js`） |
 | [KaTeX](https://katex.org/) | 0.16.21 | MIT | LaTeX 公式渲染（`assets/katex/`，含其 OFL/MIT 双许可字体） |
-| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | 1.17.3 | MIT | 浏览器本地 NudeNet 图片审核运行时（`assets/vendor/ort*.js/wasm`） |
+| [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) | 1.30.0 | MIT | 浏览器本地 NudeNet 图片审核运行时（`assets/vendor/ort.min.js`、`ort-wasm-simd-threaded.mjs/.wasm`） |
 | [NudeNet](https://github.com/notAI-tech/nudenet) | 3.4.x model | 上游许可见项目 | 浏览器本地显式裸露检测模型（`assets/moderation/nudenet-320n/`） |
 
 上述组件的完整许可文本可在其上游仓库取得；其版权归各自作者所有。

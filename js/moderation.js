@@ -28,11 +28,13 @@ const USE_MODEL_URL = '../assets/moderation/text-use/model.json';
 const USE_VOCAB_URL = '../assets/moderation/text-use/vocab.json';
 const NSFWJS_URL = '../assets/vendor/nsfwjs.min.js';
 const NSFW_MODEL_URL = '../assets/moderation/nsfw-mobilenet-v2-mid/model.json';
-const ORT_URL = '../assets/vendor/ort.wasm.min.js';
-const ORT_WASM_SIMD_URL = '../assets/vendor/ort-wasm-simd.wasm';
-const ORT_WASM_URL = '../assets/vendor/ort-wasm.wasm';
+// onnxruntime-web 1.30：入口 bundle + 动态 import 的 .mjs 胶水 + wasm 二进制（三者必须同版本）。
+// 1.17 系在新版 Chromium 上 session 创建会静默 abort（裸数字 reject），不得回退。
+const ORT_URL = '../assets/vendor/ort.min.js';
+const ORT_WASM_THREAD_URL = '../assets/vendor/ort-wasm-simd-threaded.wasm';
 const NUDENET_MODEL_URL = '../assets/moderation/nudenet-320n/model.onnx';
-const NUDENET_INPUT_SIZE = 224;
+// NudeNet 320n 官方推理分辨率即 320；曾降到 224 导致召回大幅下降（明显裸露漏检），禁止再降。
+const NUDENET_INPUT_SIZE = 320;
 const MAX_REMOTE_IMAGE_BYTES = 6 * 1024 * 1024;
 const IMAGE_URL_EXT_RE = /\.(?:png|jpe?g|webp|gif)(?:[?#]|$)/i;
 
@@ -159,7 +161,9 @@ async function imageModel() {
   if (globalThis.nsfwjs && nsfwReady && nsfwReady.model) return nsfwReady.model;
   nsfwReady ||= loadScript(NSFWJS_URL).then(async () => {
     if (!globalThis.nsfwjs || typeof globalThis.nsfwjs.load !== 'function') throw new Error('NSFWJS 模型运行时未初始化');
-    const model = await globalThis.nsfwjs.load(assetUrl(NSFW_MODEL_URL), { size: 224 });
+    // 官方 mobilenet_v2_mid 是 SavedModel 转出的 graph-model（非 Keras layers），
+    // 必须 type:'graph' 走 loadGraphModel；缺省的 loadLayersModel 会报 Improper config format。
+    const model = await globalThis.nsfwjs.load(assetUrl(NSFW_MODEL_URL), { size: 224, type: 'graph' });
     return { model };
   });
   return (await nsfwReady).model;
@@ -289,12 +293,9 @@ async function nudityDetector() {
   nudityReady ||= loadScript(ORT_URL).then(async () => {
     if (!globalThis.ort || !globalThis.ort.InferenceSession) throw new Error('ONNX Runtime Web 未初始化');
     // GitHub Pages 没有 COOP/COEP，禁用多线程，避免 ORT 等待 SharedArrayBuffer/worker 造成卡住。
+    // wasmPaths 必须是「目录前缀」字符串：ORT 1.30 会自行拼接 ort-wasm-simd-threaded.mjs/.wasm。
     globalThis.ort.env.wasm.numThreads = 1;
-    globalThis.ort.env.wasm.proxy = false;
-    globalThis.ort.env.wasm.wasmPaths = {
-      'ort-wasm-simd.wasm': assetUrl(ORT_WASM_SIMD_URL),
-      'ort-wasm.wasm': assetUrl(ORT_WASM_URL),
-    };
+    globalThis.ort.env.wasm.wasmPaths = assetUrl('../assets/vendor/');
     const session = await globalThis.ort.InferenceSession.create(assetUrl(NUDENET_MODEL_URL), {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
@@ -404,7 +405,7 @@ async function moderateNudityImage(img, signal) {
 
 function prefetchImageModerationAssets() {
   if (typeof document === 'undefined') return;
-  for (const href of [ORT_URL, ORT_WASM_SIMD_URL, NUDENET_MODEL_URL]) {
+  for (const href of [ORT_URL, ORT_WASM_THREAD_URL, NUDENET_MODEL_URL]) {
     const url = assetUrl(href);
     if ([...document.querySelectorAll('link[rel="prefetch"],link[rel="preload"]')].some((x) => x.href === url)) continue;
     const link = document.createElement('link');
@@ -453,12 +454,15 @@ const TABOO_TERMS = ['乱伦', '近亲相奸', '近亲性交', '禁忌关系', '
 const DISTURBING_TERMS = ['兽交', '人兽', '恋尸', '奸尸', '尸体性行为', '尸体性交', '粪便性行为', '排泄物性癖', 'bestiality', 'zoophilia', 'necrophilia', 'coprophilia'];
 const EXPLOIT_TERMS = ['偷拍', '非自愿', '强迫', '胁迫', '性侵', '强奸', '猥亵', '迷奸', '下药', 'revengeporn', 'nonconsensual', 'forcedsex', 'rape'];
 
+// USE 词表只有 8000 个拉丁 token（0 个 CJK）：中文/日文输入会得到恒定嵌入向量
+// （任意两句中文余弦 = 1.0，所有类别必然误命中）。因此语义层只放英文原型短语，
+// 且 CJK 占比高的文本直接跳过语义层 —— 中文防护由 policyTextHeuristic 规则层覆盖。
 const SEMANTIC_GROUPS = [
-  { cat: 'adult_sexual', threshold: 0.78, phrases: ['explicit pornographic sexual content', 'graphic erotic sex scene', '露骨色情性行为描写', '成人色情小说和做爱细节'] },
-  { cat: 'public_morals', threshold: 0.80, phrases: ['incest sexual relationship between family members', '家庭成员之间的乱伦色情关系', 'bestiality necrophilia disturbing sexual behavior', '兽交恋尸等令人不适的不当性行为'] },
-  { cat: 'exploitative_sexual', threshold: 0.80, phrases: ['non consensual sexual exploitation or voyeurism', '偷拍强迫性侵等非自愿性内容'] },
-  { cat: 'drug_crime', threshold: 0.83, phrases: ['instructions to manufacture or traffic hard drugs', '制造贩卖冰毒海洛因芬太尼等毒品教程'] },
-  { cat: 'gun_crime', threshold: 0.83, phrases: ['instructions to make illegal firearms or explosives', '自制枪支弹药爆炸物的犯罪教程'] },
+  { cat: 'adult_sexual', threshold: 0.78, phrases: ['explicit pornographic sexual content', 'graphic erotic sex scene description'] },
+  { cat: 'public_morals', threshold: 0.80, phrases: ['incest sexual relationship between family members', 'bestiality necrophilia disturbing sexual behavior'] },
+  { cat: 'exploitative_sexual', threshold: 0.80, phrases: ['non consensual sexual exploitation or voyeurism'] },
+  { cat: 'drug_crime', threshold: 0.83, phrases: ['instructions to manufacture or traffic hard drugs'] },
+  { cat: 'gun_crime', threshold: 0.83, phrases: ['instructions to make illegal firearms or explosives'] },
 ];
 
 function compactText(s, max = 12000) {
@@ -592,9 +596,15 @@ async function semanticPrototypeVectors(model) {
 async function semanticTextDecision(payload) {
   const hooks = testHooks();
   if (typeof hooks.semanticDecision === 'function') return hooks.semanticDecision(payload);
+  const probe = compactText(payload, 1200);
+  // USE 词表无 CJK 词条：CJK 占比高的文本嵌入恒定（cos=1，全类别误命中），直接跳过语义层。
+  const letters = probe.replace(/\s+/g, '') || ' ';
+  const cjk = (letters.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/g) || []).length;
+  if (letters.length && cjk / letters.length >= 0.3) {
+    return { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' };
+  }
   const model = await semanticModel();
   const groups = await semanticPrototypeVectors(model);
-  const probe = compactText(payload, 1200);
   const [vec] = await tensorArray(await model.embed([probe]));
   const categories = [];
   let score = 0;

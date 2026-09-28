@@ -10,7 +10,11 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import puppeteer from 'puppeteer';
+
+// 依赖 puppeteer；没装就跳过（与 mobile-layout.mjs 同策略），不阻断 npm run test:all / CI
+let puppeteer;
+try { ({ default: puppeteer } = await import('puppeteer')); }
+catch { console.log('⏭  tests/persist.mjs 跳过：未安装 puppeteer（npm i -D puppeteer）'); process.exit(0); }
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 const REMOTE = process.env.TEAMO_PERSIST_URL || '';

@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.3 正式版** · 构建 `2026.9.27.10` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.3 正式版** · 构建 `2026.9.27.11` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -259,8 +259,12 @@ npm run test:pyodide  # tests/pyodide-worker.test.mjs：Node 里用薄垫片直�
                       # （npm i -D pyodide@0.26.4）：FILES 回写 / result 捕获 / 陈旧全局
 npm run test:server   # tests/server_checks.py：中继护栏（git 白名单 / SSRF / HTML 抽取），纯 stdlib 无需 node
 npm run test:live     # 真实网关：live-smoke + live-check + live-web（TEAMO_API_KEY=… 才跑，否则跳过）
+npm run test:integrity # tests/assets-integrity.mjs：审核资产完整性——ORT 版本三件套 / tf 无 CSP 炸点 /
+                      # 模型 format 配对 / 权重分片 4 字节对齐 / NudeNet 320 / 语义层 CJK 跳过（纯 Node）
+npm run test:browser  # tests/moderation-browser.mjs：真实 Chromium 端到端审核——NSFW 拦截 / 良性放行 /
+                      # 中文不误杀 / 无 CSP pageerror（需 puppeteer，没装自动跳过）
 npm run audit:mobile  # 真 Chrome 量移动端布局（需 puppeteer）：无横向溢出 / 无重叠 / 触控目标 ≥36px
-npm run test:all      # 前四连（含 server_checks）
+npm run test:all      # 前四连 + 资产完整性（含 server_checks）
 ```
 
 `test:app` 是唯一覆盖「入口装配 + hook 接线」的一层：混版缓存、hook 缺失这类故障在纯函数

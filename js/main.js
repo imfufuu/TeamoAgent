@@ -1,6 +1,6 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
 import { createStore } from './state.js';
-import { createAgent } from './agent.js?v=2026.9.27.10';
+import { createAgent } from './agent.js?v=2026.9.27.11';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';

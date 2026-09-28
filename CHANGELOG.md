@@ -2,6 +2,21 @@
 
 本文件记录 TeamoAgent 的阶段性改进（更早的逐轮修复也都保留在下面，便于回溯）。
 
+## V1.3 补丁（构建 2026.9.27.11）：本地内容审核整体复活
+
+**本次线上版本**：构建号 `2026.9.27.11`。背景：线上三条本地模型审核路径（NudeNet / NSFWJS / Toxicity+USE）实际全部静默失效——模型层被单测 hook 掉，266 项测试全绿但真实浏览器里一个模型都没加载成功。本次在真实 Chromium 里逐层定位并修复：
+
+* **ONNX Runtime Web 1.17 → 1.30**：1.17 的 wasm 后端在新版 Chromium 上 `InferenceSession.create` 静默 abort（裸数字 reject，控制台无提示），NudeNet 从未跑起来。升级到 1.30（`ort.min.js` + `ort-wasm-simd-threaded.mjs/.wasm` 三件套），实测会话创建 1.2s、单张推理约 140ms。
+* **NudeNet 恢复原生 320px 推理**：V1.3.7 为提速降到 224px 导致召回大幅下降（明显裸露漏检的直接原因之一）。实测 320px 单张仍仅 ~140ms，恢复 320；量化模型本身与官方 fp32 基本一致，保留。
+* **修复 tf.min.js 的 CSP 自毁**：bundle 内三处 `Function("return this")()` / `Function('return require…')` / `Function("r","regeneratorRuntime…")` 触发 CSP（script-src 无 unsafe-eval），整个 tfjs 半途死掉，`globalThis.tf` 变空壳 → Toxicity/USE 全部 `loadGraphModel is not a function`。修补三处后 CSP 维持最严（不放宽 unsafe-eval）。
+* **修复 NSFWJS 模型加载方式**：官方 mobilenet_v2_mid 是 SavedModel(graph-model)，`nsfwjs.load` 必须带 `type:'graph'` 走 `loadGraphModel`；缺省的 `loadLayersModel` 直接抛 Improper config format。
+* **修复 Toxicity 权重分片**：`text-toxic/` 的 7 个分片自 V1.3.1 入库时就是坏的（5.6KB、非 4 字节对齐，tfjs 加载必抛 RangeError）。换回官方分片（7×4MB，逐个校验 4 字节对齐）。`.gitattributes` 此前已把 `group*` 标记 binary，但坏文件在标记之前入库。
+* **修复语义层对中文的必然误杀**：USE 词表仅 8000 个拉丁 token（0 个 CJK），中文输入嵌入恒定（任意两句中文余弦=1.0，全部类别必然命中→所有中文消息被拦）。现在：`SEMANTIC_GROUPS` 只保留英文原型短语；CJK 占比 ≥30% 的文本直接跳过语义层（`cjk-unsupported`），中文防护由规则层 + Toxicity 兜底。已验证：中文良性文本放行、中文高危文本规则层拦截、英文原型正常命中。
+* **新增两道防线**（防「单测全绿、线上全灭」重演）：
+  * `tests/assets-integrity.mjs`（`npm run test:integrity`）：校验 ORT 三件套版本、tf 无 CSP 炸点、NSFWJS 模型 format 与 `type:'graph'` 配对、权重分片 4 字节对齐且非坏片、`NUDENET_INPUT_SIZE=320`、语义层 CJK 跳过逻辑存在。已并入 `test:all`。
+  * `tests/moderation-browser.mjs`（`npm run test:browser`，装 puppeteer 才跑）：真实 Chromium 端到端——NSFW 图拦截、良性图放行、中文不误杀、英文语义层命中、页面无 CSP pageerror。
+* `tests/persist.mjs` 改为缺 puppeteer 时优雅跳过（与其他浏览器测试同策略），不再硬崩溃阻断。
+
 ## Teamo V1.3 正式版（2026-09-27）
 
 **当前线上版本即 V1.3 正式版**，构建号 `2026.9.27.10`。
