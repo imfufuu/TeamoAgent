@@ -1,15 +1,12 @@
 name: Pages (Actions 部署)
 
-# 手动触发的 GitHub Pages 部署通道。
-#
-# 本仓库的 Pages 目前配置为「Deploy from a branch / main」（legacy 模式），
-# 推送到 main 后由 GitHub 自带的 pages-build-deployment 自动发布，
-# 因此这里默认不自动运行，避免与 legacy 构建互相覆盖。
-#
-# 若要改用 Actions 部署：
-#   1. Settings → Pages → Source 选 "GitHub Actions"
-#   2. 在本页 Actions 标签手动 Run workflow（或把下面的 workflow_dispatch 改为 push 触发）
+# GitHub Pages 部署通道（仓库 Settings → Pages → Source = GitHub Actions）。
+# 推送 main 即自动发布；workflow_dispatch 保留为手动重发入口。
+# concurrency 同一组避免重叠部署。（2026-09-28 起 legacy「Deploy from a branch」已弃用——
+# 此前注释描述的 legacy 模式与仓库实际配置不符，已修正。）
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:

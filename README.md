@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.3 正式版** · 构建 `2026.9.27.11` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.3 正式版** · 构建 `2026.9.27.14`（β 诊断线）· [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -283,22 +283,11 @@ Python 沙箱首次使用需从 CDN 加载 Pyodide 运行时；本地代理（se
 
 ### 发布到 GitHub Pages 的步骤
 
-本项目是零构建静态站点。仓库已内置 `.github/workflows/pages.yml`（Actions 部署），
-推送到 `main` 或工作分支即自动发布，无需手动配置，也不必等合并。
-若想改用「Deploy from a branch」：
+本项目是零构建静态站点。仓库已内置 `.github/workflows/pages.yml`（Actions 部署）：
+**推送到 `main` 即自动发布**，`workflow_dispatch` 可手动重发，concurrency 防重叠。
 
-1. 推送代码到仓库（`index.html` 位于仓库根目录）
-2. 打开仓库 **Settings → Pages**
-3. **Source** 选 `Deploy from a branch`；**Branch** 选 `main`，目录选 `/ (root)`，保存
-4. 1~2 分钟后站点上线于 `https://<用户名>.github.io/<仓库名>/`
-
-也可用 API 一步开启：
-
-```bash
-curl -X POST -H "Authorization: Bearer <你的token>" \
-  https://api.github.com/repos/<用户名>/<仓库名>/pages \
-  -d '{"source":{"branch":"main","path":"/"},"build_type":"legacy"}'
-```
+> 前提：仓库 **Settings → Pages → Source = GitHub Actions**（本仓库 2026-09-28 起即此配置，
+> legacy「Deploy from a branch」已弃用；若旧仓库还是 legacy，先到 Settings 切换一次）。
 
 注意：应用内全部使用相对路径（css/js/worker），因此部署在子路径（`/<仓库名>/`）下无需任何改动。
 

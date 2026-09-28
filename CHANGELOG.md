@@ -2,6 +2,12 @@
 
 本文件记录 TeamoAgent 的阶段性改进（更早的逐轮修复也都保留在下面，便于回溯）。
 
+## V1.3 补丁（2026.9.27.14 后记）：文档与 CI/部署同步
+
+* **Pages 改为 push main 自动发布**：`pages.yml` 增加 push 触发（此前是 dispatch-only，文档却写着「推送即发布」——以实际为准，改工作流不改文档）。legacy「Deploy from a branch」说明移除。
+* **CI 新增审核资产完整性测试**（`tests/assets-integrity.mjs` 12 项）：模型分片损坏 / ORT 版本回退 / CSP 炸点 / fail-closed 策略回退，推送时即红灯。
+* README 顶部构建号同步到当前 β 诊断线（此前停在 2026.9.27.11）。
+
 ## V1.3 β 诊断构建（2026.9.27.14）：fail-closed 拦截 + 启动预热 + 浮窗缩放/多选/入口/动画
 
 **背景**：用户实测日志显示——慢网络下 26MB 审核资源在 45s 内下载不完：ORT wasm 未就绪 → NudeNet 30s 超时被跳过 → NSFWJS 模型下到一半 → 45s 总预算耗尽 → fail-open 静默放行，图片进了沙箱。

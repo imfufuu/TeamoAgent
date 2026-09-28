@@ -19,6 +19,8 @@ jobs:
           node-version: '22'
       - name: 运行单测
         run: node tests/agent.test.mjs
+      - name: 审核资产完整性（ORT 版本/模型分片/CSP 炸点/fail-closed 钉子）
+        run: node tests/assets-integrity.mjs
       - name: 服务端语法检查
         run: python3 -m py_compile server.py
       - name: 本地中继护栏自检（git 白名单 / SSRF / HTML 抽取）
