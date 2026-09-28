@@ -114,6 +114,22 @@ await test('.gitattributes 把权重分片与 wasm 标记为 binary，防止再�
   assert.match(ga, /\.wasm\s+binary/);
 });
 
+// ── β 调试浮窗（2026.9.27.13）──
+group('β 调试浮窗');
+await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?debug=1 / Ctrl+Alt+D / ⌘K 桥）', () => {
+  assert.ok(exists('../js/debugwindow.js'), 'js/debugwindow.js 应随项目存在');
+  const main = read('../js/main.js');
+  assert.match(main, /debugwindow\.js\?v=/, 'main.js 应带 ?v= 引入 debugwindow');
+  assert.match(main, /mountDebugWindow\(\)/);
+  assert.match(main, /toggleDebug\(\)/);
+  const dw = read('../js/debugwindow.js');
+  assert.match(dw, /__teamoDebugToggle/, 'debugwindow 应暴露 ⌘K 桥');
+  assert.match(dw, /__teamoDebugLog/, 'debugwindow 应暴露日志桥');
+  assert.match(dw, /__teamoModSubscribe/, 'debugwindow 应订阅审核日志');
+  const ui = read('../js/ui.js');
+  assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+});
+
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);

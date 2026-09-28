@@ -2760,6 +2760,7 @@ export function mountUI(store, agent) {
     } catch { /* fs 未就绪 */ }
     items.push({ group: '操作', id: 'p:panel', label: '打开 / 收起沙箱面板', kbd: '⌘B', run: () => setPanelCollapsed(!$('#sandbox-panel').classList.contains('collapsed')) });
     items.push({ group: '操作', id: 'p:new', label: '新建会话', run: () => $('#new-session').click() });
+    if (globalThis.__teamoDebugToggle) items.push({ group: '操作', id: 'p:debug', label: globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '关闭调试浮窗（系统日志）' : '打开调试浮窗（系统日志）', kbd: '⌃⌥D', run: () => globalThis.__teamoDebugToggle() });
     return items;
   }
   function paintPal() {

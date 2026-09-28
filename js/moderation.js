@@ -46,6 +46,16 @@ let semanticVectorsReady;
 let nsfwReady;
 let nudityReady;
 
+// tfjs 多拷贝注册（nsfwjs/toxicity 内置各自的 tf）会刷几百条
+// "The kernel 'X' ... is already registered" / "Platform ... already been set" 噪音警告，
+// 且内容 100% 无操作价值。加载窗口内临时静音 console.warn，结束即恢复。
+async function withMutedWarn(fn) {
+  const orig = console.warn;
+  console.warn = () => {};
+  try { return await fn(); }
+  finally { console.warn = orig; }
+}
+
 const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) || {};
 
 // ── β 诊断日志（构建 2026.9.27.12）────────────────────────────────────────
@@ -54,10 +64,13 @@ const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) ||
 // 用法：控制台执行 __teamoModDump() 复制完整时间线；__teamoModLog 为原始数组。
 const MOD_LOG_MAX = 400;
 const modLog = [];
+// β 浮窗订阅：debugwindow.js 注册监听器，mlog 每条同时推给浮窗实时上屏
+const modLogListeners = new Set();
 function mlog(stage, data = {}) {
   const entry = { t: new Date().toISOString().slice(11, 23), stage, ...data };
   modLog.push(entry);
   if (modLog.length > MOD_LOG_MAX) modLog.splice(0, modLog.length - MOD_LOG_MAX);
+  for (const fn of [...modLogListeners]) { try { fn(entry); } catch { /* 订阅者异常不影响审核 */ } }
   try { console.log('%c[Teamo·审核]%c ' + stage + ' ' + JSON.stringify(data), 'color:#c00;font-weight:700', 'color:inherit'); }
   catch { try { console.log('[Teamo·审核] ' + stage, data); } catch { /* 忽略序列化失败 */ } }
   return entry;
@@ -65,6 +78,7 @@ function mlog(stage, data = {}) {
 if (typeof globalThis !== 'undefined') {
   globalThis.__teamoModLog = modLog;
   globalThis.__teamoModPush = (entry) => mlog(String(entry && entry.stage || 'external'), entry || {});
+  globalThis.__teamoModSubscribe = (fn) => { if (typeof fn === 'function') { modLogListeners.add(fn); return () => modLogListeners.delete(fn); } return () => {}; };
   globalThis.__teamoModDump = () => {
     for (const e of modLog) console.log(e.t, e.stage, JSON.stringify({ ...e, t: undefined, stage: undefined }));
     console.log('共 ' + modLog.length + ' 条 · 复制上面全部内容即可反馈');
@@ -157,7 +171,7 @@ async function textModel() {
   if (hooks.textModel) return hooks.textModel;
   await ensureTf();
   if (globalThis.toxicity && toxicityReady && toxicityReady.model) return toxicityReady.model;
-  toxicityReady ||= loadScript(TOXICITY_URL).then(async () => {
+  toxicityReady ||= withMutedWarn(() => loadScript(TOXICITY_URL)).then(async () => {
     if (!globalThis.toxicity || typeof globalThis.toxicity.load !== 'function') throw new Error('Toxicity 模型运行时未初始化');
     const labels = ['toxicity', 'severe_toxicity', 'threat', 'obscene', 'sexual_explicit'];
     const model = await globalThis.toxicity.load(TEXT_MODERATION_THRESHOLD, labels);
@@ -171,7 +185,7 @@ async function semanticModel() {
   if (hooks.semanticModel) return hooks.semanticModel;
   await ensureTf();
   if (globalThis.use && semanticReady && semanticReady.model) return semanticReady.model;
-  semanticReady ||= loadScript(USE_URL).then(async () => {
+  semanticReady ||= withMutedWarn(() => loadScript(USE_URL)).then(async () => {
     if (!globalThis.use || typeof globalThis.use.load !== 'function') throw new Error('USE 语义模型运行时未初始化');
     const model = await globalThis.use.load({ modelUrl: assetUrl(USE_MODEL_URL), vocabUrl: assetUrl(USE_VOCAB_URL) });
     return { model };
@@ -184,7 +198,8 @@ async function imageModel() {
   if (hooks.imageModel) return hooks.imageModel;
   await ensureTf();
   if (globalThis.nsfwjs && nsfwReady && nsfwReady.model) return nsfwReady.model;
-  nsfwReady ||= loadScript(NSFWJS_URL).then(async () => {
+  nsfwReady ||= withMutedWarn(async () => {
+    await loadScript(NSFWJS_URL);
     if (!globalThis.nsfwjs || typeof globalThis.nsfwjs.load !== 'function') throw new Error('NSFWJS 模型运行时未初始化');
     // 官方 mobilenet_v2_mid 是 SavedModel 转出的 graph-model（非 Keras layers），
     // 必须 type:'graph' 走 loadGraphModel；缺省的 loadLayersModel 会报 Improper config format。

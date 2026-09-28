@@ -1,10 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
 import { createStore } from './state.js';
-import { createAgent } from './agent.js?v=2026.9.27.12';
+import { createAgent } from './agent.js?v=2026.9.27.13';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.9.27.13';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -13,11 +14,14 @@ store.state.settings.contentModeration = true;
 // UI 先挂载（agent hooks 需要引用 ui 方法），再创建 agent 注入 hooks
 let ui = null;
 const hooks = {
-  onStatus: (s) => ui && ui.setStatus(s),
+  onStatus: (s) => { ui && ui.setStatus(s); globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('agent.status', String(s)); },
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
-  onModerationFailOpen: (reason) => toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000),
+  onModerationFailOpen: (reason) => {
+    globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-open', reason || '超时');
+    toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000);
+  },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),
@@ -55,6 +59,18 @@ const hooks = {
 
 const agent = createAgent(store, hooks);
 ui = mountUI(store, agent);
+// β 调试浮窗：?debug=1 / Ctrl+Alt+D / ⌘K「打开调试浮窗」三种入口，挂载失败不影响主应用
+try {
+  const dbgParams = new URLSearchParams(location.search);
+  if ((dbgParams.has('debug') || location.hash === '#debug') && dbgParams.get('debug') !== '0' && !debugActive()) setDebug(true);
+  mountDebugWindow();
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.altKey && String(e.key || '').toLowerCase() === 'd') {
+      e.preventDefault();
+      toggleDebug();
+    }
+  });
+} catch { /* 调试浮窗异常不阻塞主应用 */ }
 // 这里不再 fs.import(state.files)：createAgent 已经用同一份 state.files 建好了 fs，
 // 再 import 一次不仅多余，还会把「挂载期间被清空的文件」重新灌回去（clearFiles 走的是
 // 同一批同步路径），表现为清空后文件又出现。
