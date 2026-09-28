@@ -59,6 +59,9 @@ export const ICON = {
 };
 
 export function providerIcon(provider) {
+  if (provider === 'Moderator') {
+    return `<svg class="p-icon moderator" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-label="Moderator"><path d="M12 3.2 19 6v5.2c0 4.4-2.8 7.9-7 9.6-4.2-1.7-7-5.2-7-9.6V6l7-2.8Z"/><path d="m8.8 12.1 2.1 2.1 4.5-5"/></svg>`;
+  }
   const def = PROVIDER_ICON[provider];
   if (!def) return `<span class="p-icon-fallback">${String(provider || '?').slice(0, 1)}</span>`;
   const cls = ['p-icon', def.mono ? 'mono' : '', def.word ? 'word' : '', def.white ? 'white' : ''].filter(Boolean).join(' ');

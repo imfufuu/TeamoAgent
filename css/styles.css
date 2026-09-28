@@ -221,6 +221,7 @@ a { color: var(--fg); }
 .p-icon.word { width: auto; max-width: 64px; }
 [data-theme="dark"] .p-icon.mono { filter: invert(1); } /* 纯黑 Logo 暗色反色 */
 [data-theme="light"] .p-icon.white { filter: invert(1); } /* 白色 Logo（Grok）亮色反色 */
+.p-icon.moderator { color: var(--accent); filter: none; }
 .p-icon-fallback {
   display: inline-flex; width: 16px; height: 16px; flex-shrink: 0;
   border-radius: 5px;

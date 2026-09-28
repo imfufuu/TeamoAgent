@@ -1718,6 +1718,7 @@ export function mountUI(store, agent) {
   function messageNode(m) {
     const wrap = el('div', `msg msg-${m.role} enter`);
     wrap.dataset.id = m.id;
+    if (m.transientModeration || (m.moderation && m.moderation.blocked)) wrap.classList.add('msg-moderation');
     if (m.role === 'user') {
       wrap.innerHTML = `<div class="bubble md-body">${renderMarkdown(m.text)}${renderAttachments(m.attachments)}</div>
         <div class="msg-user-bar">
@@ -1738,13 +1739,14 @@ export function mountUI(store, agent) {
       const idx = store.state.messages.findIndex((x) => x.id === m.id);
       const prev = idx > 0 ? store.state.messages[idx - 1] : null;
       const showHead = !prev || prev.role === 'user';
+      const moderationNotice = !!(m.transientModeration || (m.moderation && m.moderation.blocked));
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
       const headModel = m.model || store.state.model;
       wrap.innerHTML = `
         ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headModel)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
-        <div class="msg-toolbar">
+        <div class="msg-toolbar"${moderationNotice ? ' hidden' : ''}>
         <div class="msg-actions">
           <button class="act" data-act="copy" title="复制本轮回复">${ICON.copy || ''}<span>复制</span></button>
           <button class="act act-danger" data-act="rollback" title="回滚到本轮之前（将移除该轮及其后的消息）">${ICON.rollback || ''}<span>回滚</span></button>
@@ -2455,7 +2457,7 @@ export function mountUI(store, agent) {
             });
           }
           const more = got.truncated ? `（共 ${got.pages} 页，已渲染前 ${got.images.length} 页）` : `（${got.images.length} 页）`;
-          toast(`${f.name}：已转成图片${more}，发送后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
+          toast(`${f.name}：已转成图片${more}，发送并通过审核后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
           pending.push({
@@ -2468,7 +2470,7 @@ export function mountUI(store, agent) {
             source: 'zip',
             originalName: f.name,
           });
-          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
+          toast(`${f.name}：已添加 ZIP，发送并通过审核后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
@@ -2985,7 +2987,7 @@ export function mountUI(store, agent) {
       if (patch.status === 'running' || patch.image) scrollToBottom();
     },
     attachToolResult,
-    // 用户附件已自动复制到沙箱 uploads/ → 刷新文件面板并提示（可在面板内单个下载或整包 ZIP）
+    // 用户附件已通过审核并复制到沙箱 uploads/ → 刷新文件面板并提示（可在面板内单个下载或整包 ZIP）
     onFsChange(paths) {
       renderFiles();
       if (paths && paths.length) toast(`附件已复制到沙箱：${paths.join('、')}`, 'ok', 4200);

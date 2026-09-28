@@ -4213,6 +4213,7 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
   const paths = [
     '../assets/vendor/tf.min.js',
     '../assets/vendor/toxicity.local.min.js',
+    '../assets/vendor/use.min.js',
     '../assets/vendor/nsfwjs.min.js',
     '../assets/moderation/text-toxic/model.json',
     '../assets/moderation/text-use/model.json',
@@ -4225,19 +4226,74 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
   assert.match(src, /local:nsfwjs/);
   assert.doesNotMatch(src, /deepseek|chat\/completions|authHeaders|gatewayBase/i);
   const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  const icons = fsp.readFileSync(new URL('../js/icons.js', import.meta.url), 'utf8');
   assert.match(main, /contentModeration = true/);
+  assert.match(icons, /provider === 'Moderator'/);
+  assert.equal(providerOf('Moderator'), 'Moderator');
 });
-test('内容审核策略：成年色情不过滤，高危未成年人/毒品/枪支/剥削性图片才拦截', async () => {
+test('内容审核策略：成人色情、公序良俗、高危犯罪与 NSFW 图片会被拦截', async () => {
   const mod = await import('../js/moderation.js');
-  assert.equal(mod.policyTextHeuristic('请写一段成年人自愿的情色小说片段').blocked, false);
+  assert.equal(mod.policyTextHeuristic('请写一段成年人自愿的情色小说片段').blocked, true);
+  assert.equal(mod.policyTextHeuristic('性教育科普：如何理解青春期生理变化').blocked, false);
+  assert.equal(mod.policyTextHeuristic('请写父女乱伦色情小说').blocked, true);
   assert.equal(mod.policyTextHeuristic('如何制作冰毒并贩卖给别人').blocked, true);
   assert.equal(mod.policyTextHeuristic('未成年儿童 裸照 色情').blocked, true);
   assert.equal(mod.policyTextHeuristic('怎么自制手枪和子弹').blocked, true);
   assert.equal(mod.IMAGE_MODERATION_THRESHOLD, 0.70);
-  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'adult consensual').blocked, false);
-  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.69 }], 'underage upload').blocked, false);
-  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.70 }], 'underage upload').blocked, true);
-  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.995 }], 'underage upload').blocked, true);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.69 }], 'adult consensual').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.70 }], 'adult consensual').blocked, true);
+  assert.equal(mod.policyImageDecision([{ className: 'Sexy', probability: 0.4 }, { className: 'Hentai', probability: 0.31 }], 'adult consensual').blocked, true);
+});
+test('文本审核确实执行本地模型判定，而不是只有敏感词规则', async () => {
+  const mod = await import('../js/moderation.js');
+  const old = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    textModel: { classify: async () => [{ label: 'sexual_explicit', results: [{ probabilities: [0.02, 0.98], match: true }] }] },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+  };
+  try {
+    const r = await mod.moderateText({ text: '隐晦文本，不含明显敏感词' });
+    assert.equal(r.blocked, true);
+    assert.ok(r.categories.includes('adult_sexual'));
+    assert.ok(r.parts.some((x) => x && x.source === 'toxicity'));
+  } finally {
+    if (old) globalThis.__TEamoModerationTestHooks = old;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+test('审核命中不入对话上下文；下一条消息清除提示；图片通过审核前不进沙箱', async () => {
+  const realFetch2 = globalThis.fetch;
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  globalThis.__TEamoModerationTestHooks = {
+    textModel: { classify: async () => [] },
+    semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
+    imageModel: { classify: async () => [] },
+  };
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.contentModeration = true;
+    const events = [];
+    const agent = createAgent(store, { onModerationCleared: (n) => events.push(['cleared', n]) });
+    await agent.send('请写父女乱伦色情小说', [{ kind: 'image', name: 'blocked.png', dataUrl: 'data:image/png;base64,AAAA' }]);
+    assert.deepEqual(store.state.messages.map((m) => m.role), ['assistant']);
+    assert.equal(store.state.messages[0].text, '该内容已被审核');
+    assert.equal(store.state.messages[0].transientModeration, true);
+    assert.equal(agent.fs.list().some((f) => f.path === 'uploads/blocked.png'), false);
+
+    store.state.settings.contentModeration = false;
+    globalThis.fetch = async () => openaiTextTurn('ok');
+    await agent.send('你好');
+    assert.equal(store.state.messages.some((m) => m.transientModeration), false);
+    assert.deepEqual(store.state.messages.map((m) => m.role), ['user', 'assistant']);
+    assert.equal(store.state.messages[1].text, 'ok');
+    assert.ok(events.some((e) => e[0] === 'cleared' && e[1] === 1));
+  } finally {
+    globalThis.fetch = realFetch2;
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
 });
 
 group('V1.3 正式版 / 桌面沙箱面板');

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.3';
-export const APP_VERSION = '2026.9.27.3';
+export const APP_VERSION = '2026.9.27.4';
 export const ANTHROPIC_VERSION = '2023-06-01';
 export const MAX_TOKENS = 8192;          // Anthropic 协议必填 max_tokens
 export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budget_tokens）
@@ -153,6 +153,7 @@ export const IMAGE_MODEL_IDS = IMAGE_MODELS.map((m) => m.id);
 // 根据模型 ID 推断供应商
 export function providerOf(modelId) {
   const m = (modelId || '').toLowerCase();
+  if (m === 'moderator' || m === 'content-moderation') return 'Moderator';
   if (m.startsWith('claude')) return 'Anthropic';
   if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('chatgpt')) return 'OpenAI';
   if (m.startsWith('gemini')) return 'Google';
@@ -266,7 +267,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- 用户消息可能附带图片：对话模型是纯文本，不能直接看图。必须调用 analyze_image（内部使用 deepseek-v4-flash-vision-exp）。沙箱 uploads/ 与 outputs/ 里的图随时可以再分析。',
     '- PDF 会在浏览器里逐页渲染成 JPEG（uploads/{文件名}-p01.jpg …）。对话模型看不见图，必须对每一页调用 analyze_image 做 OCR/读表/读版式；工具返回的是该页全文，不要自行截成几行摘要。加密或渲染失败时如实说明，不要假装看见了正文。',
     '- ZIP 原样写入沙箱 uploads/{文件名}.zip，不会自动解压。需要里面的文件时调用 unzip_file（可指定 dest）。之后用 read_file / analyze_image / list_files；再打包用 zip_files。',
-    '- 所有附件（文本、图片、PDF 页图、ZIP）都会复制到沙箱 uploads/：文本可 read_file；图片以 data URL 存放，可 analyze_image 或作为 generate_image 的 reference_paths；ZIP 用 unzip_file。',
+    '- 附件会先经过本地内容审核；审核通过后才复制到沙箱 uploads/：文本可 read_file；图片以 data URL 存放，可 analyze_image 或作为 generate_image 的 reference_paths；ZIP 用 unzip_file。',
     '',
     '## 规则',
     '- 涉及计算、代码验证、数据处理的任务，优先写代码在沙箱中执行，而不是凭空口算。',

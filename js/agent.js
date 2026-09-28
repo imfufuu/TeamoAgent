@@ -189,7 +189,8 @@ export function createAgent(store, hooks = {}) {
   // volatile（记忆/沙箱/时间/联网）每轮迭代重建；ephemeral 只放 Jev/技能正文/预算。
   let cachedPrefix = null;
   function buildMessages(lockModel, relayOk = true, jevNote = '', plan = null, iteration = 1) {
-    const { messages } = store.state;
+    // 审核拦截提示只用于界面反馈，绝不进入后续模型上下文。
+    const messages = (store.state.messages || []).filter((m) => !m.transientModeration);
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
     const { messages: compacted, droppedCount } = compactMessages(messages, budget, { preflight: true });
@@ -582,13 +583,22 @@ export function createAgent(store, hooks = {}) {
     }
   }
 
+  function clearTransientModeration() {
+    const before = store.state.messages.length;
+    store.state.messages = store.state.messages.filter((m) => !m.transientModeration);
+    const removed = before - store.state.messages.length;
+    if (removed > 0) { store.notify(); emit('onModerationCleared', removed); }
+    return removed;
+  }
+
   function blockByModeration(result) {
     setStatus('cancelled');
     const assistantMsg = store.pushMessage({
       role: 'assistant',
       text: '该内容已被审核',
-      model: 'content-moderation',
+      model: 'Moderator',
       done: true,
+      transientModeration: true,
       moderation: { blocked: true, text: result && result.text, image: result && result.image },
     });
     emit('onAssistantStart', assistantMsg);
@@ -602,14 +612,9 @@ export function createAgent(store, hooks = {}) {
     abort: () => { abortController && abortController.abort(); },
 
     async send(userText, attachments = []) {
-      // 所有附件（文本 + 图片）自动复制到沙箱 uploads/：文本存原文、图片存 data URL，
-      // 工具循环可直接 read_file 读取，图片也能作为 generate_image 的 reference_paths 编辑
-      const copied = copyAttachmentsToFS(fs, attachments);
-      if (copied.length) { syncFS(); store.notify(); emit('onFsChange', copied); }
-      store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
-      const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
-      // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
-      emit('onUserMessage', userText, userMsg);
+      clearTransientModeration();
+      // 先审核，放行后才入会话、建检查点、复制附件到沙箱。被审核内容不进入上下文，
+      // 图片也不会先落到 uploads/ 再被拦截。
       try {
         const moderation = await runContentModeration(userText, attachments);
         if (moderation && moderation.blocked) { blockByModeration(moderation); return; }
@@ -617,6 +622,12 @@ export function createAgent(store, hooks = {}) {
         if (err && err.name === 'AbortError') { setStatus('cancelled'); emit('onCancelled'); return; }
         console.warn('[TeamoAgent] 内容审核异常，已 fail-open 放行本轮', err);
       }
+      const copied = copyAttachmentsToFS(fs, attachments);
+      if (copied.length) { syncFS(); store.notify(); emit('onFsChange', copied); }
+      store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
+      const userMsg = store.pushMessage({ role: 'user', text: userText, attachments: attachments.length ? attachments : undefined });
+      // 先让 UI 把用户这一条画出来（不能等 AI 输出完才看到自己的输入）
+      emit('onUserMessage', userText, userMsg);
       await runLoop();
     },
 
