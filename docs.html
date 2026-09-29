@@ -1,244 +1,355 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.9.27.18" />
-<title>TeamoAgent 文档 · 更新日志 · 用户协议 · 服务条款 · 隐私政策</title>
+<meta name="app-version" content="2026.9.27.19" />
+<meta name="robots" content="noindex" />
+<title>文档 · TeamoAgent</title>
 <style>
   :root {
-    --bg: #fafafa; --bg2: #ffffff; --fg: #1a1a1a; --fg2: #555; --fg3: #8a8a8a;
-    --line: #e4e4e7; --accent: #4f46e5; --ok: #1b7f3a; --warn: #a66300; --err: #c62828;
-    --code-bg: #f4f4f5;
+    --bg: #f6f4ef; --fg: #111110; --fg-2: #5c5a54; --fg-3: #8a877e;
+    --line: rgba(17, 17, 16, .1); --card: rgba(255, 255, 255, .55);
+    --ok: #15803d; --err: #b91c1c; --accent: #6d5bd0;
+    --ease: cubic-bezier(.22, 1, .36, 1);
+    --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Songti SC", "Noto Serif SC", serif;
+    --sans: "Avenir Next", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #101012; --bg2: #17171a; --fg: #ececf0; --fg2: #a8a8b0; --fg3: #71717a;
-      --line: #2a2a30; --accent: #8b87ff; --ok: #7ee787; --warn: #e3b341; --err: #ff7b72;
-      --code-bg: #202024;
-    }
+  html[data-theme="dark"] {
+    --bg: #0c0c0b; --fg: #f4f1ea; --fg-2: #b7b3a8; --fg-3: #7c786e;
+    --line: rgba(244, 241, 234, .12); --card: rgba(20, 20, 18, .55);
+    --ok: #7ee787; --err: #ff7b72; --accent: #a99ee8;
   }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.75 -apple-system, "PingFang SC", "Segoe UI", "Microsoft YaHei", sans-serif; }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 28px 20px 80px; }
-  header.top { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; padding: 18px 0 10px; border-bottom: 2px solid var(--fg); }
-  .brand { font-size: 22px; font-weight: 800; letter-spacing: .5px; }
-  .brand small { font-weight: 600; color: var(--fg3); font-size: 13px; margin-left: 8px; }
-  nav.toc { display: flex; gap: 8px; flex-wrap: wrap; margin: 16px 0 8px; }
-  nav.toc a { color: var(--accent); text-decoration: none; font-size: 13.5px; border: 1px solid var(--line); background: var(--bg2); padding: 4px 12px; border-radius: 999px; }
-  nav.toc a:hover { border-color: var(--accent); }
-  nav.toc .spacer { flex: 1; }
-  nav.toc a.back { color: var(--fg2); }
-  h1 { font-size: 26px; margin: 34px 0 6px; }
-  h2 { font-size: 19px; margin: 30px 0 10px; padding-left: 10px; border-left: 4px solid var(--accent); }
-  h3 { font-size: 15.5px; margin: 20px 0 6px; color: var(--fg); }
-  p, li { color: var(--fg2); }
-  strong { color: var(--fg); }
-  .ver { display: flex; gap: 10px; margin: 18px 0 6px; align-items: baseline; }
-  .pill { flex: none; font: 700 12.5px/1.4 ui-monospace, Menlo, Consolas, monospace; color: var(--accent); border: 1.5px solid color-mix(in oklab, var(--accent) 45%, transparent); border-radius: 999px; padding: 2px 12px; }
-  .pill.mono { color: var(--fg2); border-color: var(--line); }
-  .date { color: var(--fg3); font-size: 12.5px; white-space: nowrap; }
-  .ver-body { margin: 0 0 4px 2px; }
-  ul { margin: 6px 0 14px; padding-left: 20px; }
-  li { margin: 3px 0; }
-  li b { color: var(--fg); }
-  .tag { display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 0 6px; margin-right: 6px; vertical-align: 1px; }
-  .tag.add { color: var(--ok); border: 1px solid color-mix(in oklab, var(--ok) 45%, transparent); }
-  .tag.fix { color: var(--err); border: 1px solid color-mix(in oklab, var(--err) 45%, transparent); }
-  .legal p { margin: 10px 0; }
-  .legal li { margin: 6px 0; }
-  .note { background: var(--bg2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; margin: 14px 0; font-size: 13.5px; color: var(--fg2); }
-  footer { margin-top: 60px; padding-top: 16px; border-top: 1px solid var(--line); display: flex; gap: 14px; flex-wrap: wrap; color: var(--fg3); font-size: 13px; }
-  footer a { color: var(--fg2); }
-  code { background: var(--code-bg); border-radius: 4px; padding: 1px 6px; font: 12.5px ui-monospace, Menlo, Consolas, monospace; }
-  @media print { nav.toc { display: none; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  html, body { background: var(--bg); color: var(--fg); }
+  body { font-family: var(--sans); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+  ::selection { background: rgba(196, 181, 253, .35); }
+
+  .glow { pointer-events: none; position: fixed; width: 70vw; height: 70vw; max-width: 920px; top: -18%; left: 50%;
+    transform: translateX(-50%); background: radial-gradient(circle, rgba(196,181,253,.28), transparent 68%);
+    filter: blur(8px); z-index: 0; }
+  html[data-theme="dark"] .glow { background: radial-gradient(circle, rgba(196,181,253,.16), transparent 68%); }
+  .noise { pointer-events: none; position: fixed; inset: 0; z-index: 50; opacity: .04;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  .nav { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; flex-wrap: wrap; gap: 14px;
+    padding: 16px 28px; backdrop-filter: blur(16px) saturate(1.2);
+    background: color-mix(in srgb, var(--bg) 78%, transparent); border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: center; gap: 10px; color: inherit; text-decoration: none; }
+  .logo-mark svg { width: 21px; height: 21px; display: block; }
+  .logo-text { font-weight: 700; letter-spacing: .12em; font-size: 13.5px; }
+  .logo-text i { font-style: normal; font-weight: 400; opacity: .6; }
+  .ver { font: 600 10.5px var(--mono); letter-spacing: .08em; border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; color: var(--fg-2); }
+  .nav-spacer { flex: 1; }
+  .nav-link { color: var(--fg-2); text-decoration: none; font-size: 13.5px; background: none; border: 0; cursor: pointer; font-family: var(--sans); }
+  .nav-link:hover { color: var(--fg); }
+  .cta { color: var(--bg); background: var(--fg); text-decoration: none; font-size: 13.5px; font-weight: 600;
+    padding: 8px 18px; border-radius: 999px; transition: transform .3s var(--ease); }
+  .cta:hover { transform: translateY(-1px); }
+
+  main { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: 0 28px 40px; }
+  .hero { padding: 72px 0 30px; }
+  .kicker { font: 600 11.5px var(--mono); letter-spacing: .28em; text-transform: uppercase; color: var(--fg-3); margin-bottom: 18px; }
+  h1 { font-family: var(--serif); font-weight: 500; font-size: clamp(34px, 6vw, 54px); line-height: 1.14; letter-spacing: .01em; }
+  .lede { margin-top: 18px; font-size: 15.5px; line-height: 1.8; color: var(--fg-2); max-width: 620px; }
+
+  h2 { font-family: var(--serif); font-weight: 500; font-size: 28px; margin: 72px 0 8px; scroll-margin-top: 80px; }
+  .h-sub { font-size: 13.5px; color: var(--fg-2); margin-bottom: 26px; }
+
+  /* ── 更新日志：时间线 ── */
+  .timeline { position: relative; padding-left: 26px; }
+  .timeline::before { content: ''; position: absolute; left: 5px; top: 8px; bottom: 8px; width: 1px; background: var(--line); }
+  .ver-block { position: relative; margin-bottom: 34px; }
+  .ver-block::before { content: ''; position: absolute; left: -26px; top: 9px; width: 11px; height: 11px; border-radius: 50%;
+    background: var(--bg); border: 2px solid var(--fg-3); }
+  .ver-block.latest::before { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 25%, var(--bg)); }
+  .ver-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+  .ver-name { font-family: var(--serif); font-size: 20px; font-weight: 500; }
+  .ver-build { font: 600 11px var(--mono); letter-spacing: .06em; color: var(--fg-2); border: 1px solid var(--line); border-radius: 999px; padding: 2px 10px; }
+  .ver-latest { font: 700 10.5px var(--mono); letter-spacing: .12em; color: var(--accent); text-transform: uppercase; }
+  .ver-date { font-size: 12px; color: var(--fg-3); }
+  .ver-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 20px; }
+  .ver-card ul { list-style: none; }
+  .ver-card li { display: flex; gap: 10px; font-size: 13.5px; line-height: 1.75; color: var(--fg-2); padding: 3px 0; }
+  .ver-card li b { color: var(--fg); font-weight: 600; }
+  .tag { flex: none; font: 700 10px var(--mono); letter-spacing: .08em; border-radius: 4px; padding: 2px 7px; margin-top: 4px; height: fit-content; }
+  .tag.add { color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 40%, transparent); }
+  .tag.fix { color: var(--err); border: 1px solid color-mix(in srgb, var(--err) 40%, transparent); }
+  .tag.imp { color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+  code { font: 12px var(--mono); background: color-mix(in srgb, var(--fg) 7%, transparent); border-radius: 4px; padding: 1px 6px; }
+
+  /* ── 协议：卡片 ── */
+  .legal-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; margin-bottom: 18px; }
+  .legal-card h3 { font-family: var(--serif); font-weight: 500; font-size: 17px; margin-bottom: 10px; display: flex; gap: 10px; align-items: baseline; }
+  .legal-card h3 .no { font: 600 12px var(--mono); color: var(--fg-3); }
+  .legal-card p, .legal-card li { font-size: 13.5px; line-height: 1.85; color: var(--fg-2); }
+  .legal-card ul { padding-left: 18px; margin: 6px 0; }
+  .legal-card li { margin: 5px 0; }
+  .legal-card li::marker { color: var(--fg-3); }
+  .legal-card strong { color: var(--fg); font-weight: 600; }
+  .note { display: flex; gap: 12px; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+    background: color-mix(in srgb, var(--accent) 7%, var(--card)); border-radius: 14px; padding: 14px 18px;
+    font-size: 13px; line-height: 1.8; color: var(--fg-2); margin: 0 0 18px; }
+  .note svg { flex: none; width: 16px; height: 16px; margin-top: 4px; color: var(--accent); }
+
+  footer { position: relative; z-index: 1; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+    padding: 28px; border-top: 1px solid var(--line); font-size: 12px; color: var(--fg-3); }
+  footer a { color: inherit; text-decoration: none; }
+  footer a:hover { color: var(--fg); }
+  .foot-links { display: flex; align-items: center; gap: 14px; }
+  .foot-links .gh { width: 16px; height: 16px; display: inline-flex; }
+  .foot-links .gh svg { width: 16px; height: 16px; display: block; }
+
+  @media (max-width: 640px) {
+    .nav { padding: 12px 16px; }
+    main { padding: 0 16px 32px; }
+    .hero { padding: 48px 0 22px; }
+    .ver-card { padding: 13px 15px; }
+    .legal-card { padding: 16px 18px; }
+  }
+  @media print { .nav, .glow, .noise, footer { display: none; } }
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="glow"></div>
+<div class="noise"></div>
 
-<header class="top">
-  <div class="brand">TeamoAgent<small>网页端智能体 · 文档</small></div>
+<header class="nav">
+  <a class="brand" href="./index.html">
+    <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg></span>
+    <span class="logo-text">TEAMO<i>AGENT</i></span>
+  </a>
+  <span class="ver">V1.3</span>
+  <span class="nav-spacer"></span>
+  <a class="nav-link" href="#changelog">更新日志</a>
+  <a class="nav-link" href="#agreement">用户协议</a>
+  <a class="nav-link" href="#terms">服务条款</a>
+  <a class="nav-link" href="#privacy">隐私政策</a>
+  <button id="theme-toggle" class="nav-link" type="button">外观</button>
+  <a class="cta" href="./app.html">打开对话</a>
 </header>
 
-<nav class="toc">
-  <a href="#changelog">更新日志</a>
-  <a href="#agreement">用户协议</a>
-  <a href="#terms">服务条款</a>
-  <a href="#privacy">隐私政策</a>
-  <span class="spacer"></span>
-  <a class="back" href="./index.html">首页</a>
-  <a class="back" href="./app.html">打开对话</a>
-</nav>
+<main>
+  <section class="hero">
+    <p class="kicker">Documentation</p>
+    <h1>更新日志与协议。</h1>
+    <p class="lede">从远古构建到当前版本的主要更新——修了什么、加了什么；以及使用本应用前应当了解的协议与隐私约定。完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
+  </section>
 
-<!-- ══════════════════════ 更新日志 ══════════════════════ -->
-<h1 id="changelog">更新日志</h1>
-<p>从远古构建到当前版本的主要更新。<b class="tag add" style="background:none">新增</b>标记能力，<b class="tag fix" style="background:none">修复</b>标记问题；完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
+  <!-- ══════════════ 更新日志 ══════════════ -->
+  <h2 id="changelog">更新日志</h2>
+  <p class="h-sub">新增 <span class="tag add" style="margin:0">ADD</span> · 修复 <span class="tag fix" style="margin:0">FIX</span> · 改进 <span class="tag imp" style="margin:0">IMPROVE</span></p>
 
-<h2>V1.3 系列（2026-09-27，当前）</h2>
+  <div class="timeline">
 
-<div class="ver"><span class="pill">V1.3 β .18</span><span class="date">2026-09-27</span></div>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>文档页（本页）：更新日志、用户协议、服务条款、隐私政策。</li>
-  <li><b class="tag fix">修复</b>Agent 输出被误转义：正则/代码里的 <code>$</code> 锚点被 KaTeX 当数学定界符渲染成乱码——行内代码先于数学提取剥离 + 数学段守卫（像正则/自然语言的内容不渲染，真数学与显式 <code>\(\)\[\]</code> 定界不受影响）。</li>
-  <li><b class="tag add">新增</b>/system 回复行级格式化（命令/结果/小节着色），不再挤成一团。</li>
-  <li><b class="tag fix">修复</b>进入 /system 通道时能力行仍定格上一个模型、沙箱文件残留——通道内文件树同步隔离。</li>
-  <li><b class="tag add">新增</b>模型菜单搜索框一键清空按钮。</li>
-  <li>菜单「隐藏通道 / 系统命令」更名英文风格（Teamo / system-commands），条目前图标去除。</li>
-</ul></div>
+    <div class="ver-block latest">
+      <div class="ver-head"><span class="ver-name">V1.3 β .19</span><span class="ver-build">2026.9.27.19</span><span class="ver-latest">Latest</span><span class="ver-date">2026-09-29</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>文档页全新设计：对齐营销主页的暖纸色 / 衬线标题 / 玻璃导航 / 时间线排版，明暗主题可切换。</span></li>
+        <li><span class="tag add">ADD</span><span>模型菜单 system-commands 分组（Teamo）补上终端图标，与其他厂商组同款结构。</span></li>
+        <li><span class="tag add">ADD</span><span>厂商图标全部纳入离线缓存：Service Worker 安装即预热 8 枚 SVG，打开网页不再有图标加载期。</span></li>
+        <li><span class="tag fix">FIX</span><span>claude-opus-5-5 之前落在菜单末尾且无标签——按 2026-09 热度调研入库：热门标签 + Anthropic 组置顶。</span></li>
+      </ul></div>
+    </div>
 
-<div class="ver"><span class="pill">V1.3 β .17</span><span class="date">2026-09-27</span></div>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>/system 通道彻底隔离：进入后真实会话零写入、思考/沙箱/会话列表锁定，退出还原。</li>
-  <li><b class="tag add">新增</b>系统命令识别器图标；<code>/version /stats /theme /cache /key /export</code> 六条新命令。</li>
-  <li><b class="tag fix">修复</b>思考过程不流式（<code>onReasoning</code> 钩子漏接线）与「思考中」重复显示。</li>
-  <li><b class="tag fix">修复</b>状态栏三点动效被 200ms ticker 重置导致一卡一卡。</li>
-  <li><b class="tag add">新增</b>调试浮窗：日志批量上屏防卡顿、fetch/全局错误/未捕获 Promise 覆盖、复制反馈、手柄收进窗内；/debug off 连入口按钮一起隐藏；删收起按钮。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.3 β .18</span><span class="ver-build">2026.9.27.18</span><span class="ver-date">2026-09-29</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>文档页（本页）上线：更新日志、用户协议、服务条款、隐私政策。</span></li>
+        <li><span class="tag fix">FIX</span><span>Agent 输出误转义：正则/代码里的 <code>$</code> 锚点被 KaTeX 当数学定界符渲染成乱码——行内代码先剥离 + 数学段守卫（真数学与显式 <code>\(\)\[\]</code> 不受影响）。</span></li>
+        <li><span class="tag imp">IMPROVE</span><span>/system 回复行级格式化（命令/结果/小节着色）；进通道即时刷新能力行、沙箱文件同步隔离；搜索框一键清空；菜单「Teamo / system-commands」英文风格。</span></li>
+      </ul></div>
+    </div>
 
-<div class="ver"><span class="pill">V1.3 β .16</span><span class="date">2026-09-27</span></div>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>Service Worker 离线缓存：模型/审核资产首次下载后永久本地命中，断网可用。</li>
-  <li><b class="tag add">新增</b><code>:::color</code> 颜色文本排版语法（12 色中英别名，明暗双主题）。</li>
-  <li><b class="tag add">新增</b>/system 隐藏通道（模型菜单搜索 <code>/system</code>）：debug/status/model/clear 等本地命令免 Key 执行。</li>
-  <li><b class="tag add">新增</b>思考链加密徽章（o 系正则 + 运行时自学）；思考标题延迟定名；文件行折叠同构；meta 行距统一。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.3 β .17</span><span class="ver-build">2026.9.27.17</span><span class="ver-date">2026-09-27</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>/system 通道彻底隔离：真实会话零写入、思考/沙箱/会话列表锁定，退出还原。</span></li>
+        <li><span class="tag add">ADD</span><span>系统命令识别器图标 + 六条新命令（<code>/version /stats /theme /cache /key /export</code>）。</span></li>
+        <li><span class="tag fix">FIX</span><span>思考过程不流式（<code>onReasoning</code> 钩子漏接线）与「思考中」重复显示；状态栏三点动效被 ticker 重置的卡顿。</span></li>
+        <li><span class="tag imp">IMPROVE</span><span>调试浮窗：日志批量上屏防卡顿、fetch/全局错误/未捕获 Promise 覆盖、复制反馈、手柄收进窗内；/debug off 连入口一起隐藏。</span></li>
+      </ul></div>
+    </div>
 
-<div class="ver"><span class="pill">V1.3 β .11–.15</span><span class="date">2026-09-27</span></div>
-<div class="ver-body"><ul>
-  <li><b class="tag fix">修复</b>本地内容审核整体复活并提速：NudeNet + NSFWJS + USE/Toxicity 三模型启动预热、CJK 快速通道；页面内调试浮窗逐轮迭代（日志全链路、缩放、多选复制、开关入口、fail-closed 拦截）。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.3 β .16</span><span class="ver-build">2026.9.27.16</span><span class="ver-date">2026-09-27</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>Service Worker 离线缓存：模型/审核资产首次下载后本地零网络命中，断网可用。</span></li>
+        <li><span class="tag add">ADD</span><span><code>:::color</code> 颜色文本语法（12 色中英别名）；/system 隐藏通道（本地命令免 Key）；思考链加密徽章。</span></li>
+        <li><span class="tag imp">IMPROVE</span><span>思考标题延迟定名；文件行折叠同构；meta 行距统一。</span></li>
+      </ul></div>
+    </div>
 
-<h2>V1.3 正式版<span class="date" style="margin-left:10px">2026-09-27 · 构建 2026.9.27.10</span></h2>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>项目内本地静态模型内容审核：文本 Toxicity/策略层 + 图片 NudeNet/NSFWJS 双路，不调用外部审核；图片 fail-closed（超时即拦），审核不通过不进沙箱与上下文。</li>
-  <li><b class="tag fix">修复</b>图片 URL / Markdown 图片绕过审核的问题；旧数据残留的审核关闭开关强制恢复。</li>
-  <li><b class="tag add">新增</b>结构化图表/流程图/思维导图走 SVG/Mermaid/DOT，不再误调生图模型。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.3 β .11–.15</span><span class="ver-build">2026.9.27.11–.15</span><span class="ver-date">2026-09-27</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag fix">FIX</span><span>本地内容审核整体复活并提速：NudeNet + NSFWJS + USE/Toxicity 三模型启动预热、CJK 快速通道、fail-closed 拦截。</span></li>
+        <li><span class="tag add">ADD</span><span>页面内调试浮窗逐轮迭代：审核全链路日志、缩放、多选复制、开关入口、动画。</span></li>
+      </ul></div>
+    </div>
 
-<h2>V1.2 正式版<span class="date" style="margin-left:10px">2026-09-26 · 构建 2026.9.26.38</span></h2>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>沙箱图片经 <code>sandbox://</code> 嵌入正文；选择框 / 折叠栏 / 文内目录锚点。</li>
-  <li><b class="tag add">新增</b>思考档 Ultra（32k 思考预算、可委派、强制自检与多专家交叉复核）；长效记忆 remember。</li>
-  <li>思考过程与工具芯片同构展开；每条回复记录思考等级与脚注耗时；token 详情小浮窗。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.3 正式版</span><span class="ver-build">2026.9.27.10</span><span class="ver-date">2026-09-27</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>本地静态模型内容审核：文本 Toxicity/策略层 + 图片 NudeNet/NSFWJS 双路；图片失败即拦截（fail-closed），不进沙箱与上下文。</span></li>
+        <li><span class="tag fix">FIX</span><span>图片 URL / Markdown 图片绕过审核的问题；残留的审核关闭开关强制恢复。</span></li>
+        <li><span class="tag imp">IMPROVE</span><span>结构化图表/流程图/思维导图走 SVG/Mermaid/DOT，不再误调生图模型。</span></li>
+      </ul></div>
+    </div>
 
-<h2>V1.1 正式版<span class="date" style="margin-left:10px">2026-09-26 · 构建 2026.9.26.18</span></h2>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>产品介绍主页与门页动效；空状态任务示例卡（点击填入完整提示词）。</li>
-  <li><b class="tag add">新增</b>本地工作台工具：<code>search_files / diff_text / json_tool / delete_file / copy_file</code>。</li>
-  <li><b class="tag fix">修复</b>安全加固：Markdown 剥离 <code>javascript:/data:</code> 链接；中继校验 Origin、限制代理路径。</li>
-  <li>联网改为「有本地中继才可开」；思考档 Ultra 丝绸彩虹动效。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.2 正式版</span><span class="ver-build">2026.9.26.38</span><span class="ver-date">2026-09-26</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>沙箱图片经 <code>sandbox://</code> 嵌入正文；选择框 / 折叠栏 / 文内目录锚点。</span></li>
+        <li><span class="tag add">ADD</span><span>思考档 Ultra（32k 思考预算、可委派、强制自检与多专家交叉复核）；长效记忆 remember。</span></li>
+        <li><span class="tag imp">IMPROVE</span><span>思考过程与工具芯片同构展开；回复记录思考等级与脚注耗时；token 详情小浮窗。</span></li>
+      </ul></div>
+    </div>
 
-<h2>V1.0 正式版<span class="date" style="margin-left:10px">2026-09-22 · 构建 2026.09.22.1</span></h2>
-<div class="ver-body"><ul>
-  <li><b class="tag add">新增</b>41 个网关模型自选（家族图标 + 搜索）、全模型思考模式与自动降级。</li>
-  <li><b class="tag add">新增</b>代码沙箱（JS/Python/C++ + 虚拟文件系统 + 打包下载）、文生图与图片编辑、18 个子智能体委派。</li>
-  <li><b class="tag add">新增</b>多会话导出/导入、对话回滚与撤销、KaTeX 公式、模型 API 原生联网检索（含诚实性护栏）、移动端独立排布、刷新不丢数据（IndexedDB）。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.1 正式版</span><span class="ver-build">2026.9.26.18</span><span class="ver-date">2026-09-26</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>产品介绍主页与门页动效；空状态任务示例卡（点击填入完整提示词）。</span></li>
+        <li><span class="tag add">ADD</span><span>本地工作台工具：<code>search_files / diff_text / json_tool / delete_file / copy_file</code>。</span></li>
+        <li><span class="tag fix">FIX</span><span>安全加固：Markdown 剥离 <code>javascript:/data:</code> 链接；中继校验 Origin、限制代理路径。</span></li>
+      </ul></div>
+    </div>
 
-<h2>远古构建<span class="date" style="margin-left:10px">2026-09-19 ～ 09-21（V1.0 之前）</span></h2>
-<div class="ver-body"><ul>
-  <li>七轮快速迭代：基础对话流与视图层故障隔离（混版缓存 brick 发送的根治 + 入口资源版本化）、文件面板目录树、联网改模型 API 自带格式、会话记录自动整理、本地 git 中继、重新生成、移动端与触屏密度、随机任务示例等。</li>
-</ul></div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">V1.0 正式版</span><span class="ver-build">2026.09.22.1</span><span class="ver-date">2026-09-22</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag add">ADD</span><span>41 个网关模型自选（家族图标 + 搜索）、全模型思考模式与自动降级。</span></li>
+        <li><span class="tag add">ADD</span><span>代码沙箱（JS/Python/C++ + 虚拟文件系统 + 打包下载）、文生图与图片编辑、18 个子智能体委派。</span></li>
+        <li><span class="tag add">ADD</span><span>多会话导出/导入、回滚与撤销、KaTeX 公式、原生联网检索（含诚实性护栏）、移动端排布、刷新不丢数据。</span></li>
+      </ul></div>
+    </div>
 
-<!-- ══════════════════════ 用户协议 ══════════════════════ -->
-<h1 id="agreement">用户协议</h1>
-<div class="legal">
-<p>欢迎使用 TeamoAgent（下称「本应用」）。请在使用前阅读并理解本协议，<strong>使用本应用即视为接受本协议全部内容</strong>。</p>
-<h3>1. 软件性质</h3>
-<ul>
-  <li>本应用目前为 <strong>β（测试）版本</strong>，按「现状」提供，不做任何明示或默示的适销性、准确性、不中断或无错误的保证。</li>
-  <li>本应用为纯前端静态网页：对话、沙箱、文件均在你自己的浏览器中运行；模型推理经你配置的 API Key 通过 TeamoRouter 网关完成。</li>
-</ul>
-<h3>2. 账号与密钥</h3>
-<ul>
-  <li>本应用无账号体系。你的 API Key 仅保存在本地浏览器，请自行妥善保管；泄露导致的后果由使用者承担。</li>
-  <li>请勿将 Key 交予他人使用，或用于本协议禁止的用途。</li>
-</ul>
-<h3>3. 使用规范</h3>
-<ul>
-  <li>不得利用本应用生成、传播法律法规禁止的内容，包括但不限于未成年人色情、暴力犯罪、毒品制贩、反社会内容等。</li>
-  <li>本应用内置本地内容审核（β），对高风险内容执行拦截；审核为辅助手段，<strong>不构成免除使用者责任的依据</strong>，最终责任由使用者承担。</li>
-  <li>不得滥用、攻击或试图破坏本应用、网关或上游模型服务的可用性。</li>
-</ul>
-<h3>4. 责任限制</h3>
-<ul>
-  <li>AI 生成内容可能不准确、不完整或过时，<strong>不构成专业建议</strong>；重要决策请自行核实。</li>
-  <li>在法律允许的最大范围内，作者对使用本应用产生的任何直接或间接损失不承担责任。</li>
-</ul>
-<h3>5. 协议变更</h3>
-<ul>
-  <li>本协议可能随版本更新调整，变更后在本页面发布即生效；继续使用视为接受变更。</li>
-</ul>
-</div>
+    <div class="ver-block">
+      <div class="ver-head"><span class="ver-name">远古构建</span><span class="ver-build">2026-09-19 ～ 09-21</span><span class="ver-date">V1.0 之前</span></div>
+      <div class="ver-card"><ul>
+        <li><span class="tag imp">IMPROVE</span><span>七轮快速迭代：基础对话流与视图层故障隔离（混版缓存 brick 发送根治 + 入口资源版本化）、文件目录树、联网改模型 API 自带格式、会话自动整理、本地 git 中继、重新生成、移动端触屏密度。</span></li>
+      </ul></div>
+    </div>
 
-<!-- ══════════════════════ 服务条款 ══════════════════════ -->
-<h1 id="terms">服务条款</h1>
-<div class="legal">
-<h3>1. 服务说明</h3>
-<ul>
-  <li>本应用提供网页端 AI 智能体服务：多模型对话、思考过程展示、代码沙箱执行、文件读写、图像生成、联网检索、子智能体委派等。</li>
-  <li>模型推理由 TeamoRouter 网关（<code>api.teamorouter.com</code>）路由至 Anthropic、OpenAI、Google、DeepSeek、智谱、月之暗面、xAI 等第三方模型服务商；各服务商另有其服务条款，请一并遵守。</li>
-</ul>
-<h3>2. 可用性</h3>
-<ul>
-  <li>本应用为 β 服务，<strong>无可用性承诺（SLA）</strong>；网关、上游模型或静态托管中断时部分或全部功能可能不可用。</li>
-  <li>部分能力（联网中继、本地审核模型缓存）依赖浏览器环境，功能可用性以页面内实际提示为准。</li>
-</ul>
-<h3>3. 内容审核</h3>
-<ul>
-  <li>图片审核在本机浏览器内由本地模型（NudeNet / NSFWJS）执行，文本审核由本地策略层与语义模型执行；命中高风险阈值的图片以「失败即拦截」（fail-closed）处理。</li>
-  <li>被拦截内容不进入沙箱与模型上下文；审核逻辑与阈值可能随版本调整。</li>
-</ul>
-<h3>4. 沙箱与文件</h3>
-<ul>
-  <li>代码沙箱在浏览器本地执行生成的代码并维护虚拟文件系统；请勿在沙箱内放置敏感凭据或唯一副本数据。</li>
-  <li>沙箱文件、会话记录保存在本地浏览器存储中，清除浏览器数据将一并清除。</li>
-</ul>
-<h3>5. 条款变更与终止</h3>
-<ul>
-  <li>作者可随时更新本条款；停止使用即终止本条款下的授权。条款更新后继续使用视为接受。</li>
-</ul>
-</div>
+  </div>
 
-<!-- ══════════════════════ 隐私政策 ══════════════════════ -->
-<h1 id="privacy">隐私政策</h1>
-<div class="legal">
-<p>本应用遵循「数据最少化、本地优先」原则。</p>
-<h3>1. 保存在你浏览器本地的数据</h3>
-<ul>
-  <li>会话记录、设置、API Key、长效记忆、沙箱文件与附件：保存于浏览器的 <code>localStorage</code> 与 <code>IndexedDB</code>，<strong>不会上传到作者或任何统计服务</strong>。</li>
-  <li>清除方式：应用内「清空会话」、浏览器清除站点数据，或使用 /system 通道的 <code>/cache clear</code>（清离线缓存）。</li>
-</ul>
-<h3>2. 发送给第三方的数据</h3>
-<ul>
-  <li>你发送的消息与附件（含图片）会经 TeamoRouter 网关（<code>api.teamorouter.com</code>）转发给你所选模型的服务商用于生成回复；这是对话功能的必然传输。</li>
-  <li>API Key 仅作为网关鉴权凭证发送，不用于其他目的。</li>
-  <li>内容审核模型（NudeNet / NSFWJS / Toxicity 等）<strong>在本地浏览器运行</strong>，审核过程不向作者上传任何内容；仅审核通过的图片才会随消息发往网关。</li>
-</ul>
-<h3>3. 不收集的信息</h3>
-<ul>
-  <li>本应用不含统计分析、埋点、广告追踪或指纹采集；不请求通知、地理位置等敏感权限。</li>
-  <li>作者不运营任何后端数据库，无法也无需存储你的对话内容。</li>
-</ul>
-<h3>4. 离线缓存</h3>
-<ul>
-  <li>Service Worker 将模型与审核资产缓存在本地（Cache Storage），用于加速与离线可用；缓存仅含静态资源，不含你的任何个人数据。</li>
-</ul>
-<h3>5. 联系与生效</h3>
-<ul>
-  <li>本政策自发布之日起生效；如有疑问请联系 <code>lks.tan.cn@gmail.com</code>。</li>
-</ul>
-</div>
+  <!-- ══════════════ 用户协议 ══════════════ -->
+  <h2 id="agreement">用户协议</h2>
+  <p class="h-sub">使用本应用即视为接受本协议全部内容。</p>
+  <div class="note">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.5"/></svg>
+    <span>本应用目前为 <strong>β（测试）版本</strong>，按「现状」提供。AI 生成内容可能不准确、不完整或过时，<strong>不构成专业建议</strong>，重要决策请自行核实。</span>
+  </div>
+  <div class="legal-card">
+    <h3><span class="no">01</span>软件性质</h3>
+    <ul>
+      <li>纯前端静态网页：对话、沙箱、文件均在你自己的浏览器中运行；模型推理经你配置的 API Key 通过 TeamoRouter 网关完成。</li>
+      <li>不做任何明示或默示的适销性、准确性、不中断或无错误的保证。</li>
+    </ul>
+    <h3><span class="no">02</span>账号与密钥</h3>
+    <ul>
+      <li>无账号体系。API Key 仅保存在本地浏览器，请自行妥善保管；泄露导致的后果由使用者承担。</li>
+      <li>请勿将 Key 交予他人使用，或用于本协议禁止的用途。</li>
+    </ul>
+    <h3><span class="no">03</span>使用规范</h3>
+    <ul>
+      <li>不得利用本应用生成、传播法律法规禁止的内容，包括但不限于未成年人色情、暴力犯罪、毒品制贩、反社会内容等。</li>
+      <li>内置本地内容审核（β）对高风险内容执行拦截；审核为辅助手段，<strong>不构成免除使用者责任的依据</strong>，最终责任由使用者承担。</li>
+      <li>不得滥用、攻击或试图破坏本应用、网关或上游模型服务的可用性。</li>
+    </ul>
+    <h3><span class="no">04</span>责任限制与变更</h3>
+    <ul>
+      <li>在法律允许的最大范围内，作者对使用本应用产生的任何直接或间接损失不承担责任。</li>
+      <li>本协议可能随版本更新调整，变更后在本页面发布即生效；继续使用视为接受变更。</li>
+    </ul>
+  </div>
+
+  <!-- ══════════════ 服务条款 ══════════════ -->
+  <h2 id="terms">服务条款</h2>
+  <p class="h-sub">服务范围、可用性与内容边界。</p>
+  <div class="legal-card">
+    <h3><span class="no">01</span>服务说明</h3>
+    <ul>
+      <li>提供网页端 AI 智能体服务：多模型对话、思考过程展示、代码沙箱执行、文件读写、图像生成、联网检索、子智能体委派等。</li>
+      <li>模型推理由 TeamoRouter 网关（<code>api.teamorouter.com</code>）路由至 Anthropic、OpenAI、Google、DeepSeek、智谱、月之暗面、xAI 等第三方模型服务商；各服务商另有其服务条款，请一并遵守。</li>
+    </ul>
+    <h3><span class="no">02</span>可用性</h3>
+    <ul>
+      <li>β 服务，<strong>无可用性承诺（SLA）</strong>；网关、上游模型或静态托管中断时部分或全部功能可能不可用。</li>
+      <li>部分能力（联网中继、离线缓存）依赖浏览器环境，功能可用性以页面内实际提示为准。</li>
+    </ul>
+    <h3><span class="no">03</span>内容审核</h3>
+    <ul>
+      <li>图片审核在本机浏览器内由本地模型（NudeNet / NSFWJS）执行，文本审核由本地策略层与语义模型执行；命中高风险阈值的图片以「失败即拦截」（fail-closed）处理。</li>
+      <li>被拦截内容不进入沙箱与模型上下文；审核逻辑与阈值可能随版本调整。</li>
+    </ul>
+    <h3><span class="no">04</span>沙箱与文件</h3>
+    <ul>
+      <li>代码沙箱在浏览器本地执行生成的代码并维护虚拟文件系统；请勿在沙箱内放置敏感凭据或唯一副本数据。</li>
+      <li>沙箱文件、会话记录保存在本地浏览器存储中，清除浏览器数据将一并清除。</li>
+    </ul>
+  </div>
+
+  <!-- ══════════════ 隐私政策 ══════════════ -->
+  <h2 id="privacy">隐私政策</h2>
+  <p class="h-sub">数据最少化、本地优先。</p>
+  <div class="legal-card">
+    <h3><span class="no">01</span>保存在你浏览器本地的数据</h3>
+    <ul>
+      <li>会话记录、设置、API Key、长效记忆、沙箱文件与附件：保存于浏览器的 <code>localStorage</code> 与 <code>IndexedDB</code>，<strong>不会上传到作者或任何统计服务</strong>。</li>
+      <li>清除方式：应用内「清空会话」、浏览器清除站点数据，或 /system 通道的 <code>/cache clear</code>（清离线缓存）。</li>
+    </ul>
+    <h3><span class="no">02</span>发送给第三方的数据</h3>
+    <ul>
+      <li>你发送的消息与附件（含图片）会经 TeamoRouter 网关（<code>api.teamorouter.com</code>）转发给你所选模型的服务商用于生成回复；这是对话功能的必然传输。</li>
+      <li>API Key 仅作为网关鉴权凭证发送，不用于其他目的。</li>
+      <li>内容审核模型（NudeNet / NSFWJS / Toxicity 等）<strong>在本地浏览器运行</strong>，审核过程不向作者上传任何内容；仅审核通过的图片才会随消息发往网关。</li>
+    </ul>
+    <h3><span class="no">03</span>不收集的信息</h3>
+    <ul>
+      <li>不含统计分析、埋点、广告追踪或指纹采集；不请求通知、地理位置等敏感权限。</li>
+      <li>作者不运营任何后端数据库，无法也无需存储你的对话内容。</li>
+    </ul>
+    <h3><span class="no">04</span>离线缓存与联系</h3>
+    <ul>
+      <li>Service Worker 将模型、审核资产与厂商图标缓存在本地（Cache Storage），用于加速与离线可用；缓存仅含静态资源，不含你的任何个人数据。</li>
+      <li>本政策自发布之日起生效；如有疑问请联系 <code>lks.tan.cn@gmail.com</code>。</li>
+    </ul>
+  </div>
+</main>
 
 <footer>
-  <span>TeamoAgent · V1.3 β（构建 2026.9.27.18）</span>
-  <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
-  <a href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer">GitHub</a>
+  <span>TeamoAgent V1.3 · 构建 2026.9.27.19</span>
+  <span class="foot-links">
+    <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
+    <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
+      <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+    </a>
+    <a href="./index.html">首页</a>
+    <a href="./app.html">对话</a>
+  </span>
 </footer>
 
-</div>
+<script>
+  // 外观：跟随 index 的手动偏好，其次系统偏好（颜色插值过渡与主页一致由 CSS transition 承担）
+  (function () {
+    var root = document.documentElement;
+    var saved = null;
+    try { saved = localStorage.getItem('teamo-theme'); } catch (e) {}
+    if (saved !== 'dark' && saved !== 'light') {
+      saved = (window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+    }
+    root.dataset.theme = saved;
+    document.getElementById('theme-toggle').addEventListener('click', function () {
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+      try { localStorage.setItem('teamo-theme', root.dataset.theme); } catch (e) {}
+    });
+    // 滚动后导航描边（与主页 .nav.scrolled 一致）
+    var nav = document.querySelector('.nav');
+    addEventListener('scroll', function () { nav.style.borderBottomColor = scrollY > 8 ? 'var(--line)' : 'transparent'; }, { passive: true });
+  })();
+</script>
 </body>
 </html>

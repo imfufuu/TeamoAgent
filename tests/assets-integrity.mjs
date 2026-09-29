@@ -136,6 +136,20 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   const icons = read('../js/icons.js');
   const css0 = read('../css/styles.css');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  // 2026.9.27.19：图标入缓存 / Teamo 组图标 / 文档页重设计 / opus-5-5 热门置顶
+  const swPre = read('../sw.js');
+  assert.match(swPre, /fonts\|icons/, 'SW 范围应覆盖 assets/icons');
+  assert.match(swPre, /PRECACHE_ICONS/, 'SW 应在 install 预热厂商图标');
+  assert.match(ui, /sys-gear">\$\{ICON\.system\}<\/span><span>Teamo/, 'Teamo 分组标题应有图标');
+  const cfg = read('../js/config.js');
+  assert.match(cfg, /\{ id: 'claude-opus-5-5',\s+provider: 'Anthropic', hot: true \}/, 'opus-5-5 应入表且标热门');
+  const idx55 = cfg.indexOf("claude-opus-5-5");
+  const idxFable = cfg.indexOf("claude-fable-5-1");
+  assert.ok(idx55 >= 0 && idx55 < idxFable, 'opus-5-5 应排在 fable-5-1 之前（组内置顶）');
+  const docs2 = read('../docs.html');
+  for (const tok of ['--serif', 'timeline', 'legal-card', 'theme-toggle', 'class="glow"', 'data-theme']) {
+    assert.ok(docs2.includes(tok), `docs.html 应含主页设计语言标记：${tok}`);
+  }
   // 2026.9.27.18：数学守卫 / system 输出格式化 / 文档页 / 搜索清空
   assert.match(ui, /行内代码先剥离/, '行内代码必须先于数学提取剥离');
   assert.match(ui, /MATH_REJECT/, '数学段守卫应存在');
@@ -145,7 +159,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(ui, /m\.model === '__system__' \? sysReplyHtml/, 'system 回复应走格式化渲染');
   assert.match(ui, /syncCapLine\(\); \/\/ 能力行/, '进通道应刷新能力行');
   assert.match(ui, /'<span class="dd-item-id mono">system-commands<\/span>'/, '菜单条目应为英文且无图标');
-  assert.match(ui, /dd-group-title', '<span>Teamo<\/span>'\)\);/, '分组标题应为 Teamo');
+  assert.match(ui, /dd-group-title', `<span class="sys-gear">\$\{ICON\.system\}<\/span><span>Teamo<\/span>`\)\);/, '分组标题应为 Teamo（带图标）');
   assert.match(ui, /model-search-clear/, '搜索清空按钮应接线');
   assert.ok(exists('../docs.html'), 'docs.html 文档页应存在');
   const docs = read('../docs.html');

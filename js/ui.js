@@ -958,7 +958,7 @@ export function mountUI(store, agent) {
     if (q === '/system' || q.startsWith('/system ')) {
       ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', '<span>Teamo</span>'));
+      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">${ICON.system}</span><span>Teamo</span>`));
       const item = el('button', 'dd-item' + (store.state.model === '__system__' ? ' active' : ''));
       item.type = 'button';
       // 简约：一行式条目（图标 + 名称），介绍信息省略

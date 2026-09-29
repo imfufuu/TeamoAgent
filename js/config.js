@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.3';
-export const APP_VERSION = '2026.9.27.18';
+export const APP_VERSION = '2026.9.27.19';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -36,7 +36,9 @@ export const STORAGE_KEY = 'teamo-agent-state-v1';
 // 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09）
 export const FALLBACK_MODELS = [
   // Anthropic —— 走 /v1/messages 原生协议
-  // 标签（2026-09 调研）：热门 = 当季常用/榜单常客；低价 = 约 ≤$1/M 输入或网关免费档。
+  // 标签（2026-09-29 复核调研）：热门 = 当季常用/榜单常客；低价 = 约 ≤$1/M 输入或网关免费档。
+  // Opus 5.5：9 月新旗舰（接替 Opus 5），Terminal-Bench 4.0 领先、代理编码使用率第二 → 热门置顶。
+  { id: 'claude-opus-5-5',     provider: 'Anthropic', hot: true },
   { id: 'claude-fable-5-1',    provider: 'Anthropic', hot: true },
   { id: 'claude-opus-5',       provider: 'Anthropic', hot: true },
   { id: 'claude-fable-5',      provider: 'Anthropic' },

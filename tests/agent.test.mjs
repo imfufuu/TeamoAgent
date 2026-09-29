@@ -4546,6 +4546,15 @@ test('.16 颜色文本 :::color 渲染（含中文别名与正文 Markdown）', 
   }
 });
 
+test('.19 模型热度：claude-opus-5-5 热门且 Anthropic 组置顶', async () => {
+  const opus = cfg.FALLBACK_MODELS.find((m) => m.id === 'claude-opus-5-5');
+  assert.ok(opus, 'claude-opus-5-5 应在 FALLBACK_MODELS（否则只能靠网关追加到组尾）');
+  assert.equal(opus.hot, true, 'Opus 5.5 为 9 月新旗舰应标热门');
+  assert.equal(opus.provider, 'Anthropic');
+  const anthropicIds = cfg.FALLBACK_MODELS.filter((m) => m.provider === 'Anthropic').map((m) => m.id);
+  assert.equal(anthropicIds[0], 'claude-opus-5-5', 'Opus 5.5 应在 Anthropic 组第一位');
+});
+
 test('.17 系统命令识别器：图标、命令集与隔离标记', async () => {
   const { ICON } = await import('../js/icons.js');
   assert.ok(ICON.system && ICON.system.includes('<svg'), 'ICON.system 终端图标应存在');
