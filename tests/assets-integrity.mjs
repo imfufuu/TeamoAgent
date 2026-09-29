@@ -163,7 +163,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(ui, /model-search-clear/, '搜索清空按钮应接线');
   assert.ok(exists('../docs.html'), 'docs.html 文档页应存在');
   const docs = read('../docs.html');
-  for (const sec of ['更新日志', '用户协议', '服务条款', '隐私政策', 'V1.0', 'V1.3 β .18']) {
+  for (const sec of ['更新日志', '用户协议', '服务条款', '隐私政策', 'V1.0', 'V1.4']) {
     assert.ok(docs.includes(sec), `docs.html 缺少：${sec}`);
   }
   assert.match(html, /docs\.html/, '应用页应有文档入口');

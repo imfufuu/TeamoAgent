@@ -1,4 +1,4 @@
-/* TeamoAgent 审核资源离线缓存 Service Worker（构建 2026.9.27.20）
+/* TeamoAgent 审核资源离线缓存 Service Worker（构建 2026.9.30.1）
  * 策略：stale-while-revalidate —— 命中缓存立即返回（零网络），后台静默更新。
  * 覆盖：assets/vendor、assets/moderation、assets/katex、assets/pdfjs、assets/hljs、assets/icons、fonts。
  * 效果：模型/运行时/厂商图标只在首次使用时下载一次，之后所有会话（含隔天重开）直接读本地缓存，

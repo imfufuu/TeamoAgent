@@ -1794,7 +1794,7 @@ test('app.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => 
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const { APP_VERSION } = await import('../js/config.js');
-  assert.match(APP_VERSION, /^2026\.9\.27\.\d+$/, 'V1.3 构建号必须以 2026.9.27 开头');
+  assert.match(APP_VERSION, /^2026\.9\.30\.\d+$/, 'V1.4 构建号必须以 2026.9.30 开头');
   for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
     const m = new RegExp(`${asset}\\?v=([\\d.]+)`).exec(html);
     assert.ok(m, `${asset.replace(/\\/g, '')} 应带 ?v=`);
@@ -4503,16 +4503,16 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
   }
 });
 
-group('V1.3 正式版 / 桌面沙箱面板');
-test('V1.3 发布标识与 2026.9.27 构建号已同步', async () => {
+group('V1.4 Stable / 桌面沙箱面板');
+test('V1.4 发布标识与 2026.9.30 构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.equal(APP_RELEASE, 'V1.3');
-  assert.match(APP_VERSION, /^2026\.9\.27\.\d+$/);
-  assert.match(html, /TeamoAgent V1\.3 正式版/);
-  assert.match(home, /TeamoAgent V1\.3 · 构建 2026\.9\.27\.\d+/);
+  assert.equal(APP_RELEASE, 'V1.4');
+  assert.match(APP_VERSION, /^2026\.9\.30\.\d+$/);
+  assert.match(html, /TeamoAgent V1\.4/);
+  assert.match(home, /TeamoAgent V1\.4 · 构建 2026\.9\.30\.\d+/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
