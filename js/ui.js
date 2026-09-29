@@ -931,12 +931,11 @@ export function mountUI(store, agent) {
     if (q === '/system' || q.startsWith('/system ')) {
       ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">⚙</span><span>隐藏通道</span>`));
+      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">${ICON.system || '⚙'}</span><span>隐藏通道</span>`));
       const item = el('button', 'dd-item' + (store.state.model === '__system__' ? ' active' : ''));
       item.type = 'button';
-      item.innerHTML = `<span class="dd-item-id mono">/system 系统命令识别器</span>
-        <span class="dd-item-badges"><span class="badge enc" title="输入命令获取系统反馈">系统</span></span>
-        <span class="dd-item-hint">如 /debug on · /status · /help</span>`;
+      // 简约：一行式条目（图标 + 名称），介绍信息省略
+      item.innerHTML = `<span class="dd-item-id mono"><span class="sys-gear">${ICON.system || '⚙'}</span>/system 系统命令</span>`;
       item.addEventListener('click', () => selectModel('__system__'));
       g.appendChild(item);
       ddMenu.appendChild(g);
@@ -979,14 +978,58 @@ export function mountUI(store, agent) {
     const foot = $('.dd-foot', ddMenu);
     if (foot) ddMenu.appendChild(foot); // 生图模型行始终排在分组之后（sticky bottom 生效）
   }
+  // ── /system 通道隔离（.17）：进入时收起真实会话现场、换一次性草稿；
+  // state.js 的 commit 对 __system__ 直接跳过 → 真实会话零写入，退出后原样恢复 ──
+  let preSystem = null;
+  const inSystem = () => store.state.model === '__system__';
+  function enterSystem() {
+    if (preSystem) return;
+    preSystem = { messages: store.state.messages, checkpoints: store.state.checkpoints, files: store.state.files };
+    store.state.messages = []; store.state.checkpoints = []; store.state.files = {};
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+  }
+  function exitSystem() {
+    if (!preSystem) return;
+    store.state.messages = preSystem.messages; store.state.checkpoints = preSystem.checkpoints; store.state.files = preSystem.files;
+    preSystem = null;
+    try { agent.loadFiles(store.state.files); } catch { /* 忽略 */ }
+    rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+  }
+  // 通道内：思考/沙箱按钮灰置，会话列表禁点（防止系统输出混进 Agent 会话）
+  function applySystemLock() {
+    const sys = inSystem();
+    for (const sel of ['#thinking-toggle', '#sandbox-toggle']) {
+      const b = $(sel);
+      if (!b) continue;
+      b.disabled = sys;
+      b.classList.toggle('sys-locked', sys);
+    }
+    const list = $('#session-list');
+    if (list) list.classList.toggle('sys-locked', sys);
+  }
   function selectModel(id) {
     if (!id) return;
-    store.state.model = id; store.notify();
     if (id === '__system__') {
-      updateModelBtn(); closeMenu();
-      toast('已切换到系统命令识别器：直接输入 /help 查看命令', 'ok', 4200);
+      if (preSystem) { closeMenu(); return; }
+      if (getBusy()) { closeMenu(); return toast('请等待当前回合结束再进入系统命令通道', 'warn'); }
+      store.state.model = id;
+      enterSystem();
+      store.notify();
+      updateModelBtn(); closeMenu(); applySystemLock();
+      toast('已进入 /system 隐藏通道：直接输入 /help 查看命令（真实会话不会被写入）', 'ok', 4200);
       return;
     }
+    if (preSystem) {
+      if (getBusy()) { closeMenu(); return toast('请等待当前回合结束', 'warn'); }
+      store.state.model = id;
+      exitSystem();
+      store.notify();
+      updateModelBtn(); closeMenu(); applySystemLock();
+      syncCapLine();
+      toast('已退出隐藏通道，回到原会话', 'ok', 2400);
+      return;
+    }
+    store.state.model = id; store.notify();
     if (typeof syncWeb === 'function') syncWeb();
     updateModelBtn(); closeMenu();
     const fast = $('#fast-toggle');
@@ -1003,7 +1046,7 @@ export function mountUI(store, agent) {
   }
   function updateModelBtn() {
     const sys = store.state.model === '__system__';
-    $('#model-btn-icon').innerHTML = sys ? '<span class="sys-gear">⚙</span>' : providerIcon(providerOf(store.state.model));
+    $('#model-btn-icon').innerHTML = sys ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(store.state.model));
     $('#model-btn-name').textContent = sys ? '/system 系统命令' : store.state.model;
     $('#model-btn-provider').textContent = sys ? '隐藏通道' : providerOf(store.state.model);
     syncImageModelSelect();
@@ -1352,6 +1395,7 @@ export function mountUI(store, agent) {
   //（store.listableSessions 负责过滤，「＋ 新建」也会复用空草稿，不堆 invisible 记录）
   function renderSessions() {
     const box = $('#session-list'); box.innerHTML = '';
+    box.classList.toggle('sys-locked', inSystem());
     const list = store.listableSessions ? store.listableSessions() : store.sortedSessions();
     if (!list.length) {
       box.appendChild(el('div', 'sess-empty-hint', '还没有会话记录'));
@@ -1430,6 +1474,7 @@ export function mountUI(store, agent) {
   }
   function switchToSession(id) {
     if (id === store.state.activeSessionId) return;
+    if (inSystem()) return toast('系统命令通道内不能进入其他会话：先在模型菜单选回普通模型', 'warn');
     if (getBusy()) return toast('请等待当前回合结束再切换会话', 'warn');
     store.switchSession(id);
     agent.loadFiles(store.state.files);
@@ -1438,6 +1483,7 @@ export function mountUI(store, agent) {
     syncThinking(); syncCapLine();
   }
   $('#new-session').addEventListener('click', () => {
+    if (inSystem()) return toast('系统命令通道内不能新建会话：先在模型菜单选回普通模型', 'warn');
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
     (store.ensureDraft ? store.ensureDraft() : store.createSession());
     agent.loadFiles({});
@@ -1801,7 +1847,7 @@ export function mountUI(store, agent) {
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
       const headModel = m.model || store.state.model;
       const headName = headModel === '__system__' ? '/system 系统命令识别器' : headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
-      const headIcon = headModel === '__system__' ? '<span class="sys-gear">⚙</span>' : providerIcon(providerOf(headModel));
+      const headIcon = headModel === '__system__' ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(headModel));
       wrap.innerHTML = `
         ${showHead ? `<div class="msg-head"><span class="avatar">${headIcon}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
@@ -1917,7 +1963,7 @@ export function mountUI(store, agent) {
         wrap.insertBefore(reason, body);
       }
       const bits = [];
-      if (thinkPending) bits.push('思考中');
+      // 注意：不再把「思考中」塞进 bits——title 已经是「思考中」，重复会出现「思考中 · 思考中」（.17）
       if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
       if (hiddenThink && m.usage && m.usage.reasoning) bits.push(`${m.usage.reasoning} tok`);
       if (m.reasoningMs) bits.push(fmtSpan(m.reasoningMs));
@@ -1937,7 +1983,10 @@ export function mountUI(store, agent) {
       const sig = `${live ? 'live' : 'done'}:${(m.reasoning || '').length}:${hiddenThink ? 1 : 0}`;
       if (inner && inner.dataset.sig !== sig) {
         inner.dataset.sig = sig;
-        inner.innerHTML = detail;
+        // 流式思考：只改既有 <pre> 的 textContent（整段 innerHTML 会让长思考逐帧重建，越流越卡）
+        const pre = live && showThink ? inner.querySelector('pre.think-stream') : null;
+        if (pre) pre.textContent = m.reasoning || '';
+        else inner.innerHTML = detail;
         if (!live) {
           hydrateSandboxMedia($('.reason-detail', reason) || reason, agent.fs);
           bindFoldRows($('.reason-detail', reason) || reason);
@@ -2301,8 +2350,17 @@ export function mountUI(store, agent) {
   const stopBusyTicker = () => { if (busyTimer) { clearInterval(busyTimer); busyTimer = null; } };
   function paintStatus(s) {
     const [label] = STATUS[s] || STATUS.idle;
+    statusText.innerHTML = `${esc(label)}${DOTS}<span class="selapsed mono"></span>`;
+    paintElapsed();
+  }
+  // 只刷新耗时文本，绝不重建 DOTS 节点——之前 ticker 每 200ms 重写整个 innerHTML，
+  // CSS 弹跳动效每帧被重置，三个点看起来一卡一卡（.17 修复）
+  function paintElapsed() {
+    if (!busySince) return;
+    const el = statusText.querySelector('.selapsed');
+    if (!el) return;
     const secs = (performance.now() - busySince) / 1000;
-    statusText.innerHTML = `${esc(label)}${DOTS}<span class="selapsed mono">${secs >= 0.8 ? `${secs.toFixed(1)}s` : ''}</span>`;
+    el.textContent = secs >= 0.8 ? `${secs.toFixed(1)}s` : '';
   }
   function setStatus(s) {
     const [label, cls] = STATUS[s] || STATUS.idle;
@@ -2310,7 +2368,7 @@ export function mountUI(store, agent) {
     if (busy) {
       if (!busySince) busySince = performance.now();
       statusDot.className = `dot busy ${s}`;
-      if (!busyTimer) busyTimer = setInterval(() => paintStatus(s), 200);
+      if (!busyTimer) busyTimer = setInterval(paintElapsed, 100);
       paintStatus(s);
     } else {
       busySince = 0; stopBusyTicker();
@@ -2612,7 +2670,7 @@ export function mountUI(store, agent) {
   }
 
   // ── /system 隐藏通道：命令识别器（本地执行，不走网关）──
-  function handleSystemCommand(input) {
+  async function handleSystemCommand(input) {
     const raw = String(input || '').trim();
     store.pushMessage({ role: 'user', text: raw, done: true });
     const cmd = raw.replace(/^[/／]+/, '').trim();
@@ -2623,11 +2681,17 @@ export function mountUI(store, agent) {
     if (name === 'help' || !name) {
       out = [
         '⌙ /system 可用命令：',
-        '/debug on | off —— 开/关调试浮窗（系统日志）',
-        '/status —— 当前版本 / 模型 / 审核预热状态',
+        '/debug on | off —— 开/关调试浮窗（系统日志：网络/错误/审核全链路）',
+        '/status —— 版本 / 模型 / 预热 / 审核状态',
+        '/version —— 仅版本一行',
+        '/stats —— 会话与耗时统计',
         '/model <模型ID> —— 切换模型（需完整 ID）',
         '/models —— 列出可用模型',
-        '/clear —— 清空当前会话消息',
+        '/theme dark|light —— 切换深/浅主题',
+        '/cache [clear] —— 查看离线缓存 / 清空后自动重建',
+        '/key —— 查看 API Key 尾号（完整 Key 不回显）',
+        '/export —— 导出全部会话记录（JSON 下载）',
+        '/clear —— 清空通道草稿（真实会话不受影响）',
         '提示：模型菜单搜索 /system 可回到本识别器',
       ].join('\n');
     } else if (name === 'debug') {
@@ -2651,6 +2715,48 @@ export function mountUI(store, agent) {
         `审核模型预热：${pw ? `已完成（NudeNet ${pw.nudenet ? '✓' : '✗'} / NSFWJS ${pw.nsfwjs ? '✓' : '✗'}${pw.toxicity != null ? ` / Toxicity ${pw.toxicity ? '✓' : '✗'}` : ''}）` : '尚未执行（发图或打开页面 2 秒后自动开始）'}`,
         `内容审核：${store.state.settings.contentModeration === true ? '开启（图片 fail-closed）' : '关闭'}`,
       ].join('\n');
+    } else if (name === 'version') {
+      out = `Teamo ${APP_RELEASE} · 构建 ${APP_VERSION}`;
+    } else if (name === 'stats') {
+      const st = store.state.stats || {};
+      const msgs = store.state.messages || [];
+      const rounds = msgs.filter((m) => m.role === 'user').length;
+      out = [
+        `通道草稿：${msgs.length} 条消息（${rounds} 轮）`,
+        `真实会话：${(store.state.sessions || []).length} 个（${preSystem ? '已隔离，未写入' : '当前'}）`,
+        `最近回合：${st.lastMs ? fmtSpan(st.lastMs) : '—'}`,
+        `累计耗时：${st.totalMs ? fmtSpan(st.totalMs) : '—'}`,
+      ].join('\n');
+    } else if (name === 'theme') {
+      const v = String(arg || '').toLowerCase();
+      if (v !== 'dark' && v !== 'light') out = '用法：/theme dark 或 /theme light';
+      else { store.state.settings.theme = v; applyTheme(); store.notify(); out = `✓ 主题已切换：${v === 'dark' ? '深色' : '浅色'}`; }
+    } else if (name === 'cache') {
+      if (typeof caches === 'undefined') out = '当前环境不支持 Cache Storage（需 https 或 localhost）';
+      else {
+        const names = await caches.keys();
+        if (/^(clear|清空|clean)$/i.test(arg)) {
+          await Promise.all(names.map((n) => caches.delete(n)));
+          out = `✓ 已清空 ${names.length} 个离线缓存。刷新页面后自动重建（模型/审核资产会重新下载一次）`;
+        } else {
+          let n = 0;
+          for (const nm of names) { try { n += (await (await caches.open(nm)).keys()).length; } catch { /* 忽略 */ } }
+          out = `离线缓存：${names.length} 个（${names.join('、') || '无'}），共 ${n} 条资产\n用法：/cache clear 清空（SW 之后自动重建）`;
+        }
+      }
+    } else if (name === 'key') {
+      const k = store.state.apiKey || '';
+      out = k ? `API Key：${k.slice(0, 10)}…${k.slice(-4)}（已配置；完整 Key 不回显）` : '尚未配置 API Key（普通对话需要；/system 通道本身不需要）';
+    } else if (name === 'export') {
+      try {
+        const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), version: APP_VERSION, sessions: store.state.sessions }, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `teamo-sessions-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        out = `✓ 已导出 ${(store.state.sessions || []).length} 个会话（JSON，含沙箱文件清单）`;
+      } catch (e) { out = `导出失败：${e && e.message ? e.message : e}`; }
     } else if (name === 'model') {
       const id = arg.trim();
       if (!id) out = '用法：/model <模型完整 ID>（如 /model claude-sonnet-5）';
@@ -2663,10 +2769,11 @@ export function mountUI(store, agent) {
     } else if (name === 'clear') {
       store.state.messages = [];
       store.state.checkpoints = [];
-      try { agent.loadFiles({}); } catch { /* 忽略 */ }
+      // 通道内清的是一次性草稿；真实沙箱文件只在真实会话里才动
+      if (!inSystem()) { try { agent.loadFiles({}); } catch { /* 忽略 */ } }
       store.notify();
       rebuildMessages(); renderFiles(); updateStats();
-      out = '✓ 当前会话消息与沙箱文件已清空（会话本身保留）';
+      out = inSystem() ? '✓ 通道草稿已清空（真实会话不受影响）' : '✓ 当前会话消息与沙箱文件已清空（会话本身保留）';
     } else {
       out = `未知命令「${name}」——输入 /help 查看可用命令`;
     }

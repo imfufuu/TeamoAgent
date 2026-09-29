@@ -199,6 +199,9 @@ export function createStore(onChange) {
     if (s.reasoningLevel) state.settings.reasoningLevel = s.reasoningLevel;
   };
   const commit = () => {
+    // /system 隐藏通道（.17）：真实会话零写入——通道内的消息是隔离草稿，
+    // 会话记录 / 检查点 / 文件 / 会话级模型统统不碰，退出通道后由 UI 恢复现场
+    if (state.model === '__system__') return;
     const s = sess();
     s.messages = state.messages;
     s.checkpoints = state.checkpoints;
@@ -338,6 +341,11 @@ export function createStore(onChange) {
       if (!Array.isArray(state.learnedSkills)) state.learnedSkills = [];
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
       if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
+      // /system 是运行时通道不持久化：旧快照异常退出时若卡在 __system__，回退到会话自己的模型
+      if (state.model === '__system__') {
+        const s0 = state.sessions.find((x) => x.id === state.activeSessionId) || state.sessions[0];
+        state.model = (s0 && s0.model) || DEFAULT_CHAT_MODEL;
+      }
     } else {
       // 首次运行跟随系统明暗偏好（a11y P2-3），之后以用户手动切换为准
       if (typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches) {

@@ -131,8 +131,30 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /copySelected|data-act="copy"/, '应支持复制导出');
   assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
   const ui = read('../js/ui.js');
+  const state = read('../js/state.js');
+  const icons = read('../js/icons.js');
   const css0 = read('../css/styles.css');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  // 2026.9.27.17：/system 隔离 / debug 打磨 / 思考流修复 / 状态栏动效
+  assert.match(main, /onReasoning: \(m, text\) => ui && ui\.onReasoning/, '思考流事件必须接到 UI（否则不流式）');
+  assert.match(ui, /let preSystem/, '/system 通道应有现场隔离');
+  assert.match(ui, /applySystemLock/, '通道内应锁定思考/沙箱/会话');
+  assert.match(ui, /pre\.textContent = m\.reasoning/, '流式思考应只更新 pre 文本（防逐帧重建）');
+  assert.match(ui, /setInterval\(paintElapsed, 100\)/, '状态栏 ticker 只应刷新耗时（不动 DOTS）');
+  assert.equal(/sys-gear">⚙/.test(ui), false, '系统图标不应再用 emoji，应使用 ICON.system');
+  assert.match(ui, /ICON\.system/, '系统命令识别器应使用专用图标');
+  assert.equal(/dd-item-hint/.test(ui), false, '菜单条目应简约（无介绍文案）');
+  assert.match(ui, /name === 'cache'/, '/cache 命令应存在');
+  assert.match(ui, /name === 'theme'/, '/theme 命令应存在');
+  assert.match(ui, /name === 'export'/, '/export 命令应存在');
+  assert.match(state, /state\.model === '__system__'\) return/, 'commit 应对 __system__ 跳过（真实会话零写入）');
+  assert.match(dw, /wrapNetworkAndGlobals/, '调试浮窗应覆盖 fetch/全局错误');
+  assert.match(dw, /pendingLines/, '调试日志应批量上屏（防流式卡顿）');
+  assert.match(dw, /已复制/, '复制应有反馈');
+  assert.equal(/data-act="collapse"/.test(dw), false, '收起按钮应已删除');
+  assert.match(dw, /entryEl\.style\.display = 'none'/, '/debug off 应隐藏调试入口按钮');
+  assert.match(icons, /system: ico/, 'icons 应含 system 图标');
+  assert.match(css0, /sys-locked/, '锁定态样式应存在');
   // 2026.9.27.16：SW 离线缓存 / 颜色语法 / 思考标题 / /system 通道 / 加密徽章 / 文件行折叠
   assert.ok(exists('../sw.js'), 'sw.js 应随项目存在');
   const sw = read('../sw.js');

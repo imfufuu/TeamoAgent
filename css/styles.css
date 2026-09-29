@@ -776,6 +776,9 @@ a { color: var(--fg); }
 @media (prefers-color-scheme: dark) { .badge.enc { color: #d2a8ff; border-color: rgba(210, 168, 255, .45); } }
 .dd-item-hint { font-size: 11px; color: var(--fg-3); flex-basis: 100%; }
 .sys-gear { display: inline-flex; align-items: center; font-size: 13px; }
+.sys-gear svg { width: 13px; height: 13px; }
+/* .17 /system 通道锁定态：思考/沙箱按钮灰置、会话列表禁点 */
+.pill.sys-locked, #session-list.sys-locked .sess-item { opacity: .45; pointer-events: none; }
 
 /* 思考过程折叠块（与工具芯片同一行高/手感） */
 .reasoning { width: 100%; border: none; }

@@ -1,11 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
 import { createStore } from './state.js';
-import { createAgent } from './agent.js?v=2026.9.27.16';
+import { createAgent } from './agent.js?v=2026.9.27.17';
 import { mountUI, toast } from './ui.js';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.9.27.16';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.9.27.17';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -28,6 +28,7 @@ const hooks = {
   },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
   onDelta: (m, text) => ui && ui.onDelta(m, text),
+  onReasoning: (m, text) => ui && ui.onReasoning(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),
   onToolStart: (call) => ui && ui.onToolStart(call),
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),

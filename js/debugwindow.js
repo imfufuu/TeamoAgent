@@ -20,7 +20,6 @@ let bodyEl = null;
 let countEl = null;
 let jumpEl = null;
 let rowCount = 0;
-let collapsed = false;
 let closing = false;
 let unsubscribe = null;
 
@@ -55,7 +54,8 @@ function kindOf(stage, data) {
   if (/error|fail|skip/.test(s)) return 'err';
   if (/verdict|final|done|ready/.test(s)) return data && data.blocked === true ? 'block' : data && data.blocked === false ? 'pass' : 'ok';
   if (s === 'console.warn') return 'warn';
-  if (s === 'console.error') return 'err';
+  if (s === 'console.error' || s === 'fetch.error' || s === 'window.error' || s === 'window.rejection') return 'err';
+  if (s === 'fetch') return 'info';
   if (s.startsWith('agent.') || s.startsWith('moderation.')) return 'sys';
   return 'info';
 }
@@ -70,19 +70,27 @@ function selectedRows() {
   });
 }
 
-async function copySelected() {
+async function copySelected(btn) {
   const lines = selectedRows();
   const text = lines.join('\n');
+  let ok = false;
   try {
     await navigator.clipboard.writeText(text);
+    ok = true;
   } catch {
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.cssText = 'position:fixed;opacity:0';
     document.body.appendChild(ta);
     ta.select();
-    try { document.execCommand('copy'); } catch { /* 忽略 */ }
+    try { ok = document.execCommand('copy'); } catch { /* 忽略 */ }
     ta.remove();
+  }
+  // 复制反馈：按钮瞬时变色文案，1.2s 后还原
+  if (btn) {
+    const old = btn.textContent;
+    btn.textContent = ok ? '已复制 ✓' : '复制失败';
+    setTimeout(() => { if (btn.parentNode) btn.textContent = old; }, 1200);
   }
 }
 
@@ -90,35 +98,79 @@ function clearSelection() {
   if (bodyEl) bodyEl.querySelectorAll('.tdw-row.tdw-sel').forEach((r) => r.classList.remove('tdw-sel'));
 }
 
+// 流式输出期间日志可达每秒几十条：先入队，120ms 批量上屏（一次 reflow），
+// 浮窗未打开时直接丢弃（环形缓冲 __teamoModLog 仍保留全部历史，打开时回放）。
+const pendingLines = [];
+let flushTimer = 0;
 function addLine(stage, data, stamp) {
-  if (!bodyEl) return;
-  const kind = kindOf(stage, data);
-  const text = fmtData(data);
-  // 连续重复行折叠成 ×N（如重试风暴），只保留最新一条并累加计数
-  const last = bodyEl.lastElementChild;
-  if (last && last.classList.contains('tdw-row') && last.dataset.stage === stage && last.dataset.kind === kind && last.dataset.data === text) {
-    const n = (parseInt(last.dataset.n || '1', 10) || 1) + 1;
-    last.dataset.n = String(n);
-    const cnt = last.querySelector('.tdw-n');
-    if (cnt) cnt.textContent = ` ×${n}`;
-    rowCount = Math.min(rowCount + 1, MAX_ROWS);
-    if (countEl) countEl.textContent = String(rowCount);
-    return;
-  }
-  const row = document.createElement('div');
-  row.className = `tdw-row tdw-${kind}`;
-  row.dataset.stage = stage;
-  row.dataset.kind = kind;
-  row.dataset.data = text;
-  row.dataset.n = '1';
-  row.innerHTML = `<span class="tdw-t">${esc(stamp || nowStamp())}</span><span class="tdw-s">${esc(stage)}</span><span class="tdw-n"></span><span class="tdw-d">${esc(text)}</span>`;
+  pendingLines.push([stage, data, stamp]);
+  if (!flushTimer) flushTimer = setTimeout(flushLines, 120);
+}
+
+function flushLines() {
+  flushTimer = 0;
+  if (!bodyEl || !pendingLines.length) { pendingLines.length = 0; return; }
+  const batch = pendingLines.splice(0, pendingLines.length);
+  const frag = document.createDocumentFragment();
   const stick = bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 48;
-  bodyEl.appendChild(row);
-  rowCount++;
+  for (const [stage, data, stamp] of batch) {
+    const kind = kindOf(stage, data);
+    const text = fmtData(data);
+    // 连续重复行折叠成 ×N（如重试风暴），只保留最新一条并累加计数
+    const last = frag.lastElementChild || bodyEl.lastElementChild;
+    if (last && last.classList && last.classList.contains('tdw-row') && last.dataset.stage === stage && last.dataset.kind === kind && last.dataset.data === text) {
+      const n = (parseInt(last.dataset.n || '1', 10) || 1) + 1;
+      last.dataset.n = String(n);
+      const cnt = last.querySelector('.tdw-n');
+      if (cnt) cnt.textContent = ` ×${n}`;
+      rowCount = Math.min(rowCount + 1, MAX_ROWS);
+      continue;
+    }
+    const row = document.createElement('div');
+    row.className = `tdw-row tdw-${kind}`;
+    row.dataset.stage = stage;
+    row.dataset.kind = kind;
+    row.dataset.data = text;
+    row.dataset.n = '1';
+    row.innerHTML = `<span class="tdw-t">${esc(stamp || nowStamp())}</span><span class="tdw-s">${esc(stage)}</span><span class="tdw-n"></span><span class="tdw-d">${esc(text)}</span>`;
+    frag.appendChild(row);
+    rowCount++;
+  }
+  if (!frag.childNodes.length) return;
+  bodyEl.appendChild(frag);
   while (rowCount > MAX_ROWS && bodyEl.firstChild) { bodyEl.removeChild(bodyEl.firstChild); rowCount--; }
   if (countEl) countEl.textContent = String(rowCount);
-  if (stick && !collapsed) bodyEl.scrollTop = bodyEl.scrollHeight;
+  if (stick) bodyEl.scrollTop = bodyEl.scrollHeight;
   if (jumpEl) jumpEl.hidden = stick;
+}
+
+// ── 日志覆盖扩展：网络请求 / 全局错误 / 未捕获 Promise（带 guard，只包一层）──
+function wrapNetworkAndGlobals() {
+  if (typeof window === 'undefined' || window.__teamoDbgNetHooked) return;
+  window.__teamoDbgNetHooked = true;
+  if (typeof window.fetch === 'function') {
+    const of = window.fetch.bind(window);
+    window.fetch = async (input, init) => {
+      const url = typeof input === 'string' ? input : (input && input.url) || '';
+      const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      const t0 = (performance && performance.now) ? performance.now() : Date.now();
+      try {
+        const r = await of(input, init);
+        addLine('fetch', `${method} ${String(url).slice(0, 150)} → ${r.status} (${Math.round((performance.now ? performance.now() : Date.now()) - t0)}ms)`);
+        return r;
+      } catch (e) {
+        addLine('fetch.error', `${method} ${String(url).slice(0, 150)} → ${e && e.message ? e.message : e}`);
+        throw e;
+      }
+    };
+  }
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e && e.reason;
+    addLine('window.rejection', r && (r.stack || r.message) ? String(r.stack || r.message).slice(0, 400) : String(r));
+  });
+  window.addEventListener('error', (e) => {
+    if (e && (e.error || e.message)) addLine('window.error', String((e.error && e.error.stack) || e.message).slice(0, 400));
+  }, true);
 }
 
 // ── console.warn/error 转发（只包一层，保留原实现）──
@@ -151,8 +203,6 @@ const STYLE = `
 .tdw-btn{border:1px solid rgba(255,255,255,.45);background:transparent;color:inherit;border-radius:6px;padding:1px 7px;font:inherit;font-size:11px;cursor:pointer}
 .tdw-btn:hover{background:rgba(255,255,255,.16)}
 .tdw-body{flex:1;min-height:0;max-height:100%;overflow-y:auto;padding:6px 8px;scrollbar-width:thin}
-.tdw.collapsed .tdw-body,.tdw.collapsed .tdw-jump,.tdw.collapsed .tdw-rz{display:none}
-.tdw.collapsed{height:auto !important}
 .tdw-row{display:flex;gap:7px;padding:2.5px 4px;border-bottom:1px dashed rgba(128,128,128,.22);align-items:baseline;word-break:break-all;cursor:pointer}
 .tdw-row:hover{background:rgba(128,128,128,.09)}
 .tdw-row.tdw-sel{background:rgba(0,88,176,.14);box-shadow:inset 2px 0 0 #0058b0}
@@ -169,11 +219,11 @@ const STYLE = `
   border-radius:999px;padding:3px 12px;font:inherit;font-size:11px;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.2)}
 .tdw-hint{padding:3px 10px 6px;color:#888;font-size:10.5px;border-top:1px dashed rgba(128,128,128,.25);flex:none;user-select:none}
 /* 缩放手柄：仅右下角顶点，弧线与面板圆角同心（视觉参考 iOS 圆角指示） */
-.tdw-rz{position:absolute;right:-6px;bottom:-6px;width:26px;height:26px;z-index:2;touch-action:none;cursor:nwse-resize}
-.tdw-rz::after{content:'';position:absolute;right:7px;bottom:7px;width:11px;height:11px;
+.tdw-rz{position:absolute;right:0;bottom:0;width:20px;height:20px;z-index:2;touch-action:none;cursor:nwse-resize}
+.tdw-rz::after{content:'';position:absolute;right:5px;bottom:5px;width:9px;height:9px;
   border-right:2.5px solid var(--tdw-fg,#111);border-bottom:2.5px solid var(--tdw-fg,#111);
-  border-bottom-right-radius:100%;opacity:.9}
-.tdw-rz:hover::after{opacity:1;right:5px;bottom:5px}
+  border-bottom-right-radius:100%;opacity:.85}
+.tdw-rz:hover::after{opacity:1}
 @media (prefers-color-scheme: dark){.tdw,.tdw-entry{--tdw-bg:#141414;--tdw-fg:#f2f2f2}}
 @media (prefers-reduced-motion: reduce){.tdw.tdw-pop{animation:none}}
 `;
@@ -184,7 +234,7 @@ function entryRect() {
 }
 
 function buildEntry() {
-  if (entryEl) return;
+  if (entryEl) { entryEl.style.display = ''; return; }
   entryEl = document.createElement('button');
   entryEl.type = 'button';
   entryEl.className = 'tdw-entry' + (debugActive() ? ' on' : '');
@@ -220,7 +270,6 @@ function buildWindow() {
       <button type="button" class="tdw-btn" data-act="all">全选</button>
       <button type="button" class="tdw-btn" data-act="copy">复制</button>
       <button type="button" class="tdw-btn" data-act="clear">清空</button>
-      <button type="button" class="tdw-btn" data-act="collapse">收起</button>
       <button type="button" class="tdw-btn" data-act="close">关闭</button>
     </div>
     <div class="tdw-body" aria-live="polite"></div>
@@ -245,7 +294,7 @@ function buildWindow() {
     state.w = Math.min(Math.max(MIN_W, state.w), vw() - 16);
     state.h = Math.min(Math.max(MIN_H, state.h), vh() - 24);
     root.style.width = `${Math.round(state.w)}px`;
-    root.style.height = collapsed ? 'auto' : `${Math.round(state.h)}px`;
+    root.style.height = `${Math.round(state.h)}px`;
     clampPos(state);
     root.style.left = `${Math.round(state.x)}px`;
     root.style.top = `${Math.round(state.y)}px`;
@@ -307,13 +356,12 @@ function buildWindow() {
   root.addEventListener('click', (e) => {
     const act = e.target && e.target.dataset && e.target.dataset.act;
     if (act === 'clear') { bodyEl.innerHTML = ''; rowCount = 0; if (countEl) countEl.textContent = '0'; if (globalThis.__teamoModLog) globalThis.__teamoModLog.length = 0; }
-    if (act === 'collapse') { collapsed = !collapsed; root.classList.toggle('collapsed', collapsed); e.target.textContent = collapsed ? '展开' : '收起'; applyState(); }
     if (act === 'all') {
       const rows = [...bodyEl.querySelectorAll('.tdw-row')];
       const allSel = rows.length && rows.every((r) => r.classList.contains('tdw-sel'));
       rows.forEach((r) => r.classList.toggle('tdw-sel', !allSel));
     }
-    if (act === 'copy') copySelected();
+    if (act === 'copy') copySelected(e.target);
     if (act === 'close') destroyDebug(true);
   });
   bodyEl.addEventListener('click', (e) => {
@@ -331,6 +379,7 @@ function buildWindow() {
     });
   }
   wrapConsole();
+  wrapNetworkAndGlobals();
   addLine('debug:attached', '调试浮窗已开启 · 点击行多选，全选/复制导出 · Ctrl+Alt+D 关闭');
 }
 
@@ -354,7 +403,6 @@ function teardown() {
   if (root && root.parentNode) root.parentNode.removeChild(root);
   root = bodyEl = countEl = jumpEl = null;
   rowCount = 0;
-  collapsed = false;
   closing = false;
   setDebug(false);
   if (entryEl) { entryEl.classList.remove('on'); entryEl.textContent = '调试'; }
@@ -383,7 +431,7 @@ export function destroyDebug(animate = false) {
 export function toggleDebug() {
   if (debugActive() && root) { destroyDebug(true); return false; }
   setDebug(true);
-  if (entryEl) { entryEl.classList.add('on'); entryEl.textContent = '● 调试'; }
+  if (entryEl) { entryEl.classList.add('on'); entryEl.style.display = ''; entryEl.textContent = '● 调试'; }
   mountDebugWindow();
   return true;
 }
@@ -394,8 +442,15 @@ if (typeof globalThis !== 'undefined') {
   globalThis.__teamoDebugActive = debugActive;
   globalThis.__teamoDebugSet = (on) => {
     const cur = !!(debugActive() && document.getElementById('teamo-debug-win'));
-    if (on && !cur) { setDebug(true); if (entryEl) entryEl.classList.add('on'); mountDebugWindow(); return true; }
-    if (!on && cur) { destroyDebug(true); return false; }
+    if (on && !cur) { setDebug(true); if (entryEl) { entryEl.classList.add('on'); entryEl.style.display = ''; } mountDebugWindow(); return true; }
+    if (!on) {
+      const was = cur || !!root;
+      if (root) destroyDebug(true);
+      setDebug(false);
+      // /debug off：浮窗与「调试」入口按钮一并隐藏（Ctrl+Alt+D 或 /debug on 可再唤回）
+      if (entryEl) { entryEl.classList.remove('on'); entryEl.style.display = 'none'; }
+      return was;
+    }
     return cur;
   };
   globalThis.__teamoDebugLog = (stage, data) => addLine(String(stage || 'debug'), data);

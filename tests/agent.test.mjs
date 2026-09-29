@@ -4546,6 +4546,20 @@ test('.16 颜色文本 :::color 渲染（含中文别名与正文 Markdown）', 
   }
 });
 
+test('.17 系统命令识别器：图标、命令集与隔离标记', async () => {
+  const { ICON } = await import('../js/icons.js');
+  assert.ok(ICON.system && ICON.system.includes('<svg'), 'ICON.system 终端图标应存在');
+  assert.ok(ICON.system.includes('stroke="currentColor"'), 'system 图标应与全局描边风格一致');
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  for (const cmd of ["name === 'version'", "name === 'stats'", "name === 'theme'", "name === 'cache'", "name === 'key'", "name === 'export'"]) {
+    assert.ok(ui.includes(cmd), `/system 缺命令：${cmd}`);
+  }
+  const st = fsp.readFileSync(new URL('../js/state.js', import.meta.url), 'utf8');
+  assert.match(st, /if \(state\.model === '__system__'\) return;/, 'commit 必须跳过 __system__');
+  assert.match(st, /state\.model = \(s0 && s0\.model\) \|\| DEFAULT_CHAT_MODEL/, '启动时应把卡在 __system__ 的模型兜底回会话模型');
+});
+
 test('.16 思考链加密正则：o 系命中、gpt/claude/gemini 不误伤', async () => {
   for (const id of ['o1', 'o3', 'o4', 'o1-mini', 'o3-mini', 'openai/o3-mini', 'o4-mini-2025-01', 'O3']) {
     assert.ok(ENCRYPTED_THINKING_RE.test(id), `${id} 应视为思考链加密`);
