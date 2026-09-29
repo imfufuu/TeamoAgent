@@ -392,5 +392,11 @@ export function toggleDebug() {
 if (typeof globalThis !== 'undefined') {
   globalThis.__teamoDebugToggle = toggleDebug;
   globalThis.__teamoDebugActive = debugActive;
+  globalThis.__teamoDebugSet = (on) => {
+    const cur = !!(debugActive() && document.getElementById('teamo-debug-win'));
+    if (on && !cur) { setDebug(true); if (entryEl) entryEl.classList.add('on'); mountDebugWindow(); return true; }
+    if (!on && cur) { destroyDebug(true); return false; }
+    return cur;
+  };
   globalThis.__teamoDebugLog = (stage, data) => addLine(String(stage || 'debug'), data);
 }

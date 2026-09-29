@@ -131,7 +131,24 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /copySelected|data-act="copy"/, '应支持复制导出');
   assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
   const ui = read('../js/ui.js');
+  const css0 = read('../css/styles.css');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  // 2026.9.27.16：SW 离线缓存 / 颜色语法 / 思考标题 / /system 通道 / 加密徽章 / 文件行折叠
+  assert.ok(exists('../sw.js'), 'sw.js 应随项目存在');
+  const sw = read('../sw.js');
+  assert.match(sw, /teamo-assets-v1/, 'SW 缓存名应存在');
+  assert.match(sw, /assets\/(vendor|moderation)/, 'SW 应覆盖 vendor/moderation');
+  assert.match(main, /serviceWorker\.register\('\.\/sw\.js'/, 'main 应注册 SW');
+  assert.match(ui, /:::color|COLOR_ALIAS/, '应有 :::color 颜色容器');
+  assert.match(ui, /uE000COLOR/, '颜色容器应进恢复链');
+  assert.match(ui, /thinkStreaming \? '思考中' : '思考过程'/, '思考中不显示「思考过程」标题');
+  assert.match(ui, /observedHiddenThink/, '应自学记录加密思考模型');
+  assert.match(ui, /思考链已加密/, '菜单应有加密徽章');
+  assert.match(ui, /handleSystemCommand/, '应有 /system 命令执行器');
+  assert.match(ui, /'__system__'/, '应支持 __system__ 伪模型');
+  assert.match(ui, /node\._userToggle == null\) node\.classList\.toggle\('expanded', !!live\)/, '文件行应流式展开/完成折叠');
+  assert.match(css0, /md-c-red/, '调色板应存在');
+  assert.match(css0, /badge\.enc/, '加密徽章样式应存在');
   // 2026.9.27.15：缩放柄只留右下角 + 清空同步环形缓冲 + 不记录复制动作
   assert.doesNotMatch(dw, /data-rz="nw"|data-rz="ne"|data-rz="sw"/, '缩放柄应只保留右下角');
   assert.match(dw, /border-bottom-right-radius:100%/, '右下角应为弧线造型');

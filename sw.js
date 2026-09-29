@@ -1,0 +1,33 @@
+/* TeamoAgent 审核资源离线缓存 Service Worker（构建 2026.9.27.16）
+ * 策略：stale-while-revalidate —— 命中缓存立即返回（零网络），后台静默更新。
+ * 覆盖：assets/vendor、assets/moderation、assets/katex、assets/pdfjs、assets/hljs、fonts。
+ * 效果：模型/运行时只在首次使用时下载一次，之后所有会话（含隔天重开）直接读本地缓存，
+ *       连 304 协商都不发生。版本号变更时改 CACHE 名即可整体失效。
+ */
+const CACHE = 'teamo-assets-v1';
+const SCOPE_RE = /\/assets\/(vendor|moderation|katex|pdfjs|hljs|fonts)\//;
+
+self.addEventListener('install', (e) => { self.skipWaiting(); });
+self.addEventListener('activate', (e) => {
+  e.waitUntil((async () => {
+    for (const k of await caches.keys()) if (k !== CACHE) await caches.delete(k);
+    await self.clients.claim();
+  })());
+});
+
+self.addEventListener('fetch', (e) => {
+  const req = e.request;
+  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
+  if (!SCOPE_RE.test(new URL(req.url).pathname)) return;
+  e.respondWith((async () => {
+    const cache = await caches.open(CACHE);
+    const hit = await cache.match(req);
+    const net = fetch(req).then((res) => {
+      if (res && res.ok) cache.put(req, res.clone());
+      return res;
+    }).catch(() => null);
+    if (hit) { e.waitUntil(net); return hit; }
+    const fresh = await net;
+    return fresh || new Response('', { status: 504 });
+  })());
+});

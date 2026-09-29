@@ -571,17 +571,21 @@ a { color: var(--fg); }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }
 
 /* 工具芯片 */
-.tool-chips { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+.tool-chips { display: flex; flex-direction: column; gap: 0; margin-top: 0; }
 .chip { border: none; }
 .chip:hover { color: var(--fg-2); }
 .chip, .reasoning, .md-fold, .edited-files, .explored-files {
-  border: none; background: transparent; padding: 1px 0; margin: 0 0 2px;
+  border: none; background: transparent; padding: 3px 0; margin: 0;
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
-  font-size: 12px; color: var(--fg-2); line-height: 1.65;
+  font-size: 12px; color: var(--fg-2); line-height: 1.6;
   transition: color .2s var(--ease);
   -webkit-tap-highlight-color: transparent;
   outline: none;
 }
+/* 行距统一：思考行 / 工具芯片 / 文件行共用同一垂直节奏（截图中参差不齐的修复） */
+.tool-chips { gap: 0; margin-top: 0; }
+.reasoning { margin: 0; }
+.md-color { margin: 2px 0; }
 .chip:hover, .md-fold:hover, .edited-files:hover, .explored-files:hover { color: var(--fg-2); }
 .chip:focus, .chip:focus-visible, .chip:active,
 .reasoning:focus, .reasoning:focus-visible, .reasoning:active,
@@ -752,6 +756,26 @@ a { color: var(--fg); }
   white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis;
 }
 .msg-user .att-file { color: var(--fg); }
+
+/* 颜色文本 :::color <名>（:::color red … :::） */
+.md-color { color: var(--fg); }
+.md-c-red { color: #c62828; } .md-c-blue { color: #1565c0; } .md-c-green { color: #1b7f3a; }
+.md-c-orange { color: #d9730d; } .md-c-purple { color: #7b1fa2; } .md-c-teal { color: #00838f; }
+.md-c-pink { color: #d81b60; } .md-c-gold { color: #a67c00; } .md-c-gray { color: var(--fg-3); }
+.md-c-brown { color: #795548; } .md-c-olive { color: #6b7a1e; }
+.md-c-accent { color: var(--accent, #4f46e5); font-weight: 600; }
+@media (prefers-color-scheme: dark) {
+  .md-c-red { color: #ff7b72; } .md-c-blue { color: #79b8ff; } .md-c-green { color: #7ee787; }
+  .md-c-orange { color: #ffa657; } .md-c-purple { color: #d2a8ff; } .md-c-teal { color: #56d4dd; }
+  .md-c-pink { color: #ff9bce; } .md-c-gold { color: #e3b341; } .md-c-brown { color: #c9a227; }
+  .md-c-olive { color: #b8cc5a; }
+}
+
+/* 模型菜单「思考链已加密」徽章 + /system 通道 */
+.badge.enc { color: #7b1fa2; border-color: rgba(123, 31, 162, .45); }
+@media (prefers-color-scheme: dark) { .badge.enc { color: #d2a8ff; border-color: rgba(210, 168, 255, .45); } }
+.dd-item-hint { font-size: 11px; color: var(--fg-3); flex-basis: 100%; }
+.sys-gear { display: inline-flex; align-items: center; font-size: 13px; }
 
 /* 思考过程折叠块（与工具芯片同一行高/手感） */
 .reasoning { width: 100%; border: none; }
@@ -1087,7 +1111,7 @@ a { color: var(--fg); }
   .act svg { width: 12px; height: 12px; }
 
   /* 工具芯片 / 联网来源条 */
-  .tool-chips { gap: 8px; }
+  .tool-chips { gap: 0; }
   .chip { padding: 4px 0; font-size: 12px; }
   .web-note { padding: 9px 11px; font-size: 12px; line-height: 1.6; }
   .web-note .web-src { white-space: normal; overflow-wrap: anywhere; }
@@ -1153,7 +1177,7 @@ a { color: var(--fg); }
 }
 .sb-file.missing { color: var(--fg-3); }
 .sb-dl { font-size: 11px; color: var(--link); text-decoration: underline; text-underline-offset: 2px; }
-.md-fold { margin: .15em 0; width: 100%; }
+.md-fold { margin: 0; width: 100%; } /* .16 行距统一：与思考/芯片同一节奏 */
 .md-fold-body { margin: 0; padding: 0; }
 .md-align { margin: .35em 0; }
 .md-align-center { text-align: center; }

@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, ENCRYPTED_THINKING_RE } from './config.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
@@ -713,6 +713,29 @@ export function renderMarkdown(src) {
     fonts.push({ cls, body });
     return `\n\n\uE000FONT${fonts.length - 1}\uE000\n\n`;
   });
+  // 颜色文本：:::color <名>\n正文\n:::（正文继续走 Markdown 渲染；中英别名见 COLOR_ALIAS）
+  const COLOR_ALIAS = {
+    red: 'red', 红: 'red', 红色: 'red', crimson: 'red', 深红: 'red',
+    blue: 'blue', 蓝: 'blue', 蓝色: 'blue',
+    green: 'green', 绿: 'green', 绿色: 'green',
+    orange: 'orange', 橙: 'orange', 橙色: 'orange',
+    purple: 'purple', 紫: 'purple', 紫色: 'purple',
+    teal: 'teal', 青: 'teal', 青色: 'teal', cyan: 'teal',
+    pink: 'pink', 粉: 'pink', 粉色: 'pink',
+    gold: 'gold', 金: 'gold', 金色: 'gold', yellow: 'gold', 黄: 'gold', 黄色: 'gold',
+    gray: 'gray', grey: 'gray', 灰: 'gray', 灰色: 'gray',
+    brown: 'brown', 棕: 'brown', 棕色: 'brown', 咖啡: 'brown',
+    olive: 'olive', 橄榄: 'olive',
+    accent: 'accent', 强调: 'accent', 高亮: 'accent',
+  };
+  const colors = [];
+  t = t.replace(/^:::color[ \t]+(.+)\n([\s\S]*?)^:::[ \t]*$/gm, (_, name, body) => {
+    const raw = String(name || '').trim();
+    const cls = COLOR_ALIAS[raw] || COLOR_ALIAS[raw.toLowerCase()] || '';
+    if (!cls) return _;
+    colors.push({ cls, body });
+    return `\n\n\uE000COLOR${colors.length - 1}\uE000\n\n`;
+  });
 
   const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
     const { lang, code } = codeBlocks[+i];
@@ -731,6 +754,12 @@ export function renderMarkdown(src) {
       const innerMd = getMd();
       const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
       return `<div class="md-font md-font-${f.cls}">${inner}</div>`;
+    };
+    const colorAt = (_, i) => {
+      const f = colors[+i];
+      const innerMd = getMd();
+      const inner = innerMd ? innerMd.render(f.body) : `<p>${esc(f.body)}</p>`;
+      return `<div class="md-color md-c-${f.cls}">${inner}</div>`;
     };
     const alignAt = (_, i) => {
       const a = aligns[+i];
@@ -755,7 +784,9 @@ export function renderMarkdown(src) {
       .replace(/<p>\s*\uE000DIAGRAM(\d+)\uE000\s*<\/p>/g, diagramAt)
       .replace(/\uE000DIAGRAM(\d+)\uE000/g, diagramAt)
       .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
-      .replace(/\uE000FONT(\d+)\uE000/g, fontAt);
+      .replace(/\uE000FONT(\d+)\uE000/g, fontAt)
+      .replace(/<p>\s*\uE000COLOR(\d+)\uE000\s*<\/p>/g, colorAt)
+      .replace(/\uE000COLOR(\d+)\uE000/g, colorAt);
     if (peeled.blocks.length) out += choiceHtml(peeled.blocks);
     return out;
   };
@@ -896,6 +927,23 @@ export function mountUI(store, agent) {
   }
   function renderModelMenu() {
     const q = ddSearch.value.trim().toLowerCase();
+    // 隐藏通道：搜索 /system 出现「系统命令识别器」（输入命令获取系统反馈，如 /debug on）
+    if (q === '/system' || q.startsWith('/system ')) {
+      ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
+      const g = el('div', 'dd-group');
+      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">⚙</span><span>隐藏通道</span>`));
+      const item = el('button', 'dd-item' + (store.state.model === '__system__' ? ' active' : ''));
+      item.type = 'button';
+      item.innerHTML = `<span class="dd-item-id mono">/system 系统命令识别器</span>
+        <span class="dd-item-badges"><span class="badge enc" title="输入命令获取系统反馈">系统</span></span>
+        <span class="dd-item-hint">如 /debug on · /status · /help</span>`;
+      item.addEventListener('click', () => selectModel('__system__'));
+      g.appendChild(item);
+      ddMenu.appendChild(g);
+      const foot = $('.dd-foot', ddMenu);
+      if (foot) ddMenu.appendChild(foot);
+      return;
+    }
     const list = mergedModels().filter((m) => !q || m.id.toLowerCase().includes(q));
     const groups = new Map();
     for (const m of list) {
@@ -914,10 +962,12 @@ export function mountUI(store, agent) {
         const free = isFreeModel(m.id);
         const hot = !!hit.hot;
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
+        const encThink = ENCRYPTED_THINKING_RE.test(m.id) || !!(store.state.observedHiddenThink && store.state.observedHiddenThink[m.id]);
         item.innerHTML = `<span class="dd-item-id mono">${esc(m.id)}</span>
           <span class="dd-item-badges">
             ${hot ? '<span class="badge hot">热门</span>' : ''}
             ${free ? '<span class="badge">FREE</span>' : (cheap ? '<span class="badge cheap">低价</span>' : '')}
+            ${encThink ? '<span class="badge enc" title="该模型的思考链已加密（不返回可见思考正文）">思考链已加密</span>' : ''}
             ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
           </span>`;
         item.addEventListener('click', () => selectModel(m.id));
@@ -932,6 +982,11 @@ export function mountUI(store, agent) {
   function selectModel(id) {
     if (!id) return;
     store.state.model = id; store.notify();
+    if (id === '__system__') {
+      updateModelBtn(); closeMenu();
+      toast('已切换到系统命令识别器：直接输入 /help 查看命令', 'ok', 4200);
+      return;
+    }
     if (typeof syncWeb === 'function') syncWeb();
     updateModelBtn(); closeMenu();
     const fast = $('#fast-toggle');
@@ -947,9 +1002,10 @@ export function mountUI(store, agent) {
     return mergedModels();
   }
   function updateModelBtn() {
-    $('#model-btn-icon').innerHTML = providerIcon(providerOf(store.state.model));
-    $('#model-btn-name').textContent = store.state.model;
-    $('#model-btn-provider').textContent = providerOf(store.state.model);
+    const sys = store.state.model === '__system__';
+    $('#model-btn-icon').innerHTML = sys ? '<span class="sys-gear">⚙</span>' : providerIcon(providerOf(store.state.model));
+    $('#model-btn-name').textContent = sys ? '/system 系统命令' : store.state.model;
+    $('#model-btn-provider').textContent = sys ? '隐藏通道' : providerOf(store.state.model);
     syncImageModelSelect();
   }
   // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定，切会话时同步显示
@@ -1744,9 +1800,10 @@ export function mountUI(store, agent) {
       const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
       const headModel = m.model || store.state.model;
-      const headName = headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
+      const headName = headModel === '__system__' ? '/system 系统命令识别器' : headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
+      const headIcon = headModel === '__system__' ? '<span class="sys-gear">⚙</span>' : providerIcon(providerOf(headModel));
       wrap.innerHTML = `
-        ${showHead ? `<div class="msg-head"><span class="avatar">${providerIcon(providerOf(headModel))}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
+        ${showHead ? `<div class="msg-head"><span class="avatar">${headIcon}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
         <div class="tool-chips"></div>
         <div class="msg-toolbar"${moderationNotice ? ' hidden' : ''}>
@@ -1864,7 +1921,9 @@ export function mountUI(store, agent) {
       if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
       if (hiddenThink && m.usage && m.usage.reasoning) bits.push(`${m.usage.reasoning} tok`);
       if (m.reasoningMs) bits.push(fmtSpan(m.reasoningMs));
-      const title = (showThink || thinkPending) ? '思考过程' : '已思考';
+      // 思考进行中（本轮还没有正文/工具）只显示「思考中」，完成后才定名为「思考过程」
+      const thinkStreaming = live && !m.text && !(m.toolCalls && m.toolCalls.length);
+      const title = (showThink || thinkPending) ? (thinkStreaming ? '思考中' : '思考过程') : '已思考';
       const nameEl = $('.chip-name', reason);
       const stateEl = $('.chip-state', reason);
       if (nameEl) nameEl.textContent = title;
@@ -2034,6 +2093,8 @@ export function mountUI(store, agent) {
         }
         const label = paths.length === 1 ? one : `${many} ${paths.length}`;
         node.innerHTML = `<span class="chip-ico think-ico">${icon || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
+        // 与思考/工具芯片同构：流式期间展开，回合完成后自动折叠（用户手动展开过则尊重）
+        if (node._userToggle == null) node.classList.toggle('expanded', !!live);
         if (idxA >= 0) {
           for (let i = idxA - 1; i >= 0; i--) {
             const x = msgsAll[i];
@@ -2537,11 +2598,83 @@ export function mountUI(store, agent) {
   function doSend() {
     const text = composer.value.trim();
     if (!text && !pending.length) return;
+    if (store.state.model === '__system__') {
+      if (getBusy()) return;
+      composer.value = ''; autoGrow();
+      handleSystemCommand(text);
+      return;
+    }
     if (!store.state.apiKey) { openKeyModal(); toast('请先配置 TeamoRouter API Key', 'warn'); return; }
     if (getBusy()) return;
     composer.value = ''; autoGrow();
     const atts = pending; pending = []; renderAttachChips();
     agent.send(text, atts);
+  }
+
+  // ── /system 隐藏通道：命令识别器（本地执行，不走网关）──
+  function handleSystemCommand(input) {
+    const raw = String(input || '').trim();
+    store.pushMessage({ role: 'user', text: raw, done: true });
+    const cmd = raw.replace(/^[/／]+/, '').trim();
+    const sp = cmd.indexOf(' ');
+    const name = (sp < 0 ? cmd : cmd.slice(0, sp)).toLowerCase();
+    const arg = sp < 0 ? '' : cmd.slice(sp + 1).trim();
+    let out = '';
+    if (name === 'help' || !name) {
+      out = [
+        '⌙ /system 可用命令：',
+        '/debug on | off —— 开/关调试浮窗（系统日志）',
+        '/status —— 当前版本 / 模型 / 审核预热状态',
+        '/model <模型ID> —— 切换模型（需完整 ID）',
+        '/models —— 列出可用模型',
+        '/clear —— 清空当前会话消息',
+        '提示：模型菜单搜索 /system 可回到本识别器',
+      ].join('\n');
+    } else if (name === 'debug') {
+      const on = /^(on|1|开|开启|open|show)$/i.test(arg);
+      const off = /^(off|0|关|关闭|close|hide)$/i.test(arg);
+      if (!on && !off) out = '用法：/debug on 或 /debug off';
+      else if (typeof globalThis.__teamoDebugSet !== 'function') out = '调试浮窗模块未加载（旧版本缓存），请强刷页面后重试';
+      else {
+        const now = globalThis.__teamoDebugSet(on);
+        out = now ? '✓ 调试浮窗已开启：审核全链路 / console.warn·error / Agent 状态将实时上屏（Ctrl+Alt+D 可关）'
+                  : '✓ 调试浮窗已关闭';
+      }
+    } else if (name === 'status') {
+      const log = globalThis.__teamoModLog || [];
+      const pw = [...log].reverse().find((e) => e.stage === 'prewarm:done');
+      out = [
+        `版本：${APP_RELEASE} · 构建 ${APP_VERSION}`,
+        `当前模型：${store.state.model === '__system__' ? '（未选择，处于 /system 通道）' : store.state.model}`,
+        `可用模型：${chatModels().length} 个`,
+        `调试浮窗：${globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '开启' : '关闭'}`,
+        `审核模型预热：${pw ? `已完成（NudeNet ${pw.nudenet ? '✓' : '✗'} / NSFWJS ${pw.nsfwjs ? '✓' : '✗'}${pw.toxicity != null ? ` / Toxicity ${pw.toxicity ? '✓' : '✗'}` : ''}）` : '尚未执行（发图或打开页面 2 秒后自动开始）'}`,
+        `内容审核：${store.state.settings.contentModeration === true ? '开启（图片 fail-closed）' : '关闭'}`,
+      ].join('\n');
+    } else if (name === 'model') {
+      const id = arg.trim();
+      if (!id) out = '用法：/model <模型完整 ID>（如 /model claude-sonnet-5）';
+      else if (id === '__system__') out = '不能切换到保留标识';
+      else if (chatModels().some((m) => m.id === id)) { selectModel(id); out = `✓ 已切换模型：${id}`; }
+      else out = `未找到模型「${id}」——输入 /models 查看可用列表`;
+    } else if (name === 'models') {
+      const ids = chatModels().map((m) => m.id);
+      out = `可用模型 ${ids.length} 个：\n` + ids.join('、');
+    } else if (name === 'clear') {
+      store.state.messages = [];
+      store.state.checkpoints = [];
+      try { agent.loadFiles({}); } catch { /* 忽略 */ }
+      store.notify();
+      rebuildMessages(); renderFiles(); updateStats();
+      out = '✓ 当前会话消息与沙箱文件已清空（会话本身保留）';
+    } else {
+      out = `未知命令「${name}」——输入 /help 查看可用命令`;
+    }
+    store.pushMessage({ role: 'assistant', text: out, model: '__system__', done: true });
+    store.notify();
+    rebuildMessages(); renderSessions(); updateStats();
+    const last = store.state.messages[store.state.messages.length - 1];
+    if (last && last.model === '__system__') { try { scrollToBottom(); } catch { /* 忽略 */ } }
   }
 
   function readChoiceAnswers(box) {

@@ -26,7 +26,7 @@ import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
 import { formatMemory } from './memory.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.27.15';
+import { moderateUserTurn } from './moderation.js?v=2026.9.27.16';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -516,6 +516,8 @@ export function createAgent(store, hooks = {}) {
           durationMs: Math.round(nowT - streamT0),
           usage: usage.input != null || usage.output != null || usage.reasoning != null ? { ...usage } : undefined,
           thoughtHidden: !!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)),
+          // 自学标记：该模型真实出现过「有思考但无可见正文」→ 模型菜单标「思考链已加密」
+          ...(!!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)) ? (() => { try { store.state.observedHiddenThink = { ...(store.state.observedHiddenThink || {}), [model]: true }; } catch { /* 忽略 */ } return {}; })() : {}),
           finishReason, done: true, lengthContinues: lengthContinues || undefined, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
         });

@@ -6,7 +6,7 @@ import {
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
 } from '../js/api.js';
-import { protocolOf, providerOf, supportsFastMode } from '../js/config.js';
+import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
 import { createStore } from '../js/state.js';
@@ -3601,7 +3601,7 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(ui, /chip-detail reason-detail/);
   assert.match(ui, /m\.toolCalls && m\.toolCalls\.length\) \{ foot\.hidden = true/);
   assert.match(css, /\.reasoning \{[\s\S]{0,220}width:\s*100%/);
-  assert.match(css, /\.tool-chips \{[^}]*gap:\s*2px/);
+  assert.match(css, /\.tool-chips \{[^}]*gap:\s*0/); // 2026.9.27.16 行距统一：gap 归零由父级节奏控制
   assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}padding-left:\s*21px/, '思考正文跟标题齐，不要顶到图标左边');
   assert.match(css, /\.md-body \{[^}]*line-height:\s*1\.65/);
   assert.match(css, /\.reasoning \.chip-detail \{[\s\S]{0,280}line-height:\s*1\.65/);
@@ -4523,6 +4523,38 @@ test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async
 });
 
 // ── 顺序执行（async 测试逐个 await）──
+test('.16 颜色文本 :::color 渲染（含中文别名与正文 Markdown）', async () => {
+  const cases = [
+    [':::color 深红\n**加粗**正文\n:::', 'md-c-red'],
+    [':::color 强调\n高亮内容\n:::', 'md-c-accent'],
+    [':::color 黄\n金色\n:::', 'md-c-gold'],
+    [':::color teal\n青色\n:::', 'md-c-teal'],
+    [':::color 橄榄\nolive\n:::', 'md-c-olive'],
+  ];
+  for (const [src2, cls] of cases) {
+    const html = renderMarkdown(src2);
+    assert.ok(html.includes(`md-color ${cls}`), `${src2.split('\n')[0]} → 应含 ${cls}，实际 ${html.slice(0, 80)}`);
+  }
+  // 未知颜色名：整块保持原样（不当容器吃掉）
+  const bad = renderMarkdown(':::color 不存在的颜色\nx\n:::');
+  assert.equal(bad.includes('md-c-'), false, '未知颜色名不应产生容器类');
+  // 明暗双主题调色板齐全（12 色）
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  for (const c of ['red', 'blue', 'green', 'orange', 'purple', 'teal', 'pink', 'gold', 'gray', 'brown', 'olive', 'accent']) {
+    assert.match(css, new RegExp(`.md-c-${c} \\{`), `调色板缺 ${c}`);
+  }
+});
+
+test('.16 思考链加密正则：o 系命中、gpt/claude/gemini 不误伤', async () => {
+  for (const id of ['o1', 'o3', 'o4', 'o1-mini', 'o3-mini', 'openai/o3-mini', 'o4-mini-2025-01', 'O3']) {
+    assert.ok(ENCRYPTED_THINKING_RE.test(id), `${id} 应视为思考链加密`);
+  }
+  for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-5.5', 'claude-sonnet-5', 'gemini-3-pro', 'grok-4', 'o3max', 'proto']) {
+    assert.equal(ENCRYPTED_THINKING_RE.test(id), false, `${id} 不应误判为加密`);
+  }
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();
