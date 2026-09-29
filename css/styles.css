@@ -775,6 +775,24 @@ a { color: var(--fg); }
 .badge.enc { color: #7b1fa2; border-color: rgba(123, 31, 162, .45); }
 @media (prefers-color-scheme: dark) { .badge.enc { color: #d2a8ff; border-color: rgba(210, 168, 255, .45); } }
 .dd-item-hint { font-size: 11px; color: var(--fg-3); flex-basis: 100%; }
+/* /system 回复格式化（.18）：行级结构化 */
+.sys-reply { margin: 2px 0; display: flex; flex-direction: column; }
+.sys-row { font-size: 13.5px; line-height: 1.65; padding: 1px 0; white-space: pre-wrap; word-break: break-word; }
+.sys-row.sys-cmd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; font-size: 12.5px; color: var(--accent); }
+.sys-row.sys-ok { color: #1b7f3a; }
+.sys-row.sys-err { color: #c62828; }
+.sys-row.sys-head { font-weight: 600; margin-top: 4px; }
+@media (prefers-color-scheme: dark) {
+  .sys-row.sys-ok { color: #7ee787; }
+  .sys-row.sys-err { color: #ff7b72; }
+}
+/* 模型搜索框清空按钮（.18） */
+.dd-search-wrap { position: sticky; }
+#model-search-clear { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); border: none; background: transparent; color: var(--fg-3, #999); cursor: pointer; padding: 4px; display: inline-flex; border-radius: 50%; }
+#model-search-clear:hover { color: var(--fg-2, #555); background: rgba(128, 128, 128, .15); }
+#model-search-clear svg { width: 12px; height: 12px; }
+.dd-search { padding-right: 30px; }
+.composer-hint a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .sys-gear { display: inline-flex; align-items: center; font-size: 13px; }
 .sys-gear svg { width: 13px; height: 13px; }
 /* .17 /system 通道锁定态：思考/沙箱按钮灰置、会话列表禁点 */

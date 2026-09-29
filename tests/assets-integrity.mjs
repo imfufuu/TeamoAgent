@@ -132,9 +132,27 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
   const ui = read('../js/ui.js');
   const state = read('../js/state.js');
+  const html = read('../app.html');
   const icons = read('../js/icons.js');
   const css0 = read('../css/styles.css');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
+  // 2026.9.27.18：数学守卫 / system 输出格式化 / 文档页 / 搜索清空
+  assert.match(ui, /行内代码先剥离/, '行内代码必须先于数学提取剥离');
+  assert.match(ui, /MATH_REJECT/, '数学段守卫应存在');
+  assert.match(ui, /mathOk\(x\) \? pushMath/, '单 $ 与 $$ 提取都应过守卫');
+  assert.match(ui, /uE000IC/, '行内代码应走占位恢复链');
+  assert.match(ui, /function sysReplyHtml/, '/system 回复应有格式化器');
+  assert.match(ui, /m\.model === '__system__' \? sysReplyHtml/, 'system 回复应走格式化渲染');
+  assert.match(ui, /syncCapLine\(\); \/\/ 能力行/, '进通道应刷新能力行');
+  assert.match(ui, /'<span class="dd-item-id mono">system-commands<\/span>'/, '菜单条目应为英文且无图标');
+  assert.match(ui, /dd-group-title', '<span>Teamo<\/span>'\)\);/, '分组标题应为 Teamo');
+  assert.match(ui, /model-search-clear/, '搜索清空按钮应接线');
+  assert.ok(exists('../docs.html'), 'docs.html 文档页应存在');
+  const docs = read('../docs.html');
+  for (const sec of ['更新日志', '用户协议', '服务条款', '隐私政策', 'V1.0', 'V1.3 β .18']) {
+    assert.ok(docs.includes(sec), `docs.html 缺少：${sec}`);
+  }
+  assert.match(html, /docs\.html/, '应用页应有文档入口');
   // 2026.9.27.17：/system 隔离 / debug 打磨 / 思考流修复 / 状态栏动效
   assert.match(main, /onReasoning: \(m, text\) => ui && ui\.onReasoning/, '思考流事件必须接到 UI（否则不流式）');
   assert.match(ui, /let preSystem/, '/system 通道应有现场隔离');

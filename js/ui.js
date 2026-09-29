@@ -642,13 +642,39 @@ function getMd() {
   return mdEngine;
 }
 
+// ── /system 回复格式化（.18）：行级结构化——命令行/结果行/小节标题，不再挤成一团 ──
+function sysReplyHtml(text) {
+  const rows = String(text || '').split('\n').map((ln) => {
+    const e = esc(ln);
+    const s = ln.trim();
+    let cls = 'sys-row';
+    if (/^\/[a-z]/i.test(s)) cls += ' sys-cmd';
+    else if (/^✓/.test(s)) cls += ' sys-ok';
+    else if (/^(✗|⚠)/.test(s)) cls += ' sys-err';
+    else if (/^⌙|：$/.test(s)) cls += ' sys-head';
+    return `<div class="${cls}">${e || '&nbsp;'}</div>`;
+  });
+  return `<div class="sys-reply">${rows.join('')}</div>`;
+}
+
 export function renderMarkdown(src) {
   const codeBlocks = [];
   let t = String(src || '').replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     codeBlocks.push({ lang, code });
     return `\uE000CB${codeBlocks.length - 1}\uE000`;
   });
-  // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在渲染前提取，占位保护
+  // 行内代码先剥离（.18）：`code` 里的 $…$ 不能被当数学定界符——正则/命令含 $ 锚点时
+  // 曾被 KaTeX 当数学渲染（数学模式吃空格 + 未知命令标红，产生整段乱码）
+  const inlineCodes = [];
+  t = t.replace(/(`+)([\s\S]*?)\1/g, (_, run, code) => {
+    inlineCodes.push(code);
+    return `\uE000IC${inlineCodes.length - 1}\uE000`;
+  });
+  // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在渲染前提取，占位保护。
+  // 数学段守卫（.18）：像正则/代码/自然语言的内容不当数学渲染，原文保留可读；
+  // \(..\) / \[..\] 是显式定界不受守卫影响。
+  const MATH_REJECT = /(\(\?|\\p\{|\\P\{|\\x[0-9A-Fa-f]{2}|\\u[0-9A-Fa-f{]|\\[bBdDwWsSnrt]|\*\/|\^\$|\.\*|\$\{|=>|https?:\/\/|[\u4e00-\u9fff]|[A-Za-z]{3,}\s+[A-Za-z]{3,})/;
+  const mathOk = (x) => !MATH_REJECT.test(x);
   const maths = [];
   const hasKatex = typeof katex !== 'undefined';
   const pushMath = (tex, display) => {
@@ -661,10 +687,10 @@ export function renderMarkdown(src) {
     return display ? `\n\`\`\`tex\n${tex}\n\`\`\`\n` : `\`${tex}\``; // 降级：代码形式展示
   };
   t = t
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_, x) => pushMath(x, true))
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, x) => mathOk(x) ? pushMath(x, true) : _)
     .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => pushMath(x, true))
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false))
-    .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => pushMath(x, false));
+    .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => mathOk(x) ? pushMath(x, false) : _);
 
   const peeled = peelChoices(t);
   t = peeled.rest;
@@ -786,7 +812,8 @@ export function renderMarkdown(src) {
       .replace(/<p>\s*\uE000FONT(\d+)\uE000\s*<\/p>/g, fontAt)
       .replace(/\uE000FONT(\d+)\uE000/g, fontAt)
       .replace(/<p>\s*\uE000COLOR(\d+)\uE000\s*<\/p>/g, colorAt)
-      .replace(/\uE000COLOR(\d+)\uE000/g, colorAt);
+      .replace(/\uE000COLOR(\d+)\uE000/g, colorAt)
+      .replace(/\uE000IC(\d+)\uE000/g, (_, i) => `<code>${esc(inlineCodes[+i])}</code>`);
     if (peeled.blocks.length) out += choiceHtml(peeled.blocks);
     return out;
   };
@@ -931,11 +958,11 @@ export function mountUI(store, agent) {
     if (q === '/system' || q.startsWith('/system ')) {
       ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">${ICON.system || '⚙'}</span><span>隐藏通道</span>`));
+      g.appendChild(el('div', 'dd-group-title', '<span>Teamo</span>'));
       const item = el('button', 'dd-item' + (store.state.model === '__system__' ? ' active' : ''));
       item.type = 'button';
       // 简约：一行式条目（图标 + 名称），介绍信息省略
-      item.innerHTML = `<span class="dd-item-id mono"><span class="sys-gear">${ICON.system || '⚙'}</span>/system 系统命令</span>`;
+      item.innerHTML = '<span class="dd-item-id mono">system-commands</span>';
       item.addEventListener('click', () => selectModel('__system__'));
       g.appendChild(item);
       ddMenu.appendChild(g);
@@ -986,7 +1013,10 @@ export function mountUI(store, agent) {
     if (preSystem) return;
     preSystem = { messages: store.state.messages, checkpoints: store.state.checkpoints, files: store.state.files };
     store.state.messages = []; store.state.checkpoints = []; store.state.files = {};
+    // 沙箱文件也要隔离：agent.fs 换成空的（真实文件随 preSystem 暂存，退出时恢复）
+    try { agent.loadFiles({}); } catch { /* 忽略 */ }
     rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+    syncCapLine(); // 能力行同步显示通道态，不再定格上一个模型（.18）
   }
   function exitSystem() {
     if (!preSystem) return;
@@ -994,6 +1024,7 @@ export function mountUI(store, agent) {
     preSystem = null;
     try { agent.loadFiles(store.state.files); } catch { /* 忽略 */ }
     rebuildMessages(); renderSessions(); renderFiles(); updateStats();
+    syncCapLine();
   }
   // 通道内：思考/沙箱按钮灰置，会话列表禁点（防止系统输出混进 Agent 会话）
   function applySystemLock() {
@@ -1047,8 +1078,8 @@ export function mountUI(store, agent) {
   function updateModelBtn() {
     const sys = store.state.model === '__system__';
     $('#model-btn-icon').innerHTML = sys ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(store.state.model));
-    $('#model-btn-name').textContent = sys ? '/system 系统命令' : store.state.model;
-    $('#model-btn-provider').textContent = sys ? '隐藏通道' : providerOf(store.state.model);
+    $('#model-btn-name').textContent = sys ? 'system-commands' : store.state.model;
+    $('#model-btn-provider').textContent = sys ? 'Teamo' : providerOf(store.state.model);
     syncImageModelSelect();
   }
   // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定，切会话时同步显示
@@ -1089,6 +1120,14 @@ export function mountUI(store, agent) {
   const closeMenu = () => ddMenu.classList.remove('open');
   ddBtn.addEventListener('click', () => ddMenu.classList.contains('open') ? closeMenu() : openMenu());
   ddSearch.addEventListener('input', renderModelMenu);
+  // 搜索框一键清空（.18）
+  const ddClear = $('#model-search-clear');
+  if (ddClear) {
+    const syncClear = () => { ddClear.hidden = !ddSearch.value; };
+    ddSearch.addEventListener('input', syncClear);
+    ddClear.addEventListener('click', () => { ddSearch.value = ''; syncClear(); renderModelMenu(); ddSearch.focus(); });
+    syncClear();
+  }
   document.addEventListener('click', (e) => { if (!$('#model-picker').contains(e.target)) closeMenu(); });
   window.addEventListener('resize', closeMenu);
   updateModelBtn();
@@ -1846,7 +1885,7 @@ export function mountUI(store, agent) {
       const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
       const headModel = m.model || store.state.model;
-      const headName = headModel === '__system__' ? '/system 系统命令识别器' : headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
+      const headName = headModel === '__system__' ? 'system-commands' : headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
       const headIcon = headModel === '__system__' ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(headModel));
       wrap.innerHTML = `
         ${showHead ? `<div class="msg-head"><span class="avatar">${headIcon}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
@@ -1930,7 +1969,7 @@ export function mountUI(store, agent) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
       html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
-    html += renderMarkdown(m.text || '');
+    html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
     if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
@@ -2904,7 +2943,7 @@ export function mountUI(store, agent) {
   function syncCapLine() {
     const eln = $('#cap-line');
     if (!eln) return;
-    const bits = [store.state.model];
+    const bits = [store.state.model === '__system__' ? 'system-commands' : store.state.model]; // 通道态与模型钮同一叫法（.18）
     if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
     if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
