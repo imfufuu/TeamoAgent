@@ -206,12 +206,12 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
   const diff = scoreOf(answers, 'difficulty');
   const pct = (v) => v == null ? '?' : `${Math.round(v * 100)}%`;
   const lines = [
-    '【Jev 决策】下面是 TypeSafe Jev（System One）对本轮用户请求的校准分类，不是聊天意见。请当硬约束遵守；与用户开关冲突时，开关优先。',
-    `- 主路径：${route}${conf != null ? `（置信 ${pct(conf)}）` : ''}；检索 ${pct(search)} · 代码 ${pct(code)} · 生图 ${pct(image)} · 委派 ${pct(dispatch)}${diff != null ? ` · 难度 ${Number(diff).toFixed(1)}/5` : ''}`,
+    '【Jev 决策】下面是 TypeSafe Jev（System One）对本轮对话类型与工具路径的参考建议（对话类型仅为 Agent 提供策略建议，不限制输出 token 长度；思考等级仅决定思考深度；与用户开关冲突时，开关优先）：',
+    `- 建议路径：${route}${conf != null ? `（置信 ${pct(conf)}）` : ''}；检索 ${pct(search)} · 代码 ${pct(code)} · 生图 ${pct(image)} · 委派 ${pct(dispatch)}${diff != null ? ` · 难度 ${Number(diff).toFixed(1)}/5` : ''}`,
   ];
   if (route === 'search' || (search != null && search >= 0.65)) {
     if (webEnabled !== false) {
-      lines.push('- 本题需要实时事实：联网已开时用 fetch_url 抓来源页再答；没有中继或没抓到就不要说「已联网」。');
+      lines.push('- 本题需要实时事实：联网已开时建议用 fetch_url 抓来源页再答；没有中继或没抓到就不要说「已联网」。');
     } else {
       lines.push('- 本题需要实时事实，但用户关了联网：明确说无法核实，不要用记忆里的数字冒充刚查到的。');
     }
@@ -224,21 +224,21 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
   if (code != null && code >= 0.6) {
     lines.push(sandboxEnabled === false
       ? '- 本题适合跑代码，但沙箱关着：不要假装执行，说明需要打开沙箱，或改用不可执行的推理。'
-      : '- 涉及计算/验证：写进沙箱执行，不要口算。');
+      : '- 涉及计算/验证：建议写进沙箱执行，不要口算。');
   } else if (route === 'chat' && (code == null || code < 0.25) && (dispatch == null || dispatch < 0.3)) {
-    lines.push('- 本题可以直接回答。不要为了用工具而用工具，也不要无故委派。');
+    lines.push('- 本题可以直接回答。建议不用为了用工具而用工具，也不要无故委派。');
   }
   const lv = String(reasoningLevel || 'medium').toLowerCase();
   const canDispatch = thinking !== false && (lv === 'max' || lv === 'ultra');
   if (dispatch != null && dispatch >= 0.7) {
     lines.push(canDispatch
       ? (lv === 'ultra'
-        ? '- 本题适合委派：Ultra 下并行派出相关专家，收齐后交叉核对再交，不要只派一个就停。'
-        : '- 本题适合委派子智能体：主动 dispatch_subagent，task 必须自包含。')
+        ? '- 本题适合委派：Ultra 下建议并行派出相关专家，收齐后交叉核对再交，不要只派一个就停。'
+        : '- 本题适合委派子智能体：建议主动 dispatch_subagent，task 必须自包含。')
       : '- 本题适合专业视角，但当前思考级别未到 Max/Ultra，不能委派；请你自己直接做。');
   }
   if (diff != null && diff >= 4) {
-    lines.push('- 高难度：先在内部想清步骤；互不依赖的工具在同一轮并行发出。');
+    lines.push('- 高难度：先在内部想清步骤；互不依赖的工具建议在同一轮并行发出。');
   }
   return lines.join('\n');
 }
@@ -269,3 +269,65 @@ export async function planTurn({ apiKey, text, model, settings, attachments, sig
     }),
   };
 }
+
+// ─── Jev 文本内容安全审核（替代传统本地词表/Toxicity 审核）────────────────
+export const MODERATION_QUESTIONS = {
+  unsafe: noul(
+    'Does this user message violate safety policy (CSAM/minors sexual content, suicide or self-harm encouragement/instruction, mass violence/terrorism/bomb/weapon-making instructions, severe cybercrime/malware/ransomware creation, or extreme hate/threats) as opposed to benign chat, coding, education, creative writing, or defensive security?',
+    'Severe policy violation that must be blocked immediately',
+    'Safe or benign request (normal conversation, coding, academic, creative fiction, or defensive security)',
+  ),
+  category: choice('Primary safety category of the user message.', {
+    safe: 'Benign request: normal chat, programming, math, translation, creative writing, or general knowledge',
+    sexual_minors: 'Child sexual exploitation or abuse (CSAM)',
+    self_harm: 'Encouraging or instructing suicide or self-harm',
+    violence_terror: 'Terrorism, mass violence, or instructions to build bombs/weapons/poisons',
+    cyber_crime: 'Malware, ransomware, exploit payloads, or illegal hacking instructions',
+    hate_harassment: 'Severe hate speech, doxxing, or violent threats against people',
+  }),
+  severity: score('How harmful or policy-violating is this user message?', [
+    'completely benign everyday or technical request',
+    'sensitive topic discussed safely or academically',
+    'borderline or mildly inappropriate language',
+    'clear policy violation requesting harmful instructions',
+    'extreme/imminent harm (CSAM, suicide instruction, bomb/terror attack, ransomware)',
+  ]),
+};
+
+export function buildModerationState(text) {
+  const body = String(text || '').trim().slice(0, 12000);
+  return `Task: Content safety moderation for user input.\nUser input:\n${body || '(empty)'}`;
+}
+
+export async function moderateTextWithJev({ apiKey, text, signal, timeoutMs = JEV_TIMEOUT_MS } = {}) {
+  const raw = String(text || '').trim();
+  if (!raw) return { ok: true, blocked: false, source: 'jev', category: 'safe', unsafe: 0, severity: 0, labels: [] };
+  const r = await askJev({
+    apiKey,
+    state: buildModerationState(raw),
+    questions: MODERATION_QUESTIONS,
+    signal,
+    timeoutMs,
+  });
+  if (!r.ok) return r;
+  const unsafe = noulOf(r.answers, 'unsafe');
+  const category = choiceOf(r.answers, 'category') || 'safe';
+  const confidence = confidenceOf(r.answers, 'category');
+  const severity = scoreOf(r.answers, 'severity');
+  const blocked = (unsafe != null && unsafe >= 0.7)
+    || (category !== 'safe' && (unsafe == null || unsafe >= 0.5) && (severity == null || severity >= 2.5));
+  return {
+    ok: true,
+    blocked,
+    source: 'jev',
+    model: r.model || JEV_MODEL,
+    unsafe,
+    category,
+    confidence,
+    severity,
+    labels: blocked ? [{ label: category !== 'safe' ? category : 'policy_violation', score: unsafe ?? 1 }] : [],
+    answers: r.answers,
+    usage: r.usage,
+  };
+}
+

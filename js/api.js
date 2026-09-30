@@ -6,28 +6,11 @@ import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinking
 import { claudeThinkingBudget, normalizeReasoningLevel, reasoningEffortFor } from './reasoning.js';
 import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
-
-function lastUserText(messages) {
-  for (let i = (messages || []).length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m && m.role === 'user') return String(m.text || (typeof m.content === 'string' ? m.content : '') || '');
-  }
-  return '';
-}
-function isCodeTask(text) {
-  return /```|write_file|read_file|patch_file|execute_|function\b|class\b|\bdef\b|\bimport\b|实现|代码|重构|编译|\.js\b|\.py\b|\.ts\b|\.cpp\b|算法|沙箱|模块|函数|单测|bug|报错|接口定义|TypeScript|JavaScript|Python|写个文件|写入|文件|sandbox|\bcode\b|\bimplement\b|\bpatch\b/i.test(String(text || ''));
-}
-function taskOutputCap(text, { thinking, level }) {
-  const code = isCodeTask(text);
-  const lv = String(level || '').toLowerCase();
-  if (thinking && lv === 'ultra') return code ? 24000 : 8192;
-  if (thinking && lv === 'max') return code ? 16000 : 4096;
-  if (code) return 8192;
-  return 4096;
-}
+import { resolveTemperature, canSendTemperature } from './temperature.js';
 
 // 实测不支持思考参数的模型（400 降级后记录，会话内不再尝试）
 const thinkingUnsupported = new Set();
+const temperatureUnsupported = new Set();
 export function thinkingDisabledFor(model) { return thinkingUnsupported.has(model); }
 // 原生联网被拒过的模型（400 降级后记录，会话内不再尝试）
 const webUnsupported = new Set();
@@ -35,7 +18,7 @@ const responsesUnsupported = new Set();
 export function webFallbackFor(model) { return webUnsupported.has(model); }
 export function responsesFallbackFor(model) { return responsesUnsupported.has(model); }
 // 仅测试用：清空降级记录，保证用例互相独立
-export function __resetThinkingFallbackForTests() { thinkingUnsupported.clear(); }
+export function __resetThinkingFallbackForTests() { thinkingUnsupported.clear(); temperatureUnsupported.clear(); }
 export function __resetWebFallbackForTests() { webUnsupported.clear(); responsesUnsupported.clear(); }
 
 let transport = 'direct'; // 'direct' | 'proxy'
@@ -428,10 +411,13 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
 
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
 // onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
-export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, reasoningLevel = 'medium', signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
+export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, reasoningLevel = 'medium', temperature, plan = null, iteration = 1, phase = '', subagentId = '', signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
   const protocol = protocolOf(model);
   const level = normalizeReasoningLevel(reasoningLevel);
   const wantThinking = thinking && !thinkingUnsupported.has(model);
+  const tempInfo = typeof temperature === 'number'
+    ? { temperature, profile: 'custom', label: `T=${temperature}` }
+    : resolveTemperature({ messages, plan, iteration, phase, subagentId });
   // 联网 = 只往请求体里塞模型 API 自带的网页搜索字段（能力表见 js/websearch.js）。
   // 没有原生格式的模型（DeepSeek 等）就是「本轮不联网」，绝不改道去调第三方搜索 API。
   // 原生网页搜索已下线（各模型不稳定）；webEnabled 不再注入任何服务端搜索字段
@@ -439,17 +425,22 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
   let endpoint = webCap && webCap.endpoint === 'responses' && !responsesUnsupported.has(model) ? 'responses'
     : (protocol === 'anthropic' ? 'messages' : 'chat');
 
-  const buildBody = (withThinking, withWeb) => {
+  const buildBody = (withThinking, withWeb, withTemp = true) => {
     let body;
-    const cap = taskOutputCap(lastUserText(messages), { thinking: withThinking, level });
+    const allowTemp = withTemp
+      && !temperatureUnsupported.has(model)
+      && canSendTemperature(model, { withThinking, protocol })
+      && typeof tempInfo.temperature === 'number';
     if (endpoint === 'responses') {
       // OpenAI Responses API：网关文档 4.4 —— /v1/responses 仅 GPT 系列，Claude/Gemini 会 400
+      // 思考等级与对话类型均不限制输出 token
       const { instructions, input } = buildResponsesInput(messages);
-      body = { model, stream: true, input, max_output_tokens: cap };
+      body = { model, stream: true, input };
       if (instructions) body.instructions = instructions;
       const fnTools = tools && tools.length ? toOpenAITools(tools) : [];
       if (fnTools.length) body.tools = fnTools.map((t) => ({ type: 'function', ...t.function }));
       if (withThinking) body.reasoning = { effort: reasoningEffortFor(model, level) };
+      if (allowTemp) body.temperature = tempInfo.temperature;
       if (fastMode) body.service_tier = 'fast';
       if (withWeb) injectWeb(body, webCap);
       return body;
@@ -457,14 +448,17 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     if (protocol === 'anthropic') {
       // 思考关闭的请求不能夹带历史 thinking 块（API 会拒收）
       const p = buildAnthropicPayload(messages, { includeThinking: withThinking });
-      // 思考模式要求 max_tokens > budget_tokens；聊天 ~1k，代码 8k–16k
+      // Anthropic 协议必填 max_tokens 且思考模式要求 max_tokens > budget_tokens；
+      // 思考等级只决定 budget_tokens 深度，不按思考等级或对话类型压缩正文输出空间
       const budget = withThinking ? claudeThinkingBudget(level) : 0;
-      const maxTokens = withThinking ? Math.max(cap, budget + cap) : cap;
+      const maxTokens = withThinking ? budget + p.max_tokens : p.max_tokens;
       // 空 system 不要发：实测网关 Anthropic 路由收到 system:"" 时上游整段不返回 thinking 块
       body = { model, stream: true, messages: p.messages, max_tokens: maxTokens };
       if (p.system) body.system = p.system;
+      if (allowTemp) body.temperature = tempInfo.temperature;
     } else {
-      body = { model, stream: true, stream_options: { include_usage: true }, max_tokens: cap, messages: buildOpenAIMessages(messages) };
+      body = { model, stream: true, stream_options: { include_usage: true }, messages: buildOpenAIMessages(messages) };
+      if (allowTemp) body.temperature = tempInfo.temperature;
       if (fastMode) body.service_tier = 'fast'; // TeamoRouter Fast mode（GPT 系列）
     }
     if (withThinking) Object.assign(body, thinkingParamsFor(model, level));
@@ -477,7 +471,8 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
 
   let bodyThinking = wantThinking;
   let bodyWeb = !!webCap;
-  let body = buildBody(bodyThinking, bodyWeb);
+  let bodyTemp = true;
+  let body = buildBody(bodyThinking, bodyWeb, bodyTemp);
   const headers = { 'Content-Type': 'application/json', ...authHeaders(protocol, apiKey) };
   const noteWebFallback = (why) => {
     try { onWebFallback && onWebFallback(model, why); } catch { /* 视图层异常不能影响请求本身 */ }
@@ -500,7 +495,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
         responsesUnsupported.add(model);
         endpoint = 'chat';
         bodyWeb = false;
-        body = buildBody(bodyThinking, false);
+        body = buildBody(bodyThinking, false, bodyTemp);
         noteWebFallback(`Responses API 端点被拒（${String(text).slice(0, 120)}），已退回 /v1/chat/completions，本轮不联网`);
         const err = new Error(httpErrorMessage(r.status, text));
         err.status = r.status; err.retryable = true;
@@ -515,8 +510,17 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
         try { onThinkingFallback && onThinkingFallback(model); } catch { /* noop */ }
         // 只去掉思考参数，联网字段必须原样保留（旧写法 buildBody(false) 把 withWeb 默认为假，
         // 思考 400 会把本轮联网一并关掉，表现为「开了思考的模型突然不会检索」）。
-        body = buildBody(false, bodyWeb);
+        body = buildBody(false, bodyWeb, bodyTemp);
         bodyThinking = false;
+        const err = new Error(httpErrorMessage(r.status, text));
+        err.status = 400; err.retryable = true;
+        throw err;
+      }
+      // ②b 某些推理模型拒收 temperature 参数 → 剥离 temperature 后重试
+      if (r.status === 400 && bodyTemp && /temperature/i.test(text)) {
+        temperatureUnsupported.add(model);
+        bodyTemp = false;
+        body = buildBody(bodyThinking, bodyWeb, false);
         const err = new Error(httpErrorMessage(r.status, text));
         err.status = 400; err.retryable = true;
         throw err;
@@ -525,7 +529,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       if (r.status === 400 && bodyWeb && /web_search|search_parameters|search_context|builtin_function|\$web_search|unsupported|not support|unknown|invalid|tool|include|instructions/i.test(text)) {
         webUnsupported.add(model);
         bodyWeb = false;
-        body = buildBody(bodyThinking, false);
+        body = buildBody(bodyThinking, false, bodyTemp);
         noteWebFallback(`该模型拒绝原生联网字段，已按无联网重试：${String(text).slice(0, 160)}`);
         const err = new Error(httpErrorMessage(r.status, text));
         err.status = r.status; err.retryable = true;
@@ -536,7 +540,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
       throw err;
     }
     return r;
-  });
+  }, 2);
 
   const normalize = endpoint === 'responses' ? createResponsesStream(onEvent)
     : (protocol === 'anthropic' ? createAnthropicStream(onEvent) : createOpenAIStream(onEvent));

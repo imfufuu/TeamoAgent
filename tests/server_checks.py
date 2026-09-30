@@ -133,6 +133,8 @@ def main():
     check("health 只报 fetch/git", '"fetch": True,' in src and '"providers"' not in src)
     check("fetch 的 mode 白名单只剩 text|raw", 'if mode not in ("text", "raw")' in src)
     check("工作区目录名可配置（默认 ./workspace）", os.path.basename(m.WORKSPACE) in ("workspace",) or True)
+    check("_git 与 _proxy 拒绝负数 Content-Length（防 read(-1) 阻塞）", "if n < 0:" in src and "if length < 0:" in src)
+    check("SSRF 护栏检查 ipv4_mapped", "ipv4_mapped" in src)
 
     print(f"\n{'%d 项护栏自检通过 ✅' % ok if not bad else '%d 项失败 ❌：%s' % (len(bad), '、'.join(bad))}")
     return 1 if bad else 0

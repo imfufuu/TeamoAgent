@@ -751,7 +751,26 @@ async function executeToolBody(name, args, ctx) {
             const path = `outputs/image-${String(last + 1).padStart(3, '0')}.${ext}`;
             fs.write(path, dataUrl);
             written.push({ path, dataUrl, mime, ext, width: width || 0, height: height || 0 });
-            emit({ status: 'ok', image: dataUrl, imagePath: path, width, height, fsChange: true, note: `已生成 ${path}${width && height ? `（${width}x${height}）` : ''}` });
+            const isLast = written.length === list.length;
+            emit({
+              status: 'ok',
+              image: dataUrl,
+              imagePath: path,
+              width,
+              height,
+              fsChange: true,
+              note: `已生成 ${path}${width && height ? `（${width}x${height}）` : ''}`,
+              ...(isLast ? {
+                billing: {
+                  kind: 'image',
+                  model,
+                  size: width && height ? `${width}x${height}` : size,
+                  quality,
+                  count: written.length,
+                  usage: out.usage || null,
+                },
+              } : {}),
+            });
           }
           const dims = written.filter((w) => w.width && w.height).map((w) => `${w.width}x${w.height}`).join(' / ');
           const billed = out.usage && out.usage.total_tokens ? `，计费 ${out.usage.input_tokens || 0} 输入 / ${out.usage.output_tokens || 0} 输出 tokens` : '';
@@ -784,6 +803,8 @@ async function executeToolBody(name, args, ctx) {
         try {
           const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           const chunks = [];
+          let visionIn = 0;
+          let visionOut = 0;
           for (let i = 0; i < paths.length; i++) {
             const path = paths[i];
             let dataUrl = '';
@@ -795,7 +816,18 @@ async function executeToolBody(name, args, ctx) {
             const pagePrompt = paths.length > 1
               ? `${prompt || '请完整分析这张图片：按阅读顺序转录全部可见文字。'}\n这是第 ${i + 1}/${paths.length} 页（${path}）。`
               : prompt;
-            const pageText = await analyzeImage({ apiKey: ctx.apiKey, prompt: pagePrompt, dataUrl, signal: ctx.signal });
+            const pageText = await analyzeImage({
+              apiKey: ctx.apiKey,
+              prompt: pagePrompt,
+              dataUrl,
+              signal: ctx.signal,
+              onUsage: (u) => {
+                if (u) {
+                  visionIn += Number(u.input || 0);
+                  visionOut += Number(u.output || 0);
+                }
+              },
+            });
             chunks.push(paths.length > 1 ? `## ${path}\n\n${pageText}` : pageText);
           }
           const text = chunks.join('\n\n');
@@ -803,7 +835,18 @@ async function executeToolBody(name, args, ctx) {
           const ocrPath = ocrOutPath(paths);
           try { fs.write(ocrPath, text); } catch { /* 落盘失败仍回全文 */ }
           const label = paths.length > 1 ? `${paths.length} 页` : paths[0];
-          emit({ status: 'ok', note: `已分析 ${label}`, durationMs: ms, fsChange: true });
+          emit({
+            status: 'ok',
+            note: `已分析 ${label}`,
+            durationMs: ms,
+            fsChange: true,
+            billing: {
+              kind: 'vision',
+              model: VISION_TOOL_MODEL,
+              usage: { input: visionIn, output: visionOut },
+              imageCount: paths.length,
+            },
+          });
           return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${paths.join('、')} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;

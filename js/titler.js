@@ -23,7 +23,7 @@ export async function summarizeTitle({ apiKey, model, question, answer, signal, 
   ].join('\n');
   let text = '';
   await streamChat({
-    model, apiKey, thinking: false, tools: null, signal,
+    model, apiKey, thinking: false, phase: 'titler', tools: null, signal,
     messages: [{ role: 'user', text: prompt }],
     onEvent: (ev) => { if (ev.type === 'text') text += ev.text; },
   });

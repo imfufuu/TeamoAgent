@@ -66,11 +66,15 @@ async function oneShot(body, apiKey, signal) {
   try { json = JSON.parse(raw); } catch { throw new Error('识图接口返回了非 JSON'); }
   const { text, finishReason } = extractChoiceText(json);
   if (!text) throw new Error('识图接口没有返回内容');
-  return { text, finishReason };
+  const u = json && json.usage ? {
+    input: Number(json.usage.prompt_tokens ?? json.usage.input_tokens ?? 0) || 0,
+    output: Number(json.usage.completion_tokens ?? json.usage.output_tokens ?? 0) || 0,
+  } : null;
+  return { text, finishReason, usage: u };
 }
 
 /** 用识图模型看一张或多张图（data URL 或 http URL），返回模型文字。长度上限会自动续写。 */
-export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal }) {
+export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal, onUsage }) {
   if (!apiKey) throw new Error('未配置 API Key');
   const urls = [];
   for (const u of (Array.isArray(dataUrls) ? dataUrls : [])) {
@@ -87,6 +91,8 @@ export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal }
   const messages = [{ role: 'user', content }];
   let disableReasoning = true;
   const parts = [];
+  let totalInput = 0;
+  let totalOutput = 0;
   for (let i = 0; i < VISION_CONTINUES; i++) {
     const body = {
       model: VISION_TOOL_MODEL,
@@ -106,10 +112,20 @@ export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal }
       }
       throw err;
     }
+    if (shot.usage) {
+      totalInput += shot.usage.input;
+      totalOutput += shot.usage.output;
+    }
     parts.push(shot.text);
     if (!isLengthStop(shot.finishReason)) break;
     messages.push({ role: 'assistant', content: shot.text });
     messages.push({ role: 'user', content: '上次输出因长度上限被截断。请从中断处紧接着继续写完，不要重复已输出的内容，不要道歉或加前言。' });
   }
-  return parts.join('');
+  const fullText = parts.join('');
+  if (typeof onUsage === 'function') {
+    const estIn = totalInput || (urls.length * 1600 + Math.ceil(text.length / 2));
+    const estOut = totalOutput || Math.ceil(fullText.length / 2);
+    try { onUsage({ model: VISION_TOOL_MODEL, input: estIn, output: estOut, imageCount: urls.length }); } catch { /* noop */ }
+  }
+  return fullText;
 }

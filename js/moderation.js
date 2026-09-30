@@ -1,14 +1,41 @@
-// ─── 本地内容审核：Toxicity + USE 语义 + NSFWJS（不调用网关模型）────────────
-// 模型随项目放在 assets/moderation/，用户发送后在浏览器本地运行。
-// 当前策略：成人色情也审核；文本保持较宽松阈值，图片 NSFW 达阈值即拦。
+// ─── 内容审核：文本交给 TypeSafe Jev（System One），图片本地 NudeNet + NSFWJS ───
+// 文本审核由 Jev（POST /v1/systemone）主审 + 本地红线规则兜底（替代传统 local:tfjs-toxicity + text-use，解决传统方法效果差的问题）；
+// 图片审核随项目放在 assets/moderation/，在浏览器本地运行。
 
-export const TEXT_MODERATION_MODEL = 'local:tfjs-toxicity-1.2.2+use-semantic-policy-v2';
+import { askJev, noul, choice, score, noulOf, choiceOf, scoreOf, confidenceOf, JEV_MODEL, JEV_TIMEOUT_MS } from './jev.js';
+
+export const TEXT_MODERATION_MODEL = 'jev:systemone+policy-v2';
 export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-mobilenet-v2-mid';
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
 export const IMAGE_MODERATION_THRESHOLD = 0.70;
 export const MODERATION_TIMEOUT_MS = 45000;      // 纯文本回合总预算
 export const IMAGE_TURN_BUDGET_MS = 90000;       // 带图回合总预算（模型资源大，慢网络放宽）
+
+const JEV_MODERATION_QUESTIONS = {
+  unsafe: noul(
+    'Does this user message violate safety policy (CSAM/minors sexual content, explicit pornography/erotica generation, incest/bestiality/non-consensual sexual content, suicide or self-harm encouragement/instruction, mass violence/terrorism/bomb/weapon/hard-drug making instructions, or severe cybercrime/malware creation) as opposed to benign chat, coding, education, creative writing, or defensive security?',
+    'Policy violation that must be blocked immediately',
+    'Safe or benign request (normal conversation, coding, academic, education, or defensive security)',
+  ),
+  category: choice('Primary safety category of the user message.', {
+    safe: 'Benign request: normal chat, programming, math, translation, education, or general knowledge',
+    minor_sexual: 'Child sexual exploitation or abuse (CSAM) or sexualized minors',
+    adult_sexual: 'Explicit pornographic or erotic content generation',
+    public_morals: 'Incest, bestiality, necrophilia, or non-consensual sexual exploitation',
+    self_harm: 'Encouraging or instructing suicide or self-harm',
+    mass_harm: 'Terrorism, mass violence, or instructions to build bombs/weapons/poisons',
+    drug_crime: 'Manufacturing or trafficking hard drugs (meth, heroin, fentanyl, etc.)',
+    cyber_crime: 'Malware, ransomware, exploit payloads, or illegal hacking instructions',
+  }),
+  severity: score('How harmful or policy-violating is this user message?', [
+    'completely benign everyday or technical request',
+    'sensitive topic discussed safely or academically',
+    'borderline or mildly inappropriate language',
+    'clear policy violation requesting harmful or explicit content',
+    'extreme/imminent harm (CSAM, suicide instruction, bomb/terror attack, hard drugs)',
+  ]),
+};
 
 const TIMEOUTS = Object.freeze({
   textModel: 30000,
@@ -512,7 +539,7 @@ const TOXIC_SHARD_URLS = [1, 2, 3, 4, 5, 6, 7].map((i) => `../assets/moderation/
 function prewarmImageModeration() {
   if (typeof document === 'undefined') return Promise.resolve(false);
   const t0 = performance.now();
-  mlog('prewarm:start', { note: '先显式下载全部资源（可见进度），再创建两个模型会话' });
+  mlog('prewarm:start', { note: '先显式下载图像审核资源（NudeNet + NSFWJS），再创建两个图像模型会话；文本审核交由 Jev 处理' });
   prefetchImageModerationAssets();
   const warmup = (async () => {
     await Promise.all([
@@ -521,19 +548,15 @@ function prewarmImageModeration() {
       fetchWarm(TFJS_URL, 'tf.js'),
       fetchWarm(NSFWJS_URL, 'nsfwjs.js'),
       fetchWarm(NSFW_MODEL_URL, 'nsfw-model.json'),
-      fetchWarm('../assets/moderation/text-toxic/model.json', 'toxic-model.json'),
       ...NSFW_SHARD_URLS.map((u) => fetchWarm(u, 'nsfw-shard')),
-      ...TOXIC_SHARD_URLS.map((u) => fetchWarm(u, 'toxic-shard')),
     ]);
     const nudity = nudityDetector().then(() => true).catch(() => false);
     const nsfw = imageModel().then(() => true).catch((err) => { mlog('prewarm:nsfwjs-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
-    // 文本 Toxicity（28MB）也预热：英文消息首审不再冷启动；USE 仍按需（仅英文触发）
-    const toxic = textModel().then(() => true).catch((err) => { mlog('prewarm:toxicity-fail', { error: String(err && err.message || err).slice(0, 160) }); return false; });
-    return Promise.all([nudity, nsfw, toxic]).then(([n, s, t]) => [n, s, t]);
+    return Promise.all([nudity, nsfw]).then(([n, s]) => [n, s]);
   })();
-  return warmup.then(([n, s, t]) => {
-    mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s, toxicity: t });
-    return n || s || t;
+  return warmup.then(([n, s]) => {
+    mlog('prewarm:done', { ms: ms(t0), nudenet: n, nsfwjs: s, textEngine: 'jev' });
+    return n || s;
   });
 }
 
@@ -781,47 +804,114 @@ async function imageFromDataUrl(dataUrl, signal) {
   return withAbort(task, signal, 'imageDecode', timeoutFor('imageDecode', TIMEOUTS.imageDecode));
 }
 
-export async function moderateText({ text, attachments = [], signal } = {}) {
+async function jevTextDecision(payload, { apiKey = '', signal } = {}) {
+  const hooks = testHooks();
+  if (typeof hooks.jevDecision === 'function') return hooks.jevDecision(payload, { apiKey, signal });
+  const key = String(apiKey || '').trim();
+  if (!key) return { blocked: false, score: 0, categories: [], skipped: 'no-api-key', source: 'jev' };
+  const state = `Task: Content safety moderation for user input.\nUser input:\n${compactText(payload, 12000)}`;
+  const r = await askJev({
+    apiKey: key,
+    state,
+    questions: JEV_MODERATION_QUESTIONS,
+    signal,
+    timeoutMs: timeoutFor('jevText', JEV_TIMEOUT_MS),
+  });
+  if (!r || !r.ok) {
+    return { blocked: false, score: 0, categories: [], skipped: (r && r.reason) || 'jev-unavailable', source: 'jev' };
+  }
+  const unsafe = noulOf(r.answers, 'unsafe');
+  const category = choiceOf(r.answers, 'category') || 'safe';
+  const confidence = confidenceOf(r.answers, 'category');
+  const severity = scoreOf(r.answers, 'severity');
+  const blocked = (unsafe != null && unsafe >= 0.7)
+    || (category !== 'safe' && (unsafe == null || unsafe >= 0.5) && (severity == null || severity >= 2.5));
+  const categories = blocked ? [category !== 'safe' ? category : 'policy_violation'] : [];
+  const score = unsafe != null ? unsafe : (severity != null ? Math.min(1, severity / 4) : 0);
+  return {
+    blocked,
+    score,
+    categories,
+    reason: categories.join(', '),
+    source: 'jev',
+    model: r.model || JEV_MODEL,
+    unsafe,
+    category,
+    confidence,
+    severity,
+    usage: r.usage,
+  };
+}
+
+export async function moderateText({ text, attachments = [], apiKey = '', signal } = {}) {
   throwIfAborted(signal);
   const t0 = performance.now();
   const payload = textPayload(text, attachments);
   if (!payload) return { blocked: false, score: 0, categories: [], skipped: 'empty' };
   const policy = policyTextHeuristic(payload);
   mlog('text:policy', { blocked: policy.blocked, cats: policy.categories.length ? policy.categories : undefined, ms: ms(t0) });
-  // CJK 快速通道：Toxicity/USE 的词表都没有中文词条，对中文无判别力（中文防护由规则层覆盖）。
-  // 跳过后「你好」这类消息不再触发 28MB 文本模型冷加载（此前首次中文消息要等 30s+）。
-  const probe0 = compactText(payload, 400);
-  const letters0 = probe0.replace(/\s+/g, '') || ' ';
-  const cjk0 = (letters0.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/g) || []).length;
-  if (letters0.length && cjk0 / letters0.length >= 0.3) {
-    mlog('text:cjk-fastpath', { ms: ms(t0), note: '中文为主，仅规则层判定' });
-    return mergeDecisions(policy,
-      { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' },
-      { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' });
+
+  const hooks = testHooks();
+  // 兼容显式注入了 textModel/semanticDecision 的单测钩子
+  if (hooks && (hooks.textModel || hooks.textClassifier || hooks.semanticDecision) && !hooks.jevDecision) {
+    const probe0 = compactText(payload, 400);
+    const letters0 = probe0.replace(/\s+/g, '') || ' ';
+    const cjk0 = (letters0.match(/[\u3040-\u30ff\u3400-\u9fff\uf900-\ufaff\uac00-\ud7af]/g) || []).length;
+    if (letters0.length && cjk0 / letters0.length >= 0.3) {
+      mlog('text:cjk-fastpath', { note: '本地拉丁词表跳过 CJK，正式通道已交由 Jev 主审' });
+      return mergeDecisions(policy,
+        { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' },
+        { blocked: false, score: 0, categories: [], skipped: 'cjk-unsupported' });
+    }
+    let modelDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
+    let semanticDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
+    try {
+      const model = await withAbort(textModel(), signal, 'textModel', timeoutFor('textModel', TIMEOUTS.textModel));
+      throwIfAborted(signal);
+      const predictions = await withAbort(model.classify([payload]), signal, 'textClassify', timeoutFor('textClassify', TIMEOUTS.textClassify));
+      modelDecision = modelTextDecision(predictions);
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      modelDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
+    }
+    try {
+      throwIfAborted(signal);
+      semanticDecision = await withAbort(semanticTextDecision(payload), signal, 'semantic', timeoutFor('semantic', TIMEOUTS.semantic));
+    } catch (err) {
+      if (isAbortError(err)) throw err;
+      semanticDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
+    }
+    return mergeDecisions(policy, modelDecision, semanticDecision);
   }
-  let modelDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
-  let semanticDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run' };
+
+  // 生产主路径：文本审核交给 Jev（System One POST /v1/systemone）处理 + 本地红线规则协同
+  if (policy.blocked && !(hooks && hooks.jevDecision)) {
+    return mergeDecisions(policy, { blocked: false, score: 0, categories: [], skipped: 'policy-shortcircuit', source: 'jev' });
+  }
+  let jevDecision = { blocked: false, score: 0, categories: [], skipped: 'not-run', source: 'jev' };
   try {
-    const model = await withAbort(textModel(), signal, 'textModel', timeoutFor('textModel', TIMEOUTS.textModel));
     throwIfAborted(signal);
-    const predictions = await withAbort(model.classify([payload]), signal, 'textClassify', timeoutFor('textClassify', TIMEOUTS.textClassify));
-    modelDecision = modelTextDecision(predictions);
-    mlog('text:toxicity', { blocked: modelDecision.blocked, score: Math.round((modelDecision.score || 0) * 1000) / 1000, cats: modelDecision.categories.length ? modelDecision.categories : undefined });
+    jevDecision = await withAbort(
+      jevTextDecision(payload, { apiKey, signal }),
+      signal,
+      'jevText',
+      timeoutFor('jevText', JEV_TIMEOUT_MS + 1500),
+    );
+    throwIfAborted(signal);
+    mlog('text:jev', {
+      blocked: jevDecision.blocked,
+      unsafe: jevDecision.unsafe != null ? Math.round(jevDecision.unsafe * 1000) / 1000 : undefined,
+      category: jevDecision.category,
+      severity: jevDecision.severity,
+      skipped: jevDecision.skipped,
+      ms: ms(t0),
+    });
   } catch (err) {
     if (isAbortError(err)) throw err;
-    console.warn('[TeamoAgent] 本地文本 Toxicity 模型加载/推理失败，保留规则层结果', err);
-    modelDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
+    mlog('text:jev-skip', { error: String(err && err.message || err).slice(0, 140) });
+    jevDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: 'jev' };
   }
-  try {
-    throwIfAborted(signal);
-    semanticDecision = await withAbort(semanticTextDecision(payload), signal, 'semantic', timeoutFor('semantic', TIMEOUTS.semantic));
-    mlog('text:semantic', { blocked: semanticDecision.blocked, score: Math.round((semanticDecision.score || 0) * 1000) / 1000, cats: semanticDecision.categories.length ? semanticDecision.categories : undefined, skipped: semanticDecision.skipped });
-  } catch (err) {
-    if (isAbortError(err)) throw err;
-    console.warn('[TeamoAgent] 本地文本 USE 语义模型加载/推理失败，保留规则层结果', err);
-    semanticDecision = { blocked: false, score: 0, categories: [], error: String(err && err.message || err) };
-  }
-  return mergeDecisions(policy, modelDecision, semanticDecision);
+  return mergeDecisions(policy, jevDecision);
 }
 
 export async function moderateImages({ attachments = [], text = '', signal } = {}) {
@@ -903,18 +993,18 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   return out;
 }
 
-export async function moderateUserTurn({ text, attachments = [], signal } = {}) {
+export async function moderateUserTurn({ text, attachments = [], apiKey = '', signal } = {}) {
   throwIfAborted(signal);
   const t0 = performance.now();
   const imgCount = (attachments || []).filter((a) => a && a.kind === 'image').length;
   const hasImage = imgCount > 0 || textImageCandidates(text).length > 0;
   const bypass = policyImagePromptBypass(text, hasImage);
   if (bypass.blocked) { mlog('turn:blocked-by-prompt-bypass', {}); return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } }; }
-  // 带图回合预算放宽到 90s（模型资源最大 26MB，慢网络友好）；纯文本仍 45s（规则层即时可用）
+  // 带图回合预算放宽到 90s（模型资源最大 26MB，慢网络友好）；纯文本仍 45s（Jev + 规则层即时可用）
   const budget = imgCount > 0 ? IMAGE_TURN_BUDGET_MS : MODERATION_TIMEOUT_MS;
-  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 总预算: `${budget}ms（带图超时将 fail-closed 拦截，纯文本 fail-open 放行）` });
+  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 文本引擎: 'Jev (System One)', 总预算: `${budget}ms（带图超时将 fail-closed 拦截，纯文本 fail-open 放行）` });
   const task = Promise.all([
-    moderateText({ text, attachments, signal }),
+    moderateText({ text, attachments, apiKey, signal }),
     moderateImages({ text, attachments, signal }),
   ]);
   const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', budget));

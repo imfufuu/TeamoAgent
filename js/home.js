@@ -270,13 +270,12 @@ function finishOpen(instant) {
   watchReveal();
 }
 
-function abortAudioLoad() {
-  try { loadAbort && loadAbort.abort(); } catch { /* ignore */ }
-}
+const AUDIO_CACHE = 'teamo-assets-v1';
+let pendingPlayAfterLoad = false;
 
 function openSite(instant) {
   if (root.classList.contains('open')) return;
-  abortAudioLoad();
+  // 不中断后台音频下载：即使跳过片头，下载完成后也随时能从介绍页重播（Requirement 5.1）
   playing = false;
   paused = false;
   root.classList.remove('paused');
@@ -310,21 +309,68 @@ function setLoadProgress(p, text) {
 function setExploreReady(on) {
   if (explore) explore.classList.toggle('waiting', !on);
   if (exploreCta) exploreCta.disabled = !on;
+  document.querySelectorAll('[data-play-film]').forEach((btn) => {
+    btn.disabled = !on;
+  });
 }
 
 function markAudioReady(label) {
   audioReady = true;
   setExploreReady(true);
   setLoadProgress(1, label || '影片已就绪');
+  // 下载进度条结束后淡出消失（Requirement 5.2）
+  if (loadBox) {
+    window.setTimeout(() => {
+      loadBox.classList.add('gone');
+      loadBox.setAttribute('aria-hidden', 'true');
+    }, 760);
+  }
+  if (pendingPlayAfterLoad) {
+    pendingPlayAfterLoad = false;
+    startFilm();
+  }
+}
+
+async function bindAudioBlob(blob) {
+  if (!audio || !blob) return;
+  if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
+  audioBlobUrl = URL.createObjectURL(blob);
+  audio.src = audioBlobUrl;
+  audio.preload = 'auto';
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => { if (settled) return; settled = true; resolve(); };
+    audio.addEventListener('canplaythrough', finish, { once: true });
+    audio.addEventListener('error', finish, { once: true });
+    window.setTimeout(finish, 4000);
+    try { audio.load(); } catch { finish(); }
+  });
 }
 
 async function prefetchAudio() {
   if (!audio) { markAudioReady(); return; }
+  if (audioReady && audioBlobUrl) { markAudioReady(); return; }
   setExploreReady(false);
   setLoadProgress(0.02, '正在加载影片');
   loadAbort = new AbortController();
   const src = audio.getAttribute('src') || 'assets/audio/teamo-home.mp3';
   try {
+    // 优先命中本地持久化 CacheStorage：下载过一次后随时零延迟播放
+    if (typeof caches !== 'undefined') {
+      try {
+        const cache = await caches.open(AUDIO_CACHE);
+        const cachedRes = await cache.match(src);
+        if (cachedRes && cachedRes.ok) {
+          const blob = await cachedRes.blob();
+          if (blob && blob.size > 0) {
+            setLoadProgress(1, '影片已就绪');
+            await bindAudioBlob(blob);
+            markAudioReady();
+            return;
+          }
+        }
+      } catch { /* CacheStorage 不可用则走网络流 */ }
+    }
     const res = await fetch(src, { signal: loadAbort.signal, cache: 'force-cache' });
     if (!res.ok || !res.body) throw new Error(String(res.status || 'no body'));
     const total = Number(res.headers.get('Content-Length') || 0);
@@ -338,19 +384,15 @@ async function prefetchAudio() {
       received += value.byteLength;
       setLoadProgress(total ? received / total : Math.min(0.95, received / 1600000));
     }
-    const blob = new Blob(chunks, { type: res.headers.get('Content-Type') || 'audio/mpeg' });
-    if (audioBlobUrl) URL.revokeObjectURL(audioBlobUrl);
-    audioBlobUrl = URL.createObjectURL(blob);
-    audio.src = audioBlobUrl;
-    audio.preload = 'auto';
-    await new Promise((resolve) => {
-      let settled = false;
-      const finish = () => { if (settled) return; settled = true; resolve(); };
-      audio.addEventListener('canplaythrough', finish, { once: true });
-      audio.addEventListener('error', finish, { once: true });
-      window.setTimeout(finish, 4000);
-      try { audio.load(); } catch { finish(); }
-    });
+    const mime = res.headers.get('Content-Type') || 'audio/mpeg';
+    const blob = new Blob(chunks, { type: mime });
+    if (typeof caches !== 'undefined' && blob.size > 0) {
+      try {
+        const cache = await caches.open(AUDIO_CACHE);
+        await cache.put(src, new Response(blob.slice(0, blob.size, mime), { headers: { 'Content-Type': mime } }));
+      } catch { /* 写入缓存失败不影响本次播放 */ }
+    }
+    await bindAudioBlob(blob);
     markAudioReady();
   } catch (err) {
     if (err && err.name === 'AbortError') return;
@@ -360,8 +402,11 @@ async function prefetchAudio() {
 }
 
 function requestFilm() {
-  if (playing || root.classList.contains('scoring') || root.classList.contains('open')) return;
-  if (!audioReady) return;
+  if (playing || root.classList.contains('scoring')) return;
+  if (!audioReady) {
+    pendingPlayAfterLoad = true;
+    return;
+  }
   startFilm();
 }
 
@@ -469,9 +514,22 @@ pinTop();
 prepareReveal();
 
 const gateSkip = document.getElementById('gate-skip');
+document.querySelectorAll('[data-play-film]').forEach((btn) => {
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    requestFilm();
+  });
+});
+
+try {
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+  }
+} catch { /* ignore */ }
 
 if (reduce) {
   openSite(true);
+  prefetchAudio();
 } else {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');

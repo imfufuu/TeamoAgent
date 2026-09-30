@@ -477,7 +477,7 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.equal(thinkingParamsFor('gpt-5.6-sol', 'high').reasoning_effort, 'high');
   assert.equal(thinkingParamsFor('claude-sonnet-5', 'high').thinking.budget_tokens, 8192);
   assert.ok(thinkingParamsFor('claude-sonnet-5', 'ultra').thinking.budget_tokens > thinkingParamsFor('claude-sonnet-5', 'high').thinking.budget_tokens);
-  assert.match(r.reasoningLevelHint('high'), /不能委派/);
+  assert.match(r.reasoningLevelHint('high'), /深度推理/);
   assert.match(r.reasoningLevelHint('ultra'), /自检|多专家/);
   const ultraSys = cfg.systemPrompt(new Date(), { allowDispatch: true, reasoningLevel: 'ultra' });
   const highSys = cfg.systemPrompt(new Date(), { allowDispatch: false, reasoningLevel: 'high' });
@@ -3422,7 +3422,7 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
     assert.match(sys[0].content, /子智能体委派（dispatch_subagent）/);
     assert.match(sys[0].content, /不是 Max\/Ultra/);
     assert.equal((calls[0].body.tools || []).some((t) => (t.function && t.function.name) === 'dispatch_subagent'), false, '默认 Medium 不得委派');
-    assert.equal(calls[0].body.max_tokens, 4096, '闲聊/长文输出上限 4k，避免句中被砍断');
+    assert.equal(calls[0].body.max_tokens, undefined, '思考等级/对话类型不限制输出 token（由网关按模型真实上限决定）');
     const joined = sys.map((m) => m.content).join('\n');
     assert.match(joined, /本轮未联网/);
   } finally { globalThis.fetch = realFetch; }
@@ -4576,6 +4576,256 @@ test('.16 思考链加密正则：o 系命中、gpt/claude/gemini 不误伤', as
   for (const id of ['gpt-4o', 'gpt-4o-mini', 'gpt-5.5', 'claude-sonnet-5', 'gemini-3-pro', 'grok-4', 'o3max', 'proto']) {
     assert.equal(ENCRYPTED_THINKING_RE.test(id), false, `${id} 不应误判为加密`);
   }
+});
+
+group('2026.9.30.2 八项升级与安全修复');
+
+test('Req 1：思考等级与对话类型不限制输出 token，对话类型向 Agent 提供策略建议', async () => {
+  const realFetch2 = globalThis.fetch;
+  const calls = [];
+  mockFetch([openaiTextTurn('好的'), openaiTextTurn('代码完成')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-6.1-sol';
+    store.state.settings.thinking = true;
+    store.state.settings.reasoningLevel = 'mini';
+    const agent = createAgent(store, {});
+    await agent.send('请写一段长篇技术架构设计文档');
+    assert.equal(calls[0].body.max_tokens, undefined, 'OpenAI 通道不应由思考等级或对话类型设 max_tokens 上限');
+    store.state.settings.reasoningLevel = 'ultra';
+    await agent.send('请写一个完整的 Python 编译器代码');
+    assert.equal(calls[1].body.max_tokens, undefined, '代码任务在 Ultra 下同样不设人为 token 上限');
+  } finally {
+    globalThis.fetch = realFetch2;
+  }
+  const jev = await import('../js/jev.js');
+  const note = jev.formatPlanNote({
+    route: { type: 'choice', choice: 'code', confidence: 0.92 },
+    need_code: { type: 'noul', noul: 0.91 },
+  }, { webEnabled: true, sandboxEnabled: true });
+  assert.match(note, /不限制输出 token/);
+  assert.match(note, /建议/);
+});
+
+test('Req 2：智能自适应输出温度系统（按任务类型/阶段动态调节 + Claude thinking 兼容 + 400 回退）', async () => {
+  const temp = await import('../js/temperature.js');
+  // 规划/推理、代码执行温度低
+  const codeT = temp.resolveTemperature({ userText: '用 Python 实现 Dijkstra 最短路径并写单元测试', plan: { route: 'code', needCode: 0.9 } });
+  assert.equal(codeT.profile, 'code');
+  assert.ok(codeT.temperature <= 0.25, `代码任务温度应低：${codeT.temperature}`);
+
+  const planT = temp.resolveTemperature({ userText: '请一步步推导证明黎曼ζ函数方程并给出架构方案', reasoningLevel: 'ultra' });
+  assert.equal(planT.profile, 'planning');
+  assert.ok(planT.temperature <= 0.3, `规划推理温度应低：${planT.temperature}`);
+
+  const toolNextT = temp.resolveTemperature({ text: '分析项目', phase: 'reasoning' });
+  assert.equal(toolNextT.profile, 'planning');
+  assert.ok(toolNextT.temperature <= 0.25);
+
+  const errToolT = temp.resolveTemperature({
+    text: '分析项目',
+    iteration: 2,
+    messages: [{ role: 'tool', name: 'execute_python', content: '工具执行失败 (execute_python): SyntaxError' }],
+  });
+  assert.equal(errToolT.profile, 'code');
+  assert.ok(errToolT.temperature <= 0.2);
+
+  // 总结归纳与创意写作温度高
+  const sumT = temp.resolveTemperature({ userText: '请把上面的讨论总结成一份执行摘要和汇报提纲' });
+  assert.equal(sumT.profile, 'summary');
+  assert.ok(sumT.temperature >= 0.75, `任务总结温度应高：${sumT.temperature}`);
+
+  const creativeT = temp.resolveTemperature({ userText: '写一篇关于深海赛博朋克城市的科幻小说，文采斐然' });
+  assert.equal(creativeT.profile, 'creative');
+  assert.ok(creativeT.temperature >= 0.9, `创意写作温度应高：${creativeT.temperature}`);
+
+  // Claude 开启 extended thinking 时不发送 temperature（防 Anthropic 400）
+  assert.equal(temp.canSendTemperature({ model: 'claude-sonnet-5-5', protocol: 'anthropic', withThinking: true }), false);
+  assert.equal(temp.canSendTemperature({ model: 'claude-sonnet-5-5', protocol: 'anthropic', withThinking: false }), true);
+  assert.equal(temp.canSendTemperature({ model: 'gpt-6.1-sol', protocol: 'openai', withThinking: true }), true);
+});
+
+test('Req 3：全模型官方价格查询（识图与生图单独处理）与单轮多步费用汇总', async () => {
+  const pricing = await import('../js/pricing.js');
+  // 校验目录内全部聊天模型与生图模型均有官方价格定义
+  for (const m of cfg.FALLBACK_MODELS) {
+    const p = pricing.getModelPricing(m.id);
+    assert.ok(p && p.input > 0 && p.output > 0, `模型 ${m.id} 缺少官方价格`);
+  }
+  for (const im of cfg.IMAGE_MODELS) {
+    const p = pricing.getModelPricing(im.id);
+    assert.ok(p && p.kind === 'image', `生图模型 ${im.id} 应单独归为 image 计费`);
+  }
+  const vp = pricing.getModelPricing('deepseek-v4-flash-vision-exp');
+  assert.equal(vp.kind, 'vision');
+  assert.equal(vp.input, 0.44);
+  assert.equal(vp.output, 1.32);
+
+  // 识图单独估算
+  const vc = pricing.estimateVisionCost({ inputTokens: 2000, outputTokens: 500, imageCount: 1 });
+  assert.ok(Math.abs(vc.costUsd - (2000 * 0.44 + 500 * 1.32) / 1e6) < 1e-9);
+
+  // 生图单独估算（GPT Image 阶梯价 & Nano Banana 2 token 价）
+  const ic1k = pricing.estimateImageCost({ model: 'gpt-image-2.5-sunburst', size: '1024x1024', quality: 'medium', count: 2 });
+  assert.ok(Math.abs(ic1k.costUsd - 0.12) < 1e-9);
+  const ic2k = pricing.estimateImageCost({ model: 'gpt-image-2', size: '1536x1024', quality: 'high', count: 1 });
+  assert.ok(Math.abs(ic2k.costUsd - 0.20) < 1e-9);
+  const icGem = pricing.estimateImageCost({ model: 'gemini-3.1-flash-image', count: 1, usage: { input_tokens: 100, output_tokens: 1290 } });
+  assert.ok(Math.abs(icGem.costUsd - (100 * 0.5 + 1290 * 60.0) / 1e6) < 1e-9);
+
+  // 整轮汇总（含多步 assistant + 识图 + 生图）
+  const summary = pricing.summarizeTurnCost({
+    model: 'claude-sonnet-5-5',
+    messages: [
+      {
+        role: 'assistant',
+        model: 'claude-sonnet-5-5',
+        usage: { input: 1000, output: 500 },
+        toolCalls: [
+          { id: 'c1', name: 'analyze_image', args: { path: 'uploads/a.png' }, billing: { kind: 'vision', model: 'deepseek-v4-flash-vision-exp', input: 1500, output: 300, imageCount: 1 } },
+          { id: 'c2', name: 'generate_image', args: { prompt: 'cat' }, billing: { kind: 'image_gen', model: 'gpt-image-2.5-sunburst', size: '1024x1024', quality: 'auto', count: 1 } },
+        ],
+      },
+      {
+        role: 'assistant',
+        model: 'claude-sonnet-5-5',
+        usage: { input: 2000, output: 1000 },
+      },
+    ],
+  });
+  assert.equal(summary.inputTokens, 3000);
+  assert.equal(summary.outputTokens, 1500);
+  assert.ok(summary.visionUsd > 0, '应包含识图费用');
+  assert.ok(summary.imageUsd > 0, '应包含生图费用');
+  assert.ok(summary.totalUsd > summary.chatUsd, '总费用应含对话+识图+生图');
+});
+
+test('Req 4：首条消息触发违规审核时会话标题先显示「未命名对话」，待下一次合规任务完成后再由 AI 总结标题', async () => {
+  const realFetch2 = globalThis.fetch;
+  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.contentModeration = true;
+    const agent = createAgent(store, {});
+
+    // 第一条消息违规被拦截
+    globalThis.fetch = async () => openaiTextTurn('这是快速排序的 Python 实现。');
+    await agent.send('请写父女乱伦色情小说');
+    const getActive = () => store.state.sessions.find((s) => s.id === store.state.activeSessionId);
+    const s1 = getActive();
+    assert.equal(s1.title, '未命名对话', '首条消息违规被拒后标题应显示为「未命名对话」');
+    assert.equal(s1.untitledFromModeration, true);
+    assert.equal(store.needsTitle(), null, '仅含审核拒绝提示时不应触发 AI 总结标题');
+
+    // 下一次非违规任务完成
+    await agent.send('帮我写一个快速排序');
+    const s2 = getActive();
+    assert.equal(s2.title, '未命名对话', '合规任务刚完成、AI 总结标题前仍保持「未命名对话」');
+    const nt = store.needsTitle();
+    assert.ok(nt && nt.question === '帮我写一个快速排序', '合规任务完成后应允许 AI 总结标题');
+
+    // AI 总结标题写回
+    assert.equal(store.setAutoTitle(s2.id, 'Python 快速排序实现'), true);
+    assert.equal(getActive().title, 'Python 快速排序实现');
+    assert.equal(Boolean(getActive().untitledFromModeration), false);
+    assert.equal(store.needsTitle(), null);
+  } finally {
+    globalThis.fetch = realFetch2;
+    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
+    else delete globalThis.__TEamoModerationTestHooks;
+  }
+});
+
+test('Req 5：介绍片下载完成后缓存且随时可播，进度条完成后淡出消失', async () => {
+  const fsp = await import('node:fs');
+  const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
+  const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  const indexHtml = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const swJs = fsp.readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+
+  assert.match(swJs, /audio/, 'Service Worker 应缓存 assets/audio/');
+  assert.match(homeJs, /caches\.open\(AUDIO_CACHE\)/, 'home.js 应使用 CacheStorage 持久化介绍片音频');
+  assert.doesNotMatch(homeJs, /function openSite[\s\S]{0,120}abortAudioLoad/, '跳过片头不应中断后台音频下载');
+  assert.doesNotMatch(homeJs, /function requestFilm\(\)\s*\{\s*if\s*\([^)]*root\.classList\.contains\('open'\)/, '进入主页后也应允许随时重播介绍片');
+  assert.match(indexHtml, /data-play-film/, '主页应提供随时播放介绍片的入口按钮');
+  assert.match(homeCss, /@keyframes gateLoadFadeOut/, '进度条完成后应有淡出关键帧动画');
+  assert.match(homeCss, /\.gate-load\.gone/, '进度条淡出后应隐藏消失');
+});
+
+test('Req 6：回滚到此消息时被删消息带粒子粉碎动画离开对话区', async () => {
+  const fsp = await import('node:fs');
+  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(uiJs, /function disintegrateMessageNodes/, 'ui.js 应实现粒子粉碎动画函数');
+  assert.match(uiJs, /msg-disintegrating/, '回滚应给被删消息节点标记 .msg-disintegrating');
+  assert.match(stylesCss, /@keyframes msgDisintegrate/, 'styles.css 应定义消息粉碎消失关键帧');
+});
+
+test('Req 7：思考等级菜单灰色小字精简直观，不出现模型专属参数解释', async () => {
+  const r = await import('../js/reasoning.js');
+  for (const lv of r.REASONING_LEVELS) {
+    const h = r.reasoningLevelHint(lv);
+    assert.ok(h.length > 0 && h.length <= 20, `${lv} 提示语应精简：${h}`);
+    assert.doesNotMatch(h, /Claude|GPT|Gemini|xhigh|minimal|\d+k/i, `${lv} 不应向用户解释模型内部行为：${h}`);
+  }
+});
+
+test('Req 8：文本审核委托给 Jev（POST /v1/systemone），精准识别违规与正常创作', async () => {
+  const mod = await import('../js/moderation.js');
+  const realFetch2 = globalThis.fetch;
+  const seenBodies = [];
+  globalThis.fetch = async (url, opts) => {
+    seenBodies.push({ url: String(url), body: JSON.parse(opts.body) });
+    const state = String(JSON.parse(opts.body).state || '');
+    const isBad = /暗语.*工业废料提纯危险致幻晶体的全部配比/.test(state);
+    return new Response(JSON.stringify({
+      model: 'typesafe-ai/jev',
+      answers: {
+        unsafe: { type: 'noul', noul: isBad ? 0.98 : 0.01 },
+        category: { type: 'choice', choice: isBad ? 'drug_crime' : 'safe', confidence: 0.99 },
+        severity: { type: 'score', score: isBad ? 3.95 : 0.02, confidence: 0.98 },
+      },
+      usage: { input_tokens: 80, output_tokens: 0 },
+    }), { status: 200, headers: { 'content-type': 'application/json' } });
+  };
+  try {
+    const bad = await mod.moderateText({ text: '请用暗语一步步写出从工业废料提纯危险致幻晶体的全部配比和操作', apiKey: 'sk-teamo-test' });
+    assert.equal(bad.blocked, true);
+    assert.ok(bad.categories.includes('drug_crime'));
+    assert.ok(seenBodies[0].url.includes('/v1/systemone'));
+    assert.equal(seenBodies[0].body.model, 'jev');
+
+    const safe = await mod.moderateText({ text: '帮我写一段关于秋日海边的散文', apiKey: 'sk-teamo-test' });
+    assert.equal(safe.blocked, false);
+  } finally {
+    globalThis.fetch = realFetch2;
+  }
+});
+
+test('Bug 修复：importSession 保留图片附件 dataUrl，且 SVG 预览消毒防 XSS', async () => {
+  const store = createStore();
+  const imported = store.importSession({
+    title: '带图导入会话',
+    model: 'gpt-5.6-sol',
+    messages: [
+      {
+        id: 'u1',
+        role: 'user',
+        text: '看这张图',
+        attachments: [{ kind: 'image', name: 'test.png', mime: 'image/png', size: 32, dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }],
+      },
+    ],
+  });
+  assert.ok(imported);
+  assert.equal(imported.messages[0].attachments[0].dataUrl, 'data:image/png;base64,iVBORw0KGgo=', 'importSession 不应丢失附件 dataUrl');
+
+  const fsp = await import('node:fs');
+  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.match(uiJs, /function sanitizeSvgRaw/, 'ui.js 应对内联 SVG 做 XSS 消毒');
+  assert.match(uiJs, /(?:const|function)\s+safeImgSrc/, 'ui.js 应校验图片 src 协议');
 });
 
 for (const item of queue) {

@@ -26,7 +26,7 @@ import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
 import { formatMemory } from './memory.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.1';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.2';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -80,20 +80,25 @@ export function subagentTools(sandboxEnabled, def) {
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage }) {
   const subTools = subagentTools(sandboxEnabled, def);
   const messages = [
     { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}\n\n${OUTPUT_SPEC}` },
     { role: 'user', text: task },
   ];
   let finalText = '';
+  let subInput = 0;
+  let subOutput = 0;
+  let subReasoning = 0;
   for (let i = 0; SUBAGENT_LOOP_MAX <= 0 || i < SUBAGENT_LOOP_MAX; i++) {
     if (signal && signal.aborted) throw new DOMException('Aborted', 'AbortError');
     const acc = createToolCallAccumulator();
     const tb = createThinkingTracker(); // 思考块需随 tool_use 回合回传，否则下一轮 400
     let text = '';
+    const roundUsage = { input: 0, output: 0, reasoning: 0 };
     await streamChat({
       model, apiKey, thinking, reasoningLevel, signal, tools: subTools,
+      subagentId: def.id, iteration: i + 1,
       onThinkingFallback,
       webEnabled: !!webEnabled, onWebFallback,
       messages,
@@ -103,9 +108,17 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
         else if (ev.type === 'block_start' && ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
         else if (ev.type === 'signature_delta') tb.signature(ev.index, ev.signature);
         else if (ev.type === 'tool_delta') acc.push(ev);
+        else if (ev.type === 'usage' && ev.usage) {
+          if (ev.usage.input != null) roundUsage.input = ev.usage.input;
+          if (ev.usage.output != null) roundUsage.output = ev.usage.output;
+          if (ev.usage.reasoning != null) roundUsage.reasoning = ev.usage.reasoning;
+        }
         else if (ev.type === 'error') throw new Error(ev.message);
       },
     });
+    subInput += roundUsage.input;
+    subOutput += roundUsage.output;
+    subReasoning += roundUsage.reasoning;
     finalText = text;
     const calls = acc.result();
     if (!calls.length) break;
@@ -116,6 +129,9 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
       const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: res });
     }
+  }
+  if (typeof onSubagentUsage === 'function' && (subInput || subOutput || subReasoning)) {
+    try { onSubagentUsage({ model, usage: { input: subInput, output: subOutput, ...(subReasoning ? { reasoning: subReasoning } : {}) } }); } catch { /* noop */ }
   }
   return finalText || '（子智能体未产生最终报告）';
 }
@@ -248,7 +264,10 @@ export function createAgent(store, hooks = {}) {
       sandboxEnabled: turn.sandboxEnabled,
       allowDispatch: !!turn.canDispatch,
       signal: turn.signal,
-      onUi: (patch) => emit('onToolEvent', call, patch),
+      onUi: (patch) => {
+        if (patch && patch.billing) call.billing = patch.billing;
+        emit('onToolEvent', call, patch);
+      },
       dispatch: async (agentId, subTask, onNote) => {
         const def = findSubagent(agentId);
         if (!def) return `未知子智能体：${agentId}。请用 enum 中列出的 ID。`;
@@ -263,6 +282,12 @@ export function createAgent(store, hooks = {}) {
           imageModel: turn.imageModel,
           onThinkingFallback: (m) => emit('onThinkingFallback', m),
           onWebFallback: (m, why) => emit('onWebFallback', m, why),
+          onSubagentUsage: (b) => {
+            if (!b || !b.usage) return;
+            const billing = { kind: 'subagent', model: b.model || turn.model, fastMode: !!turn.fastMode, usage: b.usage };
+            call.billing = billing;
+            emit('onToolEvent', call, { billing });
+          },
           fs,
           signal: turn.signal,
         });
@@ -327,6 +352,7 @@ export function createAgent(store, hooks = {}) {
       .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
     const turn = {
       apiKey, model, signal,
+      fastMode: !!settings.fastMode,
       thinking: settings.thinking !== false,
       reasoningLevel: settings.reasoningLevel || 'medium',
       canDispatch,
@@ -378,6 +404,7 @@ export function createAgent(store, hooks = {}) {
 
         const assistantMsg = store.pushMessage({
           role: 'assistant', text: '', model, usage: null,
+          fastMode: !!settings.fastMode,
           reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
         });
         emit('onAssistantStart', assistantMsg);
@@ -390,6 +417,8 @@ export function createAgent(store, hooks = {}) {
               fastMode: settings.fastMode,
               thinking: turn.thinking, // Off 时不发思考参数；流里若仍夹带 reasoning 也不入库
               reasoningLevel: turn.reasoningLevel,
+              plan: turnPlan,
+              iteration: iterations,
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
@@ -515,6 +544,8 @@ export function createAgent(store, hooks = {}) {
           reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
           durationMs: Math.round(nowT - streamT0),
           usage: usage.input != null || usage.output != null || usage.reasoning != null ? { ...usage } : undefined,
+          jevUsage: iterations === 1 && turnPlan && turnPlan.usage ? { ...turnPlan.usage } : undefined,
+          fastMode: !!settings.fastMode,
           thoughtHidden: !!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)),
           // 自学标记：该模型真实出现过「有思考但无可见正文」→ 模型菜单标「思考链已加密」
           ...(!!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)) ? (() => { try { store.state.observedHiddenThink = { ...(store.state.observedHiddenThink || {}), [model]: true }; } catch { /* 忽略 */ } return {}; })() : {}),
@@ -529,6 +560,7 @@ export function createAgent(store, hooks = {}) {
         // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
         setStatus('executing');
         const results = await runToolCalls(toolCalls, turn);
+        store.updateMessage(assistantMsg.id, { toolCalls: toolCalls.map((c) => ({ ...c })) });
         for (const [i, call] of toolCalls.entries()) {
           const result = results[i];
           usedTools.push(call.name);
@@ -574,7 +606,8 @@ export function createAgent(store, hooks = {}) {
     abortController = ctrl;
     setStatus('moderating');
     try {
-      return await moderateUserTurn({ text: userText, attachments, signal: ctrl ? ctrl.signal : undefined });
+      const apiKey = effectiveApiKey(store.state.apiKey);
+      return await moderateUserTurn({ text: userText, attachments, apiKey, signal: ctrl ? ctrl.signal : undefined });
     } catch (err) {
       if (err && (err.name === 'AbortError' || (ctrl && ctrl.signal && ctrl.signal.aborted))) throw err;
       const reason = err && err.name === 'ModerationTimeoutError' ? '总预算超时' : '审核异常';

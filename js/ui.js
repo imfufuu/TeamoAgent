@@ -15,6 +15,7 @@ import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
+import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -424,6 +425,13 @@ function renderQuickDiagram(kind, body, title = '') {
   return kind === 'mind' ? renderMindDiagram(body, title) : renderFlowDiagram(body, title);
 }
 
+function sanitizeSvgRaw(raw) {
+  return String(raw || '')
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')
+    .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+}
+
 function hydrateSandboxMedia(root, fs) {
   if (!root || !fs) return;
   for (const img of root.querySelectorAll('img[data-sandbox]')) {
@@ -431,13 +439,16 @@ function hydrateSandboxMedia(root, fs) {
     let raw = '';
     try { raw = fs.read(p); } catch { raw = ''; }
     if (/^data:image\//i.test(String(raw))) {
-      img.src = raw;
-      if (!img.alt) img.alt = p;
-      img.classList.add('zoomable');
-      continue;
+      const safe = safeImgSrc(raw);
+      if (safe) {
+        img.src = safe;
+        if (!img.alt) img.alt = p;
+        img.classList.add('zoomable');
+        continue;
+      }
     }
     if (/\.svg$/i.test(p) && /<svg[\s>]/i.test(String(raw))) {
-      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(raw)}`;
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(sanitizeSvgRaw(raw))}`;
       if (!img.alt) img.alt = p;
       img.classList.add('zoomable');
       continue;
@@ -1548,24 +1559,167 @@ export function mountUI(store, agent) {
   });
   renderSessions();
 
-  // ── 回滚撤销浮条（对话区内，回滚后出现 8 秒）────────────────────────
+  // ── 回滚撤销浮条（对话区内，回滚后出现 8 秒）+ 粒子粉碎动画（Requirement 6）──
   const undoPill = $('#undo-pill');
   let undoTimer = null;
+  let activeRollbackAnim = null;
+  function cancelRollbackAnim() {
+    if (activeRollbackAnim && typeof activeRollbackAnim.cancel === 'function') {
+      activeRollbackAnim.cancel();
+    }
+    activeRollbackAnim = null;
+  }
   function showUndoPill() {
     undoPill.classList.add('show');
     clearTimeout(undoTimer);
     undoTimer = setTimeout(() => undoPill.classList.remove('show'), 8000);
   }
   undoPill.addEventListener('click', () => {
+    cancelRollbackAnim();
     undoPill.classList.remove('show');
     if (store.undoRollback()) { rebuildMessages(); renderSessions(); updateStats(); toast('已撤销回滚'); }
   });
+  function disintegrateMessageNodes(nodes, onDone) {
+    cancelRollbackAnim();
+    const list = (nodes || []).filter((n) => n && n.isConnected);
+    const reduced = typeof window.matchMedia === 'function' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!list.length || reduced || typeof HTMLCanvasElement === 'undefined') {
+      onDone && onDone();
+      return;
+    }
+    const hostRect = msgList.getBoundingClientRect();
+    if (!(hostRect.width > 0 && hostRect.height > 0)) {
+      onDone && onDone();
+      return;
+    }
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement('canvas');
+    canvas.className = 'rollback-particle-canvas';
+    canvas.style.cssText = `position:fixed;left:${hostRect.left}px;top:${hostRect.top}px;width:${hostRect.width}px;height:${hostRect.height}px;pointer-events:none;z-index:60;`;
+    canvas.width = Math.round(hostRect.width * dpr);
+    canvas.height = Math.round(hostRect.height * dpr);
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext && canvas.getContext('2d');
+    if (!ctx) {
+      canvas.remove();
+      onDone && onDone();
+      return;
+    }
+    ctx.scale(dpr, dpr);
+    const dark = document.documentElement.dataset.theme === 'dark';
+    const palette = dark
+      ? ['#93c5fd', '#60a5fa', '#a5b4fc', '#e2e8f0', '#94a3b8', '#38bdf8']
+      : ['#3b82f6', '#2563eb', '#6366f1', '#1e293b', '#475569', '#0ea5e9'];
+    const particles = [];
+    for (const node of list) {
+      const r = node.getBoundingClientRect();
+      node.style.height = `${r.height}px`;
+      node.classList.add('msg-disintegrating');
+      const relX = r.left - hostRect.left;
+      const relY = r.top - hostRect.top;
+      const w = Math.max(40, Math.min(r.width, hostRect.width));
+      const h = Math.max(24, Math.min(r.height, hostRect.height));
+      if (relY + r.height < -40 || relY > hostRect.height + 40) continue;
+      const area = w * h;
+      const count = Math.max(72, Math.min(180, Math.round(area / 420)));
+      for (let i = 0; i < count; i++) {
+        const px = relX + Math.random() * w;
+        const py = Math.max(0, Math.min(hostRect.height, relY + Math.random() * h));
+        const wave = ((px - relX) / Math.max(1, w)) * 0.42 + ((py - relY) / Math.max(1, h)) * 0.18;
+        const angle = (Math.random() - 0.5) * Math.PI * 1.4 - Math.PI * 0.28;
+        const speed = 28 + Math.random() * 96;
+        particles.push({
+          x: px,
+          y: py,
+          vx: Math.cos(angle) * speed + (Math.random() - 0.32) * 44,
+          vy: Math.sin(angle) * speed - (18 + Math.random() * 48),
+          size: 1.8 + Math.random() * 3.8,
+          rot: Math.random() * Math.PI * 2,
+          vrot: (Math.random() - 0.5) * 9,
+          delay: wave * 220 + Math.random() * 60,
+          life: 440 + Math.random() * 240,
+          color: palette[i % palette.length],
+          shard: i % 3 !== 0,
+        });
+      }
+    }
+    const t0 = performance.now();
+    let lastT = t0;
+    let rafId = 0;
+    let finished = false;
+    const finish = (runCallback) => {
+      if (finished) return;
+      finished = true;
+      if (rafId) cancelAnimationFrame(rafId);
+      canvas.remove();
+      if (activeRollbackAnim && activeRollbackAnim.canvas === canvas) activeRollbackAnim = null;
+      if (runCallback && onDone) onDone();
+    };
+    activeRollbackAnim = { canvas, cancel: () => finish(false) };
+    const tick = (now) => {
+      if (finished) return;
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastT) / 1000));
+      lastT = now;
+      const elapsed = now - t0;
+      ctx.clearRect(0, 0, hostRect.width, hostRect.height);
+      let alive = 0;
+      for (const p of particles) {
+        const local = elapsed - p.delay;
+        if (local < 0) { alive++; continue; }
+        const prog = local / p.life;
+        if (prog >= 1) continue;
+        alive++;
+        p.x += p.vx * dt;
+        p.y += p.vy * dt;
+        p.vy -= 22 * dt; // 轻盈上浮微粒感
+        p.vx *= (1 - 0.9 * dt);
+        p.rot += p.vrot * dt;
+        const alpha = Math.max(0, (1 - prog) * (1 - prog * 0.65));
+        const s = p.size * (1 - prog * 0.45);
+        ctx.save();
+        ctx.globalAlpha = alpha;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.rot);
+        ctx.fillStyle = p.color;
+        if (p.shard) {
+          ctx.beginPath();
+          ctx.moveTo(-s, -s * 0.6);
+          ctx.lineTo(s * 1.1, -s * 0.2);
+          ctx.lineTo(s * 0.4, s * 1.1);
+          ctx.lineTo(-s * 0.8, s * 0.7);
+          ctx.closePath();
+          ctx.fill();
+        } else {
+          ctx.fillRect(-s * 0.5, -s * 0.5, s, s);
+        }
+        ctx.restore();
+      }
+      if (alive > 0 && elapsed < 780) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        finish(true);
+      }
+    };
+    rafId = requestAnimationFrame(tick);
+  }
   function doRollback(m) {
     if (getBusy()) return toast('请等待当前回合结束');
     if (!confirm('回滚到本轮对话之前？该轮及其后的消息将被移除（可撤销）。')) return;
+    const msgs = store.state.messages || [];
+    const idx = msgs.findIndex((x) => x.id === m.id);
+    let userIdx = idx;
+    while (userIdx >= 0 && msgs[userIdx].role !== 'user') userIdx--;
+    const targetCount = userIdx >= 0 ? userIdx : idx;
+    const discardedIds = new Set(targetCount >= 0 ? msgs.slice(targetCount).map((x) => x.id) : [m.id]);
+    const discardedNodes = $$('.msg', msgList).filter((n) => discardedIds.has(n.dataset.id));
     store.rollbackBeforeMessage(m.id);
-    rebuildMessages(); renderSessions(); updateStats(); showUndoPill();
+    renderSessions(); updateStats(); showUndoPill();
     toast('已回滚，可点击「撤销回滚」恢复', 'ok');
+    if (discardedNodes.length) {
+      disintegrateMessageNodes(discardedNodes, () => rebuildMessages());
+    } else {
+      rebuildMessages();
+    }
   }
 
   // ── 侧栏 & 沙箱面板收起体系 ───────────────────────────────────────────
@@ -1810,11 +1964,11 @@ export function mountUI(store, agent) {
     const viewer = $('#file-viewer');
     let raw = '';
     try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
-    const isImg = /^data:image\//.test(raw);
+    const imgSrc = /^data:image\//.test(raw) ? safeImgSrc(raw) : '';
     viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-actions">`
       + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
-      + (isImg ? `<div class="fv-img"><img src="${raw}" alt="${esc(path)}"></div>` : `<pre>${esc(raw)}</pre>`);
+      + (imgSrc ? `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>` : `<pre>${esc(raw)}</pre>`);
     viewer.classList.add('open');
     $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
@@ -2199,19 +2353,109 @@ export function mountUI(store, agent) {
     };
     const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips);
     paintPathFold('edited-files', 'write_file', ICON.edited, 'Edited File', 'Edited Files', afterRead);
-    // meta（无 msg-head 的续消息没有该节点）
-    const meta = $('.msg-meta', wrap);
-    if (meta) {
-      const parts = [];
-      if (m.usage) parts.push(`<button type="button" class="tok-btn" title="本条 API 用量">↑${m.usage.input ?? '?'} ↓${m.usage.output ?? '?'} tok</button>`);
-      if (m.transport) parts.push(m.transport === 'proxy' ? '中继' : '直连');
-      meta.innerHTML = parts.join(' · ');
-      const tb = $('.tok-btn', meta);
-      if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(tb); });
-    }
+    // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
+    paintTurnMeta(wrap, m);
     paintFoot(wrap, m);
     // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
     refreshActionVisibility();
+  }
+
+  function collectTurnCostInfo(m) {
+    const msgs = store.state.messages || [];
+    const idx = msgs.findIndex((x) => x.id === m.id);
+    if (idx < 0) {
+      const c = summarizeTurnCost({ messages: [m], model: m.model || store.state.model, fastMode: !!(m.fastMode ?? store.state.settings.fastMode) });
+      return { headMsg: m, turnDone: !!m.done, hasUsage: !!m.usage, summary: c };
+    }
+    let start = idx;
+    while (start > 0 && msgs[start - 1].role !== 'user') start--;
+    const turnAssistants = [];
+    for (let i = start; i < msgs.length; i++) {
+      if (i > start && msgs[i].role === 'user') break;
+      if (msgs[i].role === 'assistant') turnAssistants.push(msgs[i]);
+    }
+    const headMsg = turnAssistants[0] || m;
+    const lastA = turnAssistants[turnAssistants.length - 1] || m;
+    const turnDone = turnAssistants.length > 0
+      && turnAssistants.every((x) => !!x.done)
+      && (!getBusy() || !(lastA.toolCalls && lastA.toolCalls.length));
+    const hasExplicitUsage = turnAssistants.some((x) => x.usage && (x.usage.input != null || x.usage.output != null));
+    const toolCosts = [];
+    for (const a of turnAssistants) {
+      for (const tc of a.toolCalls || []) {
+        if (!tc) continue;
+        if (tc.billing) {
+          toolCosts.push(tc.billing);
+        } else if (tc.name === 'generate_image') {
+          const args = tc.args || {};
+          toolCosts.push({
+            kind: 'image',
+            model: args.model || store.state.imageModel || DEFAULT_IMAGE_MODEL,
+            size: (tc.width && tc.height) ? `${tc.width}x${tc.height}` : (args.size || '1024x1024'),
+            quality: args.quality || 'auto',
+            count: Number(args.n) || 1,
+          });
+        } else if (tc.name === 'analyze_image') {
+          const tm = msgs.find((x) => x.role === 'tool' && x.toolCallId === tc.id);
+          const outChars = tm && tm.content ? String(tm.content).length : 600;
+          toolCosts.push({
+            kind: 'vision',
+            model: 'deepseek-v4-flash-vision-exp',
+            usage: { input: 1600, output: Math.max(120, Math.ceil(outChars / 2)) },
+            imageCount: 1,
+          });
+        }
+      }
+    }
+    const normalizedAssistants = turnAssistants.map((a) => {
+      if (a.usage && (a.usage.input != null || a.usage.output != null)) return a;
+      if (!a.done || a.model === 'Moderator' || a.model === '__system__') return a;
+      if (!a.text && !a.reasoning && !(a.toolCalls && a.toolCalls.length)) return a;
+      const prevMsgs = msgs.slice(0, msgs.indexOf(a));
+      const estIn = Math.max(64, estimateTokens(prevMsgs));
+      const estOut = Math.max(1, estimateTokens([{ role: 'assistant', text: (a.text || '') + (a.reasoning || '') }]));
+      return { ...a, usage: { input: estIn, output: estOut }, _estimatedUsage: true };
+    });
+    const hasAnyUsage = hasExplicitUsage || normalizedAssistants.some((a) => !!a.usage) || toolCosts.length > 0;
+    const summary = summarizeTurnCost({
+      messages: normalizedAssistants,
+      model: headMsg.model || store.state.model,
+      fastMode: !!(headMsg.fastMode ?? store.state.settings.fastMode),
+      toolCosts,
+      jevUsage: headMsg.jevUsage,
+    });
+    return { headMsg, turnDone: turnDone || (!!m.done && !getBusy()), hasUsage: hasAnyUsage, summary };
+  }
+
+  function paintTurnMeta(wrap, m) {
+    const info = collectTurnCostInfo(m);
+    const targetWrap = (info.headMsg && msgNodes.get(info.headMsg.id)) || wrap;
+    const meta = $('.msg-meta', targetWrap);
+    if (!meta) return;
+    const headModel = (info.headMsg && info.headMsg.model) || m.model || '';
+    if (headModel === 'Moderator' || headModel === '__system__') {
+      meta.innerHTML = '';
+      return;
+    }
+    const parts = [];
+    if (info.hasUsage) {
+      const s = info.summary;
+      const costReady = info.turnDone;
+      const costHtml = costReady ? ` · <span class="tok-cost" title="按模型官方列表价预估（含识图/生图/子智能体）">${esc(s.formatted)}</span>` : '';
+      const tipParts = [`本轮 API 用量：输入 ${s.inputTokens} tok / 输出 ${s.outputTokens} tok${s.reasoningTokens ? `（含推理 ${s.reasoningTokens} tok）` : ''}`];
+      if (costReady) {
+        tipParts.push(`官方定价预估：${s.formatted}`);
+        if (s.visionUsd > 0) tipParts.push(`含识图模型：${formatUsd(s.visionUsd)}`);
+        if (s.imageUsd > 0) tipParts.push(`含生图模型：${formatUsd(s.imageUsd)}`);
+        if (s.subagentUsd > 0) tipParts.push(`含子智能体：${formatUsd(s.subagentUsd)}`);
+      }
+      parts.push(`<button type="button" class="tok-btn" title="${esc(tipParts.join(' · '))}">↑${s.inputTokens} ↓${s.outputTokens} tok${costHtml}</button>`);
+    }
+    const tr = (info.headMsg && info.headMsg.transport) || m.transport;
+    if (tr) parts.push(tr === 'proxy' ? '中继' : '直连');
+    meta.innerHTML = parts.join(' · ');
+    const tb = $('.tok-btn', meta);
+    if (tb) tb.addEventListener('click', (e) => { e.stopPropagation(); showTokBreak(tb, info); });
   }
 
   // 操作条显隐规则：
@@ -2296,6 +2540,7 @@ export function mountUI(store, agent) {
   }
 
   function rebuildMessages() {
+    cancelRollbackAnim();
     msgNodes.clear(); msgList.innerHTML = '';
     renderEmpty();
     // 入场动画只给最后一条：旧写法每追加一条就重扫整个列表（n 条消息 → n 次全量
@@ -2416,6 +2661,11 @@ export function mountUI(store, agent) {
       if (s === 'done') {
         statusText.textContent = label;
         setTimeout(() => { if (agent.getStatus() === 'done') statusText.textContent = ''; }, 1600);
+        const lastA = [...(store.state.messages || [])].reverse().find((x) => x && x.role === 'assistant');
+        if (lastA) {
+          const w = msgNodes.get(lastA.id);
+          if (w && typeof paintTurnMeta === 'function') paintTurnMeta(w, lastA);
+        }
       } else {
         statusText.textContent = label;
       }
@@ -2489,7 +2739,7 @@ export function mountUI(store, agent) {
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
   }
-  function showTokBreak(anchor) {
+  function showTokBreak(anchor, turnInfo = null) {
     const pop = $('#tok-pop');
     const body = $('#tok-pop-body');
     const stats = $('#conv-stats');
@@ -2501,9 +2751,18 @@ export function mountUI(store, agent) {
     const rows = [
       ['系统', b.system], ['历史', b.history], ['工具结果', b.tools], ['本轮', b.current], ['合计', b.total],
     ];
-    if (body) {
-      body.innerHTML = rows.map(([k, v], i) => `<div class="tok-row${i === rows.length - 1 ? ' total' : ''}"><span>${k}</span><span>${n(v)}</span></div>`).join('');
+    let html = rows.map(([k, v], i) => `<div class="tok-row${i === rows.length - 1 ? ' total' : ''}"><span>${k}</span><span>${n(v)}</span></div>`).join('');
+    if (turnInfo && turnInfo.summary) {
+      const s = turnInfo.summary;
+      const headModel = (turnInfo.headMsg && turnInfo.headMsg.model) || store.state.model;
+      const rateBadge = priceBadgeFor(headModel, { fastMode: !!(turnInfo.headMsg && turnInfo.headMsg.fastMode) });
+      html += `<div class="tok-row total"><span>对话模型 (${esc(rateBadge || headModel)})</span><span>${esc(formatUsd(s.chatUsd))}</span></div>`;
+      if (s.visionUsd > 0) html += `<div class="tok-row"><span>识图模型</span><span>${esc(formatUsd(s.visionUsd))}</span></div>`;
+      if (s.imageUsd > 0) html += `<div class="tok-row"><span>生图模型</span><span>${esc(formatUsd(s.imageUsd))}</span></div>`;
+      if (s.subagentUsd > 0) html += `<div class="tok-row"><span>子智能体</span><span>${esc(formatUsd(s.subagentUsd))}</span></div>`;
+      html += `<div class="tok-row total"><span>本轮预估总价</span><span>${esc(s.formatted)}</span></div>`;
     }
+    if (body) body.innerHTML = html;
     const line = formatTokBreak(b);
     if (stats) stats.title = line + '（再点一次收起）';
     pop.hidden = false;
@@ -2651,8 +2910,9 @@ export function mountUI(store, agent) {
     attachChips.style.display = pending.length ? '' : 'none';
     for (const a of pending) {
       const chip = el('div', 'attach-chip enter');
-      chip.innerHTML = (a.kind === 'image'
-        ? `<img src="${a.dataUrl}" alt="">`
+      const imgSrc = a.kind === 'image' ? safeImgSrc(a.dataUrl) : '';
+      chip.innerHTML = (imgSrc
+        ? `<img src="${esc(imgSrc)}" alt="">`
         : `<span class="attach-chip-ico">📄</span>`)
         + `<span class="attach-chip-name mono">${esc(a.originalName || a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
       $('.attach-chip-x', chip).addEventListener('click', () => {

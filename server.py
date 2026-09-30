@@ -117,11 +117,13 @@ def guard_public_http_url(raw):
         raise ValueError(f"域名解析失败：{exc}")
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
-        if (
-            ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-            or ip.is_multicast or ip.is_unspecified
-        ):
-            raise ValueError("目标解析到内网/保留地址，已拒绝（本中继只做公网抓取）")
+        mapped = getattr(ip, "ipv4_mapped", None)
+        for cand in (ip, mapped) if mapped is not None else (ip,):
+            if (
+                cand.is_private or cand.is_loopback or cand.is_link_local or cand.is_reserved
+                or cand.is_multicast or cand.is_unspecified
+            ):
+                raise ValueError("目标解析到内网/保留地址，已拒绝（本中继只做公网抓取）")
     return url
 
 
@@ -358,6 +360,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             n = int(self.headers.get("Content-Length") or 0)
         except ValueError:
             return self._json(400, {"error": "Content-Length 非法"})
+        if n < 0:
+            return self._json(400, {"error": "Content-Length 非法"})
         if n > 1_000_000:
             return self._json(413, {"error": "请求体过大"})
         try:
@@ -435,6 +439,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length") or 0)
         except ValueError:
+            return self._json(400, {"error": "Content-Length 非法"})
+        if length < 0:
             return self._json(400, {"error": "Content-Length 非法"})
         if length > 20_000_000:
             return self._json(413, {"error": "请求体过大"})

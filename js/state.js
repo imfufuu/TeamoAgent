@@ -213,10 +213,17 @@ export function createStore(onChange) {
     s.thinking = state.settings.thinking !== false;
     s.reasoningLevel = state.settings.reasoningLevel || 'medium';
     s.updatedAt = Date.now();
-    // 兜底标题（首条消息截断）只在还没有像样标题时生成；
+    // 若首条消息违规被拦截，且当前会话尚未命名，先将标题设为「未命名对话」，
+    // 待下一个不违规的任务结束后再由 AI 总结标题（Requirement 4）。
+    const firstUser = s.messages.find((m) => m.role === 'user' && !m.transientModeration && !m.moderationPending && !m.silent);
+    const hasBlockedModeration = s.messages.some((m) => m && m.moderation && m.moderation.blocked);
+    if (!firstUser && hasBlockedModeration && !s.titled && s.titleSource !== 'user') {
+      s.title = '未命名对话';
+      s.untitledFromModeration = true;
+    }
+    // 兜底标题（首条消息截断）只在还没有像样标题且未处于「违规首条等待 AI 总结」状态时生成；
     // Agent 总结出的（titleSource:'auto'）与用户手改的（'user'）都不覆盖。
-    if (!s.title && s.titleSource !== 'user') {
-      const firstUser = s.messages.find((m) => m.role === 'user');
+    if (!s.title && !s.untitledFromModeration && s.titleSource !== 'user') {
       if (firstUser && firstUser.text) s.title = cleanTitle(firstUser.text).slice(0, 24) || '新对话';
     }
   };
@@ -449,8 +456,17 @@ export function createStore(onChange) {
       const s = state.sessions.find((x) => x.id === id);
       if (!s) return false;
       s.titled = true;
+      delete s.untitledFromModeration;
       const t = cleanTitle(title);
-      if (!t || s.titleSource === 'user') { notify(); return false; }
+      if (s.titleSource === 'user') { notify(); return false; }
+      if (!t) {
+        if (!s.title || s.title === '未命名对话') {
+          const firstUser = (s.messages || []).find((m) => m.role === 'user' && !m.transientModeration && !m.moderationPending && !m.silent);
+          if (firstUser && firstUser.text) s.title = cleanTitle(firstUser.text).slice(0, 24) || '新对话';
+        }
+        notify();
+        return false;
+      }
       s.title = t;
       s.titleSource = 'auto';
       notify();
@@ -459,8 +475,8 @@ export function createStore(onChange) {
     needsTitle() {
       const s = sess();
       if (!s || s.titled || s.titleSource === 'user') return null;
-      const firstUser = (s.messages || []).find((m) => m.role === 'user');
-      const lastAssistant = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant' && m.done);
+      const firstUser = (s.messages || []).find((m) => m.role === 'user' && !m.transientModeration && !m.moderationPending && !m.silent);
+      const lastAssistant = [...(s.messages || [])].reverse().find((m) => m.role === 'assistant' && m.done && !m.transientModeration && !m.moderation && !m.cancelled);
       if (!firstUser || !lastAssistant) return null;
       return { sessionId: s.id, question: String(firstUser.text || '').slice(0, 600), answer: String(lastAssistant.text || '').slice(0, 600) };
     },
@@ -529,10 +545,14 @@ export function createStore(onChange) {
       s.messages = data.messages
         .filter((m) => m && (m.role === 'user' || m.role === 'assistant' || m.role === 'tool'))
         .map((m) => {
-          const atts = Array.isArray(m.attachments) ? m.attachments.map((a) => ({
-            kind: a.kind, name: a.name || '文件', size: a.size || 0,
-            data: a.data || null, text: a.text || '', mime: a.mime || '', stripped: !a.data,
-          })) : [];
+          const atts = Array.isArray(m.attachments) ? m.attachments.map((a) => {
+            const dataUrl = a.dataUrl || a.data || null;
+            return {
+              kind: a.kind, name: a.name || '文件', size: a.size || 0,
+              data: dataUrl, dataUrl: dataUrl || undefined,
+              text: a.text || '', mime: a.mime || '', stripped: a.stripped != null ? !!a.stripped : (!dataUrl && !a.text),
+            };
+          }) : [];
           return {
             id: uid(), role: m.role, text: m.text || '',
             content: typeof m.content === 'string' ? m.content : (m.content || ''),
