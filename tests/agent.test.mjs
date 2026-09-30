@@ -4892,6 +4892,20 @@ test('介绍片优化：聚集时 ZIP 打包与 Ultra 不重叠、开片平滑�
   assert.match(homeJs, /const CURTAIN_SEC = 2\.4/, '尾声渐变时间应缩短');
   assert.match(indexHtml, /class="stage-aurora"/, '介绍片舞台应含动态极光氛围层');
   assert.match(indexHtml, /class="constellation-ring/, '介绍片舞台应含中心星环层');
+
+  // 1. 非焦点镜头不透明透视重叠
+  assert.match(homeCss, /\.shot\s*\{[\s\S]{0,120}opacity:\s*0;/, '非焦点镜头默认应完全透明避免虚影重叠');
+  // 2. 脉冲呼吸鼓点包络卡点
+  assert.match(homeJs, /--beat-kick/, '应计算鼓点瞬态包络 --beat-kick');
+  // 3. Ultra 渐变色往返平滑过渡不跳变
+  assert.match(homeCss, /animation:\s*silk\s+[\d.]+s\s+ease-in-out\s+infinite\s+alternate/, 'Ultra 丝绸渐变应使用 alternate 避免循环跳色');
+  // 4. 介绍片文本不可复制
+  assert.match(homeCss, /\.stage,\s*\.stage\s*\*[\s\S]{0,80}user-select:\s*none/, '介绍片舞台文本应禁止选中复制');
+  // 5. 点击介绍片任意帧可暂停并闪出暂停图标而非文字
+  assert.match(homeJs, /stage\s*&&\s*stage\.addEventListener\('click'/, '点击舞台任意帧应可切换暂停');
+  assert.match(homeJs, /function triggerPauseFlash/, '暂停时应触发图标闪现动画');
+  assert.match(indexHtml, /id="film-pause-flash"/, 'HTML 应包含暂停图标层');
+  assert.doesNotMatch(homeCss, /content:\s*"已暂停"/, '不应再显示“已暂停”文字');
 });
 
 for (const item of queue) {

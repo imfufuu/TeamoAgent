@@ -14,6 +14,7 @@ root.dataset.theme = saved || (preferDark ? 'dark' : 'light');
 
 const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const audio = document.getElementById('home-audio');
+const stage = document.getElementById('stage');
 const world = document.getElementById('world');
 const shots = [...document.querySelectorAll('.shot')];
 const beatBar = document.getElementById('beat-bar');
@@ -21,6 +22,7 @@ const explore = document.getElementById('explore');
 const exploreCta = explore && explore.querySelector('.explore-cta');
 const skip = document.getElementById('film-skip');
 const pauseBtn = document.getElementById('film-pause');
+const pauseFlash = document.getElementById('film-pause-flash');
 const nav = document.querySelector('.nav');
 const themeBtn = document.getElementById('theme-toggle');
 const bill = document.getElementById('bill-text');
@@ -197,13 +199,23 @@ function nowSec() {
 function pauseLocked(t = nowSec()) {
   return t >= FILM_SEC - CURTAIN_SEC;
 }
+function triggerPauseFlash(isPaused) {
+  if (!pauseFlash) return;
+  pauseFlash.classList.remove('flash', 'mode-pause', 'mode-play');
+  pauseFlash.classList.add(isPaused ? 'mode-pause' : 'mode-play');
+  void pauseFlash.offsetWidth;
+  pauseFlash.classList.add('flash');
+}
 function setPaused(on) {
   if (!playing) return;
   const t = Math.max(0, nowSec());
-  if (on && pauseLocked(t)) return; // 最后五秒黑→白收束不可暂停
-  paused = !!on;
+  if (on && pauseLocked(t)) return; // 最后收束渐变不可暂停
+  const nextPaused = !!on;
+  if (nextPaused === paused) return;
+  paused = nextPaused;
   root.classList.toggle('paused', paused);
   if (pauseBtn) pauseBtn.textContent = paused ? '继续' : '暂停';
+  triggerPauseFlash(paused);
   if (paused) {
     pauseAt = t;
     cancelAnimationFrame(raf);
@@ -252,9 +264,13 @@ function frame() {
   if (t >= FILM_SEC) { openSite(); return; }
   const beatF = t / BEAT;
   const beat = Math.max(0, Math.floor(beatF + 1e-9));
+  const phase = beatF - beat;
+  const rawKick = phase < 0.055 ? phase / 0.055 : Math.exp(-(phase - 0.055) * 7.8);
+  const barWeight = (beat % 4 === 0) ? 1.0 : 0.52;
   const c = camAt(beatF);
   applyCam(c);
-  root.style.setProperty('--beat-phase', String(beatF - beat));
+  root.style.setProperty('--beat-phase', String(phase));
+  root.style.setProperty('--beat-kick', (rawKick * barWeight).toFixed(3));
   root.dataset.beat = String(beat);
   root.dataset.bar = String(Math.floor(beat / 4));
   if (beat !== lastBeat) {
@@ -435,13 +451,9 @@ function beginFilmTransition() {
   lockScroll(true);
   if (audio) {
     try {
-      audio.volume = 0.01;
+      audio.muted = true;
       audio.currentTime = 0;
-      audio.play().then(() => {
-        if (enteringFilm && audio) {
-          try { audio.pause(); audio.currentTime = 0; } catch { /* ignore */ }
-        }
-      }).catch(() => {});
+      audio.play().catch(() => {});
     } catch { /* ignore */ }
   }
   curtain.style.transition = 'none';
@@ -476,6 +488,7 @@ async function startFilm() {
   pauseAt = 0;
   root.classList.remove('paused', 'entering-film');
   if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = '暂停'; }
+  if (pauseFlash) pauseFlash.classList.remove('flash', 'mode-pause', 'mode-play');
   slam('');
   if (curtain) {
     curtain.style.transition = 'none';
@@ -492,9 +505,10 @@ async function startFilm() {
   raf = requestAnimationFrame(frame);
   if (!audio) return;
   try {
+    audio.muted = false;
     audio.volume = 1;
     audio.currentTime = 0;
-    await audio.play();
+    if (audio.paused) await audio.play();
     t0 = performance.now() - audio.currentTime * 1000;
   } catch {
     /* 无声也把片子演完，绝不跳进展览页 */
@@ -504,10 +518,11 @@ async function startFilm() {
 function skipFilm() {
   if (enterTimer) { clearTimeout(enterTimer); enterTimer = 0; }
   enteringFilm = false;
-  if (audio) { audio.pause(); audio.currentTime = 0; audio.volume = 1; }
+  if (audio) { audio.pause(); audio.currentTime = 0; audio.muted = false; audio.volume = 1; }
   playing = false;
   paused = false;
   root.classList.remove('paused', 'entering-film');
+  if (pauseFlash) pauseFlash.classList.remove('flash', 'mode-pause', 'mode-play');
   cancelAnimationFrame(raf);
   if (reduce || !curtain) { openSite(true); return; }
   const start = performance.now();
@@ -598,6 +613,11 @@ if (reduce) {
   /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
   exploreCta && exploreCta.addEventListener('click', requestFilm);
   pauseBtn && pauseBtn.addEventListener('click', togglePause);
+  stage && stage.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && e.target.closest('#film-skip, #film-pause')) return;
+    if (!playing || pauseLocked()) return;
+    togglePause();
+  });
   skip && skip.addEventListener('click', skipFilm);
   gateSkip && gateSkip.addEventListener('click', () => openSite(true));
   prefetchAudio();
