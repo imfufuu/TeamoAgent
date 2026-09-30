@@ -205,12 +205,12 @@ function axisSvg(rows, w, h, m, sc, opts = {}) {
     rows.forEach((r, i) => {
       if (i % step) return;
       const x = opts.xForIndex ? opts.xForIndex(i) : m.l + (i + .5) * sc.plotW / Math.max(1, rows.length);
-      const text = String(r.label).slice(0, 12);
-      const rot = rows.length > 6 || text.length > 5;
-      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 22}" text-anchor="${rot ? 'end' : 'middle'}" class="md-chart-tick"${rot ? ` transform="rotate(-28 ${x.toFixed(1)} ${plotBottom + 22})"` : ''}>${esc(text)}</text>`);
+      const text = truncateDiagramLabel(r.label, 10);
+      const rot = rows.length > 6 || diagramTextUnits(text) > 4.5;
+      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 20}" text-anchor="${rot ? 'end' : 'middle'}" class="md-chart-tick"${rot ? ` transform="rotate(-25 ${x.toFixed(1)} ${plotBottom + 20})"` : ''}>${esc(text)}</text>`);
     });
   }
-  if (opts.xLabel) bits.push(`<text x="${((m.l + plotRight) / 2).toFixed(1)}" y="${h - 16}" text-anchor="middle" class="md-chart-axis-label">${esc(opts.xLabel)}</text>`);
+  if (opts.xLabel) bits.push(`<text x="${((m.l + plotRight) / 2).toFixed(1)}" y="${h - 14}" text-anchor="middle" class="md-chart-axis-label">${esc(opts.xLabel)}</text>`);
   if (opts.yLabel) bits.push(`<text x="18" y="${((m.t + plotBottom) / 2).toFixed(1)}" text-anchor="middle" transform="rotate(-90 18 ${((m.t + plotBottom) / 2).toFixed(1)})" class="md-chart-axis-label">${esc(opts.yLabel)}</text>`);
   return bits.join('');
 }
@@ -222,24 +222,45 @@ function renderQuickChart(kind, body, title = '') {
     const sample = kind === 'st' ? '<code>0, 0</code><br><code>1, 4</code>' : '<code>一月, 12</code>';
     return `<div class="md-chart-error">图表数据为空。示例：${sample}</div>`;
   }
-  const w = 720, h = 380, m = { l: 72, r: 34, t: 58, b: 78 };
-  let inner = `<text x="${m.l}" y="32" class="md-chart-title">${esc(label)}</text>`;
+  const w = 720, h = 392, m = { l: 76, r: 38, t: 58, b: 86 };
+  let inner = `<text x="${m.l}" y="34" class="md-chart-title">${esc(label)}</text>`;
   if (kind === 'pie') {
     const vals = rows.map((r) => Math.max(0, r.value));
     const total = vals.reduce((a, b) => a + b, 0) || 1;
-    const cx = w / 2, cy = h / 2 + 12, r = 106;
+    const cx = w / 2, cy = h / 2 + 14, r = 102;
     let a0 = -Math.PI / 2;
+    const pieLabels = [];
     rows.forEach((row, i) => {
       const a1 = a0 + (Math.max(0, row.value) / total) * Math.PI * 2;
       const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
       const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
       const large = a1 - a0 > Math.PI ? 1 : 0;
-      inner += `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+      if (a1 - a0 >= Math.PI * 1.999) {
+        inner += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+      } else {
+        inner += `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+      }
       const mid = (a0 + a1) / 2;
-      const lx = cx + (r + 50) * Math.cos(mid), ly = cy + (r + 50) * Math.sin(mid);
-      inner += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="${Math.cos(mid) >= 0 ? 'start' : 'end'}" class="md-chart-label">${esc(row.label)} ${Math.round(row.value / total * 100)}%</text>`;
+      const rightSide = Math.cos(mid) >= 0;
+      const lx = cx + (r + 36) * Math.cos(mid);
+      const ly = cy + (r + 32) * Math.sin(mid);
+      pieLabels.push({
+        rightSide,
+        lx: Math.max(24, Math.min(w - 24, lx)),
+        ly: Math.max(54, Math.min(h - 18, ly)),
+        text: `${truncateDiagramLabel(row.label, 12)} ${Math.round(row.value / total * 100)}%`,
+      });
       a0 = a1;
     });
+    for (const side of [true, false]) {
+      const group = pieLabels.filter((p) => p.rightSide === side).sort((a, b) => a.ly - b.ly);
+      for (let i = 1; i < group.length; i++) {
+        if (group[i].ly - group[i - 1].ly < 18) group[i].ly = Math.min(h - 16, group[i - 1].ly + 18);
+      }
+    }
+    for (const pl of pieLabels) {
+      inner += `<text x="${pl.lx.toFixed(1)}" y="${pl.ly.toFixed(1)}" text-anchor="${pl.rightSide ? 'start' : 'end'}" class="md-chart-label">${esc(pl.text)}</text>`;
+    }
   } else if (kind === 'scatter' || kind === 'st') {
     const xs = rows.map((r) => r.x);
     let minX = Math.min(kind === 'st' ? 0 : Infinity, ...xs), maxX = Math.max(kind === 'st' ? 0 : -Infinity, ...xs);
@@ -291,6 +312,30 @@ const DIAGRAM_ALIAS = {
   flow: 'flow', flowchart: 'flow', 流程图: 'flow', 流程: 'flow',
   mind: 'mind', mindmap: 'mind', 'mind-map': 'mind', 思维导图: 'mind', 脑图: 'mind',
 };
+function diagramTextUnits(s) {
+  const str = String(s == null ? '' : s);
+  let u = 0;
+  for (const ch of str) {
+    u += /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : 0.56;
+  }
+  return u;
+}
+function truncateDiagramLabel(s, maxUnits = 18) {
+  const str = String(s == null ? '' : s).trim();
+  if (diagramTextUnits(str) <= maxUnits) return str;
+  let u = 0;
+  let out = '';
+  for (const ch of str) {
+    const step = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef]/.test(ch) ? 1 : 0.56;
+    if (u + step > maxUnits - 0.6) break;
+    out += ch;
+    u += step;
+  }
+  return `${out}…`;
+}
+function diagramBoxWidth(s, fontSize = 12.5, padX = 16, minW = 88, maxW = 250) {
+  return Math.min(maxW, Math.max(minW, Math.ceil(diagramTextUnits(s) * fontSize + padX * 2)));
+}
 function parseDiagramInfo(info, direct = '') {
   const raw = String(info || '').trim();
   const parts = raw.split(/\s+/).filter(Boolean);
@@ -327,38 +372,88 @@ function renderFlowDiagram(body, title = '') {
   for (let k = 0; k < nodes.length; k++) {
     let changed = false;
     for (const e of edges) {
-      const next = Math.min(nodes.length, (rank[e.from] || 0) + 1);
+      const next = Math.min(nodes.length - 1, (rank[e.from] || 0) + 1);
       if ((rank[e.to] || 0) < next) { rank[e.to] = next; changed = true; }
     }
     if (!changed) break;
   }
   const cols = [];
-  for (const n of nodes) { const r = Math.max(0, rank[n] || 0); (cols[r] ||= []).push(n); }
-  const boxW = 142, boxH = 48, gapX = 70, gapY = 26, pad = 42;
-  const colCount = cols.length || 1;
-  const rowCount = Math.max(1, ...cols.map((c) => c.length));
-  const w = Math.max(560, pad * 2 + colCount * boxW + (colCount - 1) * gapX);
-  const h = Math.max(260, 62 + pad * 2 + rowCount * boxH + (rowCount - 1) * gapY);
+  for (const n of nodes) {
+    const r = Math.max(0, rank[n] || 0);
+    (cols[r] ||= []).push(n);
+  }
+  const nonEmptyCols = cols.filter((c) => c && c.length);
+  const boxH = 46, gapX = 68, gapY = 28, padX = 36, topHeader = 64, padBottom = 34;
+  const nodeMeta = Object.create(null);
+  nodes.forEach((n) => {
+    const disp = truncateDiagramLabel(n, 18);
+    nodeMeta[n] = { disp, w: diagramBoxWidth(disp, 12.5, 18, 128, 244) };
+  });
+  const colWidths = nonEmptyCols.map((col) => Math.max(128, ...col.map((n) => nodeMeta[n].w)));
+  const colX = [];
+  let cursorX = padX;
+  for (let ci = 0; ci < nonEmptyCols.length; ci++) {
+    colX[ci] = cursorX;
+    cursorX += colWidths[ci] + (ci < nonEmptyCols.length - 1 ? gapX : 0);
+  }
+  const rowCount = Math.max(1, ...nonEmptyCols.map((c) => c.length));
+  const contentH = rowCount * boxH + Math.max(0, rowCount - 1) * gapY;
+  const w = Math.max(560, cursorX + padX);
+  const totalColsW = cursorX - padX;
+  const extraShiftX = w > totalColsW + padX * 2 ? (w - (totalColsW + padX * 2)) / 2 : 0;
+  const h = Math.max(240, topHeader + contentH + padBottom);
   const pos = Object.create(null);
-  cols.forEach((col, ci) => {
-    const totalH = col.length * boxH + Math.max(0, col.length - 1) * gapY;
-    const top = 70 + (h - 110 - totalH) / 2;
-    col.forEach((n, ri) => { pos[n] = { x: pad + ci * (boxW + gapX), y: top + ri * (boxH + gapY) }; });
+  nonEmptyCols.forEach((col, ci) => {
+    const colH = col.length * boxH + Math.max(0, col.length - 1) * gapY;
+    const top = topHeader + (contentH - colH) / 2;
+    col.forEach((n, ri) => {
+      const nw = nodeMeta[n].w;
+      pos[n] = {
+        ci,
+        ri,
+        w: nw,
+        h: boxH,
+        x: colX[ci] + extraShiftX + (colWidths[ci] - nw) / 2,
+        y: top + ri * (boxH + gapY),
+      };
+    });
   });
   let inner = `<defs><marker id="md-flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" class="md-diagram-arrow"/></marker></defs>`;
-  inner += `<text x="${pad}" y="32" class="md-chart-title">${esc(label)}</text>`;
+  inner += `<text x="${padX}" y="34" class="md-chart-title">${esc(label)}</text>`;
   for (const e of edges) {
     const a = pos[e.from], b = pos[e.to];
     if (!a || !b) continue;
-    const x1 = a.x + boxW, y1 = a.y + boxH / 2, x2 = b.x, y2 = b.y + boxH / 2;
-    const mid = Math.max(18, Math.abs(x2 - x1) / 2);
-    inner += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + mid).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - mid).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="md-diagram-link" marker-end="url(#md-flow-arrow)"/>`;
-    if (e.label) inner += `<text x="${((x1 + x2) / 2).toFixed(1)}" y="${((y1 + y2) / 2 - 6).toFixed(1)}" text-anchor="middle" class="md-diagram-edge-label">${esc(e.label)}</text>`;
+    let d = '', lx = 0, ly = 0;
+    if (b.ci > a.ci) {
+      const x1 = a.x + a.w, y1 = a.y + a.h / 2;
+      const x2 = b.x, y2 = b.y + b.h / 2;
+      const mid = Math.max(20, (x2 - x1) * 0.48);
+      d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + mid).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - mid).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+      lx = (x1 + x2) / 2;
+      ly = (y1 + y2) / 2 - 6;
+    } else if (b.ci === a.ci) {
+      const down = b.y >= a.y;
+      const x1 = a.x + a.w / 2, y1 = down ? a.y + a.h : a.y;
+      const x2 = b.x + b.w / 2, y2 = down ? b.y : b.y + b.h;
+      d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} L ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+      lx = (x1 + x2) / 2 + 16;
+      ly = (y1 + y2) / 2 + 4;
+    } else {
+      const x1 = a.x + a.w / 2, y1 = a.y + a.h;
+      const x2 = b.x + b.w / 2, y2 = b.y + b.h;
+      const dip = Math.max(y1, y2) + 28;
+      d = `M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${x1.toFixed(1)} ${dip.toFixed(1)}, ${x2.toFixed(1)} ${dip.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}`;
+      lx = (x1 + x2) / 2;
+      ly = dip - 4;
+    }
+    inner += `<path d="${d}" class="md-diagram-link" marker-end="url(#md-flow-arrow)"/>`;
+    if (e.label) inner += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" class="md-diagram-edge-label">${esc(truncateDiagramLabel(e.label, 14))}</text>`;
   }
   nodes.forEach((n, i) => {
     const p = pos[n];
+    if (!p) return;
     const fill = `md-diagram-node-${i % 6}`;
-    inner += `<g class="md-diagram-node ${fill}"><rect x="${p.x}" y="${p.y}" width="${boxW}" height="${boxH}" rx="14"/><text x="${(p.x + boxW / 2).toFixed(1)}" y="${(p.y + boxH / 2 + 5).toFixed(1)}" text-anchor="middle">${esc(n.slice(0, 18))}</text></g>`;
+    inner += `<g class="md-diagram-node ${fill}"><rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h}" rx="14"/><text x="${(p.x + p.w / 2).toFixed(1)}" y="${(p.y + p.h / 2 + 5).toFixed(1)}" text-anchor="middle">${esc(nodeMeta[n].disp)}</text></g>`;
   });
   return `<div class="md-diagram md-diagram-flow"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
 }
@@ -389,35 +484,83 @@ function parseMindTree(body, title = '') {
 function renderMindDiagram(body, title = '') {
   const tree = parseMindTree(body, title);
   const kids = tree.children.slice(0, 12);
-  const h = Math.max(360, 150 + Math.max(1, kids.length) * 62);
-  const w = 820, cx = w / 2, cy = h / 2;
-  const nodeW = (s, base = 86, max = 190) => Math.min(max, Math.max(base, String(s || '').length * 13 + 28));
-  const nodes = [{ node: tree, x: cx, y: cy, w: nodeW(tree.label, 110, 220), h: 52, cls: 'root' }];
-  const links = [];
-  kids.forEach((kid, i) => {
+  const rootDisp = truncateDiagramLabel(tree.label, 16);
+  const rw = diagramBoxWidth(rootDisp, 13.5, 22, 124, 240);
+  const rh = 48;
+  const leafStep = 38;
+  const branchGap = 24;
+  const gapRootBranch = 52;
+  const gapBranchLeaf = 44;
+
+  const prepared = kids.map((kid, i) => {
     const side = i % 2 === 0 ? -1 : 1;
-    const sideIndex = Math.floor(i / 2);
-    const sideCount = Math.ceil((kids.length - (side < 0 ? 0 : 1)) / 2);
-    const y = cy + (sideIndex - (Math.max(1, sideCount) - 1) / 2) * 86;
-    const x = cx + side * 230;
-    const kw = nodeW(kid.label);
-    nodes.push({ node: kid, x, y, w: kw, h: 42, cls: `branch branch-${i % 6}` });
-    links.push({ x1: cx + side * (nodes[0].w / 2), y1: cy, x2: x - side * (kw / 2), y2: y });
-    kid.children.slice(0, 5).forEach((ch, j, arr) => {
-      const gy = y + (j - (arr.length - 1) / 2) * 34;
-      const gx = x + side * 175;
-      const gw = nodeW(ch.label, 64, 160);
-      nodes.push({ node: ch, x: gx, y: gy, w: gw, h: 30, cls: `leaf branch-${i % 6}` });
-      links.push({ x1: x + side * (kw / 2), y1: y, x2: gx - side * (gw / 2), y2: gy });
+    const bDisp = truncateDiagramLabel(kid.label, 16);
+    const bw = diagramBoxWidth(bDisp, 12.5, 16, 92, 216);
+    const bh = 38;
+    const leaves = (kid.children || []).slice(0, 8).map((ch) => {
+      const lDisp = truncateDiagramLabel(ch.label, 18);
+      return {
+        node: ch,
+        disp: lDisp,
+        gw: diagramBoxWidth(lDisp, 11.5, 14, 86, 240),
+        gh: 30,
+      };
     });
+    const leavesSpan = leaves.length ? (leaves.length - 1) * leafStep + 30 : 0;
+    const subH = Math.max(bh, leavesSpan);
+    return { kid, i, side, bDisp, bw, bh, leaves, subH };
   });
-  let inner = `<text x="34" y="32" class="md-chart-title">${esc(title || '思维导图')}</text>`;
+
+  const nodes = [{ node: tree, disp: rootDisp, x: 0, y: 0, w: rw, h: rh, cls: 'root' }];
+  const links = [];
+
+  for (const side of [-1, 1]) {
+    const group = prepared.filter((item) => item.side === side);
+    if (!group.length) continue;
+    const totalSideH = group.reduce((sum, it) => sum + it.subH, 0) + Math.max(0, group.length - 1) * branchGap;
+    let cursorY = -totalSideH / 2;
+    for (const item of group) {
+      const by = cursorY + item.subH / 2;
+      const bx = side * (rw / 2 + gapRootBranch + item.bw / 2);
+      const colorCls = `branch-${item.i % 6}`;
+      nodes.push({ node: item.kid, disp: item.bDisp, x: bx, y: by, w: item.bw, h: item.bh, cls: `branch ${colorCls}` });
+      links.push({ x1: side * (rw / 2), y1: 0, x2: bx - side * (item.bw / 2), y2: by });
+      item.leaves.forEach((lf, j, arr) => {
+        const gy = by + (j - (arr.length - 1) / 2) * leafStep;
+        const gx = bx + side * (item.bw / 2 + gapBranchLeaf + lf.gw / 2);
+        nodes.push({ node: lf.node, disp: lf.disp, x: gx, y: gy, w: lf.gw, h: lf.gh, cls: `leaf ${colorCls}` });
+        links.push({ x1: bx + side * (item.bw / 2), y1: by, x2: gx - side * (lf.gw / 2), y2: gy });
+      });
+      cursorY += item.subH + branchGap;
+    }
+  }
+
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const it of nodes) {
+    minX = Math.min(minX, it.x - it.w / 2);
+    maxX = Math.max(maxX, it.x + it.w / 2);
+    minY = Math.min(minY, it.y - it.h / 2);
+    maxY = Math.max(maxY, it.y + it.h / 2);
+  }
+  const padX = 34, topHeader = 58, padBottom = 30;
+  const rawW = maxX - minX + padX * 2;
+  const rawH = maxY - minY + topHeader + padBottom;
+  const w = Math.max(680, Math.ceil(rawW));
+  const h = Math.max(300, Math.ceil(rawH));
+  const shiftX = -minX + padX + Math.max(0, (w - rawW) / 2);
+  const shiftY = -minY + topHeader + Math.max(0, (h - rawH) / 2);
+
+  let inner = `<text x="34" y="34" class="md-chart-title">${esc(title || '思维导图')}</text>`;
   for (const l of links) {
-    const dx = (l.x2 - l.x1) * .45;
-    inner += `<path d="M ${l.x1.toFixed(1)} ${l.y1.toFixed(1)} C ${(l.x1 + dx).toFixed(1)} ${l.y1.toFixed(1)}, ${(l.x2 - dx).toFixed(1)} ${l.y2.toFixed(1)}, ${l.x2.toFixed(1)} ${l.y2.toFixed(1)}" class="md-diagram-link md-mind-link"/>`;
+    const x1 = l.x1 + shiftX, y1 = l.y1 + shiftY;
+    const x2 = l.x2 + shiftX, y2 = l.y2 + shiftY;
+    const dx = (x2 - x1) * 0.48;
+    inner += `<path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} C ${(x1 + dx).toFixed(1)} ${y1.toFixed(1)}, ${(x2 - dx).toFixed(1)} ${y2.toFixed(1)}, ${x2.toFixed(1)} ${y2.toFixed(1)}" class="md-diagram-link md-mind-link"/>`;
   }
   for (const it of nodes) {
-    inner += `<g class="md-mind-node ${it.cls}"><rect x="${(it.x - it.w / 2).toFixed(1)}" y="${(it.y - it.h / 2).toFixed(1)}" width="${it.w.toFixed(1)}" height="${it.h}" rx="${Math.min(22, it.h / 2)}"/><text x="${it.x.toFixed(1)}" y="${(it.y + 5).toFixed(1)}" text-anchor="middle">${esc(String(it.node.label).slice(0, 18))}</text></g>`;
+    const cx = it.x + shiftX;
+    const cy = it.y + shiftY;
+    inner += `<g class="md-mind-node ${it.cls}"><rect x="${(cx - it.w / 2).toFixed(1)}" y="${(cy - it.h / 2).toFixed(1)}" width="${it.w.toFixed(1)}" height="${it.h}" rx="${Math.min(22, it.h / 2)}"/><text x="${cx.toFixed(1)}" y="${(cy + 4.5).toFixed(1)}" text-anchor="middle">${esc(it.disp)}</text></g>`;
   }
   return `<div class="md-diagram md-diagram-mind"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title || tree.label || '思维导图')}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
 }

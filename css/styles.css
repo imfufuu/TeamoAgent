@@ -21,7 +21,10 @@
   --radius: 14px;
   --link: #0969da;
   --link-hover: #0550ae;
+  --accent: #4f46e5;
+  --warn: #d97706;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --sans: var(--font);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(.22,.61,.36,1);
 }
@@ -38,6 +41,8 @@
   --shadow-lg: 0 4px 12px rgba(0,0,0,.5), 0 24px 60px rgba(0,0,0,.6);
   --link: #58a6ff;
   --link-hover: #79b8ff;
+  --accent: #818cf8;
+  --warn: #f59e0b;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -1225,25 +1230,51 @@ a { color: var(--fg); }
 .md-chart-grid { stroke: var(--line-2); stroke-width: 1; opacity: .72; }
 .md-chart-tick, .md-chart-label { font-family: var(--mono); font-size: 10.5px; fill: var(--fg-3); }
 .md-chart-axis-label { font-family: var(--sans); font-size: 11.5px; fill: var(--fg-2); }
-.md-chart-line { fill: none; stroke: var(--accent); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
+.md-chart-line { fill: none; stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
 .md-chart-st-line { stroke: #0ea5e9; }
-.md-chart-dot { fill: var(--bg); stroke: var(--accent); stroke-width: 2; }
+.md-chart-dot { fill: var(--bg); stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2; }
 .md-chart-bar, .md-chart-slice, .md-chart-point { opacity: .9; }
 .md-chart-error { margin: 8px 0; color: var(--fg-3); font-size: 12px; }
-.md-diagram-svg { width: min(820px, 100%); }
-.md-diagram-link { fill: none; stroke: color-mix(in oklab, var(--fg-3) 72%, transparent); stroke-width: 1.6; stroke-linecap: round; }
-.md-diagram-arrow { fill: color-mix(in oklab, var(--fg-3) 78%, transparent); }
+.md-diagram-svg { width: min(880px, 100%); max-width: 100%; height: auto; }
+.md-diagram-link { fill: none; stroke: #9ca3af; stroke: color-mix(in oklab, var(--fg-3) 72%, transparent); stroke-width: 1.6; stroke-linecap: round; }
+.md-diagram-arrow { fill: #9ca3af; fill: color-mix(in oklab, var(--fg-3) 78%, transparent); }
 .md-diagram-edge-label { font-family: var(--sans); font-size: 10.5px; fill: var(--fg-2); paint-order: stroke; stroke: var(--bg-soft); stroke-width: 3px; stroke-linejoin: round; }
-.md-diagram-node rect, .md-mind-node rect { fill: color-mix(in oklab, var(--accent) 12%, var(--bg)); stroke: color-mix(in oklab, var(--accent) 30%, var(--line)); stroke-width: 1.1; }
+.md-diagram-node rect, .md-mind-node rect,
+.md-diagram-node-0 rect, .md-mind-node.branch-0 rect {
+  fill: #eef2ff;
+  fill: color-mix(in oklab, var(--accent, #4f46e5) 12%, var(--bg));
+  stroke: #a5b4fc;
+  stroke: color-mix(in oklab, var(--accent, #4f46e5) 34%, var(--line));
+  stroke-width: 1.15;
+}
 .md-diagram-node text, .md-mind-node text { font-family: var(--sans); font-size: 12.5px; font-weight: 650; fill: var(--fg); pointer-events: none; }
-.md-diagram-node-1 rect, .md-mind-node.branch-1 rect { fill: color-mix(in oklab, #0ea5e9 13%, var(--bg)); stroke: color-mix(in oklab, #0ea5e9 34%, var(--line)); }
-.md-diagram-node-2 rect, .md-mind-node.branch-2 rect { fill: color-mix(in oklab, #10b981 13%, var(--bg)); stroke: color-mix(in oklab, #10b981 34%, var(--line)); }
-.md-diagram-node-3 rect, .md-mind-node.branch-3 rect { fill: color-mix(in oklab, #f59e0b 14%, var(--bg)); stroke: color-mix(in oklab, #f59e0b 34%, var(--line)); }
-.md-diagram-node-4 rect, .md-mind-node.branch-4 rect { fill: color-mix(in oklab, #ef4444 12%, var(--bg)); stroke: color-mix(in oklab, #ef4444 34%, var(--line)); }
-.md-diagram-node-5 rect, .md-mind-node.branch-5 rect { fill: color-mix(in oklab, #a855f7 13%, var(--bg)); stroke: color-mix(in oklab, #a855f7 34%, var(--line)); }
-.md-mind-node.root rect { fill: color-mix(in oklab, var(--accent) 20%, var(--bg)); stroke: color-mix(in oklab, var(--accent) 45%, var(--line)); stroke-width: 1.4; }
-.md-mind-node.leaf text { font-size: 11px; font-weight: 560; fill: var(--fg-2); }
-.md-mind-link { stroke-width: 1.4; }
+.md-diagram-node-1 rect, .md-mind-node.branch-1 rect { fill: #e0f2fe; fill: color-mix(in oklab, #0ea5e9 13%, var(--bg)); stroke: #7dd3fc; stroke: color-mix(in oklab, #0ea5e9 34%, var(--line)); }
+.md-diagram-node-2 rect, .md-mind-node.branch-2 rect { fill: #d1fae5; fill: color-mix(in oklab, #10b981 13%, var(--bg)); stroke: #6ee7b7; stroke: color-mix(in oklab, #10b981 34%, var(--line)); }
+.md-diagram-node-3 rect, .md-mind-node.branch-3 rect { fill: #fef3c7; fill: color-mix(in oklab, #f59e0b 14%, var(--bg)); stroke: #fcd34d; stroke: color-mix(in oklab, #f59e0b 34%, var(--line)); }
+.md-diagram-node-4 rect, .md-mind-node.branch-4 rect { fill: #fee2e2; fill: color-mix(in oklab, #ef4444 12%, var(--bg)); stroke: #fca5a5; stroke: color-mix(in oklab, #ef4444 34%, var(--line)); }
+.md-diagram-node-5 rect, .md-mind-node.branch-5 rect { fill: #f3e8ff; fill: color-mix(in oklab, #a855f7 13%, var(--bg)); stroke: #d8b4fe; stroke: color-mix(in oklab, #a855f7 34%, var(--line)); }
+.md-mind-node.root rect {
+  fill: #e0e7ff;
+  fill: color-mix(in oklab, var(--accent, #4f46e5) 20%, var(--bg));
+  stroke: #818cf8;
+  stroke: color-mix(in oklab, var(--accent, #4f46e5) 45%, var(--line));
+  stroke-width: 1.5;
+}
+[data-theme="dark"] .md-diagram-node rect, [data-theme="dark"] .md-mind-node rect,
+[data-theme="dark"] .md-diagram-node-0 rect, [data-theme="dark"] .md-mind-node.branch-0 rect {
+  fill: #1e1b4b;
+  fill: color-mix(in oklab, var(--accent, #818cf8) 18%, var(--bg));
+  stroke: #4338ca;
+  stroke: color-mix(in oklab, var(--accent, #818cf8) 42%, var(--line));
+}
+[data-theme="dark"] .md-mind-node.root rect {
+  fill: #312e81;
+  fill: color-mix(in oklab, var(--accent, #818cf8) 26%, var(--bg));
+  stroke: #6366f1;
+  stroke: color-mix(in oklab, var(--accent, #818cf8) 54%, var(--line));
+}
+.md-mind-node.leaf text { font-size: 11.5px; font-weight: 560; fill: var(--fg-2); }
+.md-mind-link { stroke-width: 1.45; }
 .choice-box {
   margin: 12px 0 4px; padding: 12px 14px;
   border: 1px solid var(--line); border-radius: 12px; background: var(--bg-soft);

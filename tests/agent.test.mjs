@@ -1869,7 +1869,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /translate3d[\s\S]{0,100}scale\(\$\{FILM_SCALE\}\)/);
   assert.match(homeJs, /translate3d/);
   assert.match(homeJs, /const FILM_SEC/);
-  assert.match(homeJs, /const CURTAIN_SEC = 5/);
+  assert.match(homeJs, /const CURTAIN_SEC = 2\.4/);
   assert.equal(/catch \{ openSite/.test(homeJs), false, '配乐失败不得跳过片子');
   assert.match(homeJs, /playing = true/);
   assert.match(homeJs, /leaving/);
@@ -4826,6 +4826,72 @@ test('Bug 修复：importSession 保留图片附件 dataUrl，且 SVG 预览消�
   const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.match(uiJs, /function sanitizeSvgRaw/, 'ui.js 应对内联 SVG 做 XSS 消毒');
   assert.match(uiJs, /(?:const|function)\s+safeImgSrc/, 'ui.js 应校验图片 src 协议');
+});
+
+test('对话区图表修复：CSS 定义 --accent/--sans/--warn 且思维导图节点不重叠不裁切', async () => {
+  const fsp = await import('node:fs');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(stylesCss, /--accent:\s*#4f46e5/, ':root 应定义 --accent 避免 SVG fill 回退为纯黑');
+  assert.match(stylesCss, /--sans:\s*var\(--font\)/, ':root 应定义 --sans');
+  assert.match(stylesCss, /--warn:\s*#d97706/, ':root 应定义 --warn');
+  assert.match(stylesCss, /\.md-mind-node\.branch-0 rect/, 'branch-0 应有显式填充样式');
+
+  const { renderMarkdown } = await import('../js/ui.js');
+  const md = `:::mind TeamoAgent 能力版图
+- 计算
+  - JavaScript (Web Worker)
+  - Python (Pyodide)
+  - C++ (Compiler Explorer)
+- 工作区
+  - 读写与局部修改
+  - 正则搜索与 Diff
+  - ZIP 打包与解压
+- 视觉
+  - OCR / 读图表
+  - 文生图 / 图改图
+- 图表与数学
+  - 统计图 (柱/折/散/饼/s-t)
+  - 流程图 / 思维导图 / 架构图
+  - 符号与数值计算 / SQLite
+:::`;
+  const html = renderMarkdown(md);
+  const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(html);
+  assert.ok(vb, '应输出有效 viewBox');
+  const w = Number(vb[1]), h = Number(vb[2]);
+  const rects = [...html.matchAll(/<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/g)].map((m) => ({
+    x: Number(m[1]), y: Number(m[2]), w: Number(m[3]), h: Number(m[4]),
+  }));
+  assert.equal(rects.length, 16, '应包含全部 16 个思维导图节点');
+  for (let i = 0; i < rects.length; i++) {
+    const r = rects[i];
+    assert.ok(r.x >= 20 && r.y >= 40 && r.x + r.w <= w - 20 && r.y + r.h <= h - 20, `节点 ${i} 不应超出或贴死 viewBox 边界`);
+    for (let j = i + 1; j < rects.length; j++) {
+      const b = rects[j];
+      const ox = Math.min(r.x + r.w, b.x + b.w) - Math.max(r.x, b.x);
+      const oy = Math.min(r.y + r.h, b.y + b.h) - Math.max(r.y, b.y);
+      assert.ok(ox <= 0 || oy <= 0, `节点 ${i} 与 ${j} 不应重叠`);
+    }
+  }
+  assert.ok(html.includes('JavaScript (Web Worker)'), '长英文标签不应被截断');
+  assert.ok(html.includes('C++ (Compiler Explorer)'), '长英文标签不应被截断');
+});
+
+test('介绍片优化：聚集时 ZIP 打包与 Ultra 不重叠、开片平滑过渡、尾声渐变缩短且舞台细节丰富', async () => {
+  const fsp = await import('node:fs');
+  const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
+  const indexHtml = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+
+  const ultraMatch = /html\.integrating\s+\.shot\[data-id="ultra"\][^{]*\{[^}]*translate3d\(([^,]+),\s*([^,]+),/.exec(homeCss);
+  const zipMatch = /html\.integrating\s+\.shot\[data-id="zip"\][^{]*\{[^}]*translate3d\(([^,]+),\s*([^,]+),/.exec(homeCss);
+  assert.ok(ultraMatch && zipMatch, 'ultra 与 zip 应配置 integrating 坐标');
+  assert.notEqual(ultraMatch[1].trim(), zipMatch[1].trim(), 'ZIP 打包与 Ultra 在聚集时不应处于同一 X 轴上下挤压');
+
+  assert.match(homeJs, /function beginFilmTransition/, '应有平滑入片过渡函数');
+  assert.match(homeCss, /html\.entering-film/, 'CSS 应支持开片平滑过渡动画');
+  assert.match(homeJs, /const CURTAIN_SEC = 2\.4/, '尾声渐变时间应缩短');
+  assert.match(indexHtml, /class="stage-aurora"/, '介绍片舞台应含动态极光氛围层');
+  assert.match(indexHtml, /class="constellation-ring/, '介绍片舞台应含中心星环层');
 });
 
 for (const item of queue) {

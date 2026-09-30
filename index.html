@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.9.30.2" />
+<meta name="app-version" content="2026.9.30.3" />
 <meta name="app-release" content="V1.4" />
 <meta name="description" content="TeamoAgent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>TeamoAgent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.9.30.2" />
+<link rel="stylesheet" href="css/home.css?v=2026.9.30.3" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -49,30 +49,44 @@
 <div class="curtain" id="curtain" aria-hidden="true"></div>
 
 <div class="stage" id="stage" aria-hidden="true">
+  <div class="stage-aurora" aria-hidden="true"></div>
+  <div class="stage-grid" aria-hidden="true"></div>
   <div class="letterbox"></div>
   <div class="vignette"></div>
+  <div class="film-hud" id="film-hud" aria-hidden="true">
+    <span class="hud-scene" id="hud-scene">01 / 09 · TEAMO CORE</span>
+    <span class="hud-bpm">124 BPM · 3D STAGE</span>
+  </div>
   <div class="beat-progress"><i id="beat-bar"></i></div>
   <div class="billboard empty" id="billboard"><span id="bill-text"></span></div>
   <button type="button" id="film-pause" class="film-pause">暂停</button>
   <button type="button" id="film-skip" class="film-skip">跳过</button>
   <div class="world" id="world">
+    <div class="constellation-ring r1" aria-hidden="true"></div>
+    <div class="constellation-ring r2" aria-hidden="true"></div>
     <article class="shot" data-id="logo">
       <div class="shot-inner">
         <div class="mark">
+          <span class="mark-halo h1" aria-hidden="true"></span>
+          <span class="mark-halo h2" aria-hidden="true"></span>
           <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16" cy="24" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12" r="1.8" fill="currentColor"/></svg>
         </div>
-
+        <div class="brand-plate">TEAMO<i>AGENT</i></div>
       </div>
     </article>
     <article class="shot" data-id="copy">
       <div class="shot-inner">
-        <div class="copy-hero">Web Agent</div>
+        <div class="copy-monument">
+          <div class="copy-hero">Web Agent · Local-First</div>
+          <div class="copy-headline">打开网页，即是工作台</div>
+          <div class="copy-badges"><span>三语沙箱</span><span>120MB 持久化</span><span>生图与识图</span><span>七档思考</span></div>
+        </div>
       </div>
     </article>
     <article class="shot" data-id="sandbox">
       <div class="shot-inner">
         <div class="prop-card">
-          <div class="k">Sandbox</div>
+          <div class="k"><span>Sandbox</span><b class="card-status"><i class="live-dot"></i>ISOLATED</b></div>
           <h3>隔离执行</h3>
           <p>JavaScript Worker、Pyodide、远程 C++。超时可杀，改动写回工作区。</p>
           <div class="pills"><span>JS</span><span>Python</span><span>C++20</span></div>
@@ -82,18 +96,22 @@
     <article class="shot" data-id="files">
       <div class="shot-inner">
         <div class="tree">
-          <div class="k">Workspace</div>
+          <div class="k"><span>Workspace</span><b class="card-status">IndexedDB</b></div>
           <div class="row"><span>files/regression.md</span><span class="sz">4.2KB</span></div>
           <div class="row"><span>archives/site.zip</span><span class="sz">18KB</span></div>
           <div class="row"><span>outputs/poster.png</span><span class="sz">1.1MB</span></div>
           <div class="row"><span>2.7MB / 120.0MB</span><span class="sz">3 个文件</span></div>
+          <div class="tree-meter" aria-hidden="true"><i></i></div>
         </div>
       </div>
     </article>
     <article class="shot" data-id="image">
       <div class="shot-inner">
         <div class="poster">
+          <span class="poster-ring" aria-hidden="true"></span>
+          <span class="poster-tag top">VISION · ANALYZE</span>
           <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16" cy="24" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12" r="1.8" fill="currentColor"/></svg>
+          <span class="poster-tag bottom">GENERATE · 1K / 2K / 4K</span>
         </div>
       </div>
     </article>
@@ -102,13 +120,14 @@
         <div class="think-hero">
           <div class="ultra">Ultra</div>
           <p>Off · Mini · Low · Medium · High · Max · Ultra</p>
+          <div class="ultra-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i class="peak"></i></div>
         </div>
       </div>
     </article>
     <article class="shot" data-id="term">
       <div class="shot-inner">
         <div class="term">
-          <header><i></i><i></i><i></i><span>execute_python · 1.2s</span></header>
+          <header><i></i><i></i><i></i><span>execute_python · 1.2s</span><b class="term-ok">EXIT 0</b></header>
           <pre><span class="hi">[Python 沙箱]</span>
 slope = 1.7012
 intercept = -0.3928
@@ -121,7 +140,7 @@ RMSE = 0.5831
     <article class="shot" data-id="tools">
       <div class="shot-inner">
         <div class="prop-card tools-board">
-          <div class="k">Workbench</div>
+          <div class="k"><span>Workbench</span><b class="card-status">0ms LOCAL</b></div>
           <h3>本地工具</h3>
           <p>正则、哈希、编解码、差分、JSON，不必为这些开沙箱。</p>
           <div class="pills"><span>regex</span><span>diff</span><span>json</span><span>hash</span></div>
@@ -131,7 +150,7 @@ RMSE = 0.5831
     <article class="shot" data-id="zip">
       <div class="shot-inner">
         <div class="prop-card zip-board">
-          <div class="k">Archive</div>
+          <div class="k"><span>Archive</span><b class="card-status">DEFLATE</b></div>
           <h3>ZIP 打包</h3>
           <p>压缩、解压。刷新后工作区还在。</p>
           <div class="pills"><span>zip_files</span><span>unzip_file</span></div>
@@ -350,7 +369,7 @@ RMSE = 0.5831
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.9.30.2</span>
+  <span>TeamoAgent V1.4 · 构建 2026.9.30.3</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
@@ -361,6 +380,6 @@ RMSE = 0.5831
   </span>
 </footer>
 </div>
-<script type="module" src="js/home.js?v=2026.9.30.2"></script>
+<script type="module" src="js/home.js?v=2026.9.30.3"></script>
 </body>
 </html>

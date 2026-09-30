@@ -53,11 +53,26 @@ const SCENES = [
 ];
 
 const FILM_SEC = 47.65;
-const CURTAIN_SEC = 5;
-const BLACK_SEC = 2.5;
-const OPEN_FADE = 1.2;
+const CURTAIN_SEC = 2.4;
+const BLACK_SEC = 1.0;
+const OPEN_FADE = 1.05;
+const GATE_ENTER_MS = 560;
+const hudScene = document.getElementById('hud-scene');
+const HUD_LABELS = {
+  logo: '01 / 09 · TEAMO CORE',
+  copy: '02 / 09 · WEB AGENT',
+  sandbox: '03 / 09 · SANDBOX RUNTIME',
+  files: '04 / 09 · WORKSPACE 120MB',
+  image: '05 / 09 · VISION & IMAGE',
+  ultra: '06 / 09 · ULTRA THINKING',
+  term: '07 / 09 · PYTHON EXECUTION',
+  tools: '08 / 09 · LOCAL WORKBENCH',
+  zip: '09 / 09 · ZIP ARCHIVE',
+};
 
 let playing = false;
+let enteringFilm = false;
+let enterTimer = 0;
 let paused = false;
 let pauseAt = 0;
 let raf = 0;
@@ -140,6 +155,12 @@ function applyCam(c) {
   if (!world) return;
   world.style.transform = `translate3d(${-c.x}px, ${-c.y}px, ${-c.z}px) rotateX(${c.rx}deg) rotateY(${c.ry}deg) rotateZ(${c.rz}deg) scale(${FILM_SCALE})`;
   root.classList.toggle('integrating', !!c.integrate);
+  root.dataset.focus = c.focus || (c.integrate ? 'logo' : '');
+  if (hudScene) {
+    hudScene.textContent = c.integrate
+      ? 'CONSTELLATION · ALL SYSTEMS READY'
+      : (HUD_LABELS[c.focus] || '01 / 09 · TEAMO CORE');
+  }
   for (const shot of shots) {
     const on = shot.dataset.id === c.focus;
     shot.classList.toggle('focus', on);
@@ -256,7 +277,7 @@ function pinTop() {
 }
 
 function finishOpen(instant) {
-  root.classList.remove('gate', 'scoring', 'leaving', 'integrating');
+  root.classList.remove('gate', 'scoring', 'leaving', 'integrating', 'entering-film');
   root.classList.add('open');
   lockScroll(false);
   pinTop();
@@ -264,7 +285,7 @@ function finishOpen(instant) {
   if (curtain) {
     curtain.style.transition = instant
       ? 'none'
-      : 'opacity .8s var(--film, cubic-bezier(.16,1,.3,1))';
+      : 'opacity .52s var(--film, cubic-bezier(.16,1,.3,1))';
     curtain.style.opacity = '0';
   }
   watchReveal();
@@ -277,10 +298,12 @@ function openSite(instant) {
   if (root.classList.contains('open')) return;
   // 不中断后台音频下载：即使跳过片头，下载完成后也随时能从介绍页重播（Requirement 5.1）
   playing = false;
+  enteringFilm = false;
+  if (enterTimer) { clearTimeout(enterTimer); enterTimer = 0; }
   paused = false;
-  root.classList.remove('paused');
+  root.classList.remove('paused', 'entering-film');
   cancelAnimationFrame(raf);
-  if (audio) try { audio.pause(); } catch { /* ignore */ }
+  if (audio) try { audio.pause(); audio.volume = 1; } catch { /* ignore */ }
   if (instant || reduce) {
     if (curtain) { curtain.style.opacity = '0'; curtain.style.background = '#000'; }
     finishOpen(true);
@@ -293,7 +316,7 @@ function openSite(instant) {
     curtain.style.background = '#fff';
     curtain.style.opacity = '1';
   }
-  window.setTimeout(() => finishOpen(false), 120);
+  window.setTimeout(() => finishOpen(false), 60);
 }
 
 function setLoadProgress(p, text) {
@@ -327,7 +350,7 @@ function markAudioReady(label) {
   }
   if (pendingPlayAfterLoad) {
     pendingPlayAfterLoad = false;
-    startFilm();
+    beginFilmTransition();
   }
 }
 
@@ -401,26 +424,62 @@ async function prefetchAudio() {
   }
 }
 
+function beginFilmTransition() {
+  if (playing || enteringFilm || root.classList.contains('scoring')) return;
+  if (reduce || !curtain) {
+    startFilm();
+    return;
+  }
+  enteringFilm = true;
+  root.classList.add('entering-film');
+  lockScroll(true);
+  if (audio) {
+    try {
+      audio.volume = 0.01;
+      audio.currentTime = 0;
+      audio.play().then(() => {
+        if (enteringFilm && audio) {
+          try { audio.pause(); audio.currentTime = 0; } catch { /* ignore */ }
+        }
+      }).catch(() => {});
+    } catch { /* ignore */ }
+  }
+  curtain.style.transition = 'none';
+  curtain.style.background = '#08080a';
+  curtain.style.opacity = '0';
+  void curtain.offsetWidth;
+  curtain.style.transition = `opacity ${GATE_ENTER_MS}ms var(--film, cubic-bezier(.16,1,.3,1))`;
+  curtain.style.opacity = '1';
+  if (enterTimer) clearTimeout(enterTimer);
+  enterTimer = window.setTimeout(() => {
+    enterTimer = 0;
+    enteringFilm = false;
+    startFilm();
+  }, GATE_ENTER_MS);
+}
+
 function requestFilm() {
-  if (playing || root.classList.contains('scoring')) return;
+  if (playing || enteringFilm || root.classList.contains('scoring')) return;
   if (!audioReady) {
     pendingPlayAfterLoad = true;
     return;
   }
-  startFilm();
+  beginFilmTransition();
 }
 
 async function startFilm() {
+  enteringFilm = false;
+  if (enterTimer) { clearTimeout(enterTimer); enterTimer = 0; }
   lastBeat = -1;
   lastTitle = '';
   paused = false;
   pauseAt = 0;
-  root.classList.remove('paused');
+  root.classList.remove('paused', 'entering-film');
   if (pauseBtn) { pauseBtn.disabled = false; pauseBtn.textContent = '暂停'; }
   slam('');
   if (curtain) {
     curtain.style.transition = 'none';
-    curtain.style.background = '#000';
+    curtain.style.background = '#08080a';
     curtain.style.opacity = '1';
   }
   root.classList.remove('gate', 'open', 'integrating');
@@ -433,6 +492,7 @@ async function startFilm() {
   raf = requestAnimationFrame(frame);
   if (!audio) return;
   try {
+    audio.volume = 1;
     audio.currentTime = 0;
     await audio.play();
     t0 = performance.now() - audio.currentTime * 1000;
@@ -442,22 +502,24 @@ async function startFilm() {
 }
 
 function skipFilm() {
-  if (audio) { audio.pause(); audio.currentTime = 0; }
+  if (enterTimer) { clearTimeout(enterTimer); enterTimer = 0; }
+  enteringFilm = false;
+  if (audio) { audio.pause(); audio.currentTime = 0; audio.volume = 1; }
   playing = false;
   paused = false;
-  root.classList.remove('paused');
+  root.classList.remove('paused', 'entering-film');
   cancelAnimationFrame(raf);
   if (reduce || !curtain) { openSite(true); return; }
   const start = performance.now();
-  const dur = 1200;
+  const dur = 680;
   const tick = (now) => {
     const p = Math.min(1, (now - start) / dur);
     curtain.style.transition = 'none';
-    if (p < 0.5) {
-      curtain.style.background = '#000';
-      curtain.style.opacity = String(p / 0.5);
+    if (p < 0.45) {
+      curtain.style.background = '#08080a';
+      curtain.style.opacity = String(p / 0.45);
     } else {
-      const v = (p - 0.5) / 0.5;
+      const v = (p - 0.45) / 0.55;
       const g = Math.round(255 * v);
       curtain.style.background = `rgb(${g},${g},${g})`;
       curtain.style.opacity = '1';
