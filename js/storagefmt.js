@@ -1,7 +1,15 @@
-// 沙箱占用展示：{已用}/{本地存储上限}，例 2.7MB/120.0MB
+// 沙箱占用展示：{已用}/{本地存储上限}，从 KB 起算，超过 1024KB 转为 MB（例 0.0KB/120.0MB、512.0KB/120.0MB、2.7MB/120.0MB）
 // 上限按产品约定 120MB（IndexedDB 实际配额通常更大，这里给用户一个看得见的天花板）。
 
 export const SANDBOX_STORAGE_CAP = 120 * 1024 * 1024;
+
+export function fmtSandboxSize(bytes) {
+  const n = Number(bytes);
+  const v = Number.isFinite(n) && n > 0 ? n : 0;
+  const kb = v / 1024;
+  if (kb > 1024) return `${(v / 1048576).toFixed(1)}MB`;
+  return `${kb.toFixed(1)}KB`;
+}
 
 export function fmtMB(bytes) {
   const n = Number(bytes);
@@ -11,10 +19,10 @@ export function fmtMB(bytes) {
 
 export function sandboxQuotaLabel(usedBytes, cap = SANDBOX_STORAGE_CAP) {
   const max = Number(cap) > 0 ? Number(cap) : SANDBOX_STORAGE_CAP;
-  return `${fmtMB(usedBytes)}/${fmtMB(max)}`;
+  return `${fmtSandboxSize(usedBytes)}/${fmtSandboxSize(max)}`;
 }
 
-// 工具栏文案：空沙箱仍显示 0.0MB/120.0MB；有文件时保留「N 个文件 · M 个目录」
+// 工具栏文案：空沙箱显示 0.0KB/120.0MB；有文件时保留「N 个文件 · M 个目录」
 export function filesCountLabel(stat, cap = SANDBOX_STORAGE_CAP) {
   const quota = sandboxQuotaLabel(stat && stat.size, cap);
   const files = stat && stat.files;

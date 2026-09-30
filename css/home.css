@@ -371,26 +371,38 @@ html.integrating .constellation-ring.r2 {
 }
 .shot {
   position: absolute; left: 0; top: 0;
-  transform-style: preserve-3d;
+  transform-style: flat;
   opacity: 0;
+  visibility: hidden;
   filter: none;
   pointer-events: none;
-  transition: opacity .85s var(--film), filter 1.1s var(--film), transform 1.65s var(--film);
+  transition: opacity .62s var(--film), filter 1.1s var(--film), transform 1.65s var(--film), visibility 0s linear .62s;
 }
-.shot.focus { opacity: 1; filter: none; z-index: 2; }
+.shot.focus {
+  opacity: 1;
+  visibility: visible;
+  filter: none;
+  z-index: 2;
+  transition: opacity .62s var(--film), filter 1.1s var(--film), transform 1.65s var(--film), visibility 0s linear 0s;
+}
 .shot[data-id="logo"] { transform: translate3d(0, 0, 0); }
 .shot[data-id="copy"] { transform: translate3d(0, -710px, 40px); }
 .shot[data-id="sandbox"] { transform: translate3d(810px, 30px, -180px) rotateY(-10deg); }
 .shot[data-id="files"] { transform: translate3d(-830px, 170px, -100px) rotateY(10deg); }
-.shot[data-id="image"] { transform: translate3d(210px, -670px, -240px) rotateX(4deg); }
-.shot[data-id="ultra"] { transform: translate3d(-290px, 5px, 160px); }
+.shot[data-id="image"] { transform: translate3d(1520px, -680px, -240px) rotateX(4deg); }
+.shot[data-id="ultra"] { transform: translate3d(-1520px, -680px, 160px); }
 .shot[data-id="term"] { transform: translate3d(50px, 750px, -80px) rotateX(-5deg); }
-.shot[data-id="tools"] { transform: translate3d(890px, -250px, 60px) rotateY(10deg); }
-.shot[data-id="zip"] { transform: translate3d(-890px, -210px, 40px) rotateY(-10deg); }
+.shot[data-id="tools"] { transform: translate3d(890px, -820px, 60px) rotateY(10deg); }
+.shot[data-id="zip"] { transform: translate3d(-890px, 820px, 40px) rotateY(-10deg); }
 html.integrating .vignette {
   background: radial-gradient(ellipse at 50% 48%, transparent 28%, rgba(0,0,0,.34) 62%, rgba(0,0,0,.76) 100%);
 }
-html.integrating .shot { opacity: .92; filter: blur(1.2px) saturate(.92); }
+html.integrating .shot {
+  opacity: .92;
+  visibility: visible;
+  filter: blur(1.2px) saturate(.92);
+  transition: opacity .85s var(--film), filter 1.1s var(--film), transform 1.65s var(--film), visibility 0s linear 0s;
+}
 html.integrating .shot[data-id="sandbox"],
 html.integrating .shot[data-id="files"],
 html.integrating .shot[data-id="image"],
@@ -412,8 +424,12 @@ html.integrating .shot[data-id="zip"] { z-index: 4; transform: translate3d(420px
 html.integrating .shot[data-id="ultra"] { z-index: 4; transform: translate3d(0, 252px, -100px) scale(.76); }
 .shot-inner {
   transform: translate(-50%, -50%) scale(calc(1 + var(--beat-kick, 0) * 0.024));
-  transform-style: preserve-3d;
-  will-change: transform;
+  transform-style: flat;
+  will-change: transform, opacity;
+  transition: opacity .58s var(--film);
+}
+html:not(.integrating) .shot:not(.focus) .shot-inner {
+  opacity: 0;
 }
 .billboard {
   position: absolute; left: 0; right: 0; bottom: 0; top: auto;

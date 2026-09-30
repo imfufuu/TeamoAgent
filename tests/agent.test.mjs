@@ -3429,13 +3429,19 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
 });
 
 group('沙箱占用展示 {已用}/{上限}');
-test('fmtMB / filesCountLabel：一位小数 MB，空沙箱仍显示 0.0MB/120.0MB', async () => {
+test('fmtSandboxSize / fmtMB / filesCountLabel：从 KB 起算，超过 1024KB 转为 MB', async () => {
   const s = await import('../js/storagefmt.js');
   assert.equal(s.SANDBOX_STORAGE_CAP, 120 * 1024 * 1024);
   assert.equal(s.fmtMB(0), '0.0MB');
   assert.equal(s.fmtMB(2.7 * 1048576), '2.7MB');
+  assert.equal(s.fmtSandboxSize(0), '0.0KB');
+  assert.equal(s.fmtSandboxSize(512), '0.5KB');
+  assert.equal(s.fmtSandboxSize(1024 * 1024), '1024.0KB');
+  assert.equal(s.fmtSandboxSize(2.7 * 1048576), '2.7MB');
+  assert.equal(s.sandboxQuotaLabel(0), '0.0KB/120.0MB');
+  assert.equal(s.sandboxQuotaLabel(512 * 1024), '512.0KB/120.0MB');
   assert.equal(s.sandboxQuotaLabel(2.7 * 1048576), '2.7MB/120.0MB');
-  assert.equal(s.filesCountLabel({ files: 0, dirs: 0, size: 0 }), '0.0MB/120.0MB');
+  assert.equal(s.filesCountLabel({ files: 0, dirs: 0, size: 0 }), '0.0KB/120.0MB');
   assert.equal(s.filesCountLabel({ files: 3, dirs: 3, size: 2.7 * 1048576 }), '3 个文件 · 3 个目录 · 2.7MB/120.0MB');
   const q = await s.resolveStorageQuota(s.SANDBOX_STORAGE_CAP);
   assert.ok(q > 0);
@@ -4904,8 +4910,114 @@ test('介绍片优化：聚集时 ZIP 打包与 Ultra 不重叠、开片平滑�
   // 5. 点击介绍片任意帧可暂停并闪出暂停图标而非文字
   assert.match(homeJs, /stage\s*&&\s*stage\.addEventListener\('click'/, '点击舞台任意帧应可切换暂停');
   assert.match(homeJs, /function triggerPauseFlash/, '暂停时应触发图标闪现动画');
+  assert.match(homeJs, /isPaused\s*\?\s*'mode-play'\s*:\s*'mode-pause'/, '暂停时闪现播放图标，继续时闪现暂停图标');
   assert.match(indexHtml, /id="film-pause-flash"/, 'HTML 应包含暂停图标层');
   assert.doesNotMatch(homeCss, /content:\s*"已暂停"/, '不应再显示“已暂停”文字');
+  // 6. WebKit 3D 层不吃 opacity 的修复：.shot 设为 transform-style: flat + visibility: hidden 且 copy 与 image 空间坐标彻底分离
+  assert.match(homeCss, /\.shot\s*\{[\s\S]{0,140}transform-style:\s*flat;/, '.shot 应使用 transform-style: flat 确保 Safari 生效 opacity: 0');
+  assert.match(homeCss, /\.shot\s*\{[\s\S]{0,140}visibility:\s*hidden;/, '非焦点镜头应默认 visibility: hidden');
+  assert.match(homeCss, /\.shot\[data-id="image"\]\s*\{\s*transform:\s*translate3d\(1520px/, 'image 镜头应与 copy 镜头空间彻底分离');
+});
+
+test('折线图渲染修复：div.md-chart-line 不向 <text> 继承粗描边，首项旋转标签不贴边裁切', async () => {
+  const fsp = await import('node:fs');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const md = `:::chart line 同一数据的折线视角 (ms)\nJavaScript 沙箱, 12\nPython 沙箱, 180\nC++ 编译执行, 1450\n生图模型, 42000\n:::`;
+  const html = renderMarkdown(md);
+  assert.match(stylesCss, /polyline\.md-chart-line,\s*path\.md-chart-line/, '.md-chart-line 描边只应作用于 polyline/path，避免外层 div.md-chart-line 污染文字');
+  assert.match(stylesCss, /div\.md-chart-line\s*\{\s*stroke:\s*none/, '外层 div.md-chart-line 应显式清除 stroke');
+  assert.match(html, /<text[^>]*stroke="none"[^>]*class="md-chart-title"/, '图表标题应带 stroke="none"');
+  const firstTick = /<text x="([^"]+)" y="[^"]+" text-anchor="end" stroke="none" class="md-chart-tick" transform="rotate\(-25/.exec(html);
+  assert.ok(firstTick && Number(firstTick[1]) >= 90, '首项旋转长标签（JavaScript 沙箱）左侧应自动扩距防裁切');
+});
+
+test('Explored Files 合并后空壳助手节点自动折叠，不再累加多余行间距', async () => {
+  const fsp = await import('node:fs');
+  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(uiJs, /function syncAssistantShell/, '应有 syncAssistantShell 折叠因合并文件列表而留空的续消息壳');
+  assert.match(stylesCss, /\.msg-assistant\.msg-collapsed\s*\{\s*display:\s*none\s*!important/, '空壳助手节点应 display: none 不占行距');
+});
+
+test('Teamo-Hermes Nexus 自研融合架构：六层架构规范、工作区上下文自发现、跨会话 BM25 召回、压缩前记忆刷盘、技能遥测与执行自省护栏', async () => {
+  const nexus = await import('../js/nexus.js');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.layers.length, 6, '应包含完整六层融合架构定义');
+
+  // 1. 工作区规范文件自发现
+  const fs = createFS({
+    'AGENTS.md': '# 仓库规范\n一律使用 ESM 模块与 node:test。',
+    'src/index.js': 'console.log(1);',
+  });
+  const wsCtx = nexus.discoverWorkspaceContext(fs);
+  assert.match(wsCtx, /Project Context/);
+  assert.match(wsCtx, /AGENTS\.md/);
+  assert.match(wsCtx, /ESM 模块/);
+
+  // 2. 跨会话 BM25 全文检索召回
+  const sessions = [
+    {
+      id: 's1',
+      title: 'WebGL 粒子着色器优化',
+      updatedAt: 1000,
+      messages: [
+        { role: 'user', text: '如何优化 WebGL 粒子系统的帧率？' },
+        { role: 'assistant', text: '使用 InstancedMesh 与 Transform Feedback 将粒子位置更新移至 GPU。' },
+      ],
+    },
+    {
+      id: 's2',
+      title: 'SQLite 索引调优',
+      updatedAt: 2000,
+      messages: [
+        { role: 'user', text: 'SQLite 联合索引最左前缀原则怎么写？' },
+        { role: 'assistant', text: '把高频等值过滤列放在联合索引最左侧。' },
+      ],
+    },
+  ];
+  assert.equal(nexus.shouldTriggerSessionRecall('我们上次聊的 WebGL 粒子帧率方案是什么？'), true);
+  const hits = nexus.searchCrossSessionMemory(sessions, '上次聊的 WebGL 粒子帧率方案', { excludeSessionId: 's3' });
+  assert.ok(hits.length >= 1 && hits[0].sessionId === 's1', '应精准召回 WebGL 历史会话');
+  assert.match(nexus.formatSessionRecallNote(hits), /WebGL 粒子着色器优化/);
+
+  // 3. 压缩前长效记忆刷盘
+  const memAfterFlush = nexus.flushDroppedTurnsToMemory([], '用户偏好使用 TypeScript 与严格模式 · 今天天气不错');
+  assert.equal(memAfterFlush.length, 1, '只应刷盘持久偏好/项目事实，过滤闲聊');
+  assert.match(memAfterFlush[0].text, /TypeScript/);
+
+  // 4. 闭环技能遥测与 SKILL.md 双向编解码
+  const sk = await import('../js/skills.js');
+  const rawSkill = sk.distillSkill({
+    userText: '分析仓库并运行回归测试',
+    toolNames: ['list_files', 'read_file', 'execute_javascript'],
+    iterations: 3,
+  });
+  const refined = nexus.refineSkillWithTelemetry(rawSkill, {
+    toolSequence: ['list_files', 'read_file', 'execute_javascript'],
+    hadErrors: true,
+    recovered: true,
+    durationMs: 1420,
+  });
+  assert.equal(refined.uses, 1);
+  assert.equal(refined.successRate, 1);
+  assert.match(refined.body, /推荐执行链：list_files → read_file → execute_javascript/);
+  assert.match(refined.body, /避坑记录/);
+  const mdText = nexus.serializeSkillMarkdown(refined);
+  assert.match(mdText, /^---\nid: learned-/);
+  const parsed = nexus.parseSkillMarkdown(mdText);
+  assert.equal(parsed.id, refined.id);
+  assert.equal(parsed.pipeline, 'list_files → read_file → execute_javascript');
+
+  // 5. 执行自省与死循环检测护栏 + 任务账本
+  const loopCheck = nexus.analyzeToolTrajectory([
+    { name: 'read_file', args: { path: 'a.js' }, isError: false },
+    { name: 'read_file', args: { path: 'a.js' }, isError: false },
+  ]);
+  assert.equal(loopCheck.duplicateLoop, true);
+  assert.match(nexus.formatReflectionNote(loopCheck), /重复调用相同参数的工具「read_file」/);
+
+  const ledger = nexus.createTaskLedger('重构模块并验证');
+  ledger.advance(2, ['read_file', 'write_file'], false);
+  assert.match(nexus.formatTaskLedgerNote(ledger), /read_file → write_file/);
 });
 
 for (const item of queue) {

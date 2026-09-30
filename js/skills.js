@@ -155,7 +155,21 @@ export function distillSkill({ userText, toolNames, iterations } = {}) {
 
 export function rememberSkill(list, skill, cap = 8) {
   if (!skill || !skill.id) return Array.isArray(list) ? list.slice() : [];
-  const out = (Array.isArray(list) ? list : []).filter((s) => s && s.id !== skill.id);
-  out.unshift(skill);
+  const arr = Array.isArray(list) ? list : [];
+  const prev = arr.find((s) => s && s.id === skill.id);
+  let merged = skill;
+  if (prev) {
+    const uses = (Number(prev.uses) || 1) + (Number(skill.uses) || 1);
+    const successCount = (Number(prev.successCount) || 1) + (Number(skill.successCount) || 1);
+    merged = {
+      ...prev,
+      ...skill,
+      uses,
+      successCount,
+      successRate: Number((successCount / Math.max(1, uses)).toFixed(2)),
+    };
+  }
+  const out = arr.filter((s) => s && s.id !== skill.id);
+  out.unshift(merged);
   return out.slice(0, cap);
 }

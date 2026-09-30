@@ -38,16 +38,16 @@ const SCENES = [
   { beat: 20, x: 800, y: 24, z: 280, rx: 0, ry: 3, rz: 0, focus: 'sandbox' },
   { beat: 24, x: -840, y: 180, z: 400, rx: -2, ry: -8, rz: 0, focus: 'files', title: '工作区 120 MB' },
   { beat: 28, x: -820, y: 160, z: 280, rx: 0, ry: -3, rz: 0, focus: 'files' },
-  { beat: 32, x: 220, y: -680, z: 420, rx: 4, ry: 3, rz: 0, focus: 'image', title: '出图与识图' },
-  { beat: 36, x: 200, y: -660, z: 280, rx: 1, ry: -3, rz: 0, focus: 'image' },
-  { beat: 40, x: -300, y: 0, z: 340, rx: 0, ry: 6, rz: 0, focus: 'ultra', title: '思考档 Off → Ultra' },
-  { beat: 44, x: -280, y: 8, z: 260, rx: -1, ry: -2, rz: 0, focus: 'ultra' },
+  { beat: 32, x: 1530, y: -690, z: 420, rx: 4, ry: 3, rz: 0, focus: 'image', title: '出图与识图' },
+  { beat: 36, x: 1510, y: -670, z: 280, rx: 1, ry: -3, rz: 0, focus: 'image' },
+  { beat: 40, x: -1530, y: -680, z: 340, rx: 0, ry: 6, rz: 0, focus: 'ultra', title: '思考档 Off → Ultra' },
+  { beat: 44, x: -1510, y: -672, z: 260, rx: -1, ry: -2, rz: 0, focus: 'ultra' },
   { beat: 48, x: 60, y: 760, z: 380, rx: -4, ry: 2, rz: 0, focus: 'term', title: '跑起来，结果落盘' },
   { beat: 52, x: 40, y: 740, z: 280, rx: -2, ry: 0, rz: 0, focus: 'term' },
-  { beat: 56, x: 900, y: -260, z: 400, rx: 3, ry: -8, rz: 0, focus: 'tools', title: '差分 · 搜索 · JSON' },
-  { beat: 60, x: 880, y: -240, z: 300, rx: 0, ry: -3, rz: 0, focus: 'tools' },
-  { beat: 64, x: -900, y: -220, z: 400, rx: 2, ry: 8, rz: 0, focus: 'zip', title: 'ZIP 打包带走' },
-  { beat: 68, x: -880, y: -200, z: 300, rx: 0, ry: 3, rz: 0, focus: 'zip' },
+  { beat: 56, x: 900, y: -830, z: 400, rx: 3, ry: -8, rz: 0, focus: 'tools', title: '差分 · 搜索 · JSON' },
+  { beat: 60, x: 880, y: -810, z: 300, rx: 0, ry: -3, rz: 0, focus: 'tools' },
+  { beat: 64, x: -900, y: 810, z: 400, rx: 2, ry: 8, rz: 0, focus: 'zip', title: 'ZIP 打包带走' },
+  { beat: 68, x: -880, y: 830, z: 300, rx: 0, ry: 3, rz: 0, focus: 'zip' },
   { beat: 72, x: 0, y: 10, z: 720, rx: 2, ry: 0, rz: 0, focus: 'logo', title: '现在就开始' },
   { beat: 84, x: 0, y: 0, z: 300, rx: 0, ry: 0, rz: 0, focus: 'logo', title: '' },
   { beat: 92, x: 0, y: 0, z: 980, rx: 2, ry: 0, rz: 0, focus: 'logo' },
@@ -202,7 +202,7 @@ function pauseLocked(t = nowSec()) {
 function triggerPauseFlash(isPaused) {
   if (!pauseFlash) return;
   pauseFlash.classList.remove('flash', 'mode-pause', 'mode-play');
-  pauseFlash.classList.add(isPaused ? 'mode-pause' : 'mode-play');
+  pauseFlash.classList.add(isPaused ? 'mode-play' : 'mode-pause');
   void pauseFlash.offsetWidth;
   pauseFlash.classList.add('flash');
 }

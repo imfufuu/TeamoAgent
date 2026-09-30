@@ -26,7 +26,19 @@ import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
 import { formatMemory } from './memory.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.4';
+import {
+  discoverWorkspaceContext,
+  shouldTriggerSessionRecall,
+  searchCrossSessionMemory,
+  formatSessionRecallNote,
+  flushDroppedTurnsToMemory,
+  refineSkillWithTelemetry,
+  analyzeToolTrajectory,
+  formatReflectionNote,
+  createTaskLedger,
+  formatTaskLedgerNote,
+} from './nexus.js';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.5';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -204,24 +216,39 @@ export function createAgent(store, hooks = {}) {
   // cached 前缀（身份 + 技能目录 + 子智能体指引）按用户回合复用；
   // volatile（记忆/沙箱/时间/联网）每轮迭代重建；ephemeral 只放 Jev/技能正文/预算。
   let cachedPrefix = null;
-  function buildMessages(lockModel, relayOk = true, jevNote = '', plan = null, iteration = 1) {
+  function buildMessages(lockModel, relayOk = true, jevNote = '', plan = null, iteration = 1, nexusState = null) {
     // 审核拦截提示只用于界面反馈，绝不进入后续模型上下文。
     const messages = (store.state.messages || []).filter((m) => !m.transientModeration);
     const model = lockModel || store.state.model;
     const budget = contextBudgetFor(model);
-    const { messages: compacted, droppedCount } = compactMessages(messages, budget, { preflight: true });
+    const { messages: compacted, droppedCount, droppedDigest } = compactMessages(messages, budget, { preflight: true });
+    if (droppedCount > 0 && droppedDigest) {
+      store.state.memory = flushDroppedTurnsToMemory(store.state.memory, droppedDigest);
+    }
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+    const userText = lastUser && lastUser.text ? String(lastUser.text) : '';
     const webOn = store.state.settings.webEnabled !== false && relayOk;
     const st = store.state.settings || {};
     const lv = String(st.reasoningLevel || 'medium').toLowerCase();
     const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
     if (!cachedPrefix) {
+      const wsCtx = discoverWorkspaceContext(fs);
+      const subGuide = subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' });
       cachedPrefix = assembleSystemLayers({
         identity: systemPrompt(new Date(), { webEnabled: webOn, allowDispatch: canDispatch, reasoningLevel: lv }),
         skillsIndex: formatSkillsIndex(store.state.learnedSkills),
-        contextFiles: subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' }),
+        contextFiles: [subGuide, wsCtx].filter(Boolean).join('\n\n'),
       }).cached;
     }
+    const recallHits = (iteration === 1 && shouldTriggerSessionRecall(userText) && Array.isArray(store.state.sessions))
+      ? searchCrossSessionMemory(store.state.sessions, userText, { excludeSessionId: store.state.activeSessionId })
+      : [];
+    const reflectionNote = nexusState && nexusState.stepHistory
+      ? formatReflectionNote(analyzeToolTrajectory(nexusState.stepHistory))
+      : '';
+    const ledgerNote = nexusState && nexusState.ledger
+      ? formatTaskLedgerNote(nexusState.ledger)
+      : '';
     const layers = assembleSystemLayers({
       identity: cachedPrefix,
       memory: formatMemory(store.state.memory),
@@ -235,7 +262,10 @@ export function createAgent(store, hooks = {}) {
       }),
       ephemeral: [
         jevNote || '',
-        selectSkillBodies(plan, lastUser && lastUser.text, store.state.learnedSkills),
+        selectSkillBodies(plan, userText, store.state.learnedSkills),
+        formatSessionRecallNote(recallHits),
+        ledgerNote,
+        reflectionNote,
         droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
         formatBudgetNote(iteration, TOOL_LOOP_MAX),
       ].filter((s) => s && String(s).trim()).join('\n\n'),
@@ -366,6 +396,12 @@ export function createAgent(store, hooks = {}) {
     let jevNote = '';
     let turnPlan = null;
     const usedTools = [];
+    const stepHistory = [];
+    let hadToolError = false;
+    let lastStepFailed = false;
+    const lastUserInit = [...store.state.messages].reverse().find((m) => m.role === 'user');
+    const taskLedger = createTaskLedger(lastUserInit && lastUserInit.text);
+    const nexusState = { stepHistory, ledger: taskLedger };
 
     try {
       if (settings.jevEnabled !== false) {
@@ -422,7 +458,7 @@ export function createAgent(store, hooks = {}) {
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
               webEnabled: turn.webEnabled, // 联网：注入模型 API 自带的网页搜索请求格式
               onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
-              messages: buildMessages(model, relayOk, jevNote, turnPlan, iterations),
+              messages: buildMessages(model, relayOk, jevNote, turnPlan, iterations, nexusState),
               onEvent: (ev) => {
                 if (!streamed) { streamed = true; setStatus('streaming'); }
                 switch (ev.type) {
@@ -561,13 +597,19 @@ export function createAgent(store, hooks = {}) {
         setStatus('executing');
         const results = await runToolCalls(toolCalls, turn);
         store.updateMessage(assistantMsg.id, { toolCalls: toolCalls.map((c) => ({ ...c })) });
+        let roundHasError = false;
         for (const [i, call] of toolCalls.entries()) {
           const result = results[i];
           usedTools.push(call.name);
+          const isErr = typeof result === 'string' && /(失败|报错|错误|参数不是合法 JSON|未执行|拒绝执行)/.test(result.slice(0, 120));
+          if (isErr) { hadToolError = true; roundHasError = true; }
+          stepHistory.push({ name: call.name, args: call.args, isError: isErr });
           syncFS();
           store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: result });
           emit('onToolResult', call, result);
         }
+        lastStepFailed = roundHasError;
+        taskLedger.advance(iterations + 1, toolCalls.map((c) => c.name), roundHasError);
       }
       // 达到迭代上限
       if (TOOL_LOOP_MAX > 0) {
@@ -590,8 +632,16 @@ export function createAgent(store, hooks = {}) {
       // 只在正常结束时蒸馏技能：取消/报错的轨迹不能写成可复用规程
       if (status === 'done') {
         const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
-        const learned = distillSkill({ userText: lastUser && lastUser.text, toolNames: usedTools, iterations });
-        if (learned) store.state.learnedSkills = rememberSkill(store.state.learnedSkills, learned);
+        const rawLearned = distillSkill({ userText: lastUser && lastUser.text, toolNames: usedTools, iterations });
+        if (rawLearned) {
+          const learned = refineSkillWithTelemetry(rawLearned, {
+            toolSequence: usedTools,
+            hadErrors: hadToolError,
+            recovered: hadToolError && !lastStepFailed,
+            durationMs: Math.round(performance.now() - t0),
+          });
+          store.state.learnedSkills = rememberSkill(store.state.learnedSkills, learned);
+        }
       }
       syncFS();
       store.notify();

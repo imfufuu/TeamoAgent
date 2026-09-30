@@ -190,7 +190,7 @@ function axisSvg(rows, w, h, m, sc, opts = {}) {
   for (const v of chartTicks(sc.min, sc.max, 5)) {
     const y = sc.y(v);
     bits.push(`<line x1="${m.l}" y1="${y.toFixed(1)}" x2="${plotRight}" y2="${y.toFixed(1)}" class="md-chart-grid"/>`);
-    bits.push(`<text x="${m.l - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" class="md-chart-tick">${esc(chartFmt(v))}</text>`);
+    bits.push(`<text x="${m.l - 10}" y="${(y + 4).toFixed(1)}" text-anchor="end" stroke="none" class="md-chart-tick">${esc(chartFmt(v))}</text>`);
   }
   bits.push(`<line x1="${m.l}" y1="${m.t}" x2="${m.l}" y2="${plotBottom}" class="md-chart-axis"/>`);
   bits.push(`<line x1="${m.l}" y1="${plotBottom}" x2="${plotRight}" y2="${plotBottom}" class="md-chart-axis"/>`);
@@ -198,20 +198,20 @@ function axisSvg(rows, w, h, m, sc, opts = {}) {
     for (const v of opts.xTicks) {
       const x = opts.xScale(v);
       bits.push(`<line x1="${x.toFixed(1)}" y1="${plotBottom}" x2="${x.toFixed(1)}" y2="${plotBottom + 5}" class="md-chart-axis"/>`);
-      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 20}" text-anchor="middle" class="md-chart-tick">${esc(chartFmt(v))}</text>`);
+      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 20}" text-anchor="middle" stroke="none" class="md-chart-tick">${esc(chartFmt(v))}</text>`);
     }
   } else {
     const step = Math.max(1, Math.ceil(rows.length / 8));
     rows.forEach((r, i) => {
       if (i % step) return;
       const x = opts.xForIndex ? opts.xForIndex(i) : m.l + (i + .5) * sc.plotW / Math.max(1, rows.length);
-      const text = truncateDiagramLabel(r.label, 10);
+      const text = truncateDiagramLabel(r.label, 12);
       const rot = rows.length > 6 || diagramTextUnits(text) > 4.5;
-      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 20}" text-anchor="${rot ? 'end' : 'middle'}" class="md-chart-tick"${rot ? ` transform="rotate(-25 ${x.toFixed(1)} ${plotBottom + 20})"` : ''}>${esc(text)}</text>`);
+      bits.push(`<text x="${x.toFixed(1)}" y="${plotBottom + 20}" text-anchor="${rot ? 'end' : 'middle'}" stroke="none" class="md-chart-tick"${rot ? ` transform="rotate(-25 ${x.toFixed(1)} ${plotBottom + 20})"` : ''}>${esc(text)}</text>`);
     });
   }
-  if (opts.xLabel) bits.push(`<text x="${((m.l + plotRight) / 2).toFixed(1)}" y="${h - 14}" text-anchor="middle" class="md-chart-axis-label">${esc(opts.xLabel)}</text>`);
-  if (opts.yLabel) bits.push(`<text x="18" y="${((m.t + plotBottom) / 2).toFixed(1)}" text-anchor="middle" transform="rotate(-90 18 ${((m.t + plotBottom) / 2).toFixed(1)})" class="md-chart-axis-label">${esc(opts.yLabel)}</text>`);
+  if (opts.xLabel) bits.push(`<text x="${((m.l + plotRight) / 2).toFixed(1)}" y="${h - 14}" text-anchor="middle" stroke="none" class="md-chart-axis-label">${esc(opts.xLabel)}</text>`);
+  if (opts.yLabel) bits.push(`<text x="18" y="${((m.t + plotBottom) / 2).toFixed(1)}" text-anchor="middle" stroke="none" transform="rotate(-90 18 ${((m.t + plotBottom) / 2).toFixed(1)})" class="md-chart-axis-label">${esc(opts.yLabel)}</text>`);
   return bits.join('');
 }
 function renderQuickChart(kind, body, title = '') {
@@ -222,8 +222,13 @@ function renderQuickChart(kind, body, title = '') {
     const sample = kind === 'st' ? '<code>0, 0</code><br><code>1, 4</code>' : '<code>一月, 12</code>';
     return `<div class="md-chart-error">图表数据为空。示例：${sample}</div>`;
   }
-  const w = 720, h = 392, m = { l: 76, r: 38, t: 58, b: 86 };
-  let inner = `<text x="${m.l}" y="34" class="md-chart-title">${esc(label)}</text>`;
+  const firstText = truncateDiagramLabel(rows[0] && rows[0].label, 12);
+  const firstRot = rows.length > 6 || diagramTextUnits(firstText) > 4.5;
+  const leftMargin = (kind === 'line' || kind === 'bar') && firstRot
+    ? Math.max(76, Math.ceil(diagramTextUnits(firstText) * 10.5 * 0.9 + 18))
+    : 76;
+  const w = 720, h = 392, m = { l: leftMargin, r: 44, t: 58, b: 86 };
+  let inner = `<text x="${m.l}" y="34" stroke="none" class="md-chart-title">${esc(label)}</text>`;
   if (kind === 'pie') {
     const vals = rows.map((r) => Math.max(0, r.value));
     const total = vals.reduce((a, b) => a + b, 0) || 1;
@@ -622,7 +627,12 @@ function bindFoldRows(root) {
   }
 }
 
-const fmtSize = (n) => (n == null ? '' : n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(1)}K` : `${(n / 1048576).toFixed(1)}M`);
+const fmtSize = (n) => {
+  if (n == null) return '';
+  const v = Number.isFinite(Number(n)) && Number(n) > 0 ? Number(n) : 0;
+  const kb = v / 1024;
+  return kb > 1024 ? `${(v / 1048576).toFixed(1)}MB` : `${kb.toFixed(1)}KB`;
+};
 
 const contextBudgetLabel = (model) => {
   const b = contextBudgetFor(model);
@@ -2488,7 +2498,10 @@ export function mountUI(store, agent) {
             if (!pathsOf(x, name).length) break;
             const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
             const old = w && $(`.${cls}`, w);
-            if (old) old.remove();
+            if (old) {
+              old.remove();
+              syncAssistantShell(w);
+            }
           }
         }
       } else if (node) node.remove();
@@ -2499,8 +2512,25 @@ export function mountUI(store, agent) {
     // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
     paintTurnMeta(wrap, m);
     paintFoot(wrap, m);
+    syncAssistantShell(wrap);
     // 复制/回滚/重新生成的显隐统一交给 refreshActionVisibility（回合结束才显示）
     refreshActionVisibility();
+  }
+
+  function syncAssistantShell(w) {
+    if (!w || !w.classList.contains('msg-assistant')) return;
+    const hasHead = !!$('.msg-head', w);
+    const bodyEl = $('.md-body', w);
+    const hasBody = !!(bodyEl && !bodyEl.classList.contains('empty') && String(bodyEl.innerHTML || '').trim());
+    const hasReason = !!$('.reasoning', w);
+    const chipsEl = $('.tool-chips', w);
+    const hasChips = !!(chipsEl && chipsEl.children.length > 0);
+    const hasExplored = !!$('.explored-files', w);
+    const hasEdited = !!$('.edited-files', w);
+    const footEl = $('.msg-foot', w);
+    const hasFoot = !!(footEl && !footEl.hidden && String(footEl.textContent || '').trim());
+    const emptyShell = !hasHead && !hasBody && !hasReason && !hasChips && !hasExplored && !hasEdited && !hasFoot;
+    w.classList.toggle('msg-collapsed', emptyShell);
   }
 
   function collectTurnCostInfo(m) {
@@ -2670,6 +2700,7 @@ export function mountUI(store, agent) {
       wrap.classList.toggle('actions-pending', !show);
       const regen = $('.act-regen', wrap);
       if (regen) regen.style.display = show && lastOverall && lastOverall.id === m.id ? '' : 'none';
+      if (m.role === 'assistant') syncAssistantShell(wrap);
     }
   }
   function appendMessage(m) {
