@@ -545,6 +545,23 @@ function skipFilm() {
   requestAnimationFrame(tick);
 }
 
+function openGate() {
+  playing = false;
+  enteringFilm = false;
+  if (enterTimer) { clearTimeout(enterTimer); enterTimer = 0; }
+  paused = false;
+  cancelAnimationFrame(raf);
+  if (audio) try { audio.pause(); audio.currentTime = 0; audio.volume = 1; } catch { /* ignore */ }
+  if (curtain) {
+    curtain.style.transition = 'none';
+    curtain.style.opacity = '0';
+  }
+  root.classList.remove('open', 'scoring', 'leaving', 'integrating', 'entering-film', 'paused');
+  root.classList.add('gate');
+  lockScroll(false);
+  pinTop();
+}
+
 function flipTheme() {
   root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
   localStorage.setItem('teamo-home-theme', root.dataset.theme);
@@ -560,7 +577,8 @@ function prepareReveal() {
     site.querySelectorAll(sel).forEach((el) => {
       if (el.classList.contains('reveal')) return;
       el.classList.add('reveal');
-      el.style.setProperty('--delay', `${(i % 4) * 70}ms`);
+      // 三个 Q&A 卡片使用统一零延迟，保证滚入与点击展开手感完全一致
+      el.style.setProperty('--delay', sel === '.faq details' ? '0ms' : `${(i % 4) * 70}ms`);
       i += 1;
     });
   }
@@ -574,10 +592,69 @@ function watchReveal() {
     for (const e of entries) {
       if (!e.isIntersecting) continue;
       e.target.classList.add('in');
+      e.target.style.removeProperty('--delay');
       io.unobserve(e.target);
     }
   }, { threshold: 0.14, rootMargin: '0px 0px -8% 0px' });
   nodes.forEach((n) => io.observe(n));
+}
+
+function bindFaqAccordion() {
+  document.querySelectorAll('.faq details').forEach((det) => {
+    const sum = det.querySelector('summary');
+    const body = det.querySelector('p');
+    if (!sum || !body) return;
+    let anim = null;
+    sum.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (reduce || typeof det.animate !== 'function') {
+        det.open = !det.open;
+        det.classList.toggle('is-open', det.open);
+        return;
+      }
+      if (anim) { anim.cancel(); anim = null; }
+      const isOpening = !det.open || det.classList.contains('is-closing');
+      const startH = det.offsetHeight;
+      if (isOpening) {
+        det.classList.remove('is-closing');
+        det.classList.add('is-open');
+        det.open = true;
+        const endH = sum.offsetHeight + body.offsetHeight;
+        anim = det.animate(
+          [{ height: `${startH}px` }, { height: `${endH}px` }],
+          { duration: 300, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        );
+        body.animate(
+          [{ opacity: 0, transform: 'translateY(-5px)' }, { opacity: 1, transform: 'translateY(0)' }],
+          { duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        );
+        anim.onfinish = () => { det.style.height = ''; anim = null; };
+        anim.oncancel = () => { det.style.height = ''; };
+      } else {
+        det.classList.remove('is-open');
+        det.classList.add('is-closing');
+        const endH = sum.offsetHeight;
+        anim = det.animate(
+          [{ height: `${startH}px` }, { height: `${endH}px` }],
+          { duration: 260, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        );
+        body.animate(
+          [{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(-4px)' }],
+          { duration: 200, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' },
+        );
+        anim.onfinish = () => {
+          det.open = false;
+          det.classList.remove('is-closing');
+          det.style.height = '';
+          anim = null;
+        };
+        anim.oncancel = () => {
+          det.classList.remove('is-closing');
+          det.style.height = '';
+        };
+      }
+    });
+  });
 }
 
 if (themeBtn) {
@@ -587,8 +664,22 @@ window.addEventListener('scroll', () => {
   if (nav) nav.classList.toggle('scrolled', window.scrollY > 8);
 }, { passive: true });
 if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+
+const initialView = new URLSearchParams(location.search).get('view') || (location.hash === '#nav' ? 'nav' : '');
+if (initialView && history.replaceState) {
+  history.replaceState(null, '', location.pathname);
+}
 pinTop();
 prepareReveal();
+bindFaqAccordion();
+
+const navBrand = document.querySelector('.nav .brand');
+if (navBrand) {
+  navBrand.addEventListener('click', (e) => {
+    e.preventDefault();
+    openGate();
+  });
+}
 
 const gateSkip = document.getElementById('gate-skip');
 document.querySelectorAll('[data-play-film]').forEach((btn) => {
@@ -604,41 +695,42 @@ try {
   }
 } catch { /* ignore */ }
 
-if (reduce) {
+/* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
+exploreCta && exploreCta.addEventListener('click', requestFilm);
+pauseBtn && pauseBtn.addEventListener('click', togglePause);
+stage && stage.addEventListener('click', (e) => {
+  if (e.target && e.target.closest && e.target.closest('#film-skip, #film-pause')) return;
+  if (!playing || pauseLocked()) return;
+  togglePause();
+});
+skip && skip.addEventListener('click', skipFilm);
+gateSkip && gateSkip.addEventListener('click', () => openSite(true));
+window.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (root.classList.contains('gate')) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      requestFilm();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      openSite(true);
+    }
+  } else if (root.classList.contains('scoring') && !root.classList.contains('leaving')) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      skipFilm();
+    } else if (e.key === ' ' || e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      togglePause();
+    }
+  }
+});
+
+if (reduce || initialView === 'nav') {
   openSite(true);
   prefetchAudio();
 } else {
   root.classList.add('gate');
   root.classList.remove('open', 'scoring');
-  /* 片尾由时钟收束（最后 5 秒黑→白），不在 audio.ended 时硬切 */
-  exploreCta && exploreCta.addEventListener('click', requestFilm);
-  pauseBtn && pauseBtn.addEventListener('click', togglePause);
-  stage && stage.addEventListener('click', (e) => {
-    if (e.target && e.target.closest && e.target.closest('#film-skip, #film-pause')) return;
-    if (!playing || pauseLocked()) return;
-    togglePause();
-  });
-  skip && skip.addEventListener('click', skipFilm);
-  gateSkip && gateSkip.addEventListener('click', () => openSite(true));
   prefetchAudio();
-  window.addEventListener('keydown', (e) => {
-    if (e.metaKey || e.ctrlKey || e.altKey) return;
-    if (root.classList.contains('gate')) {
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        requestFilm();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        openSite(true);
-      }
-    } else if (root.classList.contains('scoring') && !root.classList.contains('leaving')) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        skipFilm();
-      } else if (e.key === ' ' || e.key.toLowerCase() === 'p') {
-        e.preventDefault();
-        togglePause();
-      }
-    }
-  });
 }

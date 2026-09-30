@@ -21,17 +21,79 @@ function wrapSvg(w, h, body) {
     + `<rect width="100%" height="100%" fill="${C.bg}"/>${body}</svg>`;
 }
 
+const WIDE_CHAR_RE = /[\u2e80-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f\uff00-\uffef]/;
+
+function charUnits(ch) {
+  if (WIDE_CHAR_RE.test(ch)) return 1.02;
+  if (/[A-Z0-9]/.test(ch)) return 0.65;
+  return 0.56;
+}
+
 function textWidth(s, size = 13) {
   const t = String(s || '');
   let w = 0;
-  for (const ch of t) w += /[\u4e00-\u9fff]/.test(ch) ? 1 : 0.62;
-  return Math.ceil(w * size + 8);
+  for (const ch of t) w += charUnits(ch);
+  return Math.ceil(w * size + 10);
 }
 
 function unquote(s) {
   const t = String(s || '').trim();
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1);
+  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) {
+    return t.slice(1, -1).replace(/\\"/g, '"').replace(/\\'/g, "'");
+  }
   return t.replace(/^\[|\]$/g, '').replace(/^\(|\)$/g, '').replace(/^\{|\}$/g, '');
+}
+
+// 将字面量 \n / \l / \r / <br> 切分为多行，并对超长单行做自然断行，避免文本溢出节点框
+function splitLabelLines(raw, maxUnits = 20) {
+  const text = String(raw == null ? '' : raw)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/\\[nlr]/g, '\n')
+    .replace(/\\"/g, '"')
+    .replace(/\\\\/g, '\\')
+    .trim();
+  if (!text) return [''];
+  const rawLines = text.split(/\r?\n/).map((l) => l.trim()).filter((l, i, arr) => l || arr.length === 1);
+  const out = [];
+  for (const line of rawLines) {
+    let units = 0;
+    for (const ch of line) units += charUnits(ch);
+    if (units <= maxUnits + 2) {
+      out.push(line);
+      continue;
+    }
+    // 按自然分隔符或字符视觉宽度自动折行
+    let cur = '';
+    let curU = 0;
+    const tokens = line.split(/(\s+\/\s+|\s+·\s+|\/|，|,|\s+)/).filter(Boolean);
+    for (const tok of tokens) {
+      let tokU = 0;
+      for (const ch of tok) tokU += charUnits(ch);
+      if (cur && curU + tokU > maxUnits) {
+        out.push(cur.trim());
+        cur = tok.replace(/^\s+/, '');
+        curU = 0;
+        for (const ch of cur) curU += charUnits(ch);
+      } else if (tokU > maxUnits * 1.25) {
+        for (const ch of tok) {
+          const u = charUnits(ch);
+          if (cur && curU + u > maxUnits) {
+            out.push(cur.trim());
+            cur = ch;
+            curU = u;
+          } else {
+            cur += ch;
+            curU += u;
+          }
+        }
+      } else {
+        cur += tok;
+        curU += tokU;
+      }
+    }
+    if (cur.trim()) out.push(cur.trim());
+  }
+  return out.length ? out : [''];
 }
 
 function parseMermaidFlow(src) {
@@ -52,16 +114,16 @@ function parseMermaidFlow(src) {
     }
     return nodes.get(id);
   };
-  const nodePat = /([A-Za-z0-9_]+)(\[\[.*?\]\]|\[.*?\]|\(\(.*?\)\)|\(.*?\)|\{.*?\})?/;
+  const nodePat = /([A-Za-z0-9_-]+)(\[\[.*?\]\]|\[.*?\]|\(\(.*?\)\)|\(.*?\)|\{.*?\})?/;
   const edgePat = new RegExp(
     `^${nodePat.source}\\s*(-->|---|-.->|==>|--x|---|-->)\\s*(?:\\|([^|]+)\\|)?\\s*${nodePat.source}$`,
   );
   for (const line of lines.slice(1)) {
-    if (/^subgraph\b|^end$/i.test(line) || /^classDef\b/i.test(line)) continue;
+    if (/^subgraph\b|^end$/i.test(line) || /^classDef\b|^style\b|^linkStyle\b|^direction\b/i.test(line)) continue;
     const m = edgePat.exec(line.replace(/\s+/g, ' '));
     if (m) {
-      const a = ensure(m[1], m[2] ? unquote(m[2]) : '', shapeOf(m[2]));
-      const b = ensure(m[5], m[6] ? unquote(m[6]) : '', shapeOf(m[6]));
+      const a = ensure(m[1], m[2] ? unquote(m[2]) : '', m[2] ? shapeOf(m[2]) : '');
+      const b = ensure(m[5], m[6] ? unquote(m[6]) : '', m[6] ? shapeOf(m[6]) : '');
       edges.push({ from: a.id, to: b.id, label: (m[4] || '').trim() });
       continue;
     }
@@ -108,79 +170,161 @@ function parseMermaidSeq(src) {
 }
 
 function layoutFlow(g) {
+  const nCount = g.nodes.length;
   const idx = new Map(g.nodes.map((n, i) => [n.id, i]));
-  const incoming = g.nodes.map(() => 0);
-  const outs = g.nodes.map(() => []);
-  for (const e of g.edges) {
+  const adj = g.nodes.map(() => []);
+  for (let ei = 0; ei < g.edges.length; ei++) {
+    const e = g.edges[ei];
     if (!idx.has(e.from) || !idx.has(e.to)) continue;
-    incoming[idx.get(e.to)] += 1;
-    outs[idx.get(e.from)].push(idx.get(e.to));
+    const u = idx.get(e.from);
+    const v = idx.get(e.to);
+    if (u === v) {
+      e._back = true;
+      continue;
+    }
+    adj[u].push({ to: v, ei });
+  }
+
+  // 1. 使用 DFS 识别环路回边（back-edges），防止反馈闭环把上游主节点推到底部
+  const inDegRaw = g.nodes.map(() => 0);
+  for (let u = 0; u < nCount; u++) {
+    for (const { to } of adj[u]) inDegRaw[to] += 1;
+  }
+  const order = [];
+  for (let i = 0; i < nCount; i++) if (inDegRaw[i] === 0) order.push(i);
+  for (let i = 0; i < nCount; i++) if (inDegRaw[i] > 0) order.push(i);
+
+  const state = new Uint8Array(nCount); // 0=unvisited, 1=visiting, 2=visited
+  const backEdgeSet = new Set();
+  const dfs = (u) => {
+    state[u] = 1;
+    for (const { to, ei } of adj[u]) {
+      if (state[to] === 1) {
+        backEdgeSet.add(ei);
+        g.edges[ei]._back = true;
+      } else if (state[to] === 0) {
+        dfs(to);
+      }
+    }
+    state[u] = 2;
+  };
+  for (const start of order) {
+    if (state[start] === 0) dfs(start);
+  }
+
+  // 2. 在去环 DAG 上计算拓扑层级（Kahn 最长路径分层）
+  const dagIn = g.nodes.map(() => 0);
+  const dagOut = g.nodes.map(() => []);
+  for (let u = 0; u < nCount; u++) {
+    for (const { to, ei } of adj[u]) {
+      if (backEdgeSet.has(ei)) continue;
+      dagIn[to] += 1;
+      dagOut[u].push(to);
+    }
   }
   const rank = g.nodes.map(() => 0);
   const q = [];
-  incoming.forEach((n, i) => { if (!n) q.push(i); });
-  const seen = new Set();
+  for (let i = 0; i < nCount; i++) {
+    if (dagIn[i] === 0) q.push(i);
+  }
+  if (!q.length && nCount > 0) q.push(0);
+  const remIn = dagIn.slice();
+  const visitedDag = new Set();
   while (q.length) {
-    const i = q.shift();
-    if (seen.has(i)) continue;
-    seen.add(i);
-    for (const j of outs[i]) {
-      rank[j] = Math.max(rank[j], rank[i] + 1);
-      q.push(j);
+    const u = q.shift();
+    visitedDag.add(u);
+    for (const v of dagOut[u]) {
+      if (rank[v] < rank[u] + 1) rank[v] = Math.min(nCount, rank[u] + 1);
+      remIn[v] -= 1;
+      if (remIn[v] <= 0 && !visitedDag.has(v)) {
+        visitedDag.add(v);
+        q.push(v);
+      }
     }
   }
-  const byRank = new Map();
+
+  // 3. 预计算每个节点的多行文本与真实宽高（严禁把框宽裁到小于文字宽）
+  const nodeMeta = new Map();
+  for (const n of g.nodes) {
+    const lines = splitLabelLines(n.label, 20);
+    const maxLineW = Math.max(...lines.map((l) => textWidth(l, 13)));
+    const w = Math.max(76, maxLineW + (n.shape === 'diamond' ? 44 : 28));
+    const h = Math.max(n.shape === 'diamond' ? 54 : 40, lines.length * 18 + (n.shape === 'diamond' ? 28 : 18));
+    nodeMeta.set(n.id, { lines, w, h });
+  }
+
+  // 4. 按层级分组，并对单层节点过多（>4 个）的行自动拆分为平衡子行，避免一字排开过宽
+  const rawByRank = new Map();
   g.nodes.forEach((n, i) => {
     const r = rank[i];
-    if (!byRank.has(r)) byRank.set(r, []);
-    byRank.get(r).push(n);
+    if (!rawByRank.has(r)) rawByRank.set(r, []);
+    rawByRank.get(r).push(n);
   });
-  const ranks = [...byRank.keys()].sort((a, b) => a - b);
-  const padX = 28;
-  const padY = 28;
-  const gapX = 36;
-  const gapY = 56;
+  const sortedRanks = [...rawByRank.keys()].sort((a, b) => a - b);
+  const rows = [];
+  const MAX_PER_ROW = 4;
+  for (const r of sortedRanks) {
+    const list = rawByRank.get(r);
+    if (list.length <= MAX_PER_ROW) {
+      rows.push(list);
+    } else {
+      const chunks = Math.ceil(list.length / MAX_PER_ROW);
+      const perRow = Math.ceil(list.length / chunks);
+      for (let c = 0; c < list.length; c += perRow) {
+        rows.push(list.slice(c, c + perRow));
+      }
+    }
+  }
+
+  // 5. 逐行排布并居中对齐
+  const padX = 36;
+  const padY = 32;
+  const gapX = 32;
+  const gapY = 64;
   const boxes = new Map();
-  ranks.forEach((r, ri) => {
-    const row = byRank.get(r);
-    const heights = row.map((n) => (n.shape === 'diamond' ? 52 : 40));
-    const widths = row.map((n) => Math.max(72, Math.min(220, textWidth(n.label) + 28)));
-    const totalW = widths.reduce((a, b) => a + b, 0) + gapX * (row.length - 1);
+  let curY = padY;
+  let maxX = 240;
+
+  rows.forEach((row, ri) => {
+    const rowH = Math.max(...row.map((n) => nodeMeta.get(n.id).h));
     let x = padX;
-    row.forEach((n, i) => {
-      const w = widths[i];
-      const h = heights[i];
-      const y = padY + ri * (Math.max(...heights) + gapY);
-      boxes.set(n.id, { ...n, x, y, w, h });
-      x += w + gapX;
+    row.forEach((n) => {
+      const m = nodeMeta.get(n.id);
+      const y = curY + Math.round((rowH - m.h) / 2);
+      boxes.set(n.id, { ...n, lines: m.lines, x, y, w: m.w, h: m.h, row: ri });
+      x += m.w + gapX;
     });
-    const used = x - gapX;
-    if (used < totalW) { /* noop */ }
+    maxX = Math.max(maxX, x - gapX + padX);
+    curY += rowH + gapY;
   });
-  let maxX = padX;
-  let maxY = padY;
-  for (const b of boxes.values()) {
-    maxX = Math.max(maxX, b.x + b.w + padX);
-    maxY = Math.max(maxY, b.y + b.h + padY + 12);
-  }
-  // 居中每一层
-  const layers = new Map();
-  for (const b of boxes.values()) {
-    if (!layers.has(b.y)) layers.set(b.y, []);
-    layers.get(b.y).push(b);
-  }
-  for (const row of layers.values()) {
-    const right = Math.max(...row.map((b) => b.x + b.w));
-    const shift = Math.max(0, (maxX - padX - right) / 2);
-    for (const b of row) b.x += shift;
-  }
-  return { boxes, w: Math.max(maxX, 240), h: Math.max(maxY, 160) };
+
+  const maxY = Math.max(160, curY - gapY + padY);
+
+  // 居中每一行
+  rows.forEach((row) => {
+    if (!row.length) return;
+    const first = boxes.get(row[0].id);
+    const last = boxes.get(row[row.length - 1].id);
+    const rowSpan = (last.x + last.w) - first.x;
+    const shift = Math.max(0, Math.round((maxX - rowSpan) / 2 - first.x));
+    for (const n of row) {
+      boxes.get(n.id).x += shift;
+    }
+  });
+
+  return { boxes, w: Math.max(maxX, 260), h: maxY };
 }
 
 function nodeSvg(b) {
   const tx = b.x + b.w / 2;
-  const ty = b.y + b.h / 2 + 5;
-  const label = `<text x="${tx}" y="${ty}" text-anchor="middle" font-size="13" fill="${C.text}" font-family="ui-sans-serif,system-ui,sans-serif">${esc(b.label)}</text>`;
+  const lines = b.lines && b.lines.length ? b.lines : [b.label];
+  const lineH = 18;
+  const totalTextH = (lines.length - 1) * lineH;
+  const startY = Math.round(b.y + b.h / 2 - totalTextH / 2 + 4.5);
+  const tspans = lines
+    .map((ln, idx) => `<tspan x="${tx}" y="${startY + idx * lineH}">${esc(ln)}</tspan>`)
+    .join('');
+  const label = `<text x="${tx}" y="${startY}" text-anchor="middle" font-size="13" fill="${C.text}" font-family="ui-sans-serif,system-ui,sans-serif">${tspans}</text>`;
   if (b.shape === 'diamond') {
     const cx = tx, cy = b.y + b.h / 2;
     const pts = `${cx},${b.y} ${b.x + b.w},${cy} ${cx},${b.y + b.h} ${b.x},${cy}`;
@@ -194,27 +338,80 @@ function nodeSvg(b) {
   return `<rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="${rx}" fill="${C.box}" stroke="${C.stroke}" stroke-width="1.2"/>${label}`;
 }
 
-function edgeSvg(e, boxes) {
+function edgeSvg(e, boxes, ei = 0) {
   const a = boxes.get(e.from);
   const b = boxes.get(e.to);
   if (!a || !b) return '';
-  const x1 = a.x + a.w / 2;
-  const y1 = a.y + a.h;
-  const x2 = b.x + b.w / 2;
-  const y2 = b.y;
-  const midy = (y1 + y2) / 2;
-  const d = `M ${x1} ${y1} C ${x1} ${midy}, ${x2} ${midy}, ${x2} ${y2}`;
+  let d = '';
+  let lx = 0;
+  let ly = 0;
+
+  if (a.id === b.id) {
+    // 自环边
+    const x1 = a.x + a.w * 0.7;
+    const y1 = a.y;
+    const x2 = a.x + a.w;
+    const y2 = a.y + a.h * 0.5;
+    d = `M ${x1} ${y1} C ${x1 + 28} ${y1 - 28}, ${x2 + 28} ${y2 - 18}, ${x2} ${y2}`;
+    lx = x2 + 22;
+    ly = y1 - 8;
+  } else if (a.row === b.row) {
+    // 同一行节点：左右直连或上方弧线连接
+    const leftToRight = a.x < b.x;
+    const x1 = leftToRight ? a.x + a.w : a.x;
+    const y1 = a.y + a.h / 2;
+    const x2 = leftToRight ? b.x : b.x + b.w;
+    const y2 = b.y + b.h / 2;
+    const dist = Math.abs(x2 - x1);
+    if (dist <= 64) {
+      d = `M ${x1} ${y1} L ${x2} ${y2}`;
+      lx = (x1 + x2) / 2;
+      ly = y1 - 8;
+    } else {
+      const arcY = Math.min(a.y, b.y) - 24;
+      d = `M ${a.x + a.w / 2} ${a.y} C ${a.x + a.w / 2} ${arcY}, ${b.x + b.w / 2} ${arcY}, ${b.x + b.w / 2} ${b.y}`;
+      lx = (a.x + a.w / 2 + b.x + b.w / 2) / 2;
+      ly = arcY + 4;
+    }
+  } else if (b.y > a.y) {
+    // 标准自上而下有向边
+    const x1 = a.x + a.w / 2;
+    const y1 = a.y + a.h;
+    const x2 = b.x + b.w / 2;
+    const y2 = b.y;
+    const midy = (y1 + y2) / 2;
+    d = `M ${x1} ${y1} C ${x1} ${midy}, ${x2} ${midy}, ${x2} ${y2}`;
+    const t = 0.44 + ((ei % 3) - 1) * 0.1;
+    lx = Math.round(x1 * (1 - t) + x2 * t);
+    ly = Math.round(y1 * (1 - t) + y2 * t) - 4;
+  } else {
+    // 反馈回边（下层指向上层）：走侧翼弧线，避免穿过节点文字
+    const goRight = a.x + a.w / 2 >= b.x + b.w / 2;
+    const x1 = goRight ? a.x + a.w : a.x;
+    const y1 = a.y + a.h / 2;
+    const x2 = goRight ? b.x + b.w : b.x;
+    const y2 = b.y + b.h / 2;
+    const ctrlX = goRight ? Math.max(x1, x2) + 36 : Math.min(x1, x2) - 36;
+    d = `M ${x1} ${y1} C ${ctrlX} ${y1}, ${ctrlX} ${y2}, ${x2} ${y2}`;
+    lx = Math.round((x1 + x2) / 2 + (goRight ? 24 : -24));
+    ly = Math.round((y1 + y2) / 2) + ((ei % 2) ? -8 : 8);
+  }
+
+  const dash = e._back ? ' stroke-dasharray="5 4"' : '';
   let lab = '';
   if (e.label) {
-    lab = `<text x="${(x1 + x2) / 2}" y="${midy - 4}" text-anchor="middle" font-size="11" fill="${C.accent}" font-family="ui-sans-serif,system-ui,sans-serif">${esc(e.label)}</text>`;
+    const cleanLab = splitLabelLines(e.label, 18).join(' ');
+    const lw = textWidth(cleanLab, 11) + 6;
+    lab = `<rect x="${Math.round(lx - lw / 2)}" y="${ly - 11}" width="${lw}" height="15" rx="4" fill="${C.bg}" fill-opacity="0.88"/>`
+      + `<text x="${lx}" y="${ly}" text-anchor="middle" font-size="11" fill="${C.accent}" font-family="ui-sans-serif,system-ui,sans-serif">${esc(cleanLab)}</text>`;
   }
-  return `<path d="${d}" fill="none" stroke="${C.edge}" stroke-width="1.3" marker-end="url(#arr)"/>${lab}`;
+  return `<path d="${d}" fill="none" stroke="${C.edge}" stroke-width="1.3"${dash} marker-end="url(#arr)"/>${lab}`;
 }
 
 function renderFlow(g) {
   const { boxes, w, h } = layoutFlow(g);
+  const edges = g.edges.map((e, i) => edgeSvg(e, boxes, i)).join('');
   const nodes = [...boxes.values()].map(nodeSvg).join('');
-  const edges = g.edges.map((e) => edgeSvg(e, boxes)).join('');
   const defs = `<defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${C.edge}"/></marker></defs>`;
   return wrapSvg(w, h, defs + edges + nodes);
 }
@@ -262,42 +459,219 @@ export function renderMermaid(code) {
   }
 }
 
+function mapDotShape(raw) {
+  const s = String(raw || '').toLowerCase();
+  if (s.includes('diamond')) return 'diamond';
+  if (s === 'circle' || s === 'doublecircle' || s === 'point') return 'circle';
+  if (s === 'ellipse' || s === 'oval' || s === 'mrecord' || s.includes('round')) return 'round';
+  return 'rect';
+}
+
+function parseDotAttrs(raw) {
+  const o = {};
+  if (!raw) return o;
+  const re = /([A-Za-z_][\w]*)\s*=\s*("(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\s,;\]"]+)/g;
+  let m;
+  while ((m = re.exec(String(raw)))) {
+    o[m[1].toLowerCase()] = unquote(m[2]);
+  }
+  return o;
+}
+
+// 切分 DOT 语句：忽略引号与方括号内部的 ; / 换行，并将 subgraph { ... } 展开为内部语句
+function splitDotStatements(src) {
+  // 剥离 /* ... */ 与 // ... 注释（注意不误伤引号内的 http://）
+  let cleaned = '';
+  let inQuote = false;
+  let quoteCh = '';
+  for (let i = 0; i < src.length; i++) {
+    const ch = src[i];
+    const next = src[i + 1] || '';
+    if (inQuote) {
+      cleaned += ch;
+      if (ch === '\\' && i + 1 < src.length) {
+        cleaned += src[++i];
+      } else if (ch === quoteCh) {
+        inQuote = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = true;
+      quoteCh = ch;
+      cleaned += ch;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      i += 2;
+      while (i < src.length && !(src[i] === '*' && src[i + 1] === '/')) i++;
+      i++;
+      continue;
+    }
+    if (ch === '/' && next === '/') {
+      while (i < src.length && src[i] !== '\n') i++;
+      cleaned += '\n';
+      continue;
+    }
+    cleaned += ch;
+  }
+
+  // 将外层 graph/digraph/subgraph 的花括号转化为空格分隔符（方括号和引号内的保留）
+  let flat = '';
+  let bracketDepth = 0;
+  inQuote = false;
+  quoteCh = '';
+  for (let i = 0; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inQuote) {
+      flat += ch;
+      if (ch === '\\' && i + 1 < cleaned.length) {
+        flat += cleaned[++i];
+      } else if (ch === quoteCh) {
+        inQuote = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = true;
+      quoteCh = ch;
+      flat += ch;
+      continue;
+    }
+    if (ch === '[') { bracketDepth++; flat += ch; continue; }
+    if (ch === ']') { bracketDepth = Math.max(0, bracketDepth - 1); flat += ch; continue; }
+    if ((ch === '{' || ch === '}') && bracketDepth === 0) {
+      flat += '\n';
+      continue;
+    }
+    flat += ch;
+  }
+
+  // 按顶层 ; 或 \n 切分语句
+  const stmts = [];
+  let cur = '';
+  bracketDepth = 0;
+  inQuote = false;
+  quoteCh = '';
+  for (let i = 0; i < flat.length; i++) {
+    const ch = flat[i];
+    if (inQuote) {
+      cur += ch;
+      if (ch === '\\' && i + 1 < flat.length) {
+        cur += flat[++i];
+      } else if (ch === quoteCh) {
+        inQuote = false;
+      }
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inQuote = true;
+      quoteCh = ch;
+      cur += ch;
+      continue;
+    }
+    if (ch === '[') { bracketDepth++; cur += ch; continue; }
+    if (ch === ']') { bracketDepth = Math.max(0, bracketDepth - 1); cur += ch; continue; }
+    if ((ch === ';' || ch === '\n' || ch === '\r') && bracketDepth === 0) {
+      const t = cur.trim();
+      if (t) stmts.push(t);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  if (cur.trim()) stmts.push(cur.trim());
+  return stmts;
+}
+
 function parseDot(src) {
   const s = String(src);
   if (!/\b(di)?graph\b/i.test(s)) return null;
   const nodes = new Map();
   const edges = [];
-  const ensure = (id, label) => {
-    const k = unquote(id);
-    if (!nodes.has(k)) nodes.set(k, { id: k, label: label || k, shape: 'rect' });
-    else if (label) nodes.get(k).label = label;
+  const ensure = (id, label, shape) => {
+    const k = unquote(id).replace(/:.*$/, '').trim();
+    if (!k) return null;
+    if (!nodes.has(k)) {
+      nodes.set(k, { id: k, label: label || k, shape: shape || 'rect' });
+    } else {
+      if (label) nodes.get(k).label = label;
+      if (shape) nodes.get(k).shape = shape;
+    }
     return nodes.get(k);
   };
-  const attr = (raw) => {
-    const o = {};
-    String(raw || '').replace(/(\w+)\s*=\s*("(?:\\.|[^"])*"|[^\s,\]]+)/g, (_, k, v) => {
-      o[k.toLowerCase()] = unquote(v);
-      return '';
-    });
-    return o;
-  };
-  const reEdge = /("(?:\\.|[^"])+"|[A-Za-z_][\w]*)\s*(->|--)\s*("(?:\\.|[^"])+"|[A-Za-z_][\w]*)\s*(?:\[([^\]]*)\])?/g;
-  const reNode = /("(?:\\.|[^"])+"|[A-Za-z_][\w]*)\s*\[([^\]]*)\]/g;
-  let m;
-  const used = new Set();
-  while ((m = reEdge.exec(s))) {
-    const a = unquote(m[1]);
-    const b = unquote(m[3]);
-    const lab = attr(m[4]).label || '';
-    ensure(a); ensure(b);
-    edges.push({ from: a, to: b, label: lab });
-    used.add(m.index);
+
+  const stmts = splitDotStatements(s);
+  const idPat = `(?:"(?:\\\\.|[^"])*"|'(?:\\\\.|[^'])*'|[A-Za-z0-9_\\u4e00-\\u9fff][\\w\\u4e00-\\u9fff:.-]*)`;
+  const attrBlockRe = /\[((?:"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|[^\]])*)\]/g;
+
+  for (let rawStmt of stmts) {
+    let stmt = rawStmt
+      .replace(/^(?:strict\s+)?(?:di)?graph\s+(?:"(?:\\.|[^"])*"|[A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff-]*)?\s*/i, '')
+      .replace(/^subgraph\s+(?:"(?:\\.|[^"])*"|[A-Za-z0-9_\u4e00-\u9fff][\w\u4e00-\u9fff-]*)?\s*/i, '')
+      .trim();
+    if (!stmt) continue;
+    // 跳过全局属性与默认样式声明
+    if (/^(graph|node|edge)\s*\[/i.test(stmt)) continue;
+    if (/^[A-Za-z_][\w]*\s*=/.test(stmt) && !stmt.includes('->') && !stmt.includes('--') && !stmt.includes('[')) continue;
+
+    // 检查是否包含边操作符（引号/方括号之外的 -> 或 --）
+    let hasEdgeOp = false;
+    let inQ = false, qCh = '', bDepth = 0;
+    for (let i = 0; i < stmt.length - 1; i++) {
+      const c = stmt[i];
+      if (inQ) {
+        if (c === '\\') i++;
+        else if (c === qCh) inQ = false;
+        continue;
+      }
+      if (c === '"' || c === "'") { inQ = true; qCh = c; continue; }
+      if (c === '[') { bDepth++; continue; }
+      if (c === ']') { bDepth = Math.max(0, bDepth - 1); continue; }
+      if (bDepth === 0 && ((c === '-' && stmt[i + 1] === '>') || (c === '-' && stmt[i + 1] === '-'))) {
+        hasEdgeOp = true;
+        break;
+      }
+    }
+
+    if (hasEdgeOp) {
+      // 提取边的属性块（绝不当作节点属性覆盖目标节点 label！）
+      let edgeAttrs = {};
+      const withoutAttrs = stmt.replace(attrBlockRe, (_, inner) => {
+        edgeAttrs = { ...edgeAttrs, ...parseDotAttrs(inner) };
+        return ' ';
+      });
+      const parts = withoutAttrs.split(/\s*(?:->|--)\s*/).map((p) => p.trim()).filter(Boolean);
+      for (let i = 0; i < parts.length; i++) {
+        ensure(parts[i]);
+        if (i + 1 < parts.length) {
+          const fromNode = ensure(parts[i]);
+          const toNode = ensure(parts[i + 1]);
+          if (fromNode && toNode) {
+            edges.push({ from: fromNode.id, to: toNode.id, label: edgeAttrs.label || '' });
+          }
+        }
+      }
+      continue;
+    }
+
+    // 节点定义语句：NodeID [label="...", shape="..."]
+    const nodeMatch = new RegExp(`^(${idPat})\\s*(?:\\[([\\s\\S]*)\\])?$`).exec(stmt);
+    if (nodeMatch) {
+      const rawId = unquote(nodeMatch[1]);
+      if (['graph', 'digraph', 'node', 'edge', 'subgraph', 'strict'].includes(rawId.toLowerCase())) continue;
+      let nodeAttrs = {};
+      if (nodeMatch[2] != null) {
+        stmt.replace(attrBlockRe, (_, inner) => {
+          nodeAttrs = { ...nodeAttrs, ...parseDotAttrs(inner) };
+          return '';
+        });
+      }
+      const shape = nodeAttrs.shape ? mapDotShape(nodeAttrs.shape) : (nodeAttrs.style && /rounded/i.test(nodeAttrs.style) ? 'round' : undefined);
+      ensure(rawId, nodeAttrs.label, shape);
+    }
   }
-  while ((m = reNode.exec(s))) {
-    const id = unquote(m[1]);
-    if (['graph', 'digraph', 'node', 'edge', 'subgraph'].includes(id.toLowerCase())) continue;
-    ensure(id, attr(m[2]).label || id);
-  }
+
   if (!nodes.size) throw new Error('没有识别到节点。示例：digraph { a -> b }');
   return { kind: 'flow', dir: /rankdir\s*=\s*LR/i.test(s) ? 'LR' : 'TD', vertical: !/rankdir\s*=\s*LR/i.test(s), nodes: [...nodes.values()], edges };
 }

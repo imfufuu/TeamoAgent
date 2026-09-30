@@ -2137,6 +2137,8 @@ export function mountUI(store, agent) {
   }
   function renderEmpty() {
     if (store.state.messages.length) return;
+    const jb = $('#jump-bottom');
+    if (jb) jb.classList.remove('show');
     const exclude = loadLastSuggest();
     let picks = pickSuggestions(SUGGESTIONS, 3, Math.random, exclude);
     const same = picks.map((x) => x.text).join('\0') === exclude.join('\0');
@@ -2783,9 +2785,13 @@ export function mountUI(store, agent) {
     if (near || force) msgList.scrollTo({ top: msgList.scrollHeight, behavior: 'smooth' });
   }
 
-  // ── 定位到最新输出（向上滚动超过阈值时浮现）─────────────────────────
+  // ── 定位到最新输出（向上滚动超过阈值时浮现；空状态初始页绝不显示）─────
   const jumpBtn = $('#jump-bottom');
   msgList.addEventListener('scroll', () => {
+    if (!store.state.messages || store.state.messages.length === 0 || $('.empty-state', msgList)) {
+      jumpBtn.classList.remove('show');
+      return;
+    }
     const dist = msgList.scrollHeight - msgList.scrollTop - msgList.clientHeight;
     jumpBtn.classList.toggle('show', dist > 240);
   }, { passive: true });

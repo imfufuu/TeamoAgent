@@ -38,7 +38,7 @@ import {
   createTaskLedger,
   formatTaskLedgerNote,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.5';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.6';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，

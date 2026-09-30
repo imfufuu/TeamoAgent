@@ -11,7 +11,9 @@ import { upsertFacts, factsFromDigest } from './memory.js';
 
 export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   id: 'teamo-hermes-nexus-v1',
-  name: 'Teamo-Hermes Nexus Architecture (天枢·赫尔墨斯融合架构)',
+  code: 'THN',
+  shortName: '天枢 THN',
+  name: '天枢 THN · Teamo-Hermes Nexus Architecture (天枢·赫尔墨斯融合架构)',
   version: '1.4.0',
   layers: [
     { id: 'L1-cognition', name: 'System-1/System-2 双系统认知路由层', modules: ['jev.js', 'temperature.js', 'reasoning.js'] },

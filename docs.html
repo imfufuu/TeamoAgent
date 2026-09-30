@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.9.30.5" />
+<meta name="app-version" content="2026.9.30.6" />
 <meta name="app-release" content="V1.4" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.4</title>
@@ -151,7 +151,7 @@
 <div class="noise"></div>
 
 <header class="nav">
-  <a class="brand" href="./index.html">
+  <a class="brand" href="./index.html?view=nav" title="返回导航页">
     <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg></span>
     <span class="logo-text">TEAMO<i>AGENT</i></span>
   </a>
@@ -180,56 +180,13 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 Stable</span><span class="ver-build">2026.9.30.5</span><span class="ver-latest">Latest · Stable</span><span class="ver-date">2026-09-30</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 Stable</span><span class="ver-build">2026.9.30.6</span><span class="ver-latest">Latest · Stable</span><span class="ver-date">2026-09-30</span></div>
         <div class="ver-card"><ul>
-          <li><span class="tag add">ADD</span><span><strong>正式发布 V1.4 Stable</strong>：历经 V1.3 系列 21 个诊断构建后转正。β 免责声明相应收敛，协议条款全面扩充为完整版。</span></li>
-          <li><span class="tag add">ADD</span><span>文档页分页重构：更新日志 / 用户协议 / 服务条款 / 隐私政策四页独立展示，hash 路由直达，页间平滑过渡。</span></li>
-          <li><span class="tag add">ADD</span><span>文档页对齐主页动效：滚动展开动画（IntersectionObserver 交错滑入）与外观切换颜色插值动画（0.7s film 曲线）。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span>文档页品牌区与对话页逐像素对齐（轨道标 / 字标字重字距 / 版本徽章）。</span></li>
-        </ul></div>
-      </div>
-
-      <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.3 β .19–.20</span><span class="ver-build">2026.9.27.19–20</span><span class="ver-date">2026-09-29</span></div>
-        <div class="ver-card"><ul>
-          <li><span class="tag add">ADD</span><span>厂商图标全部入离线缓存：Service Worker 安装即预热 8 枚 SVG（相对 scope 解析，修复子路径部署 404），打开网页不再有图标加载期。</span></li>
-          <li><span class="tag add">ADD</span><span>模型菜单 system-commands 分组（Teamo）补上终端图标；claude-opus-5-5 按 2026-09 热度调研入库：热门 + Anthropic 组置顶。</span></li>
-          <li><span class="tag add">ADD</span><span>文档页上线（时间线更新日志 + 三份协议）。</span></li>
-        </ul></div>
-      </div>
-
-      <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.3 β .18</span><span class="ver-build">2026.9.27.18</span><span class="ver-date">2026-09-29</span></div>
-        <div class="ver-card"><ul>
-          <li><span class="tag fix">FIX</span><span>Agent 输出误转义：正则/代码里的 <code>$</code> 锚点被 KaTeX 当数学定界符渲染成乱码——行内代码先剥离 + 数学段守卫（真数学与显式 <code>\(\)\[\]</code> 不受影响）。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span>/system 回复行级格式化；进通道即时刷新能力行、沙箱文件同步隔离；搜索框一键清空；菜单「Teamo / system-commands」英文风格。</span></li>
-        </ul></div>
-      </div>
-
-      <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.3 β .17</span><span class="ver-build">2026.9.27.17</span><span class="ver-date">2026-09-27</span></div>
-        <div class="ver-card"><ul>
-          <li><span class="tag add">ADD</span><span>/system 通道彻底隔离：真实会话零写入、思考/沙箱/会话列表锁定，退出还原。</span></li>
-          <li><span class="tag add">ADD</span><span>系统命令识别器图标 + 六条新命令（<code>/version /stats /theme /cache /key /export</code>）。</span></li>
-          <li><span class="tag fix">FIX</span><span>思考过程不流式（<code>onReasoning</code> 钩子漏接线）与「思考中」重复显示；状态栏三点动效被 ticker 重置的卡顿。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span>调试浮窗：日志批量上屏防卡顿、fetch/全局错误/未捕获 Promise 覆盖、复制反馈；/debug off 连入口一起隐藏。</span></li>
-        </ul></div>
-      </div>
-
-      <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.3 β .16</span><span class="ver-build">2026.9.27.16</span><span class="ver-date">2026-09-27</span></div>
-        <div class="ver-card"><ul>
-          <li><span class="tag add">ADD</span><span>Service Worker 离线缓存：模型/审核资产首次下载后本地零网络命中，断网可用。</span></li>
-          <li><span class="tag add">ADD</span><span><code>:::color</code> 颜色文本语法（12 色中英别名）；/system 隐藏通道（本地命令免 Key）；思考链加密徽章。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span>思考标题延迟定名；文件行折叠同构；meta 行距统一。</span></li>
-        </ul></div>
-      </div>
-
-      <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.3 β .11–.15</span><span class="ver-build">2026.9.27.11–.15</span><span class="ver-date">2026-09-27</span></div>
-        <div class="ver-card"><ul>
-          <li><span class="tag fix">FIX</span><span>本地内容审核整体复活并提速：NudeNet + NSFWJS + USE/Toxicity 三模型启动预热、CJK 快速通道、fail-closed 拦截。</span></li>
-          <li><span class="tag add">ADD</span><span>页面内调试浮窗逐轮迭代：审核全链路日志、缩放、多选复制、开关入口、动画。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>正式发布 V1.4 Stable（天枢 THN 融合架构）</strong>：搭载自研「天枢·赫尔墨斯（Teamo-Hermes Nexus）」双系统自演进 Agent 框架，支持四层缓存不变量提示词编译、沙箱规范自发现、压缩前记忆刷盘、跨会话 BM25 历史召回、闭环技能遥测与执行自省护栏。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>智能自适应温度与全模型官方计费</strong>：按任务类型与回合阶段动态调节输出温度；内置全模型官方定价与单轮多步（含子智能体、识图、生图）费用汇总；思考等级与对话类型仅提供策略建议，不限制输出 token。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>Service Worker 离线缓存与隔离命令通道</strong>：厂商 SVG 图标、审核模型与静态资源预热缓存，二次打开零网络命中；新增零写入隔离的 <code>/system</code> 命令通道（<code>/version /stats /theme /cache /key /export</code>）、<code>:::color</code> 12 色文本语法、思考链加密徽章与页面内调试浮窗；<code>claude-opus-5-5</code> 热门置顶。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>文档中心重构与交互动效升级</strong>：更新日志与三份完整版协议分页展示并对齐主页交错滑入与 0.7s 外观插值动画；介绍片音频本地持久化缓存、点击任意帧暂停闪标、回滚消息粒子粉碎消散。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>内容审核与图表渲染精炼</strong>：文本审核接入本地策略层 + Jev（System One）联合判定，图片审核 NudeNet + NSFWJS 启动预热与 fail-closed 拦截；修复行内代码 <code>$</code> 数学误转义、流式思考与状态栏动效、思维导图/流程图/折线图/<code>render_dot</code> 布局及 <code>Explored Files</code> 折叠间距；沙箱容量从 KB 起算（超 1024KB 转 MB）。</span></li>
         </ul></div>
       </div>
 
@@ -443,7 +400,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.9.30.5</span>
+  <span>TeamoAgent V1.4 · 构建 2026.9.30.6</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

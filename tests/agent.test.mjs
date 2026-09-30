@@ -5020,6 +5020,62 @@ test('Teamo-Hermes Nexus 自研融合架构：六层架构规范、工作区上�
   assert.match(nexus.formatTaskLedgerNote(ledger), /read_file → write_file/);
 });
 
+test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、render_dot 错位修复、天枢 THN 身份、导航与文档精简）', async () => {
+  const fsp = await import('node:fs');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
+  const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
+  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const indexHtml = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const appHtml = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const docsHtml = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
+
+  // 1. 初始页不显示「最新输出」按钮
+  assert.match(stylesCss, /\.messages:has\(\.empty-state\)\s*~\s*#jump-bottom/, '空状态时应通过 CSS 强制隐藏 #jump-bottom');
+  assert.match(uiJs, /\.empty-state[\s\S]{0,80}jumpBtn\.classList\.remove\('show'\)/, '滚动监听在空状态时应移除 jump-bottom.show');
+
+  // 2. render_dot 渲染错位修复（不将边属性覆盖目标节点 label、字面量 \n 多行折行、闭环回边不反转层级）
+  const { renderDot } = await import('../js/diagram.js');
+  const dotRes = renderDot(`digraph G {
+    rankdir=TB;
+    P [label="提示词装配\\nstable / context / volatile"];
+    C [label="模型流式推理\\nOpenAI / Anthropic"];
+    T4 [label="生图与识图\\n[generate_image / analyze_image]"];
+    P -> C [label="每轮注入"];
+    C -> T4;
+    T4 -> C [label="进入下一轮"];
+  }`);
+  assert.equal(dotRes.ok, true);
+  assert.equal(dotRes.svg.includes('\\n'), false, 'DOT 节点多行 \\n 不应原样输出为字面量');
+  assert.ok(dotRes.svg.includes('提示词装配'), '节点 P 的 label 不应被边的 label 覆盖');
+  assert.ok(dotRes.svg.includes('模型流式推理'), '节点 C 的 label 不应被回边的 label 覆盖');
+  assert.ok(dotRes.svg.includes('生图与识图'), '含方括号的节点 T4 应完整解析');
+
+  // 3. Agent 知晓自身底层框架名（天枢 THN）
+  const { systemPrompt } = await import('../js/config.js');
+  const { formatRuntime } = await import('../js/prompt.js');
+  const sysText = systemPrompt(new Date());
+  assert.match(sysText, /天枢 THN/, 'systemPrompt 应声明底层框架天枢 THN');
+  assert.match(formatRuntime({}), /天枢 THN/, 'runtime 提示应包含底层框架天枢 THN');
+
+  // 4. 导航页外观左边改为「文档」
+  assert.match(indexHtml, /<a class="nav-link" href="\.\/docs\.html">文档<\/a>\s*<button id="theme-toggle" class="nav-link" type="button">外观<\/button>/);
+
+  // 5. 会话页/文档页左上角图标定位到导航页，导航页左上角图标定位到探索页
+  assert.match(appHtml, /class="logo-mark" href="\.\/index\.html\?view=nav"/);
+  assert.match(docsHtml, /class="brand" href="\.\/index\.html\?view=nav"/);
+  assert.match(homeJs, /function openGate\(\)/, 'home.js 应提供返回探索页的 openGate');
+  assert.match(homeJs, /initialView === 'nav'/, 'home.js 应支持 ?view=nav 直达导航页');
+
+  // 6 & 7. 导航页「现在就开始」双层星轨弧线与三个 Q&A 卡片统一展开手感
+  assert.match(homeCss, /@keyframes ctaOrbitReverse/, '现在就开始应具备反向双层星轨弧线');
+  assert.match(homeJs, /function bindFaqAccordion\(\)/, '三个 Q&A 卡片应使用统一动画控制器展开收起');
+
+  // 8. 文档页移除零散的 V1.3 β 条目，全部精简整合进 V1.4 Stable
+  assert.equal(docsHtml.includes('V1.3 β'), false, 'docs.html 不应再保留零散的 V1.3 β 版本块');
+  assert.match(docsHtml, /V1\.4 Stable（天枢 THN 融合架构）/);
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();

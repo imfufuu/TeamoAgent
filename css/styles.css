@@ -160,7 +160,7 @@ a { color: var(--fg); }
 .empty-logo svg { width: 56px; height: 56px; display: block; animation: halfspin 8s linear infinite; transform-origin: 50% 50%; }
 /* 侧栏顶部 Logo：静态标识（此前 6s 自转会持续吸引视线，且与品牌标识定位不符）；
    空状态里的大 Logo 仍保留极慢的转动作为欢迎页动效 */
-.logo-mark { font-size: 22px; display: inline-block; }
+.logo-mark { font-size: 22px; display: inline-block; color: inherit; text-decoration: none; cursor: pointer; }
 @keyframes halfspin { 0%,80% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
 .logo-text { font-weight: 500; letter-spacing: .14em; font-size: 13px; flex-shrink: 0; white-space: nowrap; color: inherit; text-decoration: none; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
@@ -892,6 +892,7 @@ a { color: var(--fg); }
   transition: all .3s var(--ease);
 }
 #jump-bottom.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
+.messages:has(.empty-state) ~ #jump-bottom { opacity: 0 !important; transform: translate(-50%, 10px) !important; pointer-events: none !important; }
 #jump-bottom:hover { border-color: var(--fg); }
 #jump-bottom .jump-ico { animation: nudge 1.6s var(--ease) infinite; display: inline-block; }
 @keyframes nudge { 0%,100% { transform: translateY(0); } 50% { transform: translateY(3px); } }

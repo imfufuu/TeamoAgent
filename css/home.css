@@ -931,16 +931,40 @@ h1 {
 }
 .honesty .ico { width: 18px; height: 18px; margin-top: 2px; color: var(--fg); }
 .honesty + .faq { margin-top: 48px; }
-.faq { display: grid; gap: 10px; }
+.faq { display: grid; gap: 12px; }
 .faq details {
-  border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px;
-  background: var(--card);
+  border: 1px solid var(--line); border-radius: 14px; padding: 0;
+  background: var(--card); overflow: hidden;
+  transition: border-color .28s var(--ease), background-color .28s var(--ease), box-shadow .28s var(--ease);
+}
+.faq details:hover { border-color: color-mix(in srgb, var(--fg) 22%, var(--line)); }
+.faq details[open] {
+  border-color: color-mix(in srgb, var(--fg) 26%, var(--line));
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .05);
 }
 .faq summary {
   cursor: pointer; font-weight: 600; font-size: 15px; list-style: none;
+  padding: 16px 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  user-select: none; -webkit-user-select: none;
 }
 .faq summary::-webkit-details-marker { display: none; }
-.faq details p { margin-top: 10px; font-size: 13.5px; line-height: 1.7; color: var(--fg-2); }
+.faq summary::after {
+  content: ""; flex: none; width: 8px; height: 8px;
+  border-right: 1.8px solid var(--fg-3); border-bottom: 1.8px solid var(--fg-3);
+  transform: rotate(45deg);
+  transition: transform .32s cubic-bezier(.22, 1, .36, 1), border-color .22s var(--ease);
+  margin-right: 4px;
+}
+.faq details.is-open summary::after,
+.faq details[open]:not(.is-closing) summary::after {
+  transform: rotate(225deg);
+  border-color: var(--fg);
+}
+.faq details p {
+  margin: 0; padding: 0 20px 18px;
+  font-size: 13.5px; line-height: 1.75; color: var(--fg-2);
+}
 
 .split { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; }
 .steps { list-style: none; display: flex; flex-direction: column; gap: 18px; }
@@ -973,8 +997,39 @@ h1 {
 .panel-preview .hi { color: var(--fg); }
 
 .cta-block {
-  text-align: center; padding: 96px 28px 80px;
+  text-align: center; padding: 112px 28px 96px;
   position: relative; overflow: hidden;
+  isolation: isolate;
+}
+.cta-block::before {
+  content: ""; pointer-events: none;
+  position: absolute; left: 50%; top: 44%;
+  width: min(76vw, 410px); height: min(76vw, 410px);
+  border-radius: 50%;
+  background: conic-gradient(
+    from 90deg,
+    transparent 0deg 35deg,
+    rgba(196, 181, 253, .52) 72deg,
+    rgba(251, 113, 133, .42) 105deg,
+    transparent 138deg 215deg,
+    rgba(196, 181, 253, .52) 252deg,
+    rgba(253, 230, 138, .42) 285deg,
+    transparent 318deg 360deg
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.3px), #000 calc(100% - 1.3px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.3px), #000 calc(100% - 1.3px));
+  opacity: .56;
+  z-index: -1;
+  animation: ctaOrbitReverse 34s linear infinite;
+}
+.cta-block::after {
+  content: ""; pointer-events: none;
+  position: absolute; left: 50%; top: 44%;
+  width: min(88vw, 520px); height: 280px;
+  transform: translate(-50%, -50%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(196, 181, 253, .18), rgba(251, 113, 133, .06) 46%, transparent 72%);
+  filter: blur(10px);
+  z-index: -2;
 }
 .cta-block h2 {
   font-family: var(--serif); font-size: clamp(32px, 5vw, 56px); font-weight: 500;
@@ -983,39 +1038,54 @@ h1 {
   padding: 36px 48px 28px;
   overflow: visible;
 }
-/* 正圆短弧绕标题慢转。禁止用标题自身的宽矩形 inset:0 去 rotate——
-   那会把胶囊边框拧成斜线，从字上划过去。 */
+/* 三重对称星轨彗尾弧绕标题回旋（呼应 TeamoAgent 三轨星环标识）。
+   禁止用标题自身的宽矩形 inset:0 去 rotate——那会把胶囊边框拧成斜线划过文字。 */
 .cta-block h2::before {
   content: ""; pointer-events: none;
   position: absolute;
   left: 50%; top: 50%;
-  width: 12.5em; height: 12.5em;
+  width: 5.5em; height: 5.5em;
   border-radius: 50%;
   background: conic-gradient(
     from 0deg,
-    transparent 0 78%,
-    color-mix(in srgb, var(--fg) 0%, transparent) 84%,
-    var(--fg) 91%,
-    color-mix(in srgb, var(--fg) 0%, transparent) 97%,
-    transparent 100%
+    transparent 0deg 18deg,
+    color-mix(in srgb, var(--fg) 15%, transparent) 36deg,
+    #a99ee8 68deg,
+    var(--fg) 88deg,
+    transparent 104deg 138deg,
+    color-mix(in srgb, var(--fg) 15%, transparent) 156deg,
+    #fb7185 188deg,
+    var(--fg) 208deg,
+    transparent 224deg 258deg,
+    color-mix(in srgb, var(--fg) 15%, transparent) 276deg,
+    #a99ee8 308deg,
+    var(--fg) 328deg,
+    transparent 344deg 360deg
   );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.25px), #000 calc(100% - 1.25px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 1.25px), #000 calc(100% - 1.25px));
-  opacity: .42;
-  animation: ctaOrbit 48s linear infinite;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 1.65px), #000 calc(100% - 1.65px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 1.65px), #000 calc(100% - 1.65px));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 7%, transparent);
+  opacity: .68;
+  animation: ctaOrbit 22s linear infinite;
 }
 .cta-block h2::after {
   content: ""; pointer-events: none;
-  position: absolute; left: 22%; right: 22%; bottom: 10px;
-  height: 1px; background: var(--fg);
+  position: absolute; left: 20%; right: 20%; bottom: 10px;
+  height: 1.5px;
+  background: linear-gradient(90deg, transparent, var(--fg) 28%, #a99ee8 50%, var(--fg) 72%, transparent);
   transform: scaleX(0); transform-origin: 50%;
-  transition: transform 1.6s var(--film) .15s;
+  transition: transform 1.4s var(--film) .12s;
 }
 .cta-block h2.in::after { transform: scaleX(1); }
-.cta-block p { color: var(--fg-2); margin-bottom: 28px; position: relative; }
+.cta-block p { color: var(--fg-2); margin-bottom: 28px; position: relative; z-index: 1; }
+.cta-block .cta { position: relative; z-index: 1; }
 @keyframes ctaOrbit {
   from { transform: translate(-50%, -50%) rotate(0deg); }
   to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes ctaOrbitReverse {
+  from { transform: translate(-50%, -50%) rotate(360deg); }
+  to { transform: translate(-50%, -50%) rotate(0deg); }
 }
 
 footer {
