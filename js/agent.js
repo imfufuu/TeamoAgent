@@ -48,13 +48,15 @@ import {
   buildDegradationDiagnostics,
   formatDegradationDiagnostics,
   createFaithfulTraceRecorder,
+  GENESIS_TURN_DIGEST,
+  auditFootprintAgainstStore,
   buildDecisionFootprint,
   formatDecisionFootprintForPrompt,
   createTurnTelemetry,
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.9';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.10';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -334,7 +336,9 @@ export function createAgent(store, hooks = {}) {
     });
     const degradationNote = formatDegradationDiagnostics(degradations);
     const usedToolNamesNow = nexusState && nexusState.stepHistory ? nexusState.stepHistory.map((s) => s.name) : [];
-    const traceRec = createFaithfulTraceRecorder();
+    const prevAssistantWithFp = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.nexusFootprint && m.nexusFootprint.turnDigest);
+    const prevTurnDigest = (prevAssistantWithFp && prevAssistantWithFp.nexusFootprint.turnDigest) || GENESIS_TURN_DIGEST;
+    const traceRec = createFaithfulTraceRecorder({ prevTurnDigest });
     traceRec.record(execProfile.escalated ? 'route:escalated' : (execProfile.fastPath ? 'route:fast-path' : 'route:full-nexus'), execProfile.mode);
     if (Array.isArray(store.state.memory) && store.state.memory.length > 0) {
       traceRec.record('memory:injected', String(store.state.memory.length));
@@ -354,6 +358,7 @@ export function createAgent(store, hooks = {}) {
       arbitration: unifiedArb,
       degradations,
       traceRecorder: traceRec,
+      prevTurnDigest,
     });
     if (nexusState) nexusState.lastFootprint = footprint;
     if (nexusState && nexusState.telemetry) {
@@ -406,6 +411,7 @@ export function createAgent(store, hooks = {}) {
     return {
       fs,
       memory: store.state.memory,
+      memoryArchive: store.state.memoryArchive,
       setMemory: (next) => {
         store.state.memory = Array.isArray(next) ? next : [];
         if (typeof store.notify === 'function') store.notify();
@@ -805,6 +811,12 @@ export function createAgent(store, hooks = {}) {
         totalMs: telemetry.totalDurationMs,
         probeOverheadMs: 0,
       });
+      if (nexusState.lastFootprint) {
+        const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+        nexusState.lastFootprint.storeAudit = auditFootprintAgainstStore(nexusState.lastFootprint, {
+          assistantMsg: lastAssistant && lastAssistant.toolCalls ? lastAssistant : null,
+        });
+      }
       store.state.lastNexusScorecard = evaluateNexusAcceptanceMetrics({
         memory: store.state.memory,
         memoryArchive: store.state.memoryArchive || [],

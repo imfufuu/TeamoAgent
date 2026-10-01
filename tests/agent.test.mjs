@@ -5472,17 +5472,128 @@ test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛
   const checkTampered = nexus.verifyFootprintFaithfulness(tamperedFp, trace);
   assert.equal(checkTampered.faithful, false, '事后篡改或伪造的足迹必须无法通过轨迹哈希校验');
 
-  // 验收计分板：一次性读取全部 6 个核心指标
+  // 验收计分板：一次性读取全部核心指标与混淆矩阵
   const scorecard = nexus.evaluateNexusAcceptanceMetrics({
     memory: [{ id: 'mem-1001', text: '用户偏好使用 TypeScript 编写前端项目' }],
     footprint: validFp,
   });
-  assert.equal(scorecard.escalationRecallRate, 1.0, '1. 升档判定召回率应达 100%');
-  assert.equal(scorecard.memoryPollutionRate, 0, '2. 记忆写入污染率应为 0%');
-  assert.equal(scorecard.memoryRecoveryRate, 1.0, '3. 记忆误删与软归档可恢复率应达 100%');
+  assert.equal(scorecard.escalationRecallRate, 0.8, '1. 离线评测集含隐式多步边界样本，披露真实 Recall=80.0%');
+  assert.equal(scorecard.escalationPrecision, 0.8, '1b. 同步披露真实 Precision=80.0%（拒绝只报单边指标）');
+  assert.equal(scorecard.memoryPollutionRate, 0, '2. 活跃记忆观测污染率为 0%');
+  assert.equal(scorecard.memoryRecoveryRate, 1.0, '3. 软归档通道可恢复率 100%');
   assert.ok(scorecard.kvCacheHitRate > 0, '4. KV Cache 前缀命中率有效');
   assert.ok(scorecard.fastPathP50Ms < scorecard.fullPathP50Ms, '5. 快路径端到端 P50 延迟显著低于慢路径');
-  assert.equal(scorecard.footprintFaithfulnessRate, 1.0, '6. 决策足迹忠实度应达 100%');
+  assert.equal(scorecard.footprintFaithfulnessRate, 1.0, '6. 决策足迹 SHA-256 哈希链校验通过');
+});
+
+test('2026.9.30.10：天枢 THN v2.1 工程指标诚实化——代价加权混淆矩阵、16 组合正交能力向量、Purge 物理擦除通道、SHA-256 跨轮哈希链与外部 Store 独立交叉审计', async () => {
+  const nexus = await import('../js/nexus.js');
+  const mem = await import('../js/memory.js');
+  const sk = await import('../js/skills.js');
+  const { executeTool } = await import('../js/tools.js');
+
+  // 1) 标准 FIPS 180-4 SHA-256 向量验证（"abc" 标准摘要）
+  assert.equal(
+    nexus.sha256Hex('abc'),
+    'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    'sha256Hex 必须严格符合 FIPS 180-4 标准测试向量',
+  );
+
+  // 2) 4 位正交能力向量（Relay·Web·Sandbox·Dispatch）2^4 = 16 全组合真值表与互不相交工具集验证
+  const ortho = nexus.verifyCapabilityOrthogonalityMatrix();
+  assert.equal(ortho.totalCombinations, 16);
+  assert.equal(ortho.disjointPartitionVerified, true, '4 个能力维度控制的工具子集必须严格两两不相交');
+  const canonDegraded = nexus.resolveCanonicalRuntimeState({
+    profile: { fastPath: false, escalated: false },
+    relayOk: false,
+    webEnabled: false,
+    sandboxEnabled: true,
+    canDispatch: false,
+  });
+  assert.equal(canonDegraded.id, 'DEGRADED_EXPLAINED');
+  assert.equal(canonDegraded.capCode, 'R0·W0·S1·D0', '运行态必须显式携带 4 位正交能力掩码，不隐藏降级子状态');
+  assert.ok(Array.isArray(canonDegraded.disabledToolGroups) && canonDegraded.disabledToolGroups.length > 0);
+
+  // 3) 离线评测集代价加权混淆矩阵与真实边界失败样本披露（Route Escalation & Memory Gatekeeper）
+  const routeEval = nexus.evaluateRouteEscalationConfusionMatrix();
+  assert.equal(routeEval.totalSamples, 20);
+  assert.equal(routeEval.confusionMatrix.tp, 8);
+  assert.equal(routeEval.confusionMatrix.fp, 2);
+  assert.equal(routeEval.confusionMatrix.tn, 8);
+  assert.equal(routeEval.confusionMatrix.fn, 2);
+  assert.equal(routeEval.costWeightedError, 5 * 2 + 1 * 2, '漏升档权重 5·FN + 误升档权重 1·FP = 12');
+  assert.equal(routeEval.failedSamples.length, 4, '必须如实披露 FN 与 FP 边界失败样本');
+
+  const memEval = mem.evaluateMemoryGatekeeperConfusionMatrix();
+  assert.equal(memEval.totalSamples, 20);
+  assert.ok(memEval.precision > 0.7 && memEval.precision < 1.0, '记忆守门人必须披露真实 Precision（含 FP 边界样本）');
+  assert.ok(memEval.recall > 0.7 && memEval.recall < 1.0, '记忆守门人必须披露真实 Recall（含 FN 边界样本）');
+  assert.ok(memEval.failedSamples.length >= 2);
+
+  // 4) 软归档可恢复（forget/restore）与合规物理擦除（purge）双通道隔离验证
+  const archivePool = [];
+  let facts = mem.upsertFacts([], [
+    { text: '用户偏好使用 Neovim 编辑器', source: 'user-explicit' },
+    { text: '用户的私有测试密钥为 sk-private-token-7788', source: 'user-explicit' },
+  ]);
+  // 先将敏感条目软归档进冷库，再通过 remember(action="purge") 物理彻底抹除
+  const softDel = mem.forgetMemoryFact(facts, 'sk-private-token-7788', { archivePool });
+  assert.equal(softDel.recoverable, true);
+  let currentMem = softDel.next;
+  const purgeOut = await executeTool(
+    'remember',
+    { action: 'purge', fact: 'sk-private-token-7788' },
+    { memory: currentMem, memoryArchive: archivePool, setMemory: (n) => { currentMem = n; } },
+  );
+  assert.match(purgeOut, /物理彻底清除/);
+  const tryRestore = mem.restoreMemoryFact(currentMem, 'sk-private-token-7788', { archivePool });
+  assert.equal(tryRestore.restored.length, 0, '经 purge 物理清除的条目在冷备库中必须同步抹除、不可恢复');
+
+  // 技能物理清除（purgeLearnedSkill）同样同时擦除活跃列表与冷备归档
+  const purgedSk = sk.purgeLearnedSkill([{ id: 'learned-secret-flow', description: '敏感内部部署流' }], 'learned-secret-flow');
+  assert.equal(purgedSk.recoverable, false);
+  assert.equal(purgedSk.next.length, 0);
+
+  // 5) SHA-256 跨轮次追加哈希链（prevTurnDigest → turnDigest）与外部 Store 消息记录独立交叉审计
+  const recTurn1 = nexus.createFaithfulTraceRecorder({ prevTurnDigest: nexus.GENESIS_TURN_DIGEST });
+  recTurn1.record('route:full-nexus', 'full-nexus').record('tools:executed', 'read_file');
+  const fpTurn1 = nexus.buildDecisionFootprint({
+    profile: { mode: 'full-nexus', fastPath: false, escalated: false },
+    usedTools: ['read_file'],
+    traceRecorder: recTurn1,
+    prevTurnDigest: nexus.GENESIS_TURN_DIGEST,
+  });
+  const recTurn2 = nexus.createFaithfulTraceRecorder({ prevTurnDigest: fpTurn1.turnDigest });
+  recTurn2.record('route:fast-path', 'fast-path');
+  const fpTurn2 = nexus.buildDecisionFootprint({
+    profile: { mode: 'fast-path', fastPath: true, escalated: false },
+    usedTools: [],
+    traceRecorder: recTurn2,
+    prevTurnDigest: fpTurn1.turnDigest,
+  });
+  assert.equal(fpTurn2.prevTurnDigest, fpTurn1.turnDigest, '第二轮足迹必须锁定第一轮的 64 位 SHA-256 turnDigest');
+
+  const validStoreAudit = nexus.auditFootprintAgainstStore(fpTurn2, {
+    assistantMsg: { toolCalls: [] },
+    turnMessages: [],
+    prevFootprint: fpTurn1,
+  });
+  assert.equal(validStoreAudit.passed, true, '真实 Store 消息与连续哈希链应通过独立交叉审计');
+
+  // 篡改场景 A：足迹隐瞒了实际在 Store 中执行的 write_file 工具
+  const dishonestAudit = nexus.auditFootprintAgainstStore(fpTurn2, {
+    assistantMsg: { toolCalls: [{ name: 'write_file' }] },
+    turnMessages: [{ role: 'tool', name: 'write_file', content: 'ok' }],
+    prevFootprint: fpTurn1,
+  });
+  assert.equal(dishonestAudit.passed, false, '足迹自报工具与外部 Store 实际 toolCalls 不一致时必须被独立审计器拦截');
+
+  // 篡改场景 B：破坏跨轮次哈希链前序摘要 prevTurnDigest
+  const brokenChainAudit = nexus.auditFootprintAgainstStore(
+    { ...fpTurn2, prevTurnDigest: 'f'.repeat(64) },
+    { assistantMsg: { toolCalls: [] }, turnMessages: [], prevFootprint: fpTurn1 },
+  );
+  assert.equal(brokenChainAudit.passed, false, '跨轮次哈希链断裂时必须被独立审计器检出');
 });
 
 for (const item of queue) {

@@ -5,6 +5,7 @@
   "description": "Web Agent built on TeamoRouter LLM gateway",
   "scripts": {
     "test": "node tests/agent.test.mjs",
+    "eval:nexus": "node tests/run-nexus-eval.mjs",
     "test:dom": "node tests/dom-smoke.mjs",
     "test:app": "node tests/app-boot.mjs",
     "test:live": "node tests/live-smoke.mjs && node tests/live-check.mjs && node tests/live-web.mjs",

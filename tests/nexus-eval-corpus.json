@@ -1,0 +1,61 @@
+{
+  "schemaVersion": "1.0.0",
+  "benchmarkName": "Teamo-Hermes Nexus (THN v2.1) Offline Evaluation Corpus",
+  "description": "独立可复现的离线标注评测集：包含 L1 路由升档判定样本（N=20，含隐式多步漏升 FN 与含触发词闲聊误升 FP 边界样本）与 L3 记忆写入守门人样本（N=20，含短文本高价值事实误杀 FN 与长复合祈使句漏网 FP 边界样本）。",
+  "costModel": {
+    "routeEscalation": {
+      "fnWeight": 5,
+      "fpWeight": 1,
+      "rationale": "将多约束复杂问题误判进盲快路径（FN 漏升档）会导致跳过记忆召回与核验，代价权重设为 5；将日常寒暄误判进全链路（FP 误升档）仅增加毫秒级本地检索开销，代价权重设为 1。"
+    },
+    "memoryGatekeeper": {
+      "fpWeight": 4,
+      "fnWeight": 1,
+      "rationale": "将噪声残片或一次性指令写入跨会话记忆（FP 污染）会持续污染后续每一轮系统提示词，代价权重设为 4；漏记单条过短事实（FN 误拦）可由用户显式重试弥补，代价权重设为 1。"
+    }
+  },
+  "routeEscalationSamples": [
+    { "id": "rt-pos-01", "text": "这个呢？为什么会出现这个问题？", "shouldEscalate": true, "category": "pronoun-followup" },
+    { "id": "rt-pos-02", "text": "对比一下这两种缓存方案的优缺点", "shouldEscalate": true, "category": "comparison" },
+    { "id": "rt-pos-03", "text": "首先读取配置文件，然后分析性能瓶颈", "shouldEscalate": true, "category": "multi-step-explicit" },
+    { "id": "rt-pos-04", "text": "如何从架构上解决状态空间组合复杂度？", "shouldEscalate": true, "category": "architecture-how" },
+    { "id": "rt-pos-05", "text": "刚才那个结论不对，帮我重新推导验证一下", "shouldEscalate": true, "category": "correction-verify" },
+    { "id": "rt-pos-06", "text": "如果把 TTL 删除改成软归档，怎么设计？", "shouldEscalate": true, "category": "design-tradeoff" },
+    { "id": "rt-pos-07", "text": "评价一下这套 Agent 框架的工程可测性", "shouldEscalate": true, "category": "critique" },
+    { "id": "rt-pos-08", "text": "帮我算一下 sha256 哈希并写进文件", "shouldEscalate": true, "category": "tool-required" },
+    { "id": "rt-pos-09", "text": "把两份方案的差异点列个清单", "shouldEscalate": true, "category": "implicit-diff-fn-edge" },
+    { "id": "rt-pos-10", "text": "给这套状态机挑挑毛病", "shouldEscalate": true, "category": "colloquial-review-fn-edge" },
+    { "id": "rt-neg-01", "text": "你好，今天心情怎么样？", "shouldEscalate": false, "category": "greeting" },
+    { "id": "rt-neg-02", "text": "早上好！", "shouldEscalate": false, "category": "greeting" },
+    { "id": "rt-neg-03", "text": "谢谢你的解答，非常清楚", "shouldEscalate": false, "category": "thanks" },
+    { "id": "rt-neg-04", "text": "水的标准沸点是多少摄氏度？", "shouldEscalate": false, "category": "simple-fact" },
+    { "id": "rt-neg-05", "text": "一句话解释什么是光合作用", "shouldEscalate": false, "category": "simple-fact" },
+    { "id": "rt-neg-06", "text": "地球绕太阳公转一周大约多少天？", "shouldEscalate": false, "category": "simple-fact" },
+    { "id": "rt-neg-07", "text": "好的，明白了", "shouldEscalate": false, "category": "ack" },
+    { "id": "rt-neg-08", "text": "辛苦啦，晚安", "shouldEscalate": false, "category": "greeting" },
+    { "id": "rt-neg-09", "text": "为什么今天天气这么好呀？", "shouldEscalate": false, "category": "casual-why-fp-edge" },
+    { "id": "rt-neg-10", "text": "怎么称呼你比较好？", "shouldEscalate": false, "category": "casual-how-fp-edge" }
+  ],
+  "memoryGatekeeperSamples": [
+    { "id": "mem-pos-01", "text": "用户偏好使用 TypeScript 严格模式", "shouldAccept": true, "category": "preference" },
+    { "id": "mem-pos-02", "text": "当前项目后端运行在 Node.js 20 LTS 环境", "shouldAccept": true, "category": "project-spec" },
+    { "id": "mem-pos-03", "text": "代码缩进统一使用 2 个空格且不加分号", "shouldAccept": true, "category": "convention" },
+    { "id": "mem-pos-04", "text": "用户的生产数据库采用 PostgreSQL 16", "shouldAccept": true, "category": "project-spec" },
+    { "id": "mem-pos-05", "text": "回复语言固定为简体中文，专业术语保留英文原文", "shouldAccept": true, "category": "preference" },
+    { "id": "mem-pos-06", "text": "作者联系邮箱为 lks.tan.cn@gmail.com", "shouldAccept": true, "category": "identity" },
+    { "id": "mem-pos-07", "text": "单元测试框架使用 Node.js 原生 node:test", "shouldAccept": true, "category": "project-spec" },
+    { "id": "mem-pos-08", "text": "前端样式严禁引入 Tailwind 等外部构建依赖", "shouldAccept": true, "category": "constraint" },
+    { "id": "mem-pos-09", "text": "用Go", "shouldAccept": true, "category": "short-high-density-fn-edge" },
+    { "id": "mem-pos-10", "text": "用户在上海初三就读，偏好简洁为什么先讲结论的风格？", "shouldAccept": true, "category": "question-mark-in-fact-fn-edge" },
+    { "id": "mem-neg-01", "text": "这个呢", "shouldAccept": false, "category": "pronoun-fragment" },
+    { "id": "mem-neg-02", "text": "为什么会报错？", "shouldAccept": false, "category": "question" },
+    { "id": "mem-neg-03", "text": "那那个呢", "shouldAccept": false, "category": "pronoun-fragment" },
+    { "id": "mem-neg-04", "text": "继续往下写", "shouldAccept": false, "category": "ephemeral-imperative" },
+    { "id": "mem-neg-05", "text": "好的谢谢", "shouldAccept": false, "category": "greeting-noise" },
+    { "id": "mem-neg-06", "text": "帮我看看这段代码", "shouldAccept": false, "category": "ephemeral-imperative" },
+    { "id": "mem-neg-07", "text": "怎么回事呀", "shouldAccept": false, "category": "question-fragment" },
+    { "id": "mem-neg-08", "text": "重试一次", "shouldAccept": false, "category": "ephemeral-imperative" },
+    { "id": "mem-neg-09", "text": "今天下午三点前把这份临时日志里的第三段贴到群里", "shouldAccept": false, "category": "ephemeral-task-fp-edge" },
+    { "id": "mem-neg-10", "text": "刚才那段输出的第二行好像多了一个空格", "shouldAccept": false, "category": "ephemeral-observation-fp-edge" }
+  ]
+}

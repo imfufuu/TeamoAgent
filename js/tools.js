@@ -9,7 +9,7 @@ import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
-import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
+import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
@@ -329,13 +329,13 @@ export const TOOL_DEFS = [
   {
     name: 'remember',
     description:
-      '跨会话长效记忆（带写入过滤与软归档可恢复保护）。只记真正重要的内容：用户明确要求记住、稳定偏好、身份、长期项目、不可恢复的约定。' +
-      '严禁记闲聊、问候、一次性任务、临时路径或本轮步骤。action=add 写入一条短事实；forget 按 ID(mem-xxxx) 或关键词转入软归档冷库；restore 从软归档冷库恢复误删或超期条目；list 列出当前记忆。',
+      '跨会话长效记忆（区分「冷备软归档可恢复」与「物理彻底清除」双通道）。只记真正重要的内容：用户明确要求记住、稳定偏好、身份、长期项目、不可恢复的约定。' +
+      '严禁记闲聊、问候、一次性任务、临时路径或本轮步骤。action=add 写入短事实；forget 按 ID(mem-xxxx) 或关键词转入软归档冷库（可恢复）；restore 从软归档冷库恢复；purge 物理彻底抹除活跃库与冷备库中的匹配条目（不可恢复，用于用户隐私/敏感信息删除）；list 列出当前记忆。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'forget', 'restore', 'list'], description: 'add 记下；forget 归档移除；restore 恢复归档条目；list 查看' },
-        fact: { type: 'string', description: '一条短事实（建议 ≤160 字）或记忆 ID（如 mem-xxxx）。add / forget / restore 时使用' },
+        action: { type: 'string', enum: ['add', 'forget', 'restore', 'purge', 'list'], description: 'add 记下；forget 软归档移除(可恢复)；restore 恢复归档；purge 物理彻底删除(不可恢复)；list 查看' },
+        fact: { type: 'string', description: '一条短事实（建议 ≤160 字）或记忆 ID（如 mem-xxxx）。add / forget / restore / purge 时使用' },
       },
       required: ['action'],
     },
@@ -939,6 +939,17 @@ async function executeToolBody(name, args, ctx) {
           return n
             ? `已从软归档冷库恢复 ${n} 条记忆（${res.restored.map((r) => `[${r.id}] ${r.text}`).join('；')}）。当前活跃记忆 ${res.next.length} 条。`
             : `软归档冷库中没有匹配「${q}」的记忆。`;
+        }
+        if (action === 'purge') {
+          const q = String((args && (args.id || args.fact)) || '').trim();
+          const res = purgeMemoryFact(mem, q, { archivePool: ctx.memoryArchive });
+          if (res.error) return res.error;
+          commit(res.next);
+          const n = res.purged.length;
+          emit({ status: 'ok', note: `已物理抹除 ${n} 条（不可恢复）` });
+          return n
+            ? `已从活跃记忆与软归档冷库中物理彻底清除 ${n} 条（${res.purged.map((r) => `[${r.id}] ${r.text}`).join('；')}，已永久擦除不可恢复）。剩余活跃 ${res.next.length} 条。`
+            : `活跃库与冷备库中均没有匹配「${q}」的记忆。`;
         }
         if (action === 'forget') {
           const q = String((args && (args.id || args.fact)) || '').trim();

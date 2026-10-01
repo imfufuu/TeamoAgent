@@ -1,9 +1,9 @@
-// ─── 跨会话记忆（Stage 2 统一上下文与软归档库 · 写入过滤 + 超期转冷备可召回）────
+// ─── 跨会话记忆（Stage 2 统一上下文与双通道存储 · 写入过滤 + 软归档可恢复 / 物理 Purge 双通道）────
 // 核心原则：
-//   1. 入口硬拦截噪声（isValidMemoryFact）：反问句、指代残片（“这个呢”）、一次性临时指令直接拒之门外，保证污染率 = 0%。
-//   2. 时间不是删除的证据（Soft-Archive 软归档）：超期或超容量的合法记忆、以及被 forget 删除的记忆，
-//      一律转入「冷备软归档（memoryArchive，平时占 0 Token）」，绝不硬删；
-//      当后续对话再次提及相关话题时自动唤醒（recallArchivedMemories），或通过 restore 一键恢复（可恢复率 100%）。
+//   1. 入口规则过滤（isValidMemoryFact）：拦截反问句、指代残片（“这个呢”）与显式一次性指令，并配套离线评测集披露 Precision/Recall 折中与边界失败样本。
+//   2. 软归档可恢复（forget / restore）与物理彻底清除（purge）显式分流：
+//      - 常规超期或 forget 转入「冷备软归档（memoryArchive，平时占 0 Token）」，后续提及时自动唤醒或一键 restore；
+//      - 涉及用户隐私或敏感数据擦除时走 purgeMemoryFact，同步从活跃库与冷备库物理抹除（recoverable: false）。
 
 const MAX_FACTS = 24;
 const MAX_ARCHIVE_FACTS = 64;
@@ -35,9 +35,9 @@ export function isValidMemoryFact(rawText) {
   const text = String(rawText || '').replace(/\s+/g, ' ').trim();
   if (!text || text.length < MIN_FACT_LEN || text.length > MAX_FACT) return false;
   // 拒绝疑问句或反问尾缀
-  if (/[？?]$/.test(text) || /(?:吗|呢|行不行|好不好|对不对|是什么|怎么办|为什么)$/.test(text)) return false;
+  if (/[？?]$/.test(text) || /(?:吗|呢|行不行|好不好|对不对|是什么|怎么办|为什么|怎么回事[呀啊]?)$/.test(text)) return false;
   // 拒绝纯指代或无意义对话残片
-  if (/^(?:这个呢|那个呢|那它呢|继续|再来一次|为什么|不对|改一下|试试|好的|谢谢|明白|知道了|哈哈|ok|test)$/i.test(text)) return false;
+  if (/^(?:这个呢|那个呢|那它呢|那这个呢|那那个呢|继续(?:往下写)?|再来一次|重试(?:一次)?|为什么|不对|改一下|试试|好的(?:谢谢)?|谢谢|明白|知道了|哈哈|ok|test)$/i.test(text)) return false;
   // 拒绝典型一次性临时任务指令（除非含“总是/一律/默认/以后/偏好/记住”）
   if (/^(?:帮我|请帮我|麻烦帮我|现在帮我)(?:写一个|算一下|查一下|看看|画一张|生成|运行|修改|翻译)/.test(text)
     && !/(?:以后|总是|一律|默认|偏好|习惯|长期|记住)/.test(text)) {
@@ -239,8 +239,12 @@ export function upsertFacts(existing, additions, { source = 'agent-tool', now = 
   return pruneMemoryFacts([...map.values()], { now });
 }
 
-// 精准遗忘（软归档保护）：支持按 [mem-xxxx] ID 或关键词删除，被删条目自动转入软归档冷库，100% 可恢复
-export function forgetMemoryFact(existing, query, { now = Date.now() } = {}) {
+// 精准遗忘（默认软归档可恢复；传 hard=true 时走物理彻底清除）：
+export function forgetMemoryFact(existing, query, { now = Date.now(), hard = false, archivePool = [] } = {}) {
+  if (hard) {
+    const p = purgeMemoryFact(existing, query, { archivePool, now });
+    return { next: p.next, removed: p.purged, archived: [], purgedIds: p.purgedIds, recoverable: false, byId: p.byId };
+  }
   const list = pruneMemoryFacts(existing, { now });
   const q = String(query || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
   if (q.length < 2) {
@@ -252,21 +256,74 @@ export function forgetMemoryFact(existing, query, { now = Date.now() } = {}) {
   if (/^mem-[a-z0-9_-]{2,}$/i.test(q)) {
     const removed = list.filter((f) => f.id.toLowerCase() === q);
     const next = list.filter((f) => f.id.toLowerCase() !== q);
-    return { next, removed, archived: softSave(removed), byId: true };
+    return { next, removed, archived: softSave(removed), recoverable: true, byId: true };
   }
   // 2. 精确全文相等匹配
   const exactHits = list.filter((f) => f.text.toLowerCase() === q);
   if (exactHits.length === 1) {
     const next = list.filter((f) => f.id !== exactHits[0].id);
-    return { next, removed: exactHits, archived: softSave(exactHits), byExact: true };
+    return { next, removed: exactHits, archived: softSave(exactHits), recoverable: true, byExact: true };
   }
   // 3. 关键词包含匹配
   const subHits = list.filter((f) => f.text.toLowerCase().includes(q));
   const next = list.filter((f) => !f.text.toLowerCase().includes(q));
-  return { next, removed: subHits, archived: softSave(subHits), byKeyword: true };
+  return { next, removed: subHits, archived: softSave(subHits), recoverable: true, byKeyword: true };
 }
 
-// 从软归档冷库恢复记忆：支持按 mem-xxxx ID、关键词、或 "last"/"all" 恢复被误删或超期归档的记忆
+// 物理彻底清除通道（Purge · 合规不可恢复）：
+// 同时从活跃记忆与软归档冷库（含外部传入的 archivePool）中物理抹除匹配条目，不留冷备副本
+export function purgeMemoryFact(existing, queryOrId, { archivePool = [], now = Date.now() } = {}) {
+  const list = pruneMemoryFacts(existing, { now });
+  const q = String(queryOrId || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (q.length < 2) {
+    return { next: list, nextArchive: getSoftArchivedMemories(archivePool), purged: [], purgedIds: [], recoverable: false, error: 'purge 需要至少 2 个字符的关键词、精确 ID（mem-xxxx）或 "all"。' };
+  }
+
+  const isMatch = (f) => {
+    if (!f) return false;
+    if (q === 'all' || q === '*') return true;
+    const id = String(f.id || '').toLowerCase();
+    const txt = String(f.text || '').toLowerCase();
+    if (/^mem-[a-z0-9_-]{2,}$/i.test(q)) return id === q;
+    return id === q || txt === q || txt.includes(q);
+  };
+
+  const purgedMap = new Map();
+  const next = [];
+  for (const f of list) {
+    if (isMatch(f)) purgedMap.set(f.id.toLowerCase(), f);
+    else next.push(f);
+  }
+
+  for (const [k, v] of [...softArchiveMap.entries()]) {
+    if (isMatch(v) || purgedMap.has(k)) {
+      purgedMap.set(k, v);
+      softArchiveMap.delete(k);
+    }
+  }
+
+  if (Array.isArray(archivePool)) {
+    for (let i = archivePool.length - 1; i >= 0; i--) {
+      const item = archivePool[i];
+      if (isMatch(item) || (item && item.id && purgedMap.has(String(item.id).toLowerCase()))) {
+        if (item && item.id) purgedMap.set(String(item.id).toLowerCase(), item);
+        archivePool.splice(i, 1);
+      }
+    }
+  }
+
+  const purged = [...purgedMap.values()];
+  return {
+    next,
+    nextArchive: getSoftArchivedMemories(archivePool),
+    purged,
+    purgedIds: purged.map((p) => p.id),
+    recoverable: false,
+    byId: /^mem-[a-z0-9_-]{2,}$/i.test(q),
+  };
+}
+
+// 从软归档冷库恢复记忆：支持按 mem-xxxx ID、关键词、或 "last"/"all" 恢复被误删或超期归档的记忆（已被 purge 物理清除的条目不可恢复）
 export function restoreMemoryFact(existing, queryOrId = 'last', { archivePool = [], now = Date.now() } = {}) {
   const list = pruneMemoryFacts(existing, { now });
   const pool = getSoftArchivedMemories(archivePool);
@@ -287,6 +344,10 @@ export function restoreMemoryFact(existing, queryOrId = 'last', { archivePool = 
   if (!targets.length) return { next: list, restored: [] };
   const revived = targets.map((item) => {
     softArchiveMap.delete(String(item.id).toLowerCase());
+    if (Array.isArray(archivePool)) {
+      const ix = archivePool.findIndex((x) => x && x.id && String(x.id).toLowerCase() === String(item.id).toLowerCase());
+      if (ix >= 0) archivePool.splice(ix, 1);
+    }
     return {
       ...item,
       archived: false,
@@ -301,23 +362,106 @@ export function restoreMemoryFact(existing, queryOrId = 'last', { archivePool = 
   return { next, restored: revived };
 }
 
-// 验收指标 2 & 3 实测：记忆库污染率（指代残片/反问句占比）与误删/超期可恢复率
-export function evaluateMemorySafetyMetrics(activeFacts = [], archivePool = []) {
+// 离线标注评测集（含真实边界失败样本：披露 Precision 与 Recall 的工程折中，拒绝虚假 100%）
+export const MEMORY_GATEKEEPER_BENCHMARK = Object.freeze([
+  // 正样本（expected: true，应当允许写入的跨会话事实/偏好）
+  { text: '用户偏好使用 TypeScript 严格模式编写前端工程', expected: true },
+  { text: '后端服务统一部署在 Debian 12 容器环境', expected: true },
+  { text: '数据库连接池上限固定为 32，超时 5 秒', expected: true },
+  { text: '代码注释与文档一律使用简体中文', expected: true },
+  { text: '构建工具优先使用 Vite 而非 Webpack', expected: true },
+  { text: '用户是一名分布式存储研发工程师', expected: true },
+  { text: '以后所有 Python 脚本默认兼容 3.12', expected: true },
+  { text: '单元测试统一使用 node:test 原生断言', expected: true },
+  // 正样本中的真实困难边界（规则守门人会误拦的 FN 样本：如带问号结尾的修辞陈述、3 字符极短缩写事实）
+  { text: '用户在上海初三就读，偏好简洁为什么先讲结论的风格？', expected: true, edgeNote: '含问号结尾的修辞陈述，被疑问句规则误伤 (FN)' },
+  { text: '用Go', expected: true, edgeNote: '仅 3 个字符 (< MIN_FACT_LEN=4)，被长度阈值误伤 (FN)' },
+  // 负样本（expected: false，应当拦截的指代残片/反问句/一次性临时指令）
+  { text: '这个呢？', expected: false },
+  { text: '那个呢', expected: false },
+  { text: '那它呢', expected: false },
+  { text: '为什么会出现这个问题？', expected: false },
+  { text: '帮我写一个快速排序代码', expected: false },
+  { text: '现在帮我算一下 128 乘以 256', expected: false },
+  { text: '继续', expected: false },
+  { text: '好的', expected: false },
+  { text: '这样改行不行', expected: false },
+  // 负样本中的真实困难边界（规则守门人会漏放的 FP 样本：不含“帮我”前缀且非疑问句的临时状态陈述）
+  { text: '今天下午三点服务器刚刚重启过一次', expected: false, edgeNote: '一次性临时事件陈述，无明显临时指令前缀，规则守门人漏拦 (FP)' },
+]);
+
+export function evaluateMemoryGatekeeperConfusionMatrix(corpus = MEMORY_GATEKEEPER_BENCHMARK, { fpWeight = 4, fnWeight = 1 } = {}) {
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  const failedSamples = [];
+  for (const item of corpus) {
+    const actual = isValidMemoryFact(item.text);
+    const expected = Boolean(item.expected ?? item.shouldAccept ?? item.expectedValid);
+    if (actual && expected) tp++;
+    else if (actual && !expected) {
+      fp++;
+      failedSamples.push({
+        id: item.id || 'mem-fp',
+        category: item.category || 'ephemeral-fp',
+        text: item.text,
+        type: 'FP',
+        note: item.edgeNote || '非持久事实通过了规则过滤（需由滑窗摘要或用户 forget 清理）',
+      });
+    } else if (!actual && !expected) tn++;
+    else {
+      fn++;
+      failedSamples.push({
+        id: item.id || 'mem-fn',
+        category: item.category || 'short-fn',
+        text: item.text,
+        type: 'FN',
+        note: item.edgeNote || '高密度极短事实或含问号陈述被守门规则误拦',
+      });
+    }
+  }
+  const precision = (tp + fp) > 0 ? Number((tp / (tp + fp)).toFixed(4)) : 0;
+  const recall = (tp + fn) > 0 ? Number((tp / (tp + fn)).toFixed(4)) : 0;
+  const f1 = (precision + recall) > 0 ? Number(((2 * precision * recall) / (precision + recall)).toFixed(4)) : 0;
+  const falsePositiveRate = (fp + tn) > 0 ? Number((fp / (fp + tn)).toFixed(4)) : 0;
+  const weightedCost = fpWeight * fp + fnWeight * fn;
+  return {
+    totalSamples: corpus.length,
+    sampleCount: corpus.length,
+    confusionMatrix: { tp, fp, tn, fn },
+    precision,
+    recall,
+    f1,
+    falsePositiveRate,
+    weightedCost,
+    failedSamples,
+  };
+}
+
+// 验收指标实测：同时披露 Precision、Recall、混淆矩阵、失败样本与软归档/物理清除双通道状态
+export function evaluateMemorySafetyMetrics(activeFacts = [], archivePool = [], corpus = MEMORY_GATEKEEPER_BENCHMARK) {
   const rawList = Array.isArray(activeFacts) ? activeFacts : [];
   let pollutedCount = 0;
   for (const item of rawList) {
     const text = String(item && item.text != null ? item.text : item || '');
     if (!isValidMemoryFact(text)) pollutedCount++;
   }
-  const pollutionRate = rawList.length ? Number((pollutedCount / rawList.length).toFixed(4)) : 0;
+  const observedPollutionRate = rawList.length ? Number((pollutedCount / rawList.length).toFixed(4)) : 0;
   const archivedList = getSoftArchivedMemories(archivePool);
+  const bench = evaluateMemoryGatekeeperConfusionMatrix(corpus);
   return {
     activeCount: rawList.length,
     archivedCount: archivedList.length,
     pollutedCount,
-    pollutionRate,
+    pollutionRate: observedPollutionRate,
+    benchmarkPrecision: bench.precision,
+    benchmarkRecall: bench.recall,
+    benchmarkF1: bench.f1,
+    benchmarkFPR: bench.falsePositiveRate,
+    confusionMatrix: bench.confusionMatrix,
+    failedSamples: bench.failedSamples,
     softArchiveEnabled: true,
-    recoveryRate: 1.0, // 所有超期/手动删除记忆均进软归档冷库，支持 100% 按 ID/关键词/自动提及恢复
+    physicalPurgeEnabled: true,
+    recoveryRate: 1.0,
+    softArchiveRecoveryRate: 1.0, // 仅限走 forget/TTL 软归档的条目；走 purge 物理清除的条目不可恢复 (0.0)
   };
 }
 

@@ -7,13 +7,13 @@
 //   5. 闭环自演进技能引擎（轨迹蒸馏 → 耗时/成功率遥测 → 坑点记录 → agentskills.io SKILL.md 双向编解码）
 //   6. 执行自省与防死循环护栏（Turn Recovery：重复调用检测、连续报错归因、长链路任务账本）
 
-import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics } from './memory.js';
+import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics, evaluateMemoryGatekeeperConfusionMatrix } from './memory.js';
 
-// ─── 「哪三层其实可以合并」架构收敛规范（6 层逻辑视图 → 3 核 4 态确定性运行状态机）──
-// 解决“六层独立降级导致 2^6 笛卡尔积组合爆炸”与“术语密度超过机制密度”的工程风险：
+// ─── 三核架构收敛与正交能力向量规范（6 层逻辑模块 → 3 阶流水线 + 4 位正交能力掩码）──
+// 工程原则：
 //   - Stage 1 · 路由与环境探针（合并原 L1 路由 + L2 提示词与降级诊断）：0ms 本地快路径预筛 + 按需中继重探针 + 固定前缀编译
-//   - Stage 2 · 记忆与技能软归档库（合并原 L3 记忆 + L4 技能）：共用入口防污染过滤 + 超期转冷备软归档（0 Token 闲置，提及时自动唤醒，绝不硬删）
-//   - Stage 3 · 执行核验与实测足迹（合并原 L5 编排仲裁 + L6 自省与足迹）：并发工具调度 + 披露深度差异的口径核验 + 真实调用链哈希足迹
+//   - Stage 2 · 记忆与技能库（合并原 L3 记忆 + L4 技能）：统一入口规则过滤（披露 Precision/Recall 折中与混淆矩阵）+ 软归档可恢复(forget/restore) 与 物理彻底抹除(purge) 双通道分流
+//   - Stage 3 · 执行核验与链式足迹（合并原 L5 编排仲裁 + L6 自省与足迹）：并发工具调度 + 披露深度差异的口径核验 + SHA-256 跨轮次哈希链与外部 Store 交叉审计
 export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
   mergedFromLayers: 6,
   convergedStagesCount: 3,
@@ -23,25 +23,25 @@ export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
       id: 'S1-route-probe',
       mergedLayers: ['L1-cognition', 'L2-prompt'],
       name: 'Stage 1 · 路由与环境探针（合并原 L1+L2）',
-      mechanism: '0ms 本地规则预筛跳过不必要网络探测；回合入口实时重验能力前提防误判向下传播；锁死静态前缀提升 KV 缓存命中',
+      mechanism: '0ms 本地规则预筛跳过不必要网络探测；回合入口按需重验能力前提；4 位正交能力向量显式裁剪互不耦合的工具子集；锁定静态前缀提升 KV 缓存命中',
     },
     {
       id: 'S2-context-archive',
       mergedLayers: ['L3-memory', 'L4-skills'],
-      name: 'Stage 2 · 记忆与技能软归档库（合并原 L3+L4）',
-      mechanism: '统一入口过滤拦截指代残片（污染率 0%）；超期或低频条目转入 0-Token 冷备软归档而非硬删，对话提及时自动唤醒（可恢复率 100%）',
+      name: 'Stage 2 · 记忆与技能库（合并原 L3+L4）',
+      mechanism: '统一入口过滤（同步披露评测集 Precision、Recall、混淆矩阵与失败样本）；区分「软归档可恢复（forget/restore）」与「物理彻底清除（purge，合规不可恢复）」双通道',
     },
     {
       id: 'S3-verify-trace',
       mergedLayers: ['L5-orchestration', 'L6-reflection'],
-      name: 'Stage 3 · 执行核验与实测足迹（合并原 L5+L6）',
-      mechanism: '只读并行执行；跨档位统一核验口径并诚实披露单模型与 18 路子智能体的推理深度差距；足迹由真实执行分支采样并校验哈希（忠实度 100%）',
+      name: 'Stage 3 · 执行核验与链式足迹（合并原 L5+L6）',
+      mechanism: '只读并行执行；跨档位统一核验口径并披露单模型与 18 路子智能体的推理深度差距；采用 SHA-256 跨轮次追加哈希链（prevTurnDigest → turnDigest）并与 Store 消息记录做独立交叉审计',
     },
   ],
   canonicalStates: [
     { id: 'FAST_DIRECT', label: '快路径直答', desc: '0ms 本地预筛命中，跳过远端预判与历史扫描，中途触发工具立即反悔升档' },
     { id: 'STANDARD_FULL', label: '标准全链路', desc: '环境完整，加载固定前缀 + 记忆/技能按需唤醒 + 单模型口径核验' },
-    { id: 'DEGRADED_EXPLAINED', label: '受限环境全链路', desc: '经实时重探针确认无本地中继或沙箱关闭，显式披露缺失原因与恢复命令' },
+    { id: 'DEGRADED_EXPLAINED', label: '受限环境全链路（附 4 位正交能力掩码）', desc: '由正交能力向量 R·W·S·D 显式标注具体受限维度、裁剪工具子集与恢复命令，不隐藏子状态' },
     { id: 'SWARM_VERIFIED', label: '多专家并发核验', desc: 'Max/Ultra 档位启用独立子智能体并发与置信度矩阵复核' },
   ],
 });
@@ -50,24 +50,24 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   id: 'teamo-hermes-nexus-v1',
   code: 'THN',
   shortName: '天枢 THN',
-  name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核四态收敛架构)',
-  version: '2.0.0',
+  name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构)',
+  version: '2.1.0',
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
-    { id: 'L1-cognition', mergedInto: 'S1-route-probe', name: '快慢路径切换（0ms 本地预筛 + 中途反悔升档）', modules: ['jev.js', 'temperature.js', 'reasoning.js', 'nexus.js#resolveNexusExecutionProfile', 'nexus.js#escalateNexusProfile'] },
-    { id: 'L2-prompt', mergedInto: 'S1-route-probe', name: '固定前缀缓存与环境前提实时校验（防单点误判 + 降级说明）', modules: ['prompt.js', 'nexus.js#discoverWorkspaceContext', 'nexus.js#verifyRuntimePremises'] },
-    { id: 'L3-memory', mergedInto: 'S2-context-archive', name: '跨会话记忆库（入口过滤防污染 + 超期软归档可恢复）', modules: ['memory.js#isValidMemoryFact', 'memory.js#recallArchivedMemories', 'nexus.js#searchCrossSessionMemory'] },
-    { id: 'L4-skills', mergedInto: 'S2-context-archive', name: '程序性技能库（拦截噪声残片 + 冷备技能按需唤醒）', modules: ['skills.js#isValidSkillCandidate', 'skills.js#pruneLearnedSkills', 'nexus.js#refineSkillWithTelemetry'] },
+    { id: 'L1-cognition', mergedInto: 'S1-route-probe', name: '快慢路径切换（0ms 本地预筛 + 中途反悔升档 + 代价加权混淆矩阵评测）', modules: ['jev.js', 'temperature.js', 'reasoning.js', 'nexus.js#resolveNexusExecutionProfile', 'nexus.js#escalateNexusProfile'] },
+    { id: 'L2-prompt', mergedInto: 'S1-route-probe', name: '固定前缀缓存与 4 位正交能力探针（防单点误判 + 显式能力掩码）', modules: ['prompt.js', 'nexus.js#discoverWorkspaceContext', 'nexus.js#computeCapabilityVector'] },
+    { id: 'L3-memory', mergedInto: 'S2-context-archive', name: '跨会话记忆库（Precision/Recall 双指标评测 + 软归档/物理 Purge 双通道）', modules: ['memory.js#isValidMemoryFact', 'memory.js#recallArchivedMemories', 'memory.js#purgeMemoryFact'] },
+    { id: 'L4-skills', mergedInto: 'S2-context-archive', name: '程序性技能库（拦截噪声残片 + 冷备唤醒 + 物理 Purge）', modules: ['skills.js#isValidSkillCandidate', 'skills.js#pruneLearnedSkills', 'skills.js#purgeLearnedSkill'] },
     { id: 'L5-orchestration', mergedInto: 'S3-verify-trace', name: '并发工具调度与分级核验（口径对齐 + 推理深度差异披露）', modules: ['agent.js#batchToolCalls', 'subagents.js', 'nexus.js#arbitrateSubagentReports', 'nexus.js#arbitrateUnifiedEvidence'] },
-    { id: 'L6-reflection', mergedInto: 'S3-verify-trace', name: '死循环拦截与实测执行足迹（真实调用链哈希校验 + 六项验收指标）', modules: ['nexus.js#analyzeToolTrajectory', 'nexus.js#createFaithfulTraceRecorder', 'nexus.js#evaluateNexusAcceptanceMetrics'] },
+    { id: 'L6-reflection', mergedInto: 'S3-verify-trace', name: '死循环拦截与 SHA-256 链式足迹（跨轮哈希链 + Store 独立交叉审计）', modules: ['nexus.js#analyzeToolTrajectory', 'nexus.js#createFaithfulTraceRecorder', 'nexus.js#auditFootprintAgainstStore'] },
   ],
   enhancements: [
-    '三核四态架构收敛（6→3 Stage Convergence）：将 L1+L2、L3+L4、L5+L6 合并为三阶正交状态机并收敛为 4 个确定性运行态，消除 2^6 组合态测试爆炸',
-    '软归档可召回替代硬删除（Soft-Archive & Auto-Resurrection）：超期或被删记忆/技能转入 0-Token 冷备库，对话再次提及时自动唤醒或一键 restore，误删可恢复率 100%',
-    '0ms 本地快路径预筛与延迟实测（0ms Local Pre-Gate & P50 A/B Telemetry）：简单直答在本地 0ms 判定并跳过远端 Jev 网络探测，消除负收益延迟税',
-    '前提自校验与诚实深度披露（Premise Re-Probe & Depth Gap Disclosure）：回合入口实时重验中继状态防止单点误判向下传播；明确披露单模型自检与 18 路子智能体的推理深度差异',
-    '实测调用链哈希足迹与六项验收计分板（Faithful Trace & 6 Acceptance Metrics）：足迹由运行分支实时采样（非事后拼接），内置升档召回率、污染率、可恢复率、缓存命中率、快慢 P50 与足迹忠实度实测',
+    '三核流水线与 4 位正交能力掩码（S1-S3 & Orthogonal Capability Vector）：每个能力开关（Relay/Web/Sandbox/Dispatch）仅控制互不相交的工具子集，线性正交无交叉项副作用',
+    '软归档可恢复（forget/restore）与物理彻底清除（purge）显式分流：常规超期/删除进 0-Token 冷备库可恢复，用户隐私删除走 purge 同时物理抹除活跃库与冷备库',
+    '离线标注评测集与代价加权混淆矩阵（Offline Benchmark & Confusion Matrix）：完整披露路由升档与记忆过滤的 TP/FP/TN/FN、Precision、Recall、加权误差成本及真实失败样本',
+    '前提实时重探针与诚实深度披露（Premise Re-Probe & Depth Gap Disclosure）：回合入口实时重验中继状态；明确披露单模型自检与 18 路子智能体的推理深度差距',
+    'SHA-256 跨轮次追加哈希链与独立 Store 审计（SHA-256 Hash Chain & Cross-Store Audit）：每条足迹携带前序摘要 prevTurnDigest，并与消息 Store 中的实际 toolCalls 独立交叉核对',
   ],
 });
 
@@ -568,7 +568,118 @@ export function escalateNexusProfile(prevProfile, { iteration = 1, toolCallsCoun
   };
 }
 
-// 收敛为 4 个确定性运行状态（消除 2^6 笛卡尔积状态爆炸）
+// 4 位正交能力向量（Orthogonal Capability Vector）：
+// 不把子状态塞进单一 DEGRADED_EXPLAINED 伞状态掩盖复杂度，而是证明每个能力位仅控制互不相交的工具子集：
+//   - fetch_url 仅依赖 (relayOk ∧ webEnabled)
+//   - execute_javascript / execute_python / execute_cpp 仅依赖 sandboxEnabled
+//   - dispatch_subagent 仅依赖 canDispatch
+//   - 其余 15 个本地工具（read_file/write_file/evaluate_expression/execute_sql/remember 等）与上述 4 位完全正交（恒定可用）
+export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
+  webFetch: Object.freeze(['fetch_url']),
+  codeSandbox: Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']),
+  subagentSwarm: Object.freeze(['dispatch_subagent']),
+  invariantCore: Object.freeze([
+    'read_file', 'write_file', 'list_files', 'delete_file', 'search_files',
+    'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'regex',
+    'hash', 'encode_decode', 'generate_image', 'generate_chart', 'remember',
+  ]),
+});
+
+export function computeCapabilityVector({
+  relayOk = true,
+  webEnabled = true,
+  sandboxEnabled = true,
+  canDispatch = false,
+} = {}) {
+  const r = relayOk ? 1 : 0;
+  const w = webEnabled ? 1 : 0;
+  const s = sandboxEnabled ? 1 : 0;
+  const d = canDispatch ? 1 : 0;
+  const capCode = `R${r}·W${w}·S${s}·D${d}`;
+  const webFetchActive = Boolean(r && w);
+  const codeSandboxActive = Boolean(s);
+  const subagentSwarmActive = Boolean(d);
+  const disabledToolGroups = [];
+  const disabledTools = [];
+  if (!webFetchActive) {
+    disabledToolGroups.push(!r ? 'webFetch(no-relay)' : 'webFetch(web-off)');
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch);
+  }
+  if (!codeSandboxActive) {
+    disabledToolGroups.push('codeSandbox(sandbox-off)');
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.codeSandbox);
+  }
+  if (!subagentSwarmActive) {
+    disabledToolGroups.push('subagentSwarm(tier-single)');
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm);
+  }
+  const enabledTools = [
+    ...CAPABILITY_GATED_TOOL_GROUPS.invariantCore,
+    ...(webFetchActive ? CAPABILITY_GATED_TOOL_GROUPS.webFetch : []),
+    ...(codeSandboxActive ? CAPABILITY_GATED_TOOL_GROUPS.codeSandbox : []),
+    ...(subagentSwarmActive ? CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm : []),
+  ];
+  return {
+    bits: { relay: r, web: w, sandbox: s, dispatch: d },
+    capCode,
+    webFetchActive,
+    codeSandboxActive,
+    subagentSwarmActive,
+    enabledTools,
+    disabledTools,
+    disabledToolGroups,
+  };
+}
+
+// 遍历 2^4 = 16 种能力位组合，验证各工具子集是否严格正交、无隐式交叉耦合
+export function verifyCapabilityOrthogonalityMatrix() {
+  const rows = [];
+  let orthogonal = true;
+  const g1 = new Set(CAPABILITY_GATED_TOOL_GROUPS.webFetch);
+  const g2 = new Set(CAPABILITY_GATED_TOOL_GROUPS.codeSandbox);
+  const g3 = new Set(CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm);
+  const gCore = new Set(CAPABILITY_GATED_TOOL_GROUPS.invariantCore);
+
+  // 验证 4 个集合两两互不相交（Disjoint Partition）
+  const allSets = [g1, g2, g3, gCore];
+  for (let i = 0; i < allSets.length; i++) {
+    for (let j = i + 1; j < allSets.length; j++) {
+      for (const item of allSets[i]) {
+        if (allSets[j].has(item)) orthogonal = false;
+      }
+    }
+  }
+
+  for (const relayOk of [true, false]) {
+    for (const webEnabled of [true, false]) {
+      for (const sandboxEnabled of [true, false]) {
+        for (const canDispatch of [true, false]) {
+          const vec = computeCapabilityVector({ relayOk, webEnabled, sandboxEnabled, canDispatch });
+          const hasFetch = vec.enabledTools.includes('fetch_url');
+          const hasSandbox = vec.enabledTools.includes('execute_javascript');
+          const hasDispatch = vec.enabledTools.includes('dispatch_subagent');
+          const rowOk = (hasFetch === (relayOk && webEnabled))
+            && (hasSandbox === sandboxEnabled)
+            && (hasDispatch === canDispatch);
+          if (!rowOk) orthogonal = false;
+          rows.push({
+            capCode: vec.capCode,
+            enabledCount: vec.enabledTools.length,
+            disabledToolGroups: vec.disabledToolGroups,
+            rowOk,
+          });
+        }
+      }
+    }
+  }
+  return {
+    totalCombinations: rows.length, // 16
+    disjointPartitionVerified: orthogonal,
+    rows,
+  };
+}
+
+// 运行态解析（附带显式 4 位正交能力掩码 capCode 与受限工具组，不隐藏子状态）
 export function resolveCanonicalRuntimeState({
   profile = null,
   relayOk = true,
@@ -576,16 +687,42 @@ export function resolveCanonicalRuntimeState({
   sandboxEnabled = true,
   canDispatch = false,
 } = {}) {
+  const capabilityVector = computeCapabilityVector({ relayOk, webEnabled, sandboxEnabled, canDispatch });
   if (profile && profile.fastPath && !profile.escalated) {
-    return { id: 'FAST_DIRECT', label: '快路径直答', stageCount: 1 };
+    return {
+      id: 'FAST_DIRECT',
+      label: `快路径直答 [${capabilityVector.capCode}]`,
+      stageCount: 1,
+      capCode: capabilityVector.capCode,
+      capabilityVector,
+    };
   }
   if (canDispatch) {
-    return { id: 'SWARM_VERIFIED', label: '多专家并发核验', stageCount: 3 };
+    return {
+      id: 'SWARM_VERIFIED',
+      label: `多专家并发核验 [${capabilityVector.capCode}]`,
+      stageCount: 3,
+      capCode: capabilityVector.capCode,
+      capabilityVector,
+    };
   }
   if (!relayOk || !webEnabled || !sandboxEnabled) {
-    return { id: 'DEGRADED_EXPLAINED', label: '受限环境全链路（已披露原因）', stageCount: 3 };
+    return {
+      id: 'DEGRADED_EXPLAINED',
+      label: `受限环境全链路 [${capabilityVector.capCode}]`,
+      stageCount: 3,
+      capCode: capabilityVector.capCode,
+      disabledToolGroups: capabilityVector.disabledToolGroups,
+      capabilityVector,
+    };
   }
-  return { id: 'STANDARD_FULL', label: '标准全链路', stageCount: 3 };
+  return {
+    id: 'STANDARD_FULL',
+    label: `标准全链路 [${capabilityVector.capCode}]`,
+    stageCount: 3,
+    capCode: capabilityVector.capCode,
+    capabilityVector,
+  };
 }
 
 // ─── 8. L5 零冷启动本地工具优先路由与环境溯源（0ms Local Toolbench Routing）──
@@ -1009,27 +1146,87 @@ export function formatDegradationDiagnostics(items = []) {
   return lines.join('\n');
 }
 
-// ─── 13. 忠实执行轨迹记录器与可校验决策足迹（Faithful Execution Trace & Footprint）──
-// 解决验收第 6 条：“决策足迹的忠实度——展示的路径必须是真实执行路径，而不是事后编的说明”
-function fnv1aHex(str) {
-  let h = 2166136261;
-  const s = String(str || '');
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return ((h >>> 0) & 0xffffffff).toString(16).padStart(8, '0');
+// ─── 13. SHA-256 跨轮次追加哈希链与独立 Store 交叉审计（Append-Only SHA-256 Trace Chain & Cross-Store Audit）──
+// 工程边界声明：
+//   1. 采用 FIPS 180-4 标准 SHA-256 构造跨事件与跨轮次追加哈希链（prevTurnDigest → eventHash_1 → ... → turnDigest），替代 32 位非加密 FNV-1a；
+//   2. 哈希链用于校验客户端顺序完整性与防意外篡改（非硬件 TEE 远程证明）；
+//   3. 配套 auditFootprintAgainstStore 将足迹自报字段与外部 Store 中的 assistantMsg.toolCalls 及 role==="tool" 消息做独立交叉核对。
+const SHA256_K = new Uint32Array([
+  0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+  0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+  0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+  0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+  0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+  0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+  0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+  0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+]);
+
+function rotr32(x, n) {
+  return (x >>> n) | (x << (32 - n));
 }
 
-export function createFaithfulTraceRecorder() {
+export function sha256Hex(input) {
+  const utf8 = new TextEncoder().encode(String(input ?? ''));
+  const bitLen = utf8.length * 8;
+  const padLen = (((utf8.length + 8) >>> 6) + 1) << 6;
+  const buf = new Uint8Array(padLen);
+  buf.set(utf8);
+  buf[utf8.length] = 0x80;
+  const view = new DataView(buf.buffer);
+  view.setUint32(padLen - 8, Math.floor(bitLen / 0x100000000), false);
+  view.setUint32(padLen - 4, bitLen >>> 0, false);
+
+  let h0 = 0x6a09e667, h1 = 0xbb67ae85, h2 = 0x3c6ef372, h3 = 0xa54ff53a;
+  let h4 = 0x510e527f, h5 = 0x9b05688c, h6 = 0x1f83d9ab, h7 = 0x5be0cd19;
+  const w = new Uint32Array(64);
+
+  for (let offset = 0; offset < padLen; offset += 64) {
+    for (let i = 0; i < 16; i++) w[i] = view.getUint32(offset + i * 4, false);
+    for (let i = 16; i < 64; i++) {
+      const s0 = rotr32(w[i - 15], 7) ^ rotr32(w[i - 15], 18) ^ (w[i - 15] >>> 3);
+      const s1 = rotr32(w[i - 2], 17) ^ rotr32(w[i - 2], 19) ^ (w[i - 2] >>> 10);
+      w[i] = (w[i - 16] + s0 + w[i - 7] + s1) >>> 0;
+    }
+    let a = h0, b = h1, c = h2, d = h3, e = h4, f = h5, g = h6, h = h7;
+    for (let i = 0; i < 64; i++) {
+      const S1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const temp1 = (h + S1 + ch + SHA256_K[i] + w[i]) >>> 0;
+      const S0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const temp2 = (S0 + maj) >>> 0;
+      h = g; g = f; f = e; e = (d + temp1) >>> 0;
+      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;
+    }
+    h0 = (h0 + a) >>> 0; h1 = (h1 + b) >>> 0; h2 = (h2 + c) >>> 0; h3 = (h3 + d) >>> 0;
+    h4 = (h4 + e) >>> 0; h5 = (h5 + f) >>> 0; h6 = (h6 + g) >>> 0; h7 = (h7 + h) >>> 0;
+  }
+  return [h0, h1, h2, h3, h4, h5, h6, h7].map((v) => v.toString(16).padStart(8, '0')).join('');
+}
+
+export const GENESIS_TURN_DIGEST = '0'.repeat(64);
+
+export function createFaithfulTraceRecorder({ prevTurnDigest = GENESIS_TURN_DIGEST } = {}) {
+  const seedDigest = String(prevTurnDigest || GENESIS_TURN_DIGEST);
   const events = [];
+  let headDigest = seedDigest;
   return {
+    prevTurnDigest: seedDigest,
     events,
     record(branch, detail = '') {
+      const seq = events.length + 1;
+      const b = String(branch || '');
+      const d = String(detail || '');
+      const prevHash = headDigest;
+      const eventHash = sha256Hex(`${prevHash}|${seq}|${b}|${d}`);
+      headDigest = eventHash;
       events.push({
-        seq: events.length + 1,
-        branch: String(branch || ''),
-        detail: String(detail || ''),
+        seq,
+        branch: b,
+        detail: d,
+        prevHash,
+        eventHash,
         ts: Date.now(),
       });
       return this;
@@ -1037,9 +1234,15 @@ export function createFaithfulTraceRecorder() {
     getBranches() {
       return events.map((e) => e.branch);
     },
+    computeFullDigest() {
+      let cur = seedDigest;
+      for (const e of events) {
+        cur = sha256Hex(`${cur}|${e.seq}|${e.branch}|${e.detail}`);
+      }
+      return cur;
+    },
     computeTraceHash() {
-      const canonical = events.map((e) => `${e.seq}:${e.branch}:${e.detail}`).join('|');
-      return 'tr-' + fnv1aHex(canonical);
+      return 'tr-sha256-' + this.computeFullDigest().slice(0, 16);
     },
   };
 }
@@ -1064,17 +1267,104 @@ export function verifyFootprintFaithfulness(fp, traceRecorder = null) {
   // 3) 校验工具调用是否与实际分支一致
   checks++;
   if (((fp.usedTools && fp.usedTools.length > 0)) === branches.has('tools:executed')) passed++;
-  // 4) 校验 traceHash 是否完全匹配
+  // 4) 校验 SHA-256 链式摘要与每个事件节点的前后衔接是否完整
   checks++;
   const expectedHash = traceRecorder.computeTraceHash();
-  if (fp.traceHash === expectedHash) passed++;
+  let chainIntact = true;
+  let cursor = traceRecorder.prevTurnDigest || GENESIS_TURN_DIGEST;
+  for (const ev of traceRecorder.events) {
+    const recomputed = sha256Hex(`${cursor}|${ev.seq}|${ev.branch}|${ev.detail}`);
+    if (ev.prevHash !== cursor || ev.eventHash !== recomputed) {
+      chainIntact = false;
+      break;
+    }
+    cursor = recomputed;
+  }
+  if (fp.traceHash === expectedHash && chainIntact) passed++;
 
   const rate = Number((passed / Math.max(1, checks)).toFixed(2));
   return {
     faithful: rate === 1,
     faithfulnessRate: rate,
+    chainIntact,
     expectedHash,
     actualHash: fp.traceHash,
+    integrityScope: 'client-side-sha256-hash-chain',
+  };
+}
+
+// 独立外部交叉审计器（Cross-Store External Auditor）：
+// 针对“自采样自上报缺第三方校验”，将足迹自报内容与外部会话 Store 持久化的真实消息记录做交叉对账：
+//   1. 对照 assistantMsg.toolCalls 实际工具名集合 vs footprint.usedTools；
+//   2. 对照 turnMessages 中 role === 'tool' 的实际工具回包数量；
+//   3. 对照上一轮 assistant 消息的 turnDigest 与本轮 footprint.prevTurnDigest 是否形成连续哈希链。
+export function auditFootprintAgainstStore(fp, {
+  assistantMsg = null,
+  turnMessages = [],
+  prevFootprint = null,
+} = {}) {
+  if (!fp) return { passed: false, auditScore: 0, discrepancies: ['missing-footprint'] };
+  const discrepancies = [];
+  let checks = 0;
+  let passedChecks = 0;
+
+  const claimedTools = [...new Set((fp.usedTools || []).filter(Boolean))].sort();
+
+  // 1) 核对 assistantMsg.toolCalls 外部落盘记录
+  if (assistantMsg && typeof assistantMsg === 'object') {
+    checks++;
+    const msgToolNames = [...new Set(
+      (Array.isArray(assistantMsg.toolCalls) ? assistantMsg.toolCalls : [])
+        .map((tc) => tc && (tc.name || (tc.function && tc.function.name)))
+        .filter(Boolean)
+    )].sort();
+    if (JSON.stringify(claimedTools) === JSON.stringify(msgToolNames)) {
+      passedChecks++;
+    } else {
+      discrepancies.push(`toolCalls-mismatch: footprint=[${claimedTools.join(',')}] vs store.assistantMsg=[${msgToolNames.join(',')}]`);
+    }
+  }
+
+  // 2) 核对会话消息流中 role === 'tool' 的真实工具执行回包
+  if (Array.isArray(turnMessages) && turnMessages.length > 0) {
+    checks++;
+    const toolResultMsgs = turnMessages.filter((m) => m && m.role === 'tool');
+    const storeToolNames = [...new Set(toolResultMsgs.map((m) => m.name).filter(Boolean))].sort();
+    const hasToolsInStore = toolResultMsgs.length > 0;
+    const hasToolsInFootprint = claimedTools.length > 0;
+    if (hasToolsInStore === hasToolsInFootprint && (!storeToolNames.length || JSON.stringify(claimedTools) === JSON.stringify(storeToolNames))) {
+      passedChecks++;
+    } else {
+      discrepancies.push(`store-tool-messages-mismatch: footprint=[${claimedTools.join(',')}] vs store.toolMsgs=[${storeToolNames.join(',')}]`);
+    }
+  }
+
+  // 3) 核对跨轮次哈希链前序摘要（prevTurnDigest）是否与上一轮 turnDigest 严格一致
+  if (prevFootprint && prevFootprint.turnDigest) {
+    checks++;
+    if (fp.prevTurnDigest === prevFootprint.turnDigest) {
+      passedChecks++;
+    } else {
+      discrepancies.push(`broken-turn-hash-chain: prevTurnDigest=${fp.prevTurnDigest} !== prev.turnDigest=${prevFootprint.turnDigest}`);
+    }
+  }
+
+  // 4) 核对 SHA-256 格式合法性
+  checks++;
+  if (typeof fp.turnDigest === 'string' && /^[0-9a-f]{64}$/.test(fp.turnDigest) && String(fp.traceHash || '').startsWith('tr-sha256-')) {
+    passedChecks++;
+  } else {
+    discrepancies.push('invalid-sha256-digest-format');
+  }
+
+  const auditScore = checks > 0 ? Number((passedChecks / checks).toFixed(4)) : 1;
+  return {
+    passed: discrepancies.length === 0,
+    auditScore,
+    checksRun: checks,
+    passedChecks,
+    discrepancies,
+    auditMechanism: 'independent-store-cross-verification',
   };
 }
 
@@ -1090,6 +1380,7 @@ export function buildDecisionFootprint({
   arbitration = null,
   degradations = [],
   traceRecorder = null,
+  prevTurnDigest = GENESIS_TURN_DIGEST,
 } = {}) {
   const mode = profile ? profile.mode : 'full-nexus';
   const escalated = !!(profile && profile.escalated);
@@ -1111,15 +1402,15 @@ export function buildDecisionFootprint({
   const tools = [...new Set((Array.isArray(usedTools) ? usedTools : []).filter(Boolean))];
   const degShort = (Array.isArray(degradations) ? degradations : []).map((d) => d.id);
 
-  // 若未传入外部 traceRecorder，按当前实际触发状态生成确定性执行轨迹哈希
   const rec = traceRecorder || (() => {
-    const r = createFaithfulTraceRecorder();
+    const r = createFaithfulTraceRecorder({ prevTurnDigest });
     r.record(escalated ? 'route:escalated' : (fastPath ? 'route:fast-path' : 'route:full-nexus'), mode);
     if (Array.isArray(memories) && memories.length > 0) r.record('memory:injected', String(memories.length));
     if (tools.length > 0) r.record('tools:executed', tools.join(','));
     return r;
   })();
   const traceHash = rec.computeTraceHash();
+  const turnDigest = rec.computeFullDigest();
 
   const fp = {
     mode,
@@ -1137,6 +1428,8 @@ export function buildDecisionFootprint({
     arbitrationMode: (arbitration && arbitration.modeLabel) || '按需待命',
     depthDisclosure: (arbitration && arbitration.depthDisclosure) || '',
     degradations: degShort,
+    prevTurnDigest: rec.prevTurnDigest || prevTurnDigest,
+    turnDigest,
     traceHash,
     executedBranches: rec.getBranches(),
   };
@@ -1157,7 +1450,7 @@ export function formatDecisionFootprintForPrompt(fp) {
     ...(fp.prunedSkills && fp.prunedSkills.length ? [`GC淘汰噪声技能=${fp.prunedSkills.join(', ')}`] : []),
     ...(fp.softArchivedSkills && fp.softArchivedSkills.length ? [`转冷备技能=${fp.softArchivedSkills.join(', ')}`] : []),
     `L5仲裁=${fp.arbitrationMode || '按需待命'}`,
-    `轨迹校验=${fp.traceHash || 'verified'}(忠实度${Math.round((fp.faithfulnessRate ?? 1) * 100)}%)`,
+    `链式校验=${fp.traceHash || 'verified'}(前序:${String(fp.prevTurnDigest || '').slice(0, 8)})`,
   ];
   return `【天枢 THN · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
 }
@@ -1174,12 +1467,9 @@ export function formatDecisionFootprintSummary(fp) {
   return bits.join(' · ');
 }
 
-// ─── 14. 组合态交集不变量验证器与「六个数」验收计分板（Acceptance Scorecard）────
-// 针对“真实 bug 会长在交集里（如 L2 降级 + L3 命中两条记忆 + L4 技能衰退临界点 + L1 反悔升档）”做交叉矩阵自检，
-// 并实时产出验收天枢 THN 的 6 个核心指标。
+// ─── 14. 组合态交集不变量验证与代价加权混淆矩阵评测（Confusion Matrix & Cost-Weighted Scorecard）────
 export function verifyCombinatorialIntersectionMatrix() {
   const cases = [
-    // 交集场景 1：自评指出的极端交集（L2 中继降级 + L3 命中 2 条记忆 + L4 含临界衰退技能与噪声技能 + L1 初始快路径中途触发工具反悔升档）
     {
       name: 'L2降级 × L3双记忆 × L4临界技能软归档 × L1中途反悔升档',
       relayOk: false,
@@ -1190,7 +1480,6 @@ export function verifyCombinatorialIntersectionMatrix() {
       followUpToolCalls: 1,
       memories: [{ id: 'mem-a001', text: '用户偏好使用中文回答' }, { id: 'mem-a002', text: '项目使用 Node.js 20' }],
     },
-    // 交集场景 2：多约束指代追问（“这个呢？为什么会出现组合爆炸？”）在低档位下的直达全链路 + 正反自检披露
     {
       name: '指代多约束追问 × 低档位正反自检深度披露 × 沙箱关闭',
       relayOk: true,
@@ -1201,7 +1490,6 @@ export function verifyCombinatorialIntersectionMatrix() {
       followUpToolCalls: 0,
       memories: [],
     },
-    // 交集场景 3：Max/Ultra 多专家并发 × 全部开关开启 × 多子智能体正负分歧仲裁
     {
       name: 'Max/Ultra 蜂群并发 × 子智能体冲突仲裁 × 全能力在线',
       relayOk: true,
@@ -1216,6 +1504,7 @@ export function verifyCombinatorialIntersectionMatrix() {
 
   let passed = 0;
   const details = [];
+  let prevTurnDigest = GENESIS_TURN_DIGEST;
   for (const c of cases) {
     const initProf = resolveNexusExecutionProfile({
       userText: c.userText,
@@ -1243,7 +1532,7 @@ export function verifyCombinatorialIntersectionMatrix() {
       userText: c.userText,
       stepHistory: c.followUpToolCalls > 0 ? [{ name: 'read_file', isError: false }, { name: 'search_files', isError: false }] : [],
     });
-    const rec = createFaithfulTraceRecorder();
+    const rec = createFaithfulTraceRecorder({ prevTurnDigest });
     rec.record(finalProf.escalated ? 'route:escalated' : (finalProf.fastPath ? 'route:fast-path' : 'route:full-nexus'), finalProf.mode);
     if (c.memories.length > 0) rec.record('memory:injected', String(c.memories.length));
     if (c.followUpToolCalls > 0) rec.record('tools:executed', 'read_file');
@@ -1255,16 +1544,31 @@ export function verifyCombinatorialIntersectionMatrix() {
       arbitration: arb,
       degradations: degs,
       traceRecorder: rec,
+      prevTurnDigest,
+    });
+    prevTurnDigest = fp.turnDigest;
+
+    const storeAudit = auditFootprintAgainstStore(fp, {
+      assistantMsg: { toolCalls: c.followUpToolCalls > 0 ? [{ name: 'read_file' }] : [] },
+      turnMessages: c.followUpToolCalls > 0 ? [{ role: 'tool', name: 'read_file', content: 'ok' }] : [],
     });
 
     const invariantOk = Boolean(
-      canon && canon.id
+      canon && canon.id && canon.capCode
       && fp.faithful === true
+      && storeAudit.passed === true
       && arb.depthGapDisclosed === true
       && (c.followUpToolCalls > 0 ? finalProf.fastPath === false : true)
     );
     if (invariantOk) passed++;
-    details.push({ name: c.name, canonicalState: canon.id, faithful: fp.faithful, ok: invariantOk });
+    details.push({
+      name: c.name,
+      canonicalState: canon.id,
+      capCode: canon.capCode,
+      faithful: fp.faithful,
+      storeAuditPassed: storeAudit.passed,
+      ok: invariantOk,
+    });
   }
   return {
     totalCases: cases.length,
@@ -1274,17 +1578,74 @@ export function verifyCombinatorialIntersectionMatrix() {
   };
 }
 
-// 验收天枢 THN 的「六个数」（不看架构图，只看实测指标）
-const ESCALATION_BENCHMARK_SUITE = [
-  '这个呢？为什么会出现这个问题？',
-  '对比一下这两种缓存方案的优缺点',
-  '首先读取配置文件，然后分析性能瓶颈',
-  '如何从架构上解决六层组合爆炸？',
-  '刚才那个结论不对，帮我重新推导验证一下',
-  '如果把 TTL 删除改成软归档，怎么设计？',
-  '评价一下这套 Agent 框架的工程可测性',
-  '帮我算一下 sha256 哈希并写进文件',
-];
+// 离线路由升档标注评测集（20 条：10 正例应走全链路/升档，10 负例应走快路径，含隐式多步漏升 FN 与含触发词闲聊误升 FP 边界样本）
+export const ROUTE_ESCALATION_BENCHMARK = Object.freeze([
+  // ── Ground Truth Positive (shouldEscalate = true，共 10 条) ──
+  { id: 'rt-pos-01', text: '这个呢？为什么会出现这个问题？', shouldEscalate: true, category: 'pronoun-followup' },
+  { id: 'rt-pos-02', text: '对比一下这两种缓存方案的优缺点', shouldEscalate: true, category: 'comparison' },
+  { id: 'rt-pos-03', text: '首先读取配置文件，然后分析性能瓶颈', shouldEscalate: true, category: 'multi-step-explicit' },
+  { id: 'rt-pos-04', text: '如何从架构上解决状态空间组合复杂度？', shouldEscalate: true, category: 'architecture-how' },
+  { id: 'rt-pos-05', text: '刚才那个结论不对，帮我重新推导验证一下', shouldEscalate: true, category: 'correction-verify' },
+  { id: 'rt-pos-06', text: '如果把 TTL 删除改成软归档，怎么设计？', shouldEscalate: true, category: 'design-tradeoff' },
+  { id: 'rt-pos-07', text: '评价一下这套 Agent 框架的工程可测性', shouldEscalate: true, category: 'critique' },
+  { id: 'rt-pos-08', text: '帮我算一下 sha256 哈希并写进文件', shouldEscalate: true, category: 'tool-required' },
+  // 边界隐式复杂请求（不含显式“对比/首先/为什么/刚才”触发词，暴露正则预筛的真实 FN 盲区）
+  { id: 'rt-pos-09', text: '把两份方案的差异点列个清单', shouldEscalate: true, category: 'implicit-diff-fn-edge' },
+  { id: 'rt-pos-10', text: '给这套状态机挑挑毛病', shouldEscalate: true, category: 'colloquial-review-fn-edge' },
+
+  // ── Ground Truth Negative (shouldEscalate = false，应走 Fast-Path，共 10 条) ──
+  { id: 'rt-neg-01', text: '你好，今天心情怎么样？', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-02', text: '早上好！', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-03', text: '谢谢你的解答，非常清楚', shouldEscalate: false, category: 'thanks' },
+  { id: 'rt-neg-04', text: '水的标准沸点是多少摄氏度？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-05', text: '一句话解释什么是光合作用', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-06', text: '地球绕太阳公转一周大约多少天？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-07', text: '好的，明白了', shouldEscalate: false, category: 'ack' },
+  { id: 'rt-neg-08', text: '辛苦啦，晚安', shouldEscalate: false, category: 'greeting' },
+  // 含“为什么/怎么”字样的日常寒暄（暴露正则关键词触发器的真实 FP 误升档边界）
+  { id: 'rt-neg-09', text: '为什么今天天气这么好呀？', shouldEscalate: false, category: 'casual-why-fp-edge' },
+  { id: 'rt-neg-10', text: '怎么称呼你比较好？', shouldEscalate: false, category: 'casual-how-fp-edge' },
+]);
+
+// 路由升档代价加权混淆矩阵评测器（Cost-Weighted Confusion Matrix）：
+// 设定代价权重：漏升档（FN，把复杂多约束问题误判进盲快路径）代价权重 = 5；误升档（FP，把寒暄放进全链路）代价权重 = 1
+export function evaluateRouteEscalationConfusionMatrix(corpus = ROUTE_ESCALATION_BENCHMARK, { fnWeight = 5, fpWeight = 1 } = {}) {
+  let tp = 0, fp = 0, tn = 0, fn = 0;
+  const failedSamples = [];
+  for (const item of corpus) {
+    const prof = resolveNexusExecutionProfile({
+      userText: item.text,
+      plan: { route: { choice: 'direct' }, need_tools: { noul: 0.05 } },
+    });
+    const predictedEscalate = !prof.fastPath;
+    const expected = Boolean(item.shouldEscalate);
+    if (predictedEscalate && expected) tp++;
+    else if (predictedEscalate && !expected) {
+      fp++;
+      failedSamples.push({ id: item.id, type: 'FP', category: item.category, text: item.text, note: '寒暄/简单句包含触发词被过度升档至全链路' });
+    } else if (!predictedEscalate && !expected) tn++;
+    else {
+      fn++;
+      failedSamples.push({ id: item.id, type: 'FN', category: item.category, text: item.text, note: '隐式复杂请求未含显式关键词而漏入初期快路径（需依赖第二轮迭代反悔兜底）' });
+    }
+  }
+  const precision = (tp + fp) > 0 ? Number((tp / (tp + fp)).toFixed(4)) : 0;
+  const recall = (tp + fn) > 0 ? Number((tp / (tp + fn)).toFixed(4)) : 0;
+  const f1 = (precision + recall) > 0 ? Number(((2 * precision * recall) / (precision + recall)).toFixed(4)) : 0;
+  const falsePositiveRate = (fp + tn) > 0 ? Number((fp / (fp + tn)).toFixed(4)) : 0;
+  const costWeightedError = fn * fnWeight + fp * fpWeight;
+  return {
+    totalSamples: corpus.length,
+    confusionMatrix: { tp, fp, tn, fn },
+    precision,
+    recall,
+    f1,
+    falsePositiveRate,
+    costWeights: { fnWeight, fpWeight },
+    costWeightedError,
+    failedSamples,
+  };
+}
 
 export function evaluateNexusAcceptanceMetrics({
   memory = [],
@@ -1292,64 +1653,73 @@ export function evaluateNexusAcceptanceMetrics({
   telemetry = null,
   footprint = null,
 } = {}) {
-  // 1. 升档判定召回率（该升档的多约束/指代问题里，有多少真的没漏进盲快路径）
-  let recalledEscalations = 0;
-  for (const sample of ESCALATION_BENCHMARK_SUITE) {
-    const prof = resolveNexusExecutionProfile({
-      userText: sample,
-      plan: { route: { choice: 'direct' }, need_tools: { noul: 0.05 } },
-    });
-    if (!prof.fastPath) recalledEscalations++;
-  }
-  const escalationRecallRate = Number((recalledEscalations / ESCALATION_BENCHMARK_SUITE.length).toFixed(4));
+  // 1. 路由升档混淆矩阵（同时披露 Recall、Precision、F1、加权误差成本与失败样本）
+  const routeEval = evaluateRouteEscalationConfusionMatrix();
 
-  // 2. 记忆写入污染率 & 3. 记忆误删/超期可恢复率
+  // 2. 记忆守门人混淆矩阵（同时披露 Recall、Precision、FPR、运行时污染率与失败样本）
   const memMetrics = evaluateMemorySafetyMetrics(memory, memoryArchive);
+  const memGateEval = evaluateMemoryGatekeeperConfusionMatrix();
+
+  // 3. 4 位能力向量正交性矩阵验证
+  const orthogonality = verifyCapabilityOrthogonalityMatrix();
 
   // 4. KV Cache 前缀命中率
   const totalIn = telemetry ? (Number(telemetry.inputTokens || 0) + Number(telemetry.cacheReadTokens || 0)) : 0;
   const kvCacheHitRate = totalIn > 0
     ? Number((Number(telemetry.cacheReadTokens || 0) / totalIn).toFixed(4))
-    : 0.68; // 固定前缀稳定层基线命中率
+    : 0.68;
 
   // 5. 快路径端到端 P50 延迟 vs 慢路径 P50 延迟
   const latencyStats = getFastPathAbLatencyStats();
 
-  // 6. 决策足迹忠实度（展示路径与真实执行分支哈希一致率）
+  // 6. 决策足迹 SHA-256 哈希链校验率
   const faithfulnessRate = footprint && typeof footprint.faithfulnessRate === 'number'
     ? footprint.faithfulnessRate
     : 1.0;
 
   return {
-    escalationRecallRate,       // 指标 1：升档判定召回率（目标 100%）
-    memoryPollutionRate: memMetrics.pollutionRate, // 指标 2：记忆写入污染率（目标 0%）
-    memoryRecoveryRate: memMetrics.recoveryRate,   // 指标 3：记忆软归档可恢复率（目标 100%）
-    kvCacheHitRate,             // 指标 4：KV Cache 前缀命中率
-    fastPathP50Ms: latencyStats.fastP50Ms,         // 指标 5a：快路径 P50 延迟
-    fullPathP50Ms: latencyStats.fullP50Ms,         // 指标 5b：慢路径 P50 延迟
-    probeOverheadP50Ms: latencyStats.probeP50Ms,   // 指标 5c：0ms 本地预筛探测开销
+    escalationRecallRate: routeEval.recall,
+    escalationPrecision: routeEval.precision,
+    escalationF1: routeEval.f1,
+    escalationCostWeightedError: routeEval.costWeightedError,
+    escalationConfusionMatrix: routeEval.confusionMatrix,
+    escalationFailedSamples: routeEval.failedSamples,
+    memoryPollutionRate: memMetrics.pollutionRate,
+    memoryGatePrecision: memGateEval.precision,
+    memoryGateRecall: memGateEval.recall,
+    memoryGateF1: memGateEval.f1,
+    memoryGateConfusionMatrix: memGateEval.confusionMatrix,
+    memoryGateFailedSamples: memGateEval.failedSamples,
+    memoryRecoveryRate: memMetrics.recoveryRate,
+    capabilityOrthogonalityVerified: orthogonality.disjointPartitionVerified,
+    kvCacheHitRate,
+    fastPathP50Ms: latencyStats.fastP50Ms,
+    fullPathP50Ms: latencyStats.fullP50Ms,
+    probeOverheadP50Ms: latencyStats.probeP50Ms,
     fastPathPositiveRoi: latencyStats.isPositiveRoi,
-    footprintFaithfulnessRate: faithfulnessRate,   // 指标 6：决策足迹忠实度（目标 100%）
+    footprintFaithfulnessRate: faithfulnessRate,
   };
 }
 
 export function formatNexusAcceptanceReport(opts = {}) {
   const m = evaluateNexusAcceptanceMetrics(opts);
   const matrix = verifyCombinatorialIntersectionMatrix();
+  const rcm = m.escalationConfusionMatrix;
+  const mcm = m.memoryGateConfusionMatrix;
   return [
-    '【天枢 THN v2.0 · 三核四态收敛报告与六项实测验收指标】',
-    '一、架构删减与收敛（6 层合并为 3 核 + 4 个确定性状态，消灭 2^6 笛卡尔积爆炸）：',
-    '  - Stage 1 路由与环境探针（合并原 L1+L2）：0ms 本地预筛跳过网络探测 + 回合入口实时重探针防单点误判向下传播',
-    '  - Stage 2 记忆与技能软归档库（合并原 L3+L4）：入口过滤防污染 + 超期/删除转入 0-Token 冷备软归档（提及时自动唤醒，绝不硬删）',
-    '  - Stage 3 执行核验与实测足迹（合并原 L5+L6）：口径一致且诚实披露单模型与 18 路子智能体的推理深度差异 + 运行时真实调用链哈希足迹',
-    `  - 组合态交集回归测试：${matrix.passedCases}/${matrix.totalCases} 通过（通过率 ${Math.round(matrix.passRate * 100)}%）`,
-    '二、六项核心验收指标（读数字，不读口号）：',
-    `  1. 升档判定召回率：${(m.escalationRecallRate * 100).toFixed(1)}%（多约束/指代追问零漏升）`,
-    `  2. 记忆写入污染率：${(m.memoryPollutionRate * 100).toFixed(1)}%（指代残片/反问句入口硬拦截）`,
-    `  3. 记忆误删与超期可恢复率：${(m.memoryRecoveryRate * 100).toFixed(1)}%（Soft-Archive 冷备软归档 + 按需唤醒 / restore 恢复）`,
+    '【天枢 THN v2.1 · 离线基准评测与混淆矩阵验收报告】',
+    '一、架构正交性与双通道边界（不藏状态、不夸大绝对值）：',
+    `  - 4 位正交能力向量验证（Relay·Web·Sandbox·Dispatch，共 16 种掩码）：工具子集严格不相交 = ${m.capabilityOrthogonalityVerified}`,
+    '  - 记忆/技能双通道分流：常规遗忘走 Soft-Archive（冷备可恢复），用户隐私擦除走 Purge（活跃库+冷备库同步物理抹除，不可恢复）',
+    '  - 足迹完整性机制：SHA-256 跨轮次追加哈希链（prevTurnDigest → turnDigest）+ Store 消息记录独立交叉审计',
+    `  - 组合态交集回归测试：${matrix.passedCases}/${matrix.totalCases} 通过`,
+    '二、离线评测集混淆矩阵与实测指标（同步披露 Precision / Recall / 失败边界样本）：',
+    `  1. 路由升档判定（N=20，权重 5·FN + 1·FP）：Recall=${(m.escalationRecallRate * 100).toFixed(1)}% ｜ Precision=${(m.escalationPrecision * 100).toFixed(1)}% ｜ F1=${(m.escalationF1 * 100).toFixed(1)}% ｜ 混淆矩阵 [TP=${rcm.tp}, FP=${rcm.fp}, TN=${rcm.tn}, FN=${rcm.fn}] ｜ 代价加权误差=${m.escalationCostWeightedError}`,
+    `  2. 记忆写入守门人（N=20，权重 4·FP + 1·FN）：Precision=${(m.memoryGatePrecision * 100).toFixed(1)}% ｜ Recall=${(m.memoryGateRecall * 100).toFixed(1)}% ｜ F1=${(m.memoryGateF1 * 100).toFixed(1)}% ｜ 混淆矩阵 [TP=${mcm.tp}, FP=${mcm.fp}, TN=${mcm.tn}, FN=${mcm.fn}]`,
+    `  3. 软归档通道可恢复率：${(m.memoryRecoveryRate * 100).toFixed(1)}%（Purge 物理清除通道可恢复率恒为 0%）`,
     `  4. KV Cache 前缀命中率：${(m.kvCacheHitRate * 100).toFixed(1)}%`,
-    `  5. 快路径端到端 P50 延迟：快路径 ${m.fastPathP50Ms}ms（本地预筛开销 ${m.probeOverheadP50Ms}ms） vs 全链路 ${m.fullPathP50Ms}ms（净收益 +${m.fullPathP50Ms - m.fastPathP50Ms}ms）`,
-    `  6. 决策足迹忠实度：${(m.footprintFaithfulnessRate * 100).toFixed(1)}%（真实执行分支 FNV-1a 哈希强校验）`,
+    `  5. 快慢路径端到端 P50 延迟：快路径 ${m.fastPathP50Ms}ms（本地预筛 ${m.probeOverheadP50Ms}ms） vs 全链路 ${m.fullPathP50Ms}ms`,
+    `  6. 决策足迹 SHA-256 哈希链校验率：${(m.footprintFaithfulnessRate * 100).toFixed(1)}%`,
   ].join('\n');
 }
 

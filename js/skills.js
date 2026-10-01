@@ -127,6 +127,32 @@ export function restoreArchivedSkill(activeList = [], idOrQuery = 'last', now = 
   return { next, restored };
 }
 
+// 技能物理彻底清除通道（Purge · 合规不可恢复）：同时从活跃列表与冷备归档中物理删除
+export function purgeLearnedSkill(activeList = [], idOrQuery = '') {
+  const q = String(idOrQuery || '').trim().toLowerCase();
+  if (!q) return { next: Array.isArray(activeList) ? activeList : [], purgedIds: [], recoverable: false };
+  const isMatch = (s) => {
+    if (!s || !s.id) return false;
+    if (q === 'all' || q === '*') return true;
+    return s.id.toLowerCase() === q || String(s.description || '').toLowerCase().includes(q);
+  };
+  const purgedIds = [];
+  const next = (Array.isArray(activeList) ? activeList : []).filter((s) => {
+    if (isMatch(s)) {
+      purgedIds.push(s.id);
+      return false;
+    }
+    return true;
+  });
+  for (const [k, v] of [...skillArchiveMap.entries()]) {
+    if (isMatch(v) || purgedIds.includes(k)) {
+      if (!purgedIds.includes(k)) purgedIds.push(k);
+      skillArchiveMap.delete(k);
+    }
+  }
+  return { next, purgedIds, recoverable: false };
+}
+
 // 技能写入质量守门人（Skill Quality Gatekeeper）：
 // 拦截指代残片（如“这个呢”）、寒暄追问、过短无语义标题或未自愈的失败回合
 const NOISE_SKILL_TITLE_RE = /^(?:这个呢|那个呢|那这个|那那个|这个|那个|继续|接着|接着写|再来|再来一次|重试|为什么|怎么回事|不对|改一下|换一个|还有吗|然后呢|再看看|帮我看看|看下这个|看看这个|好的|谢谢|明白|行吗|可以吗|怎么办|是什么|what\s+about\s+this|and\s+this|continue|try\s+again|why|fix\s+it)$/i;
