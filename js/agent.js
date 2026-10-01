@@ -25,7 +25,7 @@ import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IM
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
-import { formatMemory, formatActiveMemoryReminder, extractAutoMemoryFacts, upsertFacts, pruneMemoryFacts } from './memory.js';
+import { formatMemory, formatActiveMemoryReminder, extractAutoMemoryFacts, upsertFacts, pruneMemoryFacts, recallArchivedMemories } from './memory.js';
 import {
   discoverWorkspaceContext,
   shouldTriggerSessionRecall,
@@ -37,6 +37,7 @@ import {
   formatReflectionNote,
   createTaskLedger,
   formatTaskLedgerNote,
+  evaluateLocalFastPathGate,
   resolveNexusExecutionProfile,
   escalateNexusProfile,
   recommendExecutionEngine,
@@ -46,11 +47,14 @@ import {
   arbitrateUnifiedEvidence,
   buildDegradationDiagnostics,
   formatDegradationDiagnostics,
+  createFaithfulTraceRecorder,
   buildDecisionFootprint,
   formatDecisionFootprintForPrompt,
   createTurnTelemetry,
+  recordRouteLatencySample,
+  evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.8';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.9';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -245,12 +249,22 @@ export function createAgent(store, hooks = {}) {
     const lv = String(st.reasoningLevel || 'medium').toLowerCase();
     const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
     if (!cachedPrefix) {
-      // 回合开始前先跑一次记忆与技能 GC，自动淘汰如 learned-这个呢 等噪声条目或过期记忆
-      store.state.memory = pruneMemoryFacts(store.state.memory);
+      // 回合开始前先跑一次记忆与技能整理：噪声条目（如 learned-这个呢）硬清除，超期条目转入软归档冷库，并按用户问题唤醒冷备记忆
+      store.state.memoryArchive = Array.isArray(store.state.memoryArchive) ? store.state.memoryArchive : [];
+      store.state.memory = pruneMemoryFacts(store.state.memory, { archiveSink: store.state.memoryArchive });
+      const arcRecall = recallArchivedMemories(userText, {
+        activeFacts: store.state.memory,
+        archivePool: store.state.memoryArchive,
+      });
+      if (arcRecall.recalled.length) {
+        store.state.memory = arcRecall.nextActive;
+        if (nexusState) nexusState.revivedMemories = arcRecall.recalled;
+      }
       const skillGc = pruneLearnedSkillsWithReport(store.state.learnedSkills);
       store.state.learnedSkills = skillGc.kept;
-      if (nexusState && skillGc.prunedIds.length) {
-        nexusState.prunedSkillIds = skillGc.prunedIds;
+      if (nexusState) {
+        if (skillGc.prunedIds.length) nexusState.prunedSkillIds = skillGc.prunedIds;
+        if (skillGc.archivedIds && skillGc.archivedIds.length) nexusState.archivedSkillIds = skillGc.archivedIds;
       }
       const wsCtx = discoverWorkspaceContext(fs);
       const subGuide = subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' });
@@ -260,10 +274,15 @@ export function createAgent(store, hooks = {}) {
         contextFiles: [subGuide, wsCtx].filter(Boolean).join('\n\n'),
       }).cached;
     }
+    const hasAtts = !!(lastUser && Array.isArray(lastUser.attachments) && lastUser.attachments.length);
+    const localGate = !plan
+      ? evaluateLocalFastPathGate(userText, { hasAttachments: hasAtts, historyLen: Math.max(0, messages.length - 1) })
+      : null;
+    const effectivePlan = plan || (localGate && localGate.syntheticPlan) || null;
     const baseProfile = (nexusState && nexusState.profile) || resolveNexusExecutionProfile({
       userText,
-      plan,
-      hasAttachments: !!(lastUser && Array.isArray(lastUser.attachments) && lastUser.attachments.length),
+      plan: effectivePlan,
+      hasAttachments: hasAtts,
       iteration,
       toolCallsCount: nexusState && nexusState.stepHistory ? nexusState.stepHistory.length : 0,
     });
@@ -282,7 +301,7 @@ export function createAgent(store, hooks = {}) {
     const recallHits = shouldRecallNow
       ? searchCrossSessionMemory(store.state.sessions, userText, { excludeSessionId: store.state.activeSessionId })
       : [];
-    const skillBodyNote = selectSkillBodies(plan, userText, store.state.learnedSkills);
+    const skillBodyNote = selectSkillBodies(effectivePlan, userText, store.state.learnedSkills);
     const matchedSkillIds = skillBodyNote
       ? [...skillBodyNote.matchAll(/## (?:Skill|Learned skill):\s*([^\n\r]+)/g)].map((m) => m[1].trim())
       : [];
@@ -314,15 +333,27 @@ export function createAgent(store, hooks = {}) {
       reasoningLevel: lv,
     });
     const degradationNote = formatDegradationDiagnostics(degradations);
+    const usedToolNamesNow = nexusState && nexusState.stepHistory ? nexusState.stepHistory.map((s) => s.name) : [];
+    const traceRec = createFaithfulTraceRecorder();
+    traceRec.record(execProfile.escalated ? 'route:escalated' : (execProfile.fastPath ? 'route:fast-path' : 'route:full-nexus'), execProfile.mode);
+    if (Array.isArray(store.state.memory) && store.state.memory.length > 0) {
+      traceRec.record('memory:injected', String(store.state.memory.length));
+    }
+    if (usedToolNamesNow.length > 0) {
+      traceRec.record('tools:executed', usedToolNamesNow.join(','));
+    }
     const footprint = buildDecisionFootprint({
       profile: execProfile,
       memories: store.state.memory,
+      recalledArchivedMemories: (nexusState && nexusState.revivedMemories) || [],
       recalledSessions: recallHits,
       matchedSkillIds,
       prunedSkillIds: (nexusState && nexusState.prunedSkillIds) || [],
-      usedTools: nexusState && nexusState.stepHistory ? nexusState.stepHistory.map((s) => s.name) : [],
+      archivedSkillIds: (nexusState && nexusState.archivedSkillIds) || [],
+      usedTools: usedToolNamesNow,
       arbitration: unifiedArb,
       degradations,
+      traceRecorder: traceRec,
     });
     if (nexusState) nexusState.lastFootprint = footprint;
     if (nexusState && nexusState.telemetry) {
@@ -769,6 +800,17 @@ export function createAgent(store, hooks = {}) {
       }
       telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
       store.state.lastNexusTelemetry = telemetry.finish();
+      recordRouteLatencySample({
+        fastPath: !!(nexusState.profile && nexusState.profile.fastPath),
+        totalMs: telemetry.totalDurationMs,
+        probeOverheadMs: 0,
+      });
+      store.state.lastNexusScorecard = evaluateNexusAcceptanceMetrics({
+        memory: store.state.memory,
+        memoryArchive: store.state.memoryArchive || [],
+        telemetry,
+        footprint: nexusState.lastFootprint,
+      });
       syncFS();
       store.notify();
       emit('onTurnTiming', Math.round(performance.now() - t0)); // emit 内部已吞掉视图层异常

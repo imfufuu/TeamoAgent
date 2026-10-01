@@ -87,7 +87,45 @@ export const BUNDLED_SKILLS = [
   },
 ];
 
-const SKILL_DEFAULT_TTL_MS = 14 * 24 * 3600 * 1000; // 14 天未命中自动衰减淘汰
+const SKILL_DEFAULT_TTL_MS = 14 * 24 * 3600 * 1000; // 14 天未命中转入冷备软归档（绝不因时间硬删有效技能）
+const MAX_SKILL_ARCHIVE = 32;
+const skillArchiveMap = new Map();
+
+export function getSoftArchivedSkills(externalArchive = []) {
+  if (Array.isArray(externalArchive)) {
+    for (const s of externalArchive) {
+      if (s && s.id) skillArchiveMap.set(s.id, s);
+    }
+  }
+  return [...skillArchiveMap.values()].sort((a, b) => (b.archivedAt || b.ts || 0) - (a.archivedAt || a.ts || 0));
+}
+
+export function restoreArchivedSkill(activeList = [], idOrQuery = 'last', now = Date.now()) {
+  const pool = getSoftArchivedSkills();
+  if (!pool.length) return { next: pruneLearnedSkills(activeList, { now }), restored: [] };
+  const q = String(idOrQuery || 'last').trim().toLowerCase();
+  const matched = (!q || q === 'last')
+    ? [pool[0]]
+    : pool.filter((s) => s.id.toLowerCase() === q || String(s.description || '').toLowerCase().includes(q));
+  if (!matched.length) return { next: pruneLearnedSkills(activeList, { now }), restored: [] };
+  let next = pruneLearnedSkills(activeList, { now });
+  const restored = [];
+  for (const s of matched) {
+    skillArchiveMap.delete(s.id);
+    const revived = {
+      ...s,
+      archived: false,
+      archivedAt: undefined,
+      archiveReason: undefined,
+      lastHitAt: now,
+      hits: (Number(s.hits) || 0) + 1,
+      vitality: Math.max(0.75, computeSkillVitality({ ...s, lastHitAt: now, hits: (Number(s.hits) || 0) + 1 }, now)),
+    };
+    restored.push(revived);
+    next = rememberSkill(next, revived);
+  }
+  return { next, restored };
+}
 
 // 技能写入质量守门人（Skill Quality Gatekeeper）：
 // 拦截指代残片（如“这个呢”）、寒暄追问、过短无语义标题或未自愈的失败回合
@@ -119,10 +157,23 @@ export function computeSkillVitality(skill, now = Date.now()) {
 }
 
 export function pruneLearnedSkillsWithReport(list = [], { now = Date.now(), cap = 8 } = {}) {
-  if (!Array.isArray(list) || !list.length) return { kept: [], prunedIds: [] };
-  const kept = [];
+  if (!Array.isArray(list) || !list.length) return { kept: [], prunedIds: [], archivedIds: [], softArchived: [] };
+  const candidates = [];
   const prunedIds = [];
+  const archivedIds = [];
+  const softArchived = [];
   const seen = new Set();
+
+  const pushSoftArchive = (s, reason) => {
+    const arc = { ...s, archived: true, archiveReason: reason, archivedAt: now };
+    skillArchiveMap.set(s.id, arc);
+    if (skillArchiveMap.size > MAX_SKILL_ARCHIVE) {
+      const oldest = skillArchiveMap.keys().next().value;
+      if (oldest) skillArchiveMap.delete(oldest);
+    }
+    archivedIds.push(s.id);
+    softArchived.push(arc);
+  };
 
   for (const s of list) {
     if (!s || !s.id) continue;
@@ -134,20 +185,32 @@ export function pruneLearnedSkillsWithReport(list = [], { now = Date.now(), cap 
     const validTitle = isValidSkillCandidate(label, { toolNames: ['a', 'b', 'c'], iterations: 3 });
     const vitality = computeSkillVitality(s, now);
 
-    if (!validTitle || expired || lowSuccess || vitality < 0.36 || seen.has(s.id)) {
+    // 1. 真正的噪声残片（如 learned-这个呢）或持续失败错招：硬清除，绝不归档
+    if (!validTitle || lowSuccess || seen.has(s.id)) {
       prunedIds.push(s.id);
+      skillArchiveMap.delete(s.id);
       continue;
     }
     seen.add(s.id);
-    kept.push({
+    // 2. 时间超期或活力暂时下降的有效技能：转入软归档冷库（平时 0 Token，再次提及时自动唤醒，绝不因时间误删）
+    if (expired || vitality < 0.36) {
+      pushSoftArchive(s, expired ? 'ttl-cold' : 'vitality-cold');
+      continue;
+    }
+    candidates.push({
       ...s,
+      archived: false,
       confidence: typeof s.confidence === 'number' ? s.confidence : 0.85,
       ttlMs,
       vitality,
     });
   }
-  kept.sort((a, b) => (b.vitality - a.vitality) || ((b.ts || 0) - (a.ts || 0)));
-  return { kept: kept.slice(0, cap), prunedIds };
+  candidates.sort((a, b) => (b.vitality - a.vitality) || ((b.ts || 0) - (a.ts || 0)));
+  const kept = candidates.slice(0, cap);
+  for (const overflow of candidates.slice(cap)) {
+    pushSoftArchive(overflow, 'capacity-cold');
+  }
+  return { kept, prunedIds, archivedIds, softArchived };
 }
 
 export function pruneLearnedSkills(list = [], opts = {}) {
@@ -186,9 +249,11 @@ export function selectSkillBodies(plan, userText, learned = []) {
     } catch { /* 单条技能匹配失败不影响其它 */ }
   }
   const cleanLearned = pruneLearnedSkills(learned);
+  const archivedCandidates = getSoftArchivedSkills();
+  const allSearchable = [...cleanLearned, ...archivedCandidates];
   const q = String(userText || '').slice(0, 200);
   const qTokens = new Set(tokenizeForSearch(q, { expandSynonyms: true }));
-  for (const s of cleanLearned) {
+  for (const s of allSearchable) {
     if (!s || !s.body) continue;
     const key = `${s.id} ${s.description || ''} ${s.body}`;
     let matched = false;
@@ -205,6 +270,13 @@ export function selectSkillBodies(plan, userText, learned = []) {
     if (matched) {
       s.hits = (Number(s.hits) || 0) + 1;
       s.lastHitAt = Date.now();
+      if (s.archived) {
+        s.archived = false;
+        skillArchiveMap.delete(s.id);
+        if (Array.isArray(learned) && !learned.some((x) => x && x.id === s.id)) {
+          learned.unshift(s);
+        }
+      }
       hits.push(s);
     }
   }

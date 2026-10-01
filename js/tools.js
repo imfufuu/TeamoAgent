@@ -9,7 +9,7 @@ import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
-import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact } from './memory.js';
+import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
@@ -329,13 +329,13 @@ export const TOOL_DEFS = [
   {
     name: 'remember',
     description:
-      '跨会话长效记忆。只记真正重要的内容：用户明确要求记住、稳定偏好、身份、长期项目、不可恢复的约定。' +
-      '严禁记闲聊、问候、一次性任务、临时路径或本轮步骤。action=add 写入一条短事实；forget 按关键词删除；list 列出当前记忆。',
+      '跨会话长效记忆（带写入过滤与软归档可恢复保护）。只记真正重要的内容：用户明确要求记住、稳定偏好、身份、长期项目、不可恢复的约定。' +
+      '严禁记闲聊、问候、一次性任务、临时路径或本轮步骤。action=add 写入一条短事实；forget 按 ID(mem-xxxx) 或关键词转入软归档冷库；restore 从软归档冷库恢复误删或超期条目；list 列出当前记忆。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['add', 'forget', 'list'], description: 'add 记下；forget 删除匹配条目；list 查看' },
-        fact: { type: 'string', description: '一条短事实（建议 ≤160 字）。add / forget 时必填' },
+        action: { type: 'string', enum: ['add', 'forget', 'restore', 'list'], description: 'add 记下；forget 归档移除；restore 恢复归档条目；list 查看' },
+        fact: { type: 'string', description: '一条短事实（建议 ≤160 字）或记忆 ID（如 mem-xxxx）。add / forget / restore 时使用' },
       },
       required: ['action'],
     },
@@ -924,9 +924,21 @@ async function executeToolBody(name, args, ctx) {
           if (typeof ctx.setMemory === 'function') ctx.setMemory(next);
         };
         if (action === 'list') {
-          const block = formatMemory(mem) || '（尚无长效记忆）';
+          const arcCount = getSoftArchivedMemories().length;
+          const block = (formatMemory(mem) || '（尚无活跃长效记忆）')
+            + (arcCount ? `\n（冷备软归档库中另有 ${arcCount} 条历史记忆，可用 remember(action="restore") 恢复）` : '');
           emit({ status: 'ok', note: block });
           return block;
+        }
+        if (action === 'restore') {
+          const q = String((args && (args.id || args.fact)) || 'last').trim();
+          const res = restoreMemoryFact(mem, q);
+          commit(res.next);
+          const n = res.restored.length;
+          emit({ status: 'ok', note: `已恢复 ${n} 条` });
+          return n
+            ? `已从软归档冷库恢复 ${n} 条记忆（${res.restored.map((r) => `[${r.id}] ${r.text}`).join('；')}）。当前活跃记忆 ${res.next.length} 条。`
+            : `软归档冷库中没有匹配「${q}」的记忆。`;
         }
         if (action === 'forget') {
           const q = String((args && (args.id || args.fact)) || '').trim();
@@ -934,9 +946,9 @@ async function executeToolBody(name, args, ctx) {
           if (res.error) return res.error;
           commit(res.next);
           const n = res.removed.length;
-          emit({ status: 'ok', note: `删除 ${n} 条` });
+          emit({ status: 'ok', note: `删除 ${n} 条（已转入冷备）` });
           return n
-            ? `已从长效记忆删除 ${n} 条（${res.removed.map((r) => `[${r.id}] ${r.text}`).join('；')}）。剩余 ${res.next.length} 条。`
+            ? `已从长效记忆删除 ${n} 条并转入软归档冷库（${res.removed.map((r) => `[${r.id}] ${r.text}`).join('；')}，可随时用 remember(action="restore") 恢复）。剩余 ${res.next.length} 条。`
             : `没有匹配「${q}」的记忆。`;
         }
         const fact = String((args && args.fact) || '').trim();

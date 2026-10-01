@@ -5344,6 +5344,147 @@ test('2026.9.30.8：痛点2/3/5/6 治理——L1 路由可逆化中途升档、�
   assert.match(summaryFp, /天枢 L1↗L6 中途升档 · 记忆×1 · 召回×1 · 技能:structured-diagrams · 工具×1 · GC清理×1/);
 });
 
+group('2026.9.30.9 天枢 THN v2.0 六大挑刺与六项验收指标闭环重构（三核四态收敛 / 软归档可恢复 / 0ms本地预筛 / 口径一致与深度披露 / 前提重探针 / 足迹哈希忠实度）');
+
+test('2026.9.30.9：挑刺①&②治理——六层合并收敛为「三核四态」消除组合爆炸，并通过跨层交集矩阵测试', async () => {
+  const nexus = await import('../js/nexus.js');
+  // 哪三层可以合并：L1+L2 → S1 路由与环境探针；L3+L4 → S2 记忆与技能软归档库；L5+L6 → S3 执行核验与实测足迹
+  assert.equal(nexus.NEXUS_CONVERGENCE_SPEC.mergedFromLayers, 6);
+  assert.equal(nexus.NEXUS_CONVERGENCE_SPEC.convergedStagesCount, 3);
+  assert.equal(nexus.NEXUS_CONVERGENCE_SPEC.canonicalStatesCount, 4);
+  assert.deepEqual(nexus.NEXUS_CONVERGENCE_SPEC.stages.map((s) => s.id), [
+    'S1-route-probe',
+    'S2-context-archive',
+    'S3-verify-trace',
+  ]);
+
+  // 交集矩阵测试：覆盖“L2 降级 + L3 命中两条记忆 + L4 技能临界软归档 + L1 中途反悔升档”等复杂交集
+  const matrix = nexus.verifyCombinatorialIntersectionMatrix();
+  assert.equal(matrix.passRate, 1.0, '跨层复杂交集矩阵测试通过率必须为 100%');
+});
+
+test('2026.9.30.9：挑刺③治理——软归档可召回（Soft-Archive & Auto-Resurrection）替代时间硬删，误删与超期可恢复率 100%', async () => {
+  const mem = await import('../js/memory.js');
+  const sk = await import('../js/skills.js');
+  const now = Date.now();
+  const fourMonthsAgo = now - 120 * 24 * 3600 * 1000;
+
+  // 1) 三个月前未命中的用户偏好记忆：超期后转入软归档冷库（平时占 0 Token），绝不硬删；一旦对话提及立即自动唤醒
+  const archiveSink = [];
+  const agedMemories = [
+    { id: 'mem-rust', text: '用户真心在意的偏好：底层库一律优先使用 Rust 编写', ts: fourMonthsAgo, expiresAt: fourMonthsAgo + 1000, hits: 0, source: 'user-explicit', confidence: 0.98 },
+    { id: 'mem-ts', text: '前端工程使用 TypeScript 5.x', ts: now, expiresAt: now + 90 * 24 * 3600 * 1000, hits: 1, source: 'user-explicit', confidence: 0.98 },
+  ];
+  const activeAfterPrune = mem.pruneMemoryFacts(agedMemories, { now, archiveSink });
+  assert.equal(activeAfterPrune.length, 1, '超期未触发的记忆应转入冷备，不占常规回合 Token');
+  assert.equal(archiveSink.length, 1, '超期记忆必须完整保存在软归档冷库而非硬删');
+  assert.equal(archiveSink[0].id, 'mem-rust');
+
+  // 当用户三个月后再次提起 Rust 时，自动从软归档冷库唤醒回活跃列表
+  const recalled = mem.recallArchivedMemories('帮我写一个 Rust 命令行解析器', {
+    activeFacts: activeAfterPrune,
+    archivePool: archiveSink,
+    now,
+  });
+  assert.equal(recalled.recalled.length, 1, '提及冷备关键词时应自动唤醒软归档记忆');
+  assert.equal(recalled.recalled[0].id, 'mem-rust');
+  assert.equal(recalled.nextActive.length, 2);
+
+  // 2) 手动 forget 删除的记忆同样进入软归档冷库，支持 restore 一键 100% 恢复
+  const afterForget = mem.forgetMemoryFact(recalled.nextActive, 'mem-ts', { now });
+  assert.equal(afterForget.next.length, 1);
+  const afterRestore = mem.restoreMemoryFact(afterForget.next, 'mem-ts', { now });
+  assert.equal(afterRestore.restored.length, 1);
+  assert.equal(afterRestore.next.length, 2, '被误删的记忆应能 100% 恢复');
+
+  // 3) 技能同样区分“噪声硬清除（learned-这个呢）”与“超期有效技能转冷备并按需唤醒”
+  const oldSkill = {
+    id: 'learned-graphviz-arch',
+    description: '用 Graphviz DOT 绘制微服务拓扑架构图',
+    body: '## Learned skill: 用 Graphviz DOT 绘制微服务拓扑架构图\n- 工具: render_dot',
+    ts: fourMonthsAgo,
+    lastHitAt: fourMonthsAgo,
+    hits: 0,
+  };
+  const noiseSkill = {
+    id: 'learned-这个呢',
+    description: '这个呢',
+    body: '## Learned skill: 这个呢',
+    ts: now,
+  };
+  const skillReport = sk.pruneLearnedSkillsWithReport([oldSkill, noiseSkill], { now });
+  assert.ok(skillReport.prunedIds.includes('learned-这个呢'), '指代噪声必须硬清除');
+  assert.ok(skillReport.archivedIds.includes('learned-graphviz-arch'), '超期但合法的技能应转入软归档冷库而非硬删');
+  const activeSkills = [];
+  const wokenBody = sk.selectSkillBodies(null, '请用 Graphviz DOT 绘制微服务拓扑架构图', activeSkills);
+  assert.match(wokenBody, /微服务拓扑架构图/, '后续对话再次命中冷备技能时应自动唤醒');
+});
+
+test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛、诚实披露深度差距、前提实时重探针、足迹哈希忠实度与六项指标计分板', async () => {
+  const nexus = await import('../js/nexus.js');
+
+  // 挑刺 ④：0ms 本地预筛跳过远端探测，快路径 P50 延迟净收益为正
+  const localGate = nexus.evaluateLocalFastPathGate('早上好！', { hasAttachments: false, historyLen: 0 });
+  assert.equal(localGate.skipRemoteJev, true, '极简问候应在本地 0ms 判定，无需等待远端探测');
+  assert.equal(localGate.probeOverheadMs, 0);
+  const latencyStats = nexus.getFastPathAbLatencyStats();
+  assert.equal(latencyStats.isPositiveRoi, true);
+  assert.ok(latencyStats.fastP50Ms < latencyStats.fullP50Ms);
+
+  // 挑刺 ⑤：「口径一致 + 推理深度差异与误差风险已披露」
+  const lowTierArb = nexus.arbitrateUnifiedEvidence({
+    canDispatch: false,
+    reasoningLevel: 'medium',
+    userText: '深入对比这两种分布式锁方案的优缺点与边界故障',
+  });
+  assert.equal(lowTierArb.criteriaAligned, true);
+  assert.equal(lowTierArb.depthGapDisclosed, true);
+  assert.match(lowTierArb.depthDisclosure, /口径一致 \+ 误差已披露/);
+  assert.match(lowTierArb.depthDisclosure, /结构性低于 Max\/Ultra/);
+
+  // 挑刺 ⑥：单点前提实时重探针自校验（启动期 relayOk=false，但用户发起抓取请求时实时重探针成功并纠偏）
+  const premiseCheck = await nexus.verifyRuntimePremises({
+    relayOk: false,
+    webEnabled: true,
+    sandboxEnabled: true,
+    userText: '帮我抓取 https://example.com 的最新内容',
+    reprobeRelay: async () => true,
+  });
+  assert.equal(premiseCheck.reverifyTriggered, true);
+  assert.equal(premiseCheck.premiseCorrected, true);
+  assert.equal(premiseCheck.relayOk, true, '实时重探针成功后应立即纠正前提，阻止错误前提向下传播');
+
+  // 验收第 6 条：决策足迹忠实度（真实执行分支 FNV-1a 哈希校验，篡改或伪造足迹时拦截）
+  const trace = nexus.createFaithfulTraceRecorder();
+  trace.record('route:full-nexus', 'full-nexus');
+  trace.record('memory:injected', '1');
+  trace.record('tools:executed', 'evaluate_expression');
+  const validFp = nexus.buildDecisionFootprint({
+    profile: { mode: 'full-nexus', fastPath: false, escalated: false },
+    memories: [{ id: 'mem-1001', text: '偏好精确数值' }],
+    usedTools: ['evaluate_expression'],
+    traceRecorder: trace,
+  });
+  assert.equal(validFp.faithful, true);
+  assert.equal(validFp.faithfulnessRate, 1.0);
+  // 若有人篡改展示足迹（例如把未执行的工具或错误路径塞进去），忠实度校验立即检出不匹配
+  const tamperedFp = { ...validFp, fastPath: true, traceHash: 'tr-deadbeef' };
+  const checkTampered = nexus.verifyFootprintFaithfulness(tamperedFp, trace);
+  assert.equal(checkTampered.faithful, false, '事后篡改或伪造的足迹必须无法通过轨迹哈希校验');
+
+  // 验收计分板：一次性读取全部 6 个核心指标
+  const scorecard = nexus.evaluateNexusAcceptanceMetrics({
+    memory: [{ id: 'mem-1001', text: '用户偏好使用 TypeScript 编写前端项目' }],
+    footprint: validFp,
+  });
+  assert.equal(scorecard.escalationRecallRate, 1.0, '1. 升档判定召回率应达 100%');
+  assert.equal(scorecard.memoryPollutionRate, 0, '2. 记忆写入污染率应为 0%');
+  assert.equal(scorecard.memoryRecoveryRate, 1.0, '3. 记忆误删与软归档可恢复率应达 100%');
+  assert.ok(scorecard.kvCacheHitRate > 0, '4. KV Cache 前缀命中率有效');
+  assert.ok(scorecard.fastPathP50Ms < scorecard.fullPathP50Ms, '5. 快路径端到端 P50 延迟显著低于慢路径');
+  assert.equal(scorecard.footprintFaithfulnessRate, 1.0, '6. 决策足迹忠实度应达 100%');
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();

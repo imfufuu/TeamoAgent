@@ -16,7 +16,8 @@ import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
-import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport } from './nexus.js';
+import { relayAvailable } from './net.js';
+import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -1382,9 +1383,18 @@ export function mountUI(store, agent) {
     syncCapLine();
   };
   if (webToggle) {
-    webToggle.addEventListener('click', () => {
+    webToggle.addEventListener('click', async () => {
       if (!hasRelay()) {
-        toast('未检测到本地中继（server.py），fetch_url 已降级隐藏。请在项目目录运行 python3 server.py 后刷新页面恢复联网', 'warn', 4200);
+        const liveOk = await relayAvailable();
+        if (liveOk) {
+          store.state.relayOk = true;
+          store.state.settings.webEnabled = true;
+          store.notify();
+          syncWeb();
+          toast('✓ 已实时探测到本地 server.py 中继上线，联网抓取能力已自动恢复', 'ok', 3600);
+          return;
+        }
+        toast('未检测到本地中继（server.py），fetch_url 已降级隐藏。请在项目目录运行 python3 server.py 后再点此按钮实时恢复', 'warn', 4200);
         return;
       }
       store.state.settings.webEnabled = store.state.settings.webEnabled === false;
@@ -3271,6 +3281,12 @@ export function mountUI(store, agent) {
         `累计耗时：${st.totalMs ? fmtSpan(st.totalMs) : '—'}`,
         '',
         formatObservabilityReport(store.state.lastNexusTelemetry),
+        '',
+        formatNexusAcceptanceReport({
+          memory: store.state.memory || [],
+          memoryArchive: store.state.memoryArchive || [],
+          telemetry: store.state.lastNexusTelemetry,
+        }),
       ].join('\n');
     } else if (name === 'theme') {
       const v = String(arg || '').toLowerCase();
