@@ -59,7 +59,32 @@ import {
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.11';
+import { moderateUserTurn } from './moderation.js?v=2026.10.1.12';
+// ─── P0 执行内核（THN v2.3）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
+// 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
+import {
+  EXECUTION_STATES,
+  EXECUTION_POLICY_VERSION,
+  DEFAULT_TURN_BUDGET,
+  createExecutionStateMachine,
+  resumeExecutionState,
+  classifyTaskClass,
+  normalizeReasoningState,
+  createExecutionContext,
+  assertContextToolAlignment,
+  buildCapabilityConstraints,
+  describeCapabilityConstraints,
+  validateToolCallPre,
+  validateToolResultPost,
+  classifyToolRisk,
+  formatConfirmationRequest,
+  createBudgetGovernor,
+  formatBudgetLedger,
+  fsDigest,
+  finalizeExecutionTurn,
+  summarizeExecutionRecord,
+  evaluateExecutionKernelAcceptance,
+} from './execution.js?v=2026.10.1.12';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -487,17 +512,216 @@ export function createAgent(store, hooks = {}) {
 
   // 同一轮里：dispatch_subagent 并发；只读工具并发；写/执行串行。
   // 结果仍按调用原顺序写回对话，两种协议的 tool_use/tool_result 配对都不受影响。
-  async function runToolCalls(calls, turn) {
+  //
+  // P0 执行内核接线点：每次调用都走「调用前契约校验 → 预算扣减 → 执行 → 调用后核验」，
+  // 并把调用前状态 / 调用后状态 / 理由 / 风险等级 / 幂等键 / 副作用摘要写进版本化审计轨迹。
+  async function runToolCalls(calls, turn, exec) {
     const out = new Array(calls.length);
+    const waveRuns = [];
+    const toolDefByName = new Map(exec.toolList.map((t) => [t.name, t]));
+    if (exec.machine.canTransition(EXECUTION_STATES.TOOL_PENDING)) {
+      exec.machine.transition(EXECUTION_STATES.TOOL_PENDING, `模型请求 ${calls.length} 次工具调用`, { tools: calls.map((c) => c.name) });
+    }
+    exec.machine.transition(EXECUTION_STATES.TOOL_RUNNING, `开始执行 ${calls.length} 次调用（批处理：${batchToolCalls(calls).map((b) => b.kind).join('+')}）`);
+
+    const recordBlocked = (call, { reason, failure, risk, idempotencyKey, notes = [] }) => {
+      const run = exec.machine.beginToolRun({ callId: call.id, name: call.name, args: call.args, reason, risk, idempotencyKey });
+      const closed = exec.machine.endToolRun(run, { status: 'blocked', failure, notes });
+      waveRuns.push(closed);
+      if (idempotencyKey) exec.seenIdempotency.set(idempotencyKey, { status: 'blocked', index: closed.index });
+      return closed;
+    };
+
     const runOne = async (call) => {
       if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit('onToolStart', call);
+      const toolDef = toolDefByName.get(call.name) || null;
+
+      // ① 参数 JSON 都没解析出来 → 回喂纠错，绝不产生副作用（不进契约层）
       if (hasBadArgs(call)) {
         emit('onToolEvent', call, { status: 'error', note: '参数解析失败' });
+        recordBlocked(call, {
+          reason: '模型给出的工具参数不是合法 JSON',
+          failure: { kind: 'INVALID_ARGS', label: '参数错误', handling: '修正参数后最多重试一次', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '把参数改成合法 JSON 后重新调用。' },
+          risk: { level: 'L0', levelLabel: '参数未解析', reasons: ['参数不是合法 JSON'], hasExternalSideEffect: false, irreversible: false, requiresConfirmation: false },
+        });
         return `工具参数不是合法 JSON，原始内容：${String(call.args.__raw).slice(0, 500)}。请修正参数后重新调用。`;
       }
-      return executeTool(call.name, call.args, toolCtxFor(call, turn));
+
+      // ② 调用前契约校验：Schema / 能力掩码 / 能力约束 / 预算 / 幂等键（同一份判决同时进审计）
+      const pre = validateToolCallPre({
+        name: call.name,
+        args: call.args,
+        toolDef,
+        tools: exec.toolList,
+        capabilities: exec.capabilities,
+        budget: exec.budgetGov,
+        seenIdempotency: exec.seenIdempotency,
+        turnBudget: { turnId: exec.execCtx.turnId },
+      });
+      const risk = classifyToolRisk({ name: call.name, args: call.args, contract: pre.contract, fs, userText: exec.execCtx.userIntent });
+      exec.machine.audit.record('tool-preflight', {
+        name: call.name, decision: pre.decision, errors: pre.errors.map((e) => e.id),
+        riskLevel: risk.level, riskReasons: risk.reasons, requiresConfirmation: risk.requiresConfirmation,
+        idempotencyKey: pre.idempotencyKey, budgetRemaining: exec.budgetGov.remaining('toolCalls'),
+      });
+
+      if (!pre.ok) {
+        emit('onToolEvent', call, { status: 'error', note: pre.errors.map((e) => e.detail).join('；') });
+        const budgetBlocked = pre.errors.some((e) => e.id === 'budget-tool-calls-exhausted');
+        recordBlocked(call, {
+          reason: `调用前校验未通过：${pre.errors.map((e) => e.id).join(', ')}`,
+          failure: {
+            kind: budgetBlocked ? 'ENVIRONMENT' : 'PERMISSION',
+            label: budgetBlocked ? '预算耗尽' : '契约/能力拦截',
+            handling: '不重试：按裁决原因改道或如实披露',
+            retryable: false, maxRetries: 0, verifyFirst: false,
+            guidance: pre.errors.map((e) => e.recovery).filter(Boolean).join('；') || '换用其它可用工具或调整参数。',
+            idempotencyKey: pre.idempotencyKey,
+          },
+          risk, idempotencyKey: pre.idempotencyKey, notes: pre.errors.map((e) => e.id),
+        });
+        return budgetBlocked
+          ? `${pre.message}\n${formatBudgetLedger(exec.budgetGov)}`
+          : pre.message;
+      }
+
+      // ③ 严格模式下的高风险确认（默认 observe：只记录风险等级并放行；P1 才接交互确认）
+      if (risk.requiresConfirmation && store.state.settings.executionGuard === 'strict') {
+        const request = formatConfirmationRequest({
+          name: call.name, args: call.args,
+          reason: risk.reasons[0] || '', impact: undefined,
+          reversibility: risk.irreversible ? '不可自动恢复' : undefined,
+        });
+        emit('onConfirmationRequest', call, request);
+        recordBlocked(call, {
+          reason: '高风险操作在严格模式下等待用户确认',
+          failure: { kind: 'PERMISSION', label: '等待用户确认', handling: '严格模式：需用户确认后才执行', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '向用户展示确认请求，得到明确同意后再重新调用。' },
+          risk, idempotencyKey: pre.idempotencyKey, notes: ['awaiting-confirmation'],
+        });
+        return `⏸ 该操作风险等级 ${risk.level}（${risk.levelLabel}），当前严格模式下需要用户确认后才执行：\n${request}`;
+      }
+
+      // ④ 预算扣减：工具调用 /（如有）外部副作用 —— 扣减失败即拒绝，不再执行
+      const spendTool = exec.budgetGov.spend('toolCalls', 1, { tool: call.name });
+      if (!spendTool.ok) {
+        recordBlocked(call, {
+          reason: '工具调用预算耗尽',
+          failure: { kind: 'ENVIRONMENT', label: '预算耗尽', handling: '不重试：本轮预算已用尽', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '给出阶段性结论并披露未完成部分。' },
+          risk, idempotencyKey: pre.idempotencyKey, notes: ['budget-tool-calls-exhausted'],
+        });
+        return `⛔ 执行内核：${spendTool.reason}。请立即收敛结论并如实披露未完成的部分。\n${formatBudgetLedger(exec.budgetGov)}`;
+      }
+      exec.machine.audit.record('budget-spend', {
+        channel: 'toolCalls', amount: 1, spent: spendTool.spent,
+        limit: exec.budgetGov.budget.maxToolCalls, tool: call.name,
+      });
+      if (risk.hasExternalSideEffect) {
+        const spendExt = exec.budgetGov.spend('externalSideEffects', 1, { tool: call.name });
+        if (spendExt.ok) {
+          exec.machine.audit.record('budget-spend', {
+            channel: 'externalSideEffects', amount: 1, spent: spendExt.spent,
+            limit: exec.budgetGov.budget.maxExternalSideEffects, tool: call.name,
+          });
+        }
+      }
+
+      // ⑤ 执行 + 调用后核验（含契约允许的退避重试，绝不盲目重试）
+      const run = exec.machine.beginToolRun({
+        callId: call.id, name: call.name, args: call.args,
+        reason: `契约允许（${pre.contract ? pre.contract.sideEffect : 'unknown'} 副作用 · 超时 ${pre.contract ? pre.contract.timeoutMs : '-'}ms）· 风险 ${risk.level}`,
+        risk, idempotencyKey: pre.idempotencyKey,
+      });
+      const toolCtx = { ...toolCtxFor(call, turn), execution: exec.execCtx };
+      let fsBefore = fsDigest(fs);
+      const t0 = Date.now();
+      let result = '';
+      let execError = null;
+      try {
+        result = await executeTool(call.name, call.args, toolCtx);
+      } catch (err) {
+        execError = err;
+        result = `工具执行失败: ${err && err.message ? err.message : String(err)}`;
+      }
+      let fsAfter = fsDigest(fs);
+      let post = validateToolResultPost({
+        name: call.name, args: call.args, contract: pre.contract, result, ok: !execError,
+        durationMs: Date.now() - t0, fsBefore, fsAfter, error: execError,
+        timedOut: /超时|timed out|timeout/i.test(String(result)),
+      });
+      let failure = post.failureKind;
+      let retried = false;
+      let retryNote = '';
+
+      // 契约允许（幂等 + 可退避）的暂时性失败：内核有限退避重试一次；否则交给模型决策
+      if (failure && failure.retryable && exec.budgetGov.canSpend('retries', 1).ok) {
+        exec.machine.transition(EXECUTION_STATES.RETRY_PENDING, `${call.name} 判定为${failure.label}，按契约退避重试（幂等键 ${pre.idempotencyKey}）`);
+        const spendRetry = exec.budgetGov.spend('retries', 1, { tool: call.name });
+        if (spendRetry.ok) {
+          exec.machine.audit.record('budget-spend', {
+            channel: 'retries', amount: 1, spent: spendRetry.spent,
+            limit: exec.budgetGov.budget.maxRetries, tool: call.name,
+          });
+        }
+        emit('onToolEvent', call, { status: 'running', note: `第 1 次失败（${failure.label}），按契约自动重试 1 次` });
+        await sleep(600);
+        exec.machine.transition(EXECUTION_STATES.TOOL_RUNNING, `${call.name} 重试第 1 次`);
+        const tR = Date.now();
+        fsBefore = fsDigest(fs);
+        try {
+          result = await executeTool(call.name, call.args, toolCtx);
+          execError = null;
+        } catch (err) {
+          execError = err;
+          result = `工具执行失败: ${err && err.message ? err.message : String(err)}`;
+        }
+        fsAfter = fsDigest(fs);
+        post = validateToolResultPost({
+          name: call.name, args: call.args, contract: pre.contract, result, ok: !execError,
+          durationMs: Date.now() - tR, fsBefore, fsAfter, error: execError,
+          timedOut: /超时|timed out|timeout/i.test(String(result)),
+        });
+        failure = post.failureKind;
+        retried = true;
+        retryNote = `\n[执行内核] 首次调用被判定为暂时性失败，已按契约幂等重试 1 次（幂等键 ${pre.idempotencyKey}）`;
+      } else if (failure && failure.retryable) {
+        exec.machine.audit.record('tool-retry-deferred', { name: call.name, idempotencyKey: pre.idempotencyKey, reason: '重试预算已用尽' });
+      }
+
+      const status = (execError || post.failureSignalled || post.failureKind) ? 'failed' : 'succeeded';
+      const closed = exec.machine.endToolRun(run, {
+        status,
+        failure,
+        postValidation: post,
+        fsDigestBefore: fsBefore.digest,
+        fsDigestAfter: fsAfter.digest,
+        recovered: retried && status === 'succeeded',
+        notes: [...(retried ? ['auto-retry'] : []), ...post.issues.map((i) => i.id)],
+      });
+      waveRuns.push(closed);
+      exec.seenIdempotency.set(pre.idempotencyKey, {
+        status: failure && failure.verifyFirst ? 'uncertain' : (status === 'failed' ? 'failed' : 'succeeded'),
+        index: closed.index,
+      });
+
+      // ⑥ 结果回喂模型：失败归类 + 恢复路径 + 副作用不确定的硬提示（禁止盲目重试）
+      let notes = '';
+      if (failure && failure.verifyFirst) {
+        notes += `\n\n⚠️ 执行内核：该调用可能已经产生了副作用但结果丢失（幂等键 ${pre.idempotencyKey}）。${failure.guidance}`;
+      } else if (failure) {
+        notes += `\n\n[执行内核] 失败归类：${failure.label}（${failure.handling}）。${failure.guidance || ''}`;
+      }
+      const highIssues = post.issues.filter((i) => i.severity === 'high');
+      for (const issue of highIssues) {
+        if (!(failure && failure.verifyFirst)) notes += `\n\n⚠️ 执行内核：${issue.detail}`;
+      }
+      if (risk.level === 'L3') notes += `\n\n[执行内核] 本次操作风险等级 L3（${risk.levelLabel}）：${risk.reasons.join('；')}`;
+      if (retryNote) notes += retryNote;
+      const left = exec.budgetGov.remaining('toolCalls');
+      if (Number.isFinite(left) && left <= 1) notes += `\n\n⚠️ 执行内核：本轮工具调用预算即将用尽（剩余 ${left}），后续调用会被拒绝，请尽快收敛结论。`;
+      return `${String(result)}${notes}`;
     };
+
     for (const b of batchToolCalls(calls)) {
       if (b.kind === 'serial') {
         out[b.start] = await runOne(calls[b.start]);
@@ -507,9 +731,31 @@ export function createAgent(store, hooks = {}) {
       for (let k = b.start; k < b.end; k += limit) {
         const group = [];
         for (let n = k; n < Math.min(k + limit, b.end); n++) group.push(n);
+        exec.budgetGov.spend('parallelTasks', group.length, { batch: b.kind });
         const rs = await Promise.all(group.map((n) => runOne(calls[n])));
         group.forEach((n, m) => { out[n] = rs[m]; });
       }
+    }
+
+    // 波次收尾：工具态必须闭环到 TOOL_SUCCEEDED / TOOL_FAILED（绝不停留在 RUNNING），
+    // 再把「下一步」显式标注为 RECOVERY_PENDING（副作用不确定）或 RETRY_PENDING（可重试但预算/次数已尽）。
+    const failedRuns = waveRuns.filter((r) => r.status === 'failed' || r.status === 'blocked');
+    const uncertainRuns = failedRuns.filter((r) => r.failure && r.failure.verifyFirst);
+    const deferrableRuns = failedRuns.filter((r) => r.failure && r.failure.retryable && !r.recovered);
+    if (failedRuns.length) {
+      exec.machine.transition(EXECUTION_STATES.TOOL_FAILED,
+        `${failedRuns.length}/${waveRuns.length} 次调用未成功：${failedRuns.map((r) => `${r.name}(${(r.failure && r.failure.label) || '失败'})`).join('、')}`);
+      if (uncertainRuns.length) {
+        exec.machine.transition(EXECUTION_STATES.RECOVERY_PENDING,
+          `副作用状态不确定：${uncertainRuns.map((r) => r.name).join('、')}。恢复路径=先核验目标状态再决定是否重发`,
+          { idempotencyKeys: uncertainRuns.map((r) => r.idempotencyKey) });
+      } else if (deferrableRuns.length) {
+        exec.machine.transition(EXECUTION_STATES.RETRY_PENDING,
+          `可重试失败待重发：${deferrableRuns.map((r) => r.name).join('、')}（退避重试次数/预算已用尽，交由下一轮决定）`,
+          { idempotencyKeys: deferrableRuns.map((r) => r.idempotencyKey) });
+      }
+    } else {
+      exec.machine.transition(EXECUTION_STATES.TOOL_SUCCEEDED, `${waveRuns.length} 次调用全部成功`);
     }
     return out;
   }
@@ -571,6 +817,73 @@ export function createAgent(store, hooks = {}) {
     });
     const nexusState = { stepHistory, ledger: taskLedger, subagentReports: turn.subagentReports, telemetry, turnTools: tools };
 
+    // ── P0 执行内核初始化（THN v2.3）──────────────────────────────────
+    // 一个回合一条状态轨迹：路由/工具/审计/重试共用同一状态机，杜绝各模块各自维护状态。
+    const sessionId = store.state.activeSessionId || 'session-local';
+    const prevRecord = store.state.lastExecutionRecord && store.state.lastExecutionRecord.sessionId === sessionId
+      ? store.state.lastExecutionRecord : null;
+    const resumeInfo = prevRecord ? resumeExecutionState(prevRecord) : null;
+    const capabilities = buildCapabilityConstraints({
+      relayOk,
+      webEnabled: settings.webEnabled !== false,
+      sandboxEnabled: settings.sandboxEnabled !== false,
+      canDispatch,
+      overrides: store.state.settings.capabilityConstraints || null,
+    });
+    const budgetGov = createBudgetGovernor({ ...DEFAULT_TURN_BUDGET, ...(store.state.settings.executionBudget || {}) });
+    const machine = createExecutionStateMachine({
+      turnId: `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionId,
+      policyVersion: EXECUTION_POLICY_VERSION,
+      prevDigest: (prevRecord && prevRecord.auditDigest) || GENESIS_TURN_DIGEST,
+    });
+    const userIntentText = (lastUserInit && lastUserInit.text) || '';
+    const execCtx = createExecutionContext({
+      turnId: machine.turnId,
+      sessionId,
+      userIntent: userIntentText,
+      taskClass: classifyTaskClass(userIntentText, { attachments: lastUserInit && lastUserInit.attachments }),
+      reasoningState: normalizeReasoningState(turn.reasoningLevel, turn.thinking),
+      capabilityMask: capabilities.bits,
+      budget: budgetGov.budget,
+      memory: { recalledIds: (store.state.memory || []).slice(0, 8).map((m) => m.id || 'mem'), candidateWrite: false },
+      traceId: `${sessionId}:${machine.turnId}`,
+    });
+    const alignment = assertContextToolAlignment(execCtx, tools);
+    const exec = {
+      machine, capabilities, budgetGov, execCtx, alignment,
+      toolList: tools,
+      seenIdempotency: new Map(),
+      resumeInfo,
+      resumeNote: '',
+      silentFailure: null,
+      record: null,
+      finalized: false,
+    };
+    turn.execution = execCtx;
+    machine.audit.record('turn-received', {
+      taskClass: execCtx.taskClass,
+      reasoningState: execCtx.reasoningState,
+      capabilityMask: execCtx.capabilityMask,
+      capCode: capabilities.capCode,
+      constraints: describeCapabilityConstraints(capabilities),
+      budget: budgetGov.budget,
+      toolCount: tools.length,
+      contextAlignment: alignment.aligned,
+      alignmentDiscrepancies: alignment.discrepancies,
+      userIntentPreview: userIntentText.slice(0, 60),
+      userIntentDigest: execCtx.userIntentDigest,
+      model, fastMode: !!settings.fastMode,
+    });
+    machine.transition(EXECUTION_STATES.CLASSIFIED,
+      `任务类型=${execCtx.taskClass} · 有效档位=${execCtx.reasoningState} · 能力掩码=${capabilities.capCode}${alignment.aligned ? '' : ` · ⚠ 上下文/工具表口径不一致：${alignment.discrepancies.join(',')}`}`);
+    if (resumeInfo && resumeInfo.resumable && !prevRecord.resumeHintConsumed) {
+      prevRecord.resumeHintConsumed = true;
+      exec.resumeNote = `\n\n【执行内核 · 断点续跑】上一轮在「${resumeInfo.phaseLabel}」阶段被中断${resumeInfo.pendingStep ? `（未完成步骤：${resumeInfo.pendingStep}）` : ''}。${resumeInfo.hint}`;
+    } else if (resumeInfo && !resumeInfo.resumable && resumeInfo.phase === EXECUTION_STATES.INTERRUPTED) {
+      exec.resumeNote = '';
+    }
+
     try {
       if (settings.jevEnabled !== false) {
         const jevT0 = Date.now();
@@ -593,6 +906,10 @@ export function createAgent(store, hooks = {}) {
           }
         }
       }
+      // 计划已定（Jev 失败/未启用也如实记为「按默认计划」）；断点续跑提示只注入一次
+      if (exec.resumeNote) jevNote += exec.resumeNote;
+      exec.machine.transition(EXECUTION_STATES.PLANNED,
+        turnPlan ? `Jev 预判完成（route=${turnPlan.route || 'chat'}）` : 'Jev 未启用或未返回计划，按默认计划执行');
 
       while (TOOL_LOOP_MAX <= 0 || iterations < TOOL_LOOP_MAX) {
         iterations++;
@@ -762,13 +1079,51 @@ export function createAgent(store, hooks = {}) {
         });
         emit('onAssistantDone', assistantMsg);
 
-        // ── 无工具调用 → 回合结束 ──
-        if (!toolCalls.length) { setStatus('done'); emit('onTurnEnd'); return; }
+        // ── 无工具调用 → 回合结束（执行内核：回答 → 核验 → 提交）──
+        if (!toolCalls.length) {
+          const fin = finalizeExecutionTurn({
+            machine: exec.machine,
+            toolRuns: exec.machine.toolRuns,
+            answerText: text,
+            budget: exec.budgetGov,
+            auditDigest: exec.machine.audit.digest,
+          });
+          exec.silentFailure = fin.silentFailure;
+          exec.finalized = true;
+          if (fin.disclosure) {
+            // 工具失败但回答未披露 → 由内核补一条披露（界面与后续上下文都能看到）
+            text = fin.finalText;
+            store.updateMessage(assistantMsg.id, { text });
+          }
+          exec.record = summarizeExecutionRecord({
+            machine: exec.machine, budget: exec.budgetGov,
+            toolRuns: exec.machine.toolRuns, silentFailure: fin.silentFailure,
+          });
+          store.updateMessage(assistantMsg.id, {
+            execution: {
+              state: exec.record.state,
+              kernelVersion: exec.record.kernelVersion,
+              policyVersion: exec.record.policyVersion,
+              toolCalls: exec.record.toolCallCount,
+              failed: exec.record.failedCount,
+              blocked: exec.record.blockedCount,
+              retries: exec.record.retryCount,
+              riskLevels: exec.record.riskCounts,
+              silentFailure: exec.record.silentFailure,
+              auditDigest: exec.record.auditDigest,
+            },
+          });
+          setStatus('done');
+          exec.recordEmitted = true;
+          emit('onExecutionRecord', exec.record);
+          emit('onTurnEnd');
+          return;
+        }
 
         // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
         setStatus('executing');
         const toolWaveT0 = Date.now();
-        const results = await runToolCalls(toolCalls, turn);
+        const results = await runToolCalls(toolCalls, turn, exec);
         const waveMs = Math.max(1, Date.now() - toolWaveT0);
         store.updateMessage(assistantMsg.id, { toolCalls: toolCalls.map((c) => ({ ...c })) });
         let roundHasError = false;
@@ -803,11 +1158,14 @@ export function createAgent(store, hooks = {}) {
     } catch (err) {
       if (err.name === 'AbortError' || signal.aborted) {
         setStatus('cancelled');
+        // 中断是显式状态：不留「工具还在跑」的模糊态，刷新后据此判断可续跑阶段
+        exec.machine.transition(EXECUTION_STATES.INTERRUPTED, '用户中止（Abort）', { phase: exec.machine.state });
         const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
         if (last) store.updateMessage(last.id, { cancelled: true, done: true });
         emit('onCancelled');
       } else {
         setStatus('error');
+        exec.machine.transition(EXECUTION_STATES.INTERRUPTED, `执行出错：${String((err && err.message) || err).slice(0, 80)}`, { phase: exec.machine.state });
         emit('onError', err);
       }
     } finally {
@@ -836,7 +1194,54 @@ export function createAgent(store, hooks = {}) {
         }
       }
       telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
-      store.state.lastNexusTelemetry = telemetry.finish();
+
+      // ── P0 执行内核收尾：状态轨迹 / 预算账本 / 审计摘要落盘（刷新后可判断任务处于哪个阶段）──
+      if (!exec.machine.isTerminal) {
+        exec.machine.transition(EXECUTION_STATES.INTERRUPTED,
+          status === 'cancelled' ? '回合被中止，未提交' : (status === 'error' ? '回合异常退出，未提交' : '回合未走到提交（迭代上限或提前返回）'));
+      }
+      if (!exec.record) {
+        exec.record = summarizeExecutionRecord({
+          machine: exec.machine, budget: exec.budgetGov,
+          toolRuns: exec.machine.toolRuns, silentFailure: exec.silentFailure,
+        });
+      }
+      exec.record.sessionId = sessionId;
+      exec.record.resumeHint = resumeExecutionState({ ...exec.record, machine: exec.machine.snapshot() });
+      store.state.lastExecutionRecord = {
+        ...exec.record,
+        transitions: (exec.record.transitions || []).slice(-24),
+        toolRuns: (exec.record.toolRuns || []).slice(-12),
+        resumeHintConsumed: false,
+      };
+      store.state.lastExecutionAcceptance = evaluateExecutionKernelAcceptance({ toolNames: exec.toolList.map((t) => t.name) });
+      if (nexusState.lastFootprint) {
+        // 足迹绑定执行内核摘要：工具名/顺序之外，还能核到状态轨迹与审计摘要
+        nexusState.lastFootprint.executionDigest = exec.record.auditDigest;
+        nexusState.lastFootprint.executionState = exec.record.state;
+        nexusState.lastFootprint.executionToolCalls = exec.record.toolCallCount;
+      }
+      if (!exec.recordEmitted) { exec.recordEmitted = true; emit('onExecutionRecord', exec.record); }
+
+      store.state.lastNexusTelemetry = {
+        ...telemetry.finish(),
+        execution: {
+          kernelVersion: exec.record.kernelVersion,
+          policyVersion: exec.record.policyVersion,
+          state: exec.record.state,
+          phaseLabel: exec.record.phaseLabel,
+          toolCalls: exec.record.toolCallCount,
+          failed: exec.record.failedCount,
+          blocked: exec.record.blockedCount,
+          retries: exec.record.retryCount,
+          uncertain: exec.record.uncertainCount,
+          riskCounts: exec.record.riskCounts,
+          silentFailure: exec.record.silentFailure,
+          auditDigest: exec.record.auditDigest,
+          violations: (exec.record.violations || []).length,
+          budget: exec.record.budget,
+        },
+      };
       recordRouteLatencySample({
         fastPath: !!(nexusState.profile && nexusState.profile.fastPath),
         totalMs: telemetry.totalDurationMs,

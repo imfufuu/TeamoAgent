@@ -3281,6 +3281,11 @@ export function mountUI(store, agent) {
           memory: store.state.memory || [],
           memoryArchive: store.state.memoryArchive || [],
           telemetry: store.state.lastNexusTelemetry,
+          // P0 执行内核（v2.3）：报告里给出当轮真实的状态轨迹、预算账本与静默失败检测结果
+          execution: {
+            summary: store.state.lastExecutionRecord || null,
+            acceptance: store.state.lastExecutionAcceptance || null,
+          },
         }),
       ].join('\n');
     } else if (name === 'theme') {

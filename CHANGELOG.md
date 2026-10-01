@@ -2,6 +2,29 @@
 
 本文件记录 TeamoAgent 的阶段性改进（更早的逐轮修复也都保留在下面，便于回溯）。
 
+## Teamo V1.4 · 天枢 THN v2.3 P0 执行内核（2026-10-01 · 构建 2026.10.1.12）
+
+**本次落地 P0 三件事：统一执行状态机 / 预算与风险治理 / 工具调用前后契约校验。** 目标是把 THN 从「能选择工具的 Agent」提升为「能安全管理执行过程的 Agent」——不继续增加 Agent 层级，而是让决策可解释、失败可恢复、执行可核验。新增模块 `js/execution.js`（新文件独立成模块 + `?v=` 引用，遵守混版纪律）。
+
+* **统一执行状态机（`js/execution.js`，14 态 / 38 条合法边 · `transition-table-2.3.0`）**：
+  - 正常路径 `RECEIVED → CLASSIFIED → PLANNED → TOOL_PENDING → TOOL_RUNNING → TOOL_SUCCEEDED → … → ANSWERING → VERIFIED → COMMITTED`；异常路径显式建模：`TOOL_FAILED → RETRY_PENDING / RECOVERY_PENDING / ANSWERING_WITH_LIMITATION`、`TOOL_RUNNING → INTERRUPTED`。
+  - 每次转移记录 `{ turnId, sessionId, from, to, reason, timestamp, policyVersion }`，写入版本化审计日志（事件哈希绑定 `schemaVersion + sessionId + turnId + eventIndex + prevDigest + eventType + normalizedPayload + policyVersion`），可逐条重放并检出篡改。
+  - 不变量由 `validateTransitionTable()` 断言：状态全集可达、非终态有出路、工具态无自环、**`COMMITTED` 只能从 `VERIFIED` 进入**（工具失败不可能隐式成功收尾）、关键异常路径齐全。
+  - 工具运行级记录（`beginToolRun` / `endToolRun`）保存 preState / postState / 风险等级 / 幂等键 / 副作用摘要 —— 任意一次调用都能回答「为什么调用、调用前是什么状态、调用后发生了什么」。
+  - 刷新 / 中断后 `resumeExecutionState` 判断任务处于哪个阶段：工具执行中被中断 → 标记为副作用不确定，要求先核验再续跑，并在下一轮自动注入断点续跑提示（只注入一次）。
+* **预算与风险治理（`budget-policy-2.3.0` / `risk-policy-2.3.0`）**：
+  - 六路资源预算实时扣减并留痕：工具调用 / 重试 / 墙钟 / 并发峰值 / 记忆写入 / 外部副作用，默认 32 · 2 · 600s · 3 · 4 · 6（`settings.executionBudget` 可覆盖）；单次调用预算耗尽即调用前拦截，转入带限制作答，绝不静默失败。
+  - 工具风险分 L0–L3：L0 纯计算 / L1 只读与临时输出自动执行；L2 改文件、持久化记忆、批量处理记录并可配置确认；L3（删除文件、覆盖用户上传原件、Git 远端推送、`remember(action="purge")`、`DROP/DELETE`、内网地址抓取）默认生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要 / 风险等级」最小信息确认请求；`settings.executionGuard = 'strict'` 时 L3 执行前停下等待确认（默认 observe 模式只记录与披露）。
+* **工具调用前后契约校验（`tool-contract-2.3.0`，28 个工具 100% 覆盖）**：
+  - 每个工具声明副作用、幂等性、重试策略、超时、回滚与风险等级；`verifyToolContractCoverage` 覆盖守卫让「新增工具忘补契约」在单测里直接红灯。
+  - 调用前：输入 Schema（类型 / 必填 / 枚举 / 未知参数告警）、工具是否在本轮工具表（能力掩码裁剪）、能力约束（域名白名单 / 内网边界 / 沙箱网络 / 路径范围 / 受保护路径覆盖策略）、预算、幂等键旧账。
+  - 调用后：结果形态、超时、**副作用是否真的发生**（声称成功却无变化、回报失败却已改动都会被标出）。
+  - 失败六分类：参数错误 / 环境错误 / 暂时性错误 / 权限错误 / 数据错误 / 副作用不确定；只有「幂等 + 契约声明可退避」才允许内核自动重试一次，其余交给模型决策。幂等键 `hash(turnId + toolName + 规范化参数)` 阻断重复写入、重复提交与重复扣费。
+  - **静默失败检测**：回答未披露工具失败时，内核在回答后补 `⚠️ 执行内核披露`，并把它写进执行记录（`silentFailure`）与遥测。
+* **P0 验收与自检**：`evaluateExecutionKernelAcceptance` 七项自检（转移表不变量 / 契约覆盖率 / 无隐式成功 / 审计可重放与防篡改 / 六路预算治理 / 幂等键稳定性 / 静默失败检测），结果随回合写入 `store.state.lastExecutionAcceptance`，并在 `/nexus` 面板与验收报告第三节展示当轮真实数据；新增 9 项单测（含 3 项端到端：未披露补披露、已披露不二次加工、预算耗尽拦截 + 断点续跑注入），全仓 **305 项测试通过**。
+* **边界如实声明**：状态机与 SHA-256 链提供「可解释性 + 完整性」，完备性靠在 Store 侧对账，真实性（事件是否真由指定执行环境产生）需要硬件远程证明，本架构不做该声明。
+* 版本 `2026.10.1.12`（天枢 THN `v2.3.0`；策略版本 `policy-2.3.0`）。
+
 ## Teamo V1.4 Stable（2026-09-30 · 构建 2026.9.30.11）
 
 **V1.4 正式发布（Stable · 天枢 THN v2.2.0 档位-工具表一致性锁、N=240 评测集与 Wilson 95% 置信区间）。** V1.3 系列自 2026-09-27 起历经 21 个诊断构建，本日转正并完成天枢 THN v2.2 工程闭环升级：

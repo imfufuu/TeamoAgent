@@ -51,8 +51,8 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   id: 'teamo-hermes-nexus-v1',
   code: 'THN',
   shortName: '天枢 THN',
-  name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构)',
-  version: '2.2.0',
+  name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构 + P0 执行内核)',
+  version: '2.3.0',
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
@@ -69,7 +69,31 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     '离线标注评测集与代价加权混淆矩阵（Offline Benchmark & Confusion Matrix）：完整披露路由升档与记忆过滤的 TP/FP/TN/FN、Precision、Recall、加权误差成本及真实失败样本',
     '前提实时重探针与诚实深度披露（Premise Re-Probe & Depth Gap Disclosure）：回合入口实时重验中继状态；明确披露单模型自检与 18 路子智能体的推理深度差距',
     'SHA-256 跨轮次追加哈希链与独立 Store 审计（SHA-256 Hash Chain & Cross-Store Audit）：每条足迹携带前序摘要 prevTurnDigest，并与消息 Store 中的实际 toolCalls 独立交叉核对',
+    'P0 执行内核（Execution Kernel，js/execution.js）：统一显式执行状态机（14 态 / 38 条合法边，转移必带理由与 policyVersion 且可重放）、六路资源预算（工具调用 / 重试 / 墙钟 / 并发 / 记忆写 / 外部副作用）、工具契约层（副作用 / 幂等性 / 重试策略 / 超时 / 回滚 / 风险等级）与调用前后校验、失败六分类与幂等键防盲目重试、L0–L3 风险分级与最小信息确认请求、静默失败检测与强制披露',
   ],
+  executionKernel: Object.freeze({
+    module: 'js/execution.js',
+    version: '2.3.0',
+    policyVersion: 'policy-2.3.0',
+    versioned: Object.freeze({
+      toolContractVersion: 'tool-contract-2.3.0',
+      budgetPolicyVersion: 'budget-policy-2.3.0',
+      riskPolicyVersion: 'risk-policy-2.3.0',
+      promptContractVersion: 'prompt-contract-2.3.0',
+      auditSchemaVersion: 'exec-audit-schema-1',
+      stateSchemaVersion: 'exec-state-schema-1',
+      transitionTableVersion: 'transition-table-2.3.0',
+    }),
+    states: Object.freeze(['RECEIVED', 'CLASSIFIED', 'PLANNED', 'TOOL_PENDING', 'TOOL_RUNNING', 'TOOL_SUCCEEDED', 'TOOL_FAILED', 'RETRY_PENDING', 'RECOVERY_PENDING', 'ANSWERING', 'ANSWERING_WITH_LIMITATION', 'VERIFIED', 'COMMITTED', 'INTERRUPTED']),
+    invariants: Object.freeze([
+      'COMMITTED 只能从 VERIFIED 进入：工具失败绝不可能隐式收尾',
+      '工具态无自环：每次转移都对应一个可辨识事件',
+      '失败后必须显式选择 RETRY_PENDING / RECOVERY_PENDING / ANSWERING_WITH_LIMITATION',
+      '每次工具调用可回答：为什么调用、调用前状态、调用后发生了什么',
+      '所有状态转移可在版本化审计日志中重放（完整性 + 部分完备性，不做真实性声明）',
+    ]),
+    boundaries: '链式哈希与状态机覆盖「完整性」与「可解释性」；完备性依赖与 Store 消息对账；真实性（谁真的执行了它）需硬件远程证明，本架构不做该声明。',
+  }),
 });
 
 // ─── 1. 工作区上下文文件自发现（对齐 Hermes AGENTS.md / HERMES.md / CLAUDE.md）──
@@ -2031,7 +2055,7 @@ export function formatNexusAcceptanceReport(opts = {}) {
   const mCi = m.memoryGateWilson95CI.accuracy;
   const cCi = m.combinedAccuracyCI;
   return [
-    '【天枢 THN v2.2 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
+    '【天枢 THN v2.3 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
     '一、架构正交性与能力-工具表一致性锁（不藏状态、不夸大绝对值）：',
     `  - 4 位正交能力向量验证（Relay·Web·Sandbox·Dispatch，共 16 种掩码）：工具子集严格不相交 = ${m.capabilityOrthogonalityVerified}`,
     '  - 档位-工具表一致性锁（resolveEffectiveReasoningState + verifyPromptToolAlignment）：根治思考开关 Off 时残留 ULTRA 预设导致的自相矛盾诊断',
@@ -2046,7 +2070,46 @@ export function formatNexusAcceptanceReport(opts = {}) {
     `  4. KV Cache 前缀命中率：${(m.kvCacheHitRate * 100).toFixed(1)}%`,
     `  5. 快慢路径端到端 P50 延迟：快路径 ${m.fastPathP50Ms}ms（本地预筛 ${m.probeOverheadP50Ms}ms） vs 全链路 ${m.fullPathP50Ms}ms`,
     `  6. 决策足迹 SHA-256 哈希链校验率：${(m.footprintFaithfulnessRate * 100).toFixed(1)}%`,
+    ...formatExecutionKernelSection(opts),
   ].join('\n');
 }
+
+// P0 执行内核（v2.3）在验收报告里的呈现：只报告当轮真实记录下来的数字，
+// 没有执行记录时明确写「无记录」，不用静态口号填充。
+function formatExecutionKernelSection(opts = {}) {
+  const input = opts.execution;
+  if (!input) return [];
+  const exec = input.summary || input;
+  const acceptance = input.acceptance || null;
+  const lines = ['三、P0 执行内核（统一状态机 / 预算与风险治理 / 工具调用前后契约校验，v2.3 新增）：'];
+  if (!exec || !exec.state) {
+    lines.push('  - 尚无本会话执行记录（发起一轮对话后此处显示真实的阶段与预算账本，不预填静态数字）');
+    return lines;
+  }
+  const budget = exec.budget || {};
+  const spent = budget.spent || {};
+  const limits = budget.budget || {};
+  const risk = exec.riskCounts || {};
+  const bStr = ['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects']
+    .map((ch) => {
+      const key = `max${ch.charAt(0).toUpperCase()}${ch.slice(1)}`;
+      const limit = limits[key];
+      const used = ch === 'durationMs' ? `${((spent.durationMs || 0) / 1000).toFixed(1)}s` : (spent[ch] || 0);
+      return `${EXECUTION_BUDGET_LABELS[ch]} ${used}/${limit == null ? '∞' : (ch === 'durationMs' ? `${Math.round(limit / 1000)}s` : limit)}`;
+    }).join(' · ');
+  lines.push(`  - 执行阶段：${exec.state}（${exec.phaseLabel || ''}）｜状态转移 ${(exec.transitions || []).length} 次 ｜ 非法转移 ${(exec.violations || []).length} 次（0 表示轨迹自洽）`);
+  lines.push(`  - 工具调用：${exec.toolCallCount || 0} 次（失败 ${exec.failedCount || 0} / 调用前拦截 ${exec.blockedCount || 0} / 自动重试 ${exec.retryCount || 0} / 副作用不确定 ${exec.uncertainCount || 0}）｜风险分级 L2×${risk.L2 || 0} · L3×${risk.L3 || 0}`);
+  lines.push(`  - 预算账本（实时扣减，非事后统计）：${bStr}${(budget.exhaustedChannels || []).length ? ` ｜ 已耗尽：${budget.exhaustedChannels.join('、')}` : ''}`);
+  lines.push(`  - 审计轨迹：${exec.auditSchemaVersion || 'exec-audit-schema-1'} ｜ 事件 ${exec.auditEventCount || 0} 条 ｜ 链摘要 ${String(exec.auditDigest || '').slice(0, 16)}…（可逐事件重放；覆盖完整性 + 与 Store 对账的部分完备性，不含真实性远程证明）`);
+  lines.push(`  - 静默失败检测：${exec.silentFailure && exec.silentFailure.silent ? `检出未披露的工具失败（${(exec.silentFailure.failedTools || []).join('、')}），已强制补充披露` : '未检出（无失败，或失败已在回答中如实披露）'}`);
+  if (acceptance && acceptance.total) {
+    lines.push(`  - 内核自检：${acceptance.passed}/${acceptance.total} 通过（转移表不变量 / 28 工具契约覆盖率 / 失败不可隐式收尾 / 审计可重放与防篡改 / 六路预算治理 / 幂等键稳定性 / 静默失败检测）`);
+  }
+  return lines;
+}
+
+const EXECUTION_BUDGET_LABELS = Object.freeze({
+  toolCalls: '工具调用', retries: '重试', durationMs: '墙钟', parallelTasks: '并发峰值', memoryWrites: '记忆写', externalSideEffects: '外部副作用',
+});
 
 

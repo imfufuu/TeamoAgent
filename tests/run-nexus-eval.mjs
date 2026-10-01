@@ -1,4 +1,4 @@
-// ─── 天枢 THN v2.2 独立离线基准评测与 Wilson 95% 置信区间验收脚本（npm run eval:nexus）──
+// ─── 天枢 THN v2.3 独立离线基准评测与 Wilson 95% 置信区间验收脚本（npm run eval:nexus）──
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,7 @@ const corpusPath = resolve(__dirname, 'nexus-eval-corpus.json');
 const corpusJson = JSON.parse(readFileSync(corpusPath, 'utf8'));
 
 console.log('================================================================================');
-console.log('  天枢 THN (Teamo-Hermes Nexus v2.2) · 离线基准评测、OOD 留出集与 Wilson 95% CI');
+console.log('  天枢 THN (Teamo-Hermes Nexus v2.3) · 离线基准评测、OOD 留出集与 Wilson 95% CI');
 console.log('================================================================================\n');
 
 // 1. 语料库完整性与样本量验证（N=120 + N=120 = 240）
@@ -190,4 +190,4 @@ console.log(`    哈希算法   : ${fp.hashAlgorithm} | Turn Digest: ${fp.turnDi
 console.log(`    真实轨迹审计: passed=${auditOk.passed} | 伪造轨迹拦截: passed=${auditFake.passed} (${auditFake.discrepancies.join(', ')})\n`);
 
 console.log(formatNexusAcceptanceReport());
-console.log('\n✅ 天枢 THN v2.2 离线基准评测（N=240）与全部架构不变量校验通过。');
+console.log('\n✅ 天枢 THN v2.3 离线基准评测（N=240）与全部架构不变量校验通过。');

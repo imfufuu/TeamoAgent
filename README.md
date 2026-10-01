@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.4 正式版（天枢 THN v2.2）** · 构建 `2026.9.30.11` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.4 正式版（天枢 THN v2.3 · P0 执行内核）** · 构建 `2026.10.1.12` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -95,6 +95,44 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 `fetch_url`（仅本地中继 + 顶栏「联网」打开时）、`run_git`（本地中继 `workspace/` 内 git）。
 另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
+
+## P0 执行内核（天枢 THN v2.3，`js/execution.js`）
+
+方向不是继续加层级，而是把 THN 做成「执行过程本身可解释、可计量、可核验」的操作内核。三个 P0 能力全部落在同一条执行轨迹上：
+
+**1. 统一执行状态机**（14 态 / 38 条合法边，`transition-table-2.3.0`）
+
+```
+RECEIVED → CLASSIFIED → PLANNED → TOOL_PENDING → TOOL_RUNNING → TOOL_SUCCEEDED ┐
+                    ▲                                                          │
+                    └──────────────── 多步循环 ◄───────────────────────────────┘
+TOOL_FAILED → RETRY_PENDING（可退避，需幂等）｜RECOVERY_PENDING（副作用不确定，先核验）
+            → ANSWERING_WITH_LIMITATION（不可重试，带限制作答并披露）
+TOOL_RUNNING → INTERRUPTED（用户中止 / 刷新 / 网络中断）
+ANSWERING → VERIFIED → COMMITTED（COMMITTED 只能从 VERIFIED 进入）
+```
+
+- 每次转移都记 `{ turnId, sessionId, from, to, reason, timestamp, policyVersion }`，写进版本化审计日志并可逐条重放；
+- 任意一次工具调用都能回答：为什么调用、调用前是什么状态、调用后发生了什么（`beginToolRun` / `endToolRun` 记录 preState / postState / 风险 / 幂等键 / 副作用摘要）；
+- **工具失败不可能「隐式收尾」**：`TOOL_FAILED → COMMITTED` 是非法转移，必须走带限制作答并核验；
+- 刷新或中断后 `resumeExecutionState` 直接给出阶段、未完成步骤与续跑入口（工具执行中被中断 → 先核验再续跑，并自动在下一轮注入断点续跑提示）。
+
+**2. 工具调用前后的契约校验**（`tool-contract-2.3.0`，28 个工具 100% 覆盖）
+
+- 每个工具声明输入 Schema、副作用、幂等性、重试策略、超时、回滚与风险等级；新增工具若没补契约，单测直接红灯；
+- 调用前：参数 Schema（类型 / 必填 / 枚举）、工具是否在本轮工具表、能力与约束、预算、幂等键是否指向「副作用不确定」的旧调用；
+- 调用后：结果形态、超时、**副作用是否真的发生**（声称成功却无变化、回报失败却已改动都会被标出）；
+- 失败分六类处理——参数错误（改参数重试一次）/ 环境错误（解释 + 恢复路径）/ 暂时性错误（有限退避）/ 权限错误（不重试）/ 数据错误（标记异常）/ 副作用不确定（**禁止盲目重试，先核验**）；
+- 幂等键 `idem-… = hash(turnId + toolName + 规范化参数)`，用于识别「同一次调用」并阻断重复写入 / 重复提交 / 重复扣费。
+
+**3. 预算与风险治理**（`budget-policy-2.3.0` / `risk-policy-2.3.0`）
+
+- 六路资源预算实时扣减并留痕：工具调用 32 / 重试 2 / 墙钟 600s / 并发 3 / 记忆写 4 / 外部副作用 6（可在 `store.state.settings.executionBudget` 覆盖）；耗尽即调用前拦截，转入带限制作答而不是静默失败；
+- 工具风险分四级：L0 纯计算只读、L1 读文件与临时输出（自动执行）、L2 改文件 / 持久化记忆 / 批量处理（记录并可配置确认）、L3 删除 / 覆盖用户原件 / 推送 / 物理抹除记忆（默认生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求）；
+- 默认 `observe` 模式只记录与披露；设 `settings.executionGuard = 'strict'` 后，L3 操作会在执行前停下来等用户确认（交互确认 UI 属 P1）；
+- **静默失败检测**：回答里没有披露工具失败时，内核会补一条 `⚠️ 执行内核披露` 并如实记录，界面与后续上下文都能看到。
+
+边界如实声明：状态机与链式哈希提供的是「可解释性 + 完整性」，完备性靠在 Store 侧对账，真实性（谁真的执行了它）需要硬件远程证明，本架构不做该声明。`/nexus` 面板会显示当轮真实的状态轨迹、预算账本与内核自检结果，不预填静态数字。
 
 ## 子智能体（18 个专家，`dispatch_subagent` 委派）
 

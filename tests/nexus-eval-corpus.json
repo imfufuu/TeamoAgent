@@ -1,5 +1,5 @@
 {
-  "version": "2026.9.30.11",
+  "version": "2026.10.1.12",
   "description": "天枢 THN v2.2 独立离线基准评测集（共 240 条：路由升档 120 条 [In-Domain 60 + OOD 60] + 记忆守门人 120 条 [In-Domain 60 + OOD 60]，支持 95% Wilson 置信区间与基线对比）",
   "costWeights": {
     "routeEscalation": {

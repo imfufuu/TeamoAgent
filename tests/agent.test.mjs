@@ -1794,7 +1794,7 @@ test('app.html 入口资源用 ?v=APP_VERSION 穿透 Pages 缓存', async () => 
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const { APP_VERSION } = await import('../js/config.js');
-  assert.match(APP_VERSION, /^2026\.9\.30\.\d+$/, 'V1.4 构建号必须以 2026.9.30 开头');
+  assert.match(APP_VERSION, /^2026\.\d+\.\d+\.\d+$/, '构建号必须是 2026.<月>.<日>.<序号> 格式');
   for (const asset of ['css/styles\\.css', 'js/main\\.js']) {
     const m = new RegExp(`${asset}\\?v=([\\d.]+)`).exec(html);
     assert.ok(m, `${asset.replace(/\\/g, '')} 应带 ?v=`);
@@ -4510,15 +4510,15 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
 });
 
 group('V1.4 Stable / 桌面沙箱面板');
-test('V1.4 发布标识与 2026.9.30 构建号已同步', async () => {
+test('V1.4 发布标识与构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.4');
-  assert.match(APP_VERSION, /^2026\.9\.30\.\d+$/);
+  assert.match(APP_VERSION, /^2026\.\d+\.\d+\.\d+$/);
   assert.match(html, /TeamoAgent V1\.4/);
-  assert.match(home, /TeamoAgent V1\.4 · 构建 2026\.9\.30\.\d+/);
+  assert.match(home, /TeamoAgent V1\.4 · 构建 2026\.\d+\.\d+\.\d+/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
@@ -5690,6 +5690,454 @@ test('2026.9.30.11：天枢 THN v2.2 档位-工具表一致性锁、N=240 Wilson
   });
   assert.equal(compactBudget.compactMode, true, '非框架/非受限工具问题应启用紧凑单行掩码模式');
   assert.ok(compactBudget.savedChars > 150, '紧凑模式应比完整多行诊断节省 >150 字符的上下文预算');
+});
+
+
+group('2026.10.1.12 天枢 THN v2.3 · P0 执行内核（统一状态机 / 预算与风险治理 / 工具契约校验）');
+
+test('2026.10.1.12：P0-1 显式执行状态机——转移表自洽、工具失败不可隐式收尾、转移可在版本化审计中重放', async () => {
+  const ex = await import('../js/execution.js');
+
+  // 转移表不变量：状态全集可达、非终态有出路、无自环、COMMITTED 只能从 VERIFIED 进入、异常路径齐全
+  const table = ex.validateTransitionTable();
+  assert.equal(table.ok, true, `转移表不变量必须成立：${table.problems.join(', ')}`);
+  assert.equal(table.checkedStates, 14);
+  assert.ok(table.checkedEdges >= 30, `合法边数量：${table.checkedEdges}`);
+
+  // 验收：任意一次工具调用都能回答——为什么调用、调用前是什么状态、调用后发生了什么
+  const m = ex.createExecutionStateMachine({ turnId: 'turn-1', sessionId: 's-1', now: () => 0 });
+  assert.equal(m.state, 'RECEIVED');
+  m.transition(ex.EXECUTION_STATES.CLASSIFIED, '任务类型=code · 能力掩码=R1·W1·S1·D0');
+  m.transition(ex.EXECUTION_STATES.PLANNED, 'Jev 预判完成');
+  m.transition(ex.EXECUTION_STATES.TOOL_PENDING, '模型请求 1 次工具调用');
+  m.transition(ex.EXECUTION_STATES.TOOL_RUNNING, '开始执行 write_file（沙箱能力可用）');
+  const run = m.beginToolRun({
+    callId: 'call-1', name: 'write_file', args: { path: 'files/a.txt', content: 'x' },
+    reason: '契约允许（filesystem 副作用）· 风险 L2', risk: { level: 'L2' }, idempotencyKey: 'idem-abc',
+  });
+  m.transition(ex.EXECUTION_STATES.TOOL_FAILED, '文件系统拒绝写入（权限错误）');
+  m.endToolRun(run, { status: 'failed', failure: { kind: 'PERMISSION', label: '权限错误' } });
+  assert.equal(run.preState, 'TOOL_RUNNING', '调用前状态必须可回答');
+  assert.equal(run.postState, 'TOOL_FAILED', '调用后状态必须可回答');
+  assert.match(run.reason, /契约允许/);
+  assert.equal(run.idempotencyKey, 'idem-abc');
+  assert.equal(run.durationMs, 0);
+
+  // 验收：工具失败后不会隐式进入最终回答（TOOL_FAILED → COMMITTED 必须是非法转移）
+  const illegal = m.transition(ex.EXECUTION_STATES.COMMITTED, '工具失败却直接收尾');
+  assert.equal(illegal.ok, false);
+  assert.equal(m.violations.length, 1);
+  assert.equal(m.violations[0].kind, 'illegal-transition');
+  assert.equal(m.state, 'TOOL_FAILED', '非法转移不得改变状态');
+  assert.ok(m.transition(ex.EXECUTION_STATES.ANSWERING_WITH_LIMITATION, '带限制作答并披露失败').ok);
+  assert.ok(m.transition(ex.EXECUTION_STATES.VERIFIED, '核验：失败已披露').ok);
+  assert.ok(m.transition(ex.EXECUTION_STATES.COMMITTED, '提交执行记录').ok);
+  assert.equal(m.isTerminal, true);
+
+  // 验收：所有状态转移都可以在审计记录中重放
+  const replay = ex.replayExecutionEvents(m.audit.events);
+  assert.equal(replay.replayable, true, JSON.stringify(replay.violations));
+  assert.equal(replay.reached, 'COMMITTED');
+  assert.equal(replay.transitionCount, 8);
+
+  // 事件哈希绑定 schemaVersion / sessionId / turnId / index / prevDigest / type / payload / policyVersion
+  const tampered = m.audit.events.map((e, i) => (i === 1 ? { ...e, payload: { ...e.payload, to: 'COMMITTED' } } : e));
+  assert.equal(ex.verifyExecutionAudit(tampered).valid, false, '改动任一审计事件必须被检出');
+  const logA = ex.createExecutionAuditLog({ sessionId: 'A', turnId: 't1', now: () => 0 });
+  const logB = ex.createExecutionAuditLog({ sessionId: 'B', turnId: 't1', now: () => 0 });
+  logA.record('state-transition', { from: 'RECEIVED', to: 'CLASSIFIED' });
+  logB.record('state-transition', { from: 'RECEIVED', to: 'CLASSIFIED' });
+  assert.notEqual(logA.events[0].eventHash, logB.events[0].eventHash, '不同会话的同形事件不得产生相同哈希');
+  const logC = ex.createExecutionAuditLog({ sessionId: 'A', turnId: 't2', now: () => 0 });
+  logC.record('state-transition', { from: 'RECEIVED', to: 'CLASSIFIED' });
+  assert.notEqual(logA.events[0].eventHash, logC.events[0].eventHash, '不同轮次的同形事件不得产生相同哈希');
+});
+
+test('2026.10.1.12：P0-1b 刷新 / 中断后能判断任务处于哪个阶段（含「工具执行中被中断」的核验优先续跑）', async () => {
+  const ex = await import('../js/execution.js');
+
+  // 场景 A：工具执行中被中断（副作用不确定 → 必须先核验）
+  const m = ex.createExecutionStateMachine({ turnId: 'turn-2', sessionId: 's-2', now: () => 0 });
+  m.transition('CLASSIFIED', 'classify');
+  m.transition('PLANNED', 'plan');
+  m.transition('TOOL_PENDING', 'model asked for tools');
+  m.transition('TOOL_RUNNING', 'running write_file');
+  const run = m.beginToolRun({ name: 'write_file', args: { path: 'files/b.txt' }, reason: 'write' });
+  m.transition('INTERRUPTED', '页面刷新中断');
+  m.endToolRun(run, { status: 'running', durationMs: null });
+  const snap = m.snapshot();
+  const resumeA = ex.resumeExecutionState(snap);
+  assert.equal(resumeA.resumable, true, '工具执行中被中断必须给出可续跑路径');
+  assert.equal(resumeA.phase, 'INTERRUPTED');
+  assert.match(resumeA.pendingStep, /write_file/);
+  assert.equal(resumeA.entryState, 'RECOVERY_PENDING');
+  assert.match(resumeA.hint, /核验/);
+
+  // 场景 B：正常完成的回合 → 不需要续跑
+  const done = ex.createExecutionStateMachine({ turnId: 'turn-3', sessionId: 's-2', now: () => 0 });
+  done.transition('CLASSIFIED', 'x'); done.transition('PLANNED', 'x'); done.transition('ANSWERING', 'x');
+  done.transition('VERIFIED', 'x'); done.transition('COMMITTED', 'x');
+  const resumeB = ex.resumeExecutionState(done.snapshot());
+  assert.equal(resumeB.resumable, false);
+  assert.equal(resumeB.hint, '上一轮已完成');
+
+  // 场景 C：生成的快照（不含 machine 包装）同样可判断阶段
+  const resumeC = ex.resumeExecutionState({ state: 'TOOL_PENDING', toolRuns: [] });
+  assert.equal(resumeC.phaseLabel, ex.EXECUTION_STATE_LABELS.TOOL_PENDING);
+  assert.ok(resumeC.resumable);
+});
+
+test('2026.10.1.12：P0-2 统一 ExecutionContext——任务分类、有效档位归一、上下文与工具表双向对齐断言', async () => {
+  const ex = await import('../js/execution.js');
+  const { TOOL_DEFS } = await import('../js/tools.js');
+
+  assert.equal(ex.classifyTaskClass('帮我写个快速排序并跑一下'), 'code');
+  assert.equal(ex.classifyTaskClass('计算 2^10 + sqrt(2) 是多少'), 'compute');
+  assert.equal(ex.classifyTaskClass('查一下最新的 React 版本'), 'research');
+  assert.equal(ex.classifyTaskClass('把沙箱里的 a.txt 读出来'), 'file');
+  assert.equal(ex.classifyTaskClass('', { attachments: [{ kind: 'image' }] }), 'image');
+  assert.equal(ex.classifyTaskClass('你好呀'), 'chat');
+
+  assert.equal(ex.normalizeReasoningState('ultra', false), 'OFF', '思考关闭时有效档位必须归一为 OFF');
+  assert.equal(ex.normalizeReasoningState('ultra', true), 'ULTRA');
+
+  const ctx = ex.createExecutionContext({
+    turnId: 'turn-ctx', sessionId: 's-ctx', userIntent: '写个脚本',
+    taskClass: 'code', reasoningState: 'MEDIUM',
+    capabilityMask: { relay: true, web: false, sandbox: true, dispatch: false },
+    budget: ex.DEFAULT_TURN_BUDGET,
+    memory: { recalledIds: ['mem-1'], candidateWrite: false },
+  });
+  assert.match(ctx.userIntentDigest, /^[0-9a-f]{16}$/);
+  assert.equal(ctx.traceId, 's-ctx:turn-ctx');
+
+  const toolNames = TOOL_DEFS.filter((t) => t.name !== 'fetch_url' && t.name !== 'dispatch_subagent');
+  assert.equal(ex.assertContextToolAlignment(ctx, toolNames).aligned, true, '声明不联网/不委派时工具表也必须没有这两个工具');
+
+  // 状态分裂必须被断言出来：声明允许 Web，但工具表没有 fetch_url
+  const lying = { ...ctx, capabilityMask: { relay: true, web: true, sandbox: true, dispatch: true } };
+  const mismatch = ex.assertContextToolAlignment(lying, toolNames);
+  assert.equal(mismatch.aligned, false);
+  assert.ok(mismatch.discrepancies.some((d) => d.startsWith('declares-web-without-tool')));
+  assert.ok(mismatch.discrepancies.some((d) => d.startsWith('declares-dispatch-without-tool')));
+  assert.ok(mismatch.discrepancies.includes('reasoning-max-ultra-without-dispatch') === false, 'MEDIUM 档位不应触发档位断言');
+
+  const maxNoDispatch = ex.assertContextToolAlignment({ ...ctx, reasoningState: 'MAX', capabilityMask: { ...ctx.capabilityMask, dispatch: false } }, toolNames);
+  assert.ok(maxNoDispatch.discrepancies.includes('reasoning-max-ultra-without-dispatch'));
+});
+
+test('2026.10.1.12：P0-3 能力掩码升级为「能力 + 约束」——域名白名单、内网边界、沙箱网络与路径范围', async () => {
+  const ex = await import('../js/execution.js');
+
+  const open = ex.buildCapabilityConstraints({ relayOk: true, webEnabled: true, sandboxEnabled: true, canDispatch: true });
+  assert.equal(open.capCode, 'R1·W1·S1·D1');
+  assert.match(ex.describeCapabilityConstraints(open), /中继=on/);
+  assert.equal(ex.checkCapabilityConstraints({ name: 'fetch_url', args: { url: 'https://example.com/a' }, capabilities: open }).allowed, true);
+
+  const closed = ex.buildCapabilityConstraints({ relayOk: false, webEnabled: true, sandboxEnabled: false, canDispatch: false });
+  assert.equal(closed.capCode, 'R0·W0·S0·D0', '无中继时 Web 位必须为 0');
+  const webDeny = ex.checkCapabilityConstraints({ name: 'fetch_url', args: { url: 'https://example.com' }, capabilities: closed });
+  assert.equal(webDeny.decision, 'deny');
+  assert.match(webDeny.recovery, /server\.py/, '拦截必须给出恢复路径');
+
+  // Web 可用但只允许具体域名
+  const scoped = ex.buildCapabilityConstraints({ relayOk: true, webEnabled: true, overrides: { web: { allowedHosts: ['docs.example.com'] } } });
+  assert.equal(ex.checkCapabilityConstraints({ name: 'fetch_url', args: { url: 'https://docs.example.com/x' }, capabilities: scoped }).allowed, true);
+  const offHost = ex.checkCapabilityConstraints({ name: 'fetch_url', args: { url: 'https://evil.example.net/x' }, capabilities: scoped });
+  assert.equal(offHost.decision, 'deny');
+  assert.equal(offHost.constraintId, 'web-host-not-allowed');
+  const privateHost = ex.checkCapabilityConstraints({ name: 'fetch_url', args: { url: 'http://127.0.0.1:8787/api/health' }, capabilities: scoped });
+  assert.equal(privateHost.decision, 'confirm', '内网/回环地址属跨边界，需确认而非静默放行');
+  assert.equal(privateHost.constraintId, 'ssrf-private-host');
+
+  // Sandbox 可用但禁止网络
+  const noNet = ex.buildCapabilityConstraints({ sandboxEnabled: true, overrides: { sandbox: { network: false } } });
+  const netDeny = ex.checkCapabilityConstraints({ name: 'execute_python', args: { code: 'import urllib.request\nurllib.request.urlopen("http://x")' }, capabilities: noNet });
+  assert.equal(netDeny.decision, 'deny');
+  assert.equal(netDeny.constraintId, 'sandbox-network-disabled');
+  assert.equal(ex.checkCapabilityConstraints({ name: 'execute_python', args: { code: 'print(1+1)' }, capabilities: noNet }).allowed, true);
+
+  // 路径范围约束
+  const scopedFs = ex.buildCapabilityConstraints({ sandboxEnabled: true, overrides: { sandbox: { allowedPaths: ['files/', 'outputs/'] } } });
+  assert.equal(ex.checkCapabilityConstraints({ name: 'write_file', args: { path: 'files/ok.txt' }, capabilities: scopedFs }).allowed, true);
+  const pathDeny = ex.checkCapabilityConstraints({ name: 'write_file', args: { path: 'secrets/leak.txt' }, capabilities: scopedFs });
+  assert.equal(pathDeny.decision, 'deny');
+  assert.equal(pathDeny.constraintId, 'path-outside-scope');
+
+  // 受保护路径覆盖策略（用户原件）
+  const protect = ex.buildCapabilityConstraints({ overrides: { filesystem: { writeOverwrite: 'deny', protectedPaths: ['uploads/'] } } });
+  const overwriteDeny = ex.checkCapabilityConstraints({ name: 'write_file', args: { path: 'uploads/report.pdf', mode: 'overwrite' }, capabilities: protect });
+  assert.equal(overwriteDeny.constraintId, 'protected-path-overwrite');
+  assert.equal(ex.checkCapabilityConstraints({ name: 'write_file', args: { path: 'uploads/report.pdf', mode: 'append' }, capabilities: protect }).allowed, true);
+
+  // 缺声明与未知工具
+  assert.equal(ex.checkCapabilityConstraints({ name: 'list_files', args: {}, capabilities: open }).constraintId, 'no-constraint');
+});
+
+test('2026.10.1.12：P0-4 工具契约层——28 个工具契约全覆盖、调用前后校验、失败分类与幂等键', async () => {
+  const ex = await import('../js/execution.js');
+  const { TOOL_DEFS } = await import('../js/tools.js');
+
+  // 覆盖率守卫：新增工具必须补契约，否则这里直接红灯
+  const coverage = ex.verifyToolContractCoverage(TOOL_DEFS.map((t) => t.name));
+  assert.equal(coverage.ok, true, `以下工具缺契约：${coverage.missing.join(', ')}`);
+  assert.equal(coverage.missing.length, 0);
+  assert.equal(coverage.toolCount, TOOL_DEFS.length);
+  const c = ex.getToolContract('write_file');
+  assert.equal(c.sideEffect, 'filesystem');
+  assert.equal(c.idempotent, false);
+  assert.equal(c.rollback, 'snapshot-fs');
+  assert.equal(ex.getToolContract('delete_file').riskLevel, 'L3');
+
+  // 调用前：Schema 校验（缺必填 / 类型错 / 枚举越界 / 未知参数告警）
+  const writeDef = TOOL_DEFS.find((t) => t.name === 'write_file');
+  const missing = ex.validateToolArgs({}, writeDef.parameters);
+  assert.equal(missing.ok, false);
+  assert.ok(missing.errors.some((e) => e.id === 'missing-required:path'));
+  const typeErr = ex.validateToolArgs({ path: { nested: true }, content: 'x' }, writeDef.parameters);
+  assert.equal(typeErr.ok, false);
+  assert.ok(typeErr.errors.some((e) => e.id === 'type-mismatch:path'));
+  const enumErr = ex.validateToolArgs({ path: 'a.txt', content: 'x', mode: 'destroy' }, writeDef.parameters);
+  assert.equal(enumErr.ok, false);
+  assert.ok(enumErr.errors.some((e) => e.id === 'enum-violation:mode'));
+  const warnOnly = ex.validateToolArgs({ path: 'a.txt', content: 'x', reason: 'why' }, writeDef.parameters);
+  assert.equal(warnOnly.ok, true);
+  assert.ok(warnOnly.warnings.some((w) => w.id === 'unknown-arg:reason'));
+
+  // 调用前总闸门：未知工具 / 不在工具表 / 能力约束 / 预算 / 幂等键不确定
+  const tools = TOOL_DEFS.map((t) => t.name).filter((n) => n !== 'fetch_url');
+  const caps = ex.buildCapabilityConstraints({ relayOk: true, webEnabled: true, sandboxEnabled: true, canDispatch: false });
+  const unknown = ex.validateToolCallPre({ name: 'sudo_rm_rf', args: {}, toolDef: null, tools, capabilities: caps, turnBudget: { turnId: 't' } });
+  assert.equal(unknown.ok, false);
+  assert.ok(unknown.errors.some((e) => e.id === 'missing-contract'));
+  assert.ok(unknown.errors.some((e) => e.id === 'tool-not-available'));
+
+  const budget = ex.createBudgetGovernor({ maxToolCalls: 0 });
+  const overBudget = ex.validateToolCallPre({ name: 'read_file', args: { path: 'a.txt' }, toolDef: TOOL_DEFS.find((t) => t.name === 'read_file'), tools, capabilities: caps, budget, turnBudget: { turnId: 't' } });
+  assert.equal(overBudget.ok, false);
+  assert.ok(overBudget.errors.some((e) => e.id === 'budget-tool-calls-exhausted'));
+
+  const key = ex.idempotencyKey({ turnId: 't1', toolName: 'write_file', args: { path: 'a.txt', content: 'x' } });
+  const seen = new Map([[key, { status: 'uncertain', index: 3 }]]);
+  const uncertain = ex.validateToolCallPre({ name: 'write_file', args: { content: 'x', path: 'a.txt' }, toolDef: writeDef, tools, capabilities: caps, seenIdempotency: seen, turnBudget: { turnId: 't1' } });
+  assert.equal(uncertain.ok, false);
+  assert.ok(uncertain.errors.some((e) => e.id === 'idempotency-uncertain'), '副作用不确定时禁止盲目重试');
+  assert.match(ex.formatPreflightRejection(uncertain), /恢复方式/);
+
+  // 幂等键：参数顺序无关、轮次变化即不同
+  assert.equal(key, ex.idempotencyKey({ turnId: 't1', toolName: 'write_file', args: { content: 'x', path: 'a.txt' } }));
+  assert.notEqual(key, ex.idempotencyKey({ turnId: 't2', toolName: 'write_file', args: { path: 'a.txt', content: 'x' } }));
+
+  // 调用后：副作用核验（声称成功但没写 / 回报失败但状态已变）
+  const fs0 = { 'files/a.txt': 'old' };
+  const missingSideEffect = ex.validateToolResultPost({
+    name: 'write_file', args: { path: 'files/b.txt' }, contract: c, result: '已写入 files/b.txt', ok: true,
+    durationMs: 12, fsBefore: ex.fsDigest(fs0), fsAfter: ex.fsDigest(fs0),
+  });
+  assert.ok(missingSideEffect.issues.some((i) => i.id === 'side-effect-missing'));
+  const applied = ex.validateToolResultPost({
+    name: 'write_file', args: { path: 'files/b.txt' }, contract: c, result: '写入失败：磁盘错误', ok: false,
+    durationMs: 12, fsBefore: ex.fsDigest(fs0), fsAfter: ex.fsDigest({ ...fs0, 'files/b.txt': 'new' }),
+  });
+  assert.equal(applied.ok, false);
+  assert.equal(applied.failureKind.kind, 'SIDE_EFFECT_UNCERTAIN');
+  assert.equal(applied.failureKind.verifyFirst, true, '副作用不确定必须走「先核验」而不是重试');
+  const timeoutIssue = ex.validateToolResultPost({
+    name: 'read_file', args: { path: 'a.txt' }, contract: ex.getToolContract('read_file'), result: 'ok', ok: true,
+    durationMs: 9000, fsBefore: ex.fsDigest(fs0), fsAfter: ex.fsDigest(fs0),
+  });
+  assert.ok(timeoutIssue.issues.some((i) => i.id === 'timeout-exceeded'));
+
+  // 失败分类：环境 / 暂时 / 权限 / 参数 / 数据，且只有「幂等 + 可退避」才允许自动重试
+  assert.equal(ex.classifyToolFailure({ name: 'execute_python', result: '沙箱创建失败：Pyodide 不可用' }).kind, 'ENVIRONMENT');
+  assert.equal(ex.classifyToolFailure({ name: 'fetch_url', result: '请求超时 timeout' }).kind, 'TRANSIENT');
+  assert.equal(ex.classifyToolFailure({ name: 'fetch_url', result: '请求超时 timeout' }).retryable, true, '幂等 + backoff 契约允许有限重试');
+  assert.equal(ex.classifyToolFailure({ name: 'write_file', result: '请求超时 timeout' }).retryable, false, '非幂等工具禁止自动重试');
+  assert.equal(ex.classifyToolFailure({ name: 'write_file', result: '无权写入该路径' }).kind, 'PERMISSION');
+  assert.equal(ex.classifyToolFailure({ name: 'write_file', result: '参数不是合法 JSON' }).retryable, false);
+  assert.equal(ex.FAILURE_KIND_META.SIDE_EFFECT_UNCERTAIN.verifyFirst, true);
+});
+
+test('2026.10.1.12：P0-5 预算与风险治理——六路资源预算实时扣减、L0–L3 分级与最小信息确认请求', async () => {
+  const ex = await import('../js/execution.js');
+  const { createFS } = await import('../js/sandbox.js');
+
+  // 预算：实时扣减 + 超额拦截 + 账本可读
+  const gov = ex.createBudgetGovernor({ maxToolCalls: 3, maxRetries: 1, maxDurationMs: 60000, maxParallelTasks: 2, maxMemoryWrites: 1, maxExternalSideEffects: 1 });
+  assert.equal(gov.canSpend('toolCalls').ok, true);
+  gov.spend('toolCalls'); gov.spend('toolCalls'); gov.spend('toolCalls');
+  const denied = gov.canSpend('toolCalls');
+  assert.equal(denied.ok, false);
+  assert.match(denied.reason, /预算耗尽/);
+  const ext = gov.spend('externalSideEffects');
+  assert.equal(ext.ok, true);
+  assert.equal(gov.canSpend('externalSideEffects').ok, false);
+  gov.spend('parallelTasks', 2);
+  assert.equal(gov.spent.parallelTasks, 2, '并发维度记录峰值');
+  gov.spend('parallelTasks', 1);
+  assert.equal(gov.spent.parallelTasks, 2, '峰值不因更小的并发回退');
+  const ledger = ex.formatBudgetLedger(gov);
+  assert.match(ledger, /工具调用 3\/3/);
+  assert.match(ledger, /已耗尽/);
+  assert.equal(gov.snapshot().withinBudget, false);
+  assert.ok(gov.events.length >= 6, '每次扣减都必须写入轨迹');
+  assert.equal(ex.DEFAULT_TURN_BUDGET.maxMemoryWrites, 4);
+
+  // 风险分级：L0 纯计算 → L3 不可逆副作用
+  const fs = createFS({ 'uploads/note.md': 'user file', 'files/keep.txt': 'k' });
+  assert.equal(ex.fsHasPath(fs, 'uploads/note.md'), true);
+  assert.equal(ex.fsHasPath(fs, 'uploads/missing.md'), false);
+  const l0 = ex.classifyToolRisk({ name: 'evaluate_expression', args: { expression: '1+1' } });
+  assert.equal(l0.level, 'L0');
+  assert.equal(l0.requiresConfirmation, false);
+  const l2 = ex.classifyToolRisk({ name: 'write_file', args: { path: 'files/new.txt', content: 'x' }, fs });
+  assert.equal(l2.level, 'L2', '新增文件属 L2');
+  const overwriteUpload = ex.classifyToolRisk({ name: 'write_file', args: { path: 'uploads/note.md', content: 'x', mode: 'overwrite' }, fs });
+  assert.equal(overwriteUpload.level, 'L3');
+  assert.equal(overwriteUpload.irreversible, true, '覆盖用户上传原件不可自动恢复');
+  assert.equal(overwriteUpload.requiresConfirmation, true);
+  const authorized = ex.classifyToolRisk({ name: 'write_file', args: { path: 'uploads/note.md', content: 'x' }, fs, userText: '请覆盖 uploads/note.md' });
+  assert.equal(authorized.requiresConfirmation, false, '用户本轮明确要求 → 按授权放行但仍记录');
+  assert.equal(ex.classifyToolRisk({ name: 'delete_file', args: { path: 'files/keep.txt' } }).level, 'L3');
+  assert.equal(ex.classifyToolRisk({ name: 'remember', args: { action: 'purge', fact: 'mem-1' } }).level, 'L3');
+  assert.equal(ex.classifyToolRisk({ name: 'remember', args: { action: 'add', fact: '用户喜欢简洁' } }).level, 'L2');
+  assert.equal(ex.classifyToolRisk({ name: 'execute_sql', args: { sql: 'DROP TABLE users' }, fs }).level, 'L3');
+  assert.equal(ex.classifyToolRisk({ name: 'execute_sql', args: { sql: 'SELECT * FROM users' }, fs }).level, 'L2');
+  assert.equal(ex.classifyToolRisk({ name: 'run_git', args: { args: ['push', 'origin', 'main'] } }).level, 'L3');
+  assert.equal(ex.classifyToolRisk({ name: 'run_git', args: { args: ['status'] } }).level, 'L2');
+  assert.equal(ex.classifyToolRisk({ name: 'generate_image', args: { prompt: 'cat' } }).hasExternalSideEffect, true);
+
+  // 确认请求必须说清：操作 / 原因 / 影响 / 可逆性 / 参数摘要
+  const req = ex.formatConfirmationRequest({
+    name: 'write_file', args: { path: 'files/config.json', content: '{"port":8787}', mode: 'overwrite' },
+    reason: '应用户要求更新端口配置',
+  });
+  for (const field of ['操作：', '原因：', '影响：', '可逆性：', '参数摘要：', '风险等级：']) {
+    assert.ok(req.includes(field), `确认请求缺少字段 ${field}`);
+  }
+  assert.match(req, /files\/config\.json/);
+});
+
+test('2026.10.1.12：P0-6 端到端——工具失败但最终回答未披露时，内核补披露并提交可重放的执行记录', async () => {
+  const ex = await import('../js/execution.js');
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_x1', 'read_file', JSON.stringify({ path: 'files/not-there.txt' })),
+    openaiTextTurn('根据我的分析，答案是 42。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('跑一段代码并告诉我结果');
+    assert.equal(calls.length, 2);
+
+    // 失败归类与恢复路径必须回喂模型（不是悄悄吞掉）
+    const toolMsg = store.state.messages.find((m) => m.role === 'tool');
+    assert.ok(toolMsg, '工具结果应回填');
+    assert.match(toolMsg.content, /执行内核/);
+    assert.match(toolMsg.content, /失败归类/);
+    assert.match(toolMsg.content, /文件不存在|失败/, '工具自身的失败信息必须原样回喂，不能被吞掉');
+
+    // 静默失败：回答没提失败 → 内核补披露（界面与后续上下文都看得到）
+    const last = store.state.messages[store.state.messages.length - 1];
+    assert.match(last.text, /^根据我的分析，答案是 42。/);
+    assert.match(last.text, /执行内核披露/, '回答未披露工具失败时必须由内核补披露');
+    assert.equal(last.execution.state, 'COMMITTED');
+    assert.match(last.execution.auditDigest, /^[0-9a-f]{64}$/);
+
+    // 落盘的执行记录：状态轨迹可逐跳校验、无非法转移、终态 COMMITTED
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.state, 'COMMITTED');
+    assert.equal(rec.silentFailure.silent, true);
+    assert.equal(rec.toolCallCount, 1);
+    assert.equal(rec.failedCount, 1);
+    assert.equal(rec.violations.length, 0, JSON.stringify(rec.violations));
+    let cursor = 'RECEIVED';
+    for (const t of rec.transitions) {
+      assert.equal(t.from, cursor, `状态轨迹断裂：${JSON.stringify(t)}`);
+      assert.ok(ex.isValidExecutionTransition(t.from, t.to), `非法转移 ${t.from}→${t.to}`);
+      assert.ok(t.reason && t.reason.length > 0, '每次转移都必须写明理由');
+      cursor = t.to;
+    }
+    assert.equal(cursor, 'COMMITTED');
+    assert.ok(rec.auditEventCount > rec.transitions.length, '审计事件应覆盖转移之外的调用事件');
+
+    // 遥测与验收摘要同步（P0 内核自检对真实工具表跑通）
+    assert.equal(store.state.lastNexusTelemetry.execution.failed, 1);
+    assert.equal(store.state.lastNexusTelemetry.execution.auditDigest, rec.auditDigest);
+    const acceptance = store.state.lastExecutionAcceptance;
+    assert.equal(acceptance.ok, true, acceptance.checks.filter((c) => !c.ok).map((c) => `${c.id}:${c.detail}`).join('; '));
+    assert.equal(ex.verifyToolContractCoverage(acceptance ? Object.keys(ex.TOOL_CONTRACTS) : []).ok, true);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.1.12：P0-6b 端到端——已回答披露失败的回答不再重复补披露，且记录如实标记', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_x2', 'read_file', JSON.stringify({ path: 'files/not-there.txt' })),
+    openaiTextTurn('读取文件失败（沙箱中找不到该文件），因此本轮没有数值可给。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('算个数');
+    const last = store.state.messages[store.state.messages.length - 1];
+    assert.equal(last.text, '读取文件失败（沙箱中找不到该文件），因此本轮没有数值可给。', '已披露的回答不得被二次加工');
+    assert.equal(store.state.lastExecutionRecord.silentFailure.silent, false);
+    assert.equal(store.state.lastExecutionRecord.state, 'COMMITTED');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.1.12：P0-7 端到端——预算耗尽时调用前拦截并转入带限制作答；刷新中断后注入断点续跑提示', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'read_file', JSON.stringify({ path: 'a.txt' })),
+    openaiToolTurn('c2', 'list_files', JSON.stringify({})),
+    openaiTextTurn('已尽力完成，部分步骤因预算被拦下。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.files = { 'a.txt': 'hi' };
+    store.state.settings.executionBudget = { maxToolCalls: 1 };
+    const agent = createAgent(store, {});
+    agent.loadFiles(store.state.files);
+    await agent.send('读一下 a.txt 并列出文件');
+
+    const toolMsgs = store.state.messages.filter((m) => m.role === 'tool');
+    assert.equal(toolMsgs.length, 2);
+    assert.match(toolMsgs[1].content, /执行内核/, '第二次调用必须被调用前拦截');
+    assert.match(toolMsgs[1].content, /预算/);
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.blockedCount, 1);
+    assert.equal(rec.budget.spent.toolCalls, 1, '被拦截的调用不得扣减预算');
+    assert.ok(rec.budget.exhaustedChannels.includes('toolCalls'));
+    assert.equal(store.state.lastNexusTelemetry.execution.blocked, 1);
+    assert.equal(rec.violations.length, 0);
+
+    // 断点续跑：伪造一条「工具执行中被中断」的上一轮记录 → 下一轮必须注入续跑提示（且只注入一次）
+    const ex = await import('../js/execution.js');
+    const m = ex.createExecutionStateMachine({ turnId: 'turn-prev', sessionId: store.state.activeSessionId, now: () => 0 });
+    m.transition('CLASSIFIED', 'x'); m.transition('PLANNED', 'x');
+    m.transition('TOOL_PENDING', 'x'); m.transition('TOOL_RUNNING', 'x');
+    const run = m.beginToolRun({ name: 'write_file', args: { path: 'files/c.txt' }, reason: 'w' });
+    m.transition('INTERRUPTED', '页面刷新中断');
+    m.endToolRun(run, { status: 'running' });
+    store.state.lastExecutionRecord = { ...ex.summarizeExecutionRecord({ machine: m, budget: ex.createBudgetGovernor({}), toolRuns: m.toolRuns }), sessionId: store.state.activeSessionId, resumeHintConsumed: false };
+
+    const calls2 = [];
+    mockFetch([openaiTextTurn('好的，继续。')], calls2);
+    await agent.send('继续');
+    const promptText = JSON.stringify(calls2[0].body.messages);
+    assert.match(promptText, /断点续跑/, '中断后的下一轮必须注入断点续跑提示');
+    assert.match(promptText, /write_file/);
+    assert.equal(store.state.lastExecutionRecord.resumeHintConsumed, false, '新一轮执行结束后重置消费标记');
+  } finally { globalThis.fetch = realFetch; }
 });
 
 for (const item of queue) {

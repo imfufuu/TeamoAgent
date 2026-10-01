@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.9.30.11" />
+<meta name="app-version" content="2026.10.1.12" />
 <meta name="app-release" content="V1.4" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.4</title>
@@ -167,7 +167,7 @@
 
 <main>
   <section class="hero">
-    <p class="kicker">Documentation · V1.4 Stable</p>
+    <p class="kicker">Documentation · V1.4 + THN v2.3 执行内核</p>
     <h1>更新日志与协议。</h1>
     <p class="lede">从远古构建到 V1.4 的主要更新——修了什么、加了什么；以及使用本应用前应当了解的协议与隐私约定。完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
   </section>
@@ -180,7 +180,17 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 Stable</span><span class="ver-build">2026.9.30.11</span><span class="ver-latest">Latest · Stable</span><span class="ver-date">2026-09-30</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.3 执行内核</span><span class="ver-build">2026.10.1.12</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-01</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag add">ADD</span><span><strong>P0 执行内核（<code>js/execution.js</code>）</strong>：统一显式执行状态机（14 态 / 38 条合法边，转移必带理由与策略版本、可逐条重放，<code>COMMITTED</code> 只能从 <code>VERIFIED</code> 进入——工具失败不会隐式收尾）；工具运行记录可回答「为什么调用、调用前状态、调用后发生了什么」；刷新或中断后能判断任务处于哪个阶段并给出核验优先的续跑入口。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>预算与风险治理</strong>：六路资源预算（工具调用 / 重试 / 墙钟 / 并发 / 记忆写 / 外部副作用）实时扣减，耗尽即调用前拦截并转入带限制作答；工具风险分 L0–L3，L3 生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求。<code>settings.executionGuard = 'strict'</code> 时高风险操作执行前需确认。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>工具调用前后契约校验</strong>：28 个工具 100% 声明输入 Schema、副作用、幂等性、重试策略、超时与回滚；调用前校验参数、能力与约束（域名白名单 / 沙箱网络 / 路径范围）、预算与幂等键，调用后核验结果与副作用是否真的发生；失败按六类分流，副作用不确定时禁止盲目重试。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>静默失败不再可能</strong>：检测到「工具失败但最终回答未披露」时，内核在回答后补一条 <code>⚠️ 执行内核披露</code>，并写入执行记录与遥测；<code>/nexus</code> 面板显示当轮真实状态轨迹、预算账本与 7 项内核自检结果，不预填静态数字。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.4 Stable</span><span class="ver-build">2026.9.30.11</span><span class="ver-date">2026-09-30</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>正式发布 V1.4 Stable（天枢 THN 融合架构）</strong>：搭载自研「天枢·赫尔墨斯（Teamo-Hermes Nexus v2.2）」三核正交架构（Stage 1 路由、4 位正交能力掩码 <code>R·W·S·D</code> 与档位-工具表一致性锁、Stage 2 软归档可恢复与物理 Purge 双通道库、Stage 3 执行核验与 SHA-256 链式审计足迹），配套 N=240 独立可复现离线评测集（<code>npm run eval:nexus</code>，含 In-Domain 与 OOD 独立留出集），完整披露路由升档与记忆过滤的 Precision / Recall / 95% Wilson 置信区间（半宽 ±3.02%）及 OOD 边界失败样本。</span></li>
           <li><span class="tag add">ADD</span><span><strong>智能自适应温度与全模型官方计费</strong>：按任务类型与回合阶段动态调节输出温度；内置全模型官方定价与单轮多步（含子智能体、识图、生图）费用汇总；思考等级与对话类型仅提供策略建议，不限制输出 token。</span></li>
@@ -400,7 +410,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.9.30.11</span>
+  <span>TeamoAgent V1.4 · 构建 2026.10.1.12</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
