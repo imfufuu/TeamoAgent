@@ -21,6 +21,8 @@ jobs:
         run: node tests/agent.test.mjs
       - name: P0 执行内核独立验收（统一状态机/预算与风险治理/工具契约校验）
         run: node tests/execution-kernel-smoke.mjs
+      - name: P1 可恢复执行独立验收（检查点/幂等账本/交互确认/记忆生命周期/轨迹级评测）
+        run: node tests/recovery-kernel-smoke.mjs
       - name: 审核资产完整性（ORT 版本/模型分片/CSP 炸点/fail-closed 钉子）
         run: node tests/assets-integrity.mjs
       - name: 服务端语法检查

@@ -1100,6 +1100,12 @@ export function mountUI(store, agent) {
   const statusDot = $('#status-dot');
   const statusText = $('#status-text');
   const msgNodes = new Map();
+  // 未决的高风险确认卡（每个回合结束时由 agent 作废；重绘消息时一并清掉，避免残留旧卡）
+  const confirmNodes = new Map();
+  const clearConfirmCards = () => {
+    for (const n of confirmNodes.values()) { try { n.remove(); } catch { /* 忽略 */ } }
+    confirmNodes.clear();
+  };
 
   let rafPending = false;
   let rafMsg = null;
@@ -2786,6 +2792,7 @@ export function mountUI(store, agent) {
 
   function rebuildMessages() {
     cancelRollbackAnim();
+    clearConfirmCards();
     msgNodes.clear(); msgList.innerHTML = '';
     renderEmpty();
     // 入场动画只给最后一条：旧写法每追加一条就重扫整个列表（n 条消息 → n 次全量
@@ -3240,6 +3247,8 @@ export function mountUI(store, agent) {
         '/key —— 查看 API Key 尾号（完整 Key 不回显）',
         '/export —— 导出全部会话记录（JSON 下载）',
         '/clear —— 清空通道草稿（真实会话不受影响）',
+        '/guard observe|strict|strict-l2 —— 执行内核高风险确认档位（L3 / L2+L3 是否需人工确认）',
+        '/resume —— 查看断点续跑计划（未完成步骤 / 需先核验的产物 / 是否需重新确认）',
         '提示：模型菜单搜索 /system 可回到本识别器',
       ].join('\n');
     } else if (name === 'debug') {
@@ -3286,8 +3295,32 @@ export function mountUI(store, agent) {
             summary: store.state.lastExecutionRecord || null,
             acceptance: store.state.lastExecutionAcceptance || null,
           },
+          trajectoryTotals: store.state.trajectoryTotals || null,
         }),
       ].join('\n');
+    } else if (name === 'guard') {
+      const v = String(arg || '').toLowerCase().trim();
+      const modes = { observe: '观察（记录并披露，不打断）', strict: '严格（L3 必须人工确认）', 'strict-l2': '严格+（L2 与 L3 都需确认）' };
+      if (!v) out = `当前确认档位：${store.state.settings.executionGuard || 'observe'}（${modes[store.state.settings.executionGuard || 'observe']}）\n用法：/guard observe | strict | strict-l2`;
+      else if (!modes[v]) out = '用法：/guard observe | strict | strict-l2';
+      else {
+        store.state.settings.executionGuard = v;
+        store.notify();
+        out = `✓ 执行内核确认档位已切换：${v}（${modes[v]}）\n高风险操作会先给出「操作 / 原因 / 影响 / 可逆性 / 参数摘要」，再由你决定是否放行；超时或未应答一律按拒绝处理。`;
+      }
+    } else if (name === 'resume') {
+      let plan = null;
+      try { plan = agent && agent.getResumePlan ? agent.getResumePlan() : null; } catch { plan = null; }
+      if (!plan) out = '当前没有可续跑的执行检查点（完成一轮工具任务后才会生成）。';
+      else {
+        out = [
+          `断点续跑计划（检查点 ${plan.checkpointId || '-'}，策略 ${plan.policyVersion || '-'}）`,
+          plan.summary,
+          plan.reusableSteps && plan.reusableSteps.length ? `可直接复用：${plan.reusableSteps.join('、')}` : '可直接复用：无',
+          plan.verificationSteps && plan.verificationSteps.length ? `续跑前先核验：${plan.verificationSteps.join('；')}` : '续跑前先核验：无（产物与检查点一致）',
+          plan.needsConfirmation ? '⚠ 涉及高风险或能力变化：续跑前需要你明确确认' : '无需重新确认',
+        ].join('\n');
+      }
     } else if (name === 'theme') {
       const v = String(arg || '').toLowerCase();
       if (v !== 'dark' && v !== 'light') out = '用法：/theme dark 或 /theme light';
@@ -3797,6 +3830,47 @@ export function mountUI(store, agent) {
     // 起标题失败绝不能冒泡到回合流程（catch 掉，标题自然退回「首条消息截断」）
     autoTitle: () => autoTitle(store).then((r) => { if (r && r.ok) renderSessions(); return r; }, () => ({ ok: false, reason: 'view-error' })),
     onToolStart() { scrollToBottom(); },
+    // ── P1 高风险操作确认卡（执行内核 · 最小信息格式 + 三个决定）──
+    onConfirmationRequest(call, requestText, key) {
+      clearConfirmCards();
+      const node = el('div', 'confirm-card');
+      node.dataset.key = String(key || '');
+      node.innerHTML = [
+        '<div class="confirm-title">⚠ 执行内核：该操作需要你的确认</div>',
+        `<pre class="confirm-body">${esc(requestText || '')}</pre>`,
+        '<div class="confirm-actions">',
+        '<button class="confirm-btn allow" data-decision="allow-once">允许本次</button>',
+        '<button class="confirm-btn allow-session" data-decision="allow-session">本会话允许该工具</button>',
+        '<button class="confirm-btn deny" data-decision="deny">拒绝</button>',
+        '</div>',
+        '<div class="confirm-note">未选择时不会执行该操作；等待超时按拒绝处理（fail-closed）。</div>',
+      ].join('');
+      const settle = (decision, label) => {
+        const res = (() => { try { return agent.resolveConfirmation(node.dataset.key, decision, label); } catch { return { ok: false }; } })();
+        node.classList.add('resolved');
+        node.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+        const tag = el('div', `confirm-result ${decision === 'deny' ? 'deny' : 'allow'}`, esc(label));
+        node.appendChild(tag);
+        if (!res || res.ok === false) toast('该确认已过期或回合已结束，操作未执行（默认拒绝）', 'warn', 4200);
+        scrollToBottom();
+      };
+      node.querySelector('[data-decision="allow-once"]').addEventListener('click', () => settle('allow-once', '已允许本次执行'));
+      node.querySelector('[data-decision="allow-session"]').addEventListener('click', () => settle('allow-session', '本会话内该工具不再逐次确认'));
+      node.querySelector('[data-decision="deny"]').addEventListener('click', () => settle('deny', '已拒绝执行'));
+      msgList.appendChild(node);
+      confirmNodes.set(node.dataset.key, node);
+      scrollToBottom();
+    },
+    onConfirmationResolved(call, rec) {
+      const node = [...confirmNodes.values()].find((n) => n && n.dataset.key === String(rec && rec.key || ''));
+      if (!node) return;
+      if (node.classList.contains('resolved')) return;
+      node.querySelectorAll('button').forEach((b) => { b.disabled = true; });
+      node.classList.add('resolved');
+      const timeout = rec && rec.decision === 'timeout';
+      node.appendChild(el('div', `confirm-result ${timeout ? 'deny' : 'allow'}`, esc(timeout ? '等待确认超时：未执行（默认拒绝）' : `已处理：${rec && rec.decision || ''}`)));
+      scrollToBottom();
+    },
     onToolResult(call, result) {
       renderFiles();
       updateStats();

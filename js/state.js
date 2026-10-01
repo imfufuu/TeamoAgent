@@ -176,8 +176,29 @@ export function createStore(onChange) {
     messages: [], checkpoints: [], files: {}, undoBranch: null, stats: { lastMs: 0, totalMs: 0 },
     memory: [],
     learnedSkills: [],
+    // P1（THN v2.4）：可恢复执行与记忆生命周期的根级状态。
+    // 容量上限与各自模块保持一致（recovery.CHECKPOINT_MAX / idempotency.LEDGER_MAX /
+    // trajectory.TRAJECTORY_LOG_MAX / memorylife 候选区 8 条）——这里刻意不 import 那些模块，
+    // 避免 state.js 被拖进执行内核的依赖图（混版缓存时 state 必须最先可用）。
+    executionCheckpoints: [],   // 执行检查点（环形，最多 12）：恢复计划与产物漂移核验的数据源
+    executionIdempotency: [],   // 幂等账本（环形，最多 48）：跨轮判定「同一操作不必再做」
+    trajectoryLog: [],          // 轨迹日志（环形，最多 24）：负向指标（过度路由/漏路由/静默失败）的样本
+    trajectoryTotals: null,     // 轨迹累计计数（健康回合 / 恢复成功率 / P95 等）
+    memoryCandidates: [],       // 记忆候选区（最多 8）：未通过长期库门槛的条目先在这里等确认
+    memoryHealth: null,         // 记忆健康度快照（来源分级 / 敏感条目数 / 冲突数）
   };
   state.activeSessionId = state.sessions[0].id;
+
+  // P1 状态键的形状与容量兜底：坏数据不能让续跑 / 评测 / 记忆面板炸掉
+  const P1_STATE_CAPS = { executionCheckpoints: 12, executionIdempotency: 48, trajectoryLog: 24, memoryCandidates: 8 };
+  const normalizeP1State = () => {
+    for (const [key, cap] of Object.entries(P1_STATE_CAPS)) {
+      state[key] = Array.isArray(state[key]) ? state[key].slice(-cap) : [];
+    }
+    if (!state.trajectoryTotals || typeof state.trajectoryTotals !== 'object') state.trajectoryTotals = null;
+    if (!state.memoryHealth || typeof state.memoryHealth !== 'object') state.memoryHealth = null;
+  };
+  normalizeP1State();
 
   const sess = () => state.sessions.find((s) => s.id === state.activeSessionId) || state.sessions[0];
   const hydrate = () => {
@@ -271,6 +292,16 @@ export function createStore(onChange) {
       }
       c += JSON.stringify(s.files || {}).length + 256;
     }
+    // P1 根级状态（检查点 / 幂等账本 / 轨迹日志 / 候选区）也是落盘内容，必须计入体积，
+    // 否则「瘦身阈值」判断会漏算这部分，配额吃紧时又回到「整个 state 塞不进 localStorage」
+    c += JSON.stringify({
+      cps: state.executionCheckpoints || [],
+      ledger: state.executionIdempotency || [],
+      traj: state.trajectoryLog || [],
+      cands: state.memoryCandidates || [],
+      totals: state.trajectoryTotals || null,
+      health: state.memoryHealth || null,
+    }).length + 512;
     return c;
   };
   const writeNow = () => {
@@ -348,6 +379,7 @@ export function createStore(onChange) {
       state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true }, state.settings || {});
       state.memory = pruneMemoryFacts(Array.isArray(state.memory) ? state.memory : []);
       state.learnedSkills = pruneLearnedSkills(Array.isArray(state.learnedSkills) ? state.learnedSkills : []);
+      normalizeP1State(); // 旧快照没有这些键 → 补默认；坏形状 → 丢弃而不是带着跑
       if (!state.sessions || !state.sessions.length) state.sessions = [newSession()];
       if (!state.sessions.some((s) => s.id === state.activeSessionId)) state.activeSessionId = state.sessions[0].id;
       // /system 是运行时通道不持久化：旧快照异常退出时若卡在 __system__，回退到会话自己的模型

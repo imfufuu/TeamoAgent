@@ -13,6 +13,8 @@ import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMe
 import { evaluateExpression, formatMathResult } from './mathtool.js';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
+// P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.1.13';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -965,6 +967,18 @@ async function executeToolBody(name, args, ctx) {
         const fact = String((args && args.fact) || '').trim();
         if (!isValidMemoryFact(fact)) {
           return '记忆质量闸门已拦截：add 需要一条至少 4 个字符、非反问句、非指代残片（如“这个呢”）、非一次性临时指令的跨会话事实（偏好、身份、项目、约定）。';
+        }
+        // P1 写入门槛四问：不通过的条目不进长期库，并说明原因（可解释、可恢复）
+        const memGate = evaluateMemoryWriteGate({
+          fact,
+          source: String((args && args.source) || 'agent-tool'),
+          userText: (ctx.execution && ctx.execution.userIntent) || '',
+          existing: mem,
+        });
+        if (memGate.pool !== 'long_term') {
+          emit({ status: 'error', note: memGate.pool === 'candidate' ? '写入候选区（需用户确认）' : '写入门槛拦截' });
+          return `${memGate.pool === 'candidate' ? '已记为候选（未写入长期库）' : '记忆写入门槛已拦截'}：${memGate.reasons.join('；')}。`
+            + '如需长期保存，请让用户明确说出「记住…」后再写入；敏感信息默认只进候选区，可用 remember(action="purge") 物理抹除。';
         }
         const next = upsertFacts(mem, [{ text: fact, source: 'agent-tool' }]);
         commit(next);

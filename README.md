@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.4 正式版（天枢 THN v2.3 · P0 执行内核）** · 构建 `2026.10.1.12` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.4 正式版（天枢 THN v2.4 · P0 执行内核 + P1 可恢复执行）** · 构建 `2026.10.1.13` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -31,6 +31,9 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 - 本地静态模型内容审核：文本 Toxicity + USE 语义/策略层、图片 NudeNet + NSFWJS 均从 `assets/moderation/` 加载，不调用网关；成人色情、NSFW 图片与高风险/公序良俗类内容会在主模型前拦截
 - 多会话、回滚、只覆盖「最近一条」的重新生成；思考从 Off 到 Ultra
 - 有本地中继时才能抓网页、跑 git；无中继时顶栏「联网」保持灰色
+- 执行过程可解释、可恢复：每次工具调用都能回答「为什么调用、调用前后状态如何」，高风险操作在 `strict` 档会停下来等你确认
+- 中断 / 刷新后能接着干：已完成且产物未变的步骤会被复用，产物被外部改动则先核验再继续（`/resume` 随时可查）
+- 长期记忆有生命周期：来源分级（只有「用户明确要求」与「用户长期稳定行为」适合进长期库）、敏感信息默认只进候选区、冲突记忆本轮不注入
 
 侧栏与沙箱面板宽屏进网格、窄屏变抽屉；顶栏是「思考 / 沙箱 / 联网 / 快速 / 面板」。更细的移动端规则见文末。
 

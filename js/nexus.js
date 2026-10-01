@@ -52,7 +52,7 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   code: 'THN',
   shortName: '天枢 THN',
   name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构 + P0 执行内核)',
-  version: '2.3.0',
+  version: '2.4.0',
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
@@ -70,6 +70,10 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     '前提实时重探针与诚实深度披露（Premise Re-Probe & Depth Gap Disclosure）：回合入口实时重验中继状态；明确披露单模型自检与 18 路子智能体的推理深度差距',
     'SHA-256 跨轮次追加哈希链与独立 Store 审计（SHA-256 Hash Chain & Cross-Store Audit）：每条足迹携带前序摘要 prevTurnDigest，并与消息 Store 中的实际 toolCalls 独立交叉核对',
     'P0 执行内核（Execution Kernel，js/execution.js）：统一显式执行状态机（14 态 / 38 条合法边，转移必带理由与 policyVersion 且可重放）、六路资源预算（工具调用 / 重试 / 墙钟 / 并发 / 记忆写 / 外部副作用）、工具契约层（副作用 / 幂等性 / 重试策略 / 超时 / 回滚 / 风险等级）与调用前后校验、失败六分类与幂等键防盲目重试、L0–L3 风险分级与最小信息确认请求、静默失败检测与强制披露',
+    'P1 可恢复执行（js/recovery.js + js/idempotency.js）：执行级检查点（checkpointId / completedSteps / pendingStep / artifacts / stateDigest）在每波工具调用后落盘，刷新或中断后按「哪些步骤可复用、哪些产物已被外部改动、未完成步骤是否仍有效、是否需要用户重新确认」生成续跑计划并注入下一轮上下文；幂等账本以预写日志语义登记每次调用的 in-flight / succeeded / failed / blocked / uncertain，同键调用按 reuse（目标状态已满足）/ verify-first（副作用不确定）/ block（重复外部副作用）/ allow 四种裁决处理，杜绝重复写入、重复提交与重复扣费',
+    'P1 交互确认（js/execution.js 确认闸门 + UI 确认卡）：L2/L3 风险按档位策略（observe / strict / strict-l2）生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求，用户可「允许本次 / 本会话允许该工具 / 拒绝」，超时或未应答一律按拒绝（fail-closed），决定与等待时长写入审计',
+    'P1 记忆生命周期（js/memorylife.js）：写入门槛四问（未来多会话仍有用 / 用户明确表达 / 是否含敏感信息 / 是否造成错误偏置），来源分级（用户显式 > 长期稳定行为 > 单轮推断 > 模型推测），模型推断与敏感内容只进短期候选区；召回状态机 RECALLED / VALIDATED / APPLIED / REJECTED_FOR_TURN——用户本轮明确指令与记忆冲突时记忆不注入；同作用域冲突保留较新者并标记取代关系',
+    'P1 轨迹级评测（js/trajectory.js）：三个负向指标（Over-routing 不该调用却调用 / Under-routing 需要工具却没调用 / Silent-failure 失败未披露）+ 恢复成功率 / 审计完整度 / 多余调用率 / 副作用安全，按任务类型切分并在验收报告第四节披露，不只看单一总分',
   ],
   executionKernel: Object.freeze({
     module: 'js/execution.js',
@@ -2071,6 +2075,7 @@ export function formatNexusAcceptanceReport(opts = {}) {
     `  5. 快慢路径端到端 P50 延迟：快路径 ${m.fastPathP50Ms}ms（本地预筛 ${m.probeOverheadP50Ms}ms） vs 全链路 ${m.fullPathP50Ms}ms`,
     `  6. 决策足迹 SHA-256 哈希链校验率：${(m.footprintFaithfulnessRate * 100).toFixed(1)}%`,
     ...formatExecutionKernelSection(opts),
+    ...formatTrajectorySection(opts),
   ].join('\n');
 }
 
@@ -2105,6 +2110,35 @@ function formatExecutionKernelSection(opts = {}) {
   if (acceptance && acceptance.total) {
     lines.push(`  - 内核自检：${acceptance.passed}/${acceptance.total} 通过（转移表不变量 / 28 工具契约覆盖率 / 失败不可隐式收尾 / 审计可重放与防篡改 / 六路预算治理 / 幂等键稳定性 / 静默失败检测）`);
   }
+  if (exec.trajectory) {
+    const t = exec.trajectory;
+    const pct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
+    lines.push(`  - 轨迹级评测（本轮）：Over-routing=${t.overRouting ? '命中' : '无'} · Under-routing=${t.underRouting ? '命中' : '无'} · Silent-failure=${t.silentFailure ? '命中' : '无'} ｜ 恢复成功率 ${pct(t.recoverySuccessRate)} · 审计完整度 ${pct(t.auditCompleteness)} · 多余调用率 ${pct(t.unnecessaryCallRate)}${t.healthy ? ' ｜ 健康回合 ✓' : ` ｜ 负向命中 ${t.negativeCount} 项`}`);
+  }
+  if (exec.checkpoint) {
+    const c = exec.checkpoint;
+    lines.push(`  - 恢复检查点：${c.count} 个（最新 ${c.checkpointId || '-'}）｜ 产物状态=${c.health} ｜ 可复用步骤 ${c.reusableSteps}/${c.totalSteps}${c.resumable ? '' : '（存在漂移，续跑前需核验）'}`);
+  }
+  if (Array.isArray(exec.ledger) && exec.ledger.length) {
+    const counts = exec.ledger.reduce((acc, e) => { acc[e.status] = (acc[e.status] || 0) + 1; return acc; }, {});
+    lines.push(`  - 幂等账本：最近 ${exec.ledger.length} 条（${Object.entries(counts).map(([k, v]) => `${k}×${v}`).join(' · ')}）——同一逻辑操作不会重复执行`);
+  }
+  return lines;
+}
+
+// P1 轨迹级评测的会话级汇总（近 N 轮；没有记录时不预填数字）
+function formatTrajectorySection(opts = {}) {
+  const totals = opts.trajectoryTotals;
+  if (!totals || !totals.turns) return [];
+  const pct = (v) => `${(Number(v || 0) * 100).toFixed(1)}%`;
+  const lines = [
+    `四、轨迹级评测（近 ${totals.turns} 轮 · ${totals.policyVersion}）：`,
+    `  - 负向指标（越低越好，目标 0%）：Over-routing ${pct(totals.overRoutingRate)} · Under-routing ${pct(totals.underRoutingRate)} · Silent-failure ${pct(totals.silentFailureRate)}`,
+    `  - 执行质量：恢复成功率 ${pct(totals.recoverySuccessRate)} · 审计完整度 ${pct(totals.auditCompleteness)} · 多余调用率 ${pct(totals.unnecessaryCallRate)} · 未确认副作用执行 ${totals.sideEffectFlags} 次`,
+    `  - 健康回合 ${totals.healthyTurns}/${totals.turns} · P95 端到端 ${Math.round(totals.p95LatencyMs)}ms`,
+  ];
+  const classes = Object.entries(totals.byClass || {});
+  if (classes.length) lines.push(`  - 按任务类型：${classes.map(([k, v]) => `${k}(轮=${v.turns} 过度=${v.over} 不足=${v.under} 静默=${v.silent})`).join(' · ')}`);
   return lines;
 }
 

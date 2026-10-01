@@ -223,6 +223,58 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(agent, /turn:fail-closed/, '带图回合审核失败应 fail-closed');
 });
 
+// ── P1（THN v2.4）：可恢复执行与记忆生命周期的接线钉子 ──
+// 这些不是「实现正确性」测试（那在 agent.test.mjs / recovery-kernel-smoke.mjs），
+// 而是「混版缓存下不能悄悄丢失」的结构钉子：模块、桥、样式、命令都必须在位。
+group('P1 可恢复执行接线（检查点 / 幂等账本 / 确认卡 / 记忆生命周期）');
+await test('P1 四个新模块随项目存在，且都以 ?v= 版本化方式被引用', () => {
+  for (const rel of ['../js/recovery.js', '../js/idempotency.js', '../js/memorylife.js', '../js/trajectory.js']) {
+    assert.ok(exists(rel), `${rel} 应随项目存在`);
+  }
+  const agent = read('../js/agent.js');
+  for (const mod of ['recovery.js', 'idempotency.js', 'memorylife.js', 'trajectory.js']) {
+    assert.match(agent, new RegExp(`\\./${mod.replace('.', '\\.')}\\?v=\\d`), `agent.js 应以 ?v= 导入 ${mod}`);
+  }
+});
+await test('确认卡：样式类、UI 渲染、main.js 桥、agent.resolveConfirmation 四处齐备', () => {
+  const css = read('../css/styles.css');
+  const ui = read('../js/ui.js');
+  const main = read('../js/main.js');
+  const agent = read('../js/agent.js');
+  for (const cls of ['.confirm-card', '.confirm-title', '.confirm-body', '.confirm-actions', '.confirm-btn', '.confirm-result']) {
+    assert.ok(css.includes(cls), `缺少确认卡样式 ${cls}`);
+  }
+  assert.match(ui, /onConfirmationRequest/, 'UI 应渲染确认请求');
+  assert.match(ui, /onConfirmationResolved/, 'UI 应渲染确认结果（超时 / 过期）');
+  assert.match(ui, /clearConfirmCards/, '重建消息时应清理确认卡');
+  assert.match(ui, /resolveConfirmation/, 'UI 应把用户决定交回 agent');
+  assert.match(main, /onConfirmationRequest/, 'main.js 应桥接确认请求钩子');
+  assert.match(main, /__teamoConfirmationRequest|onConfirmationRequest/, 'main.js 应暴露混版安全桥');
+  assert.match(agent, /resolveConfirmation/, 'agent 应暴露 resolveConfirmation（缓存了旧 UI 时仍可用）');
+});
+await test('/guard 与 /resume 命令进入 /system 帮助与命令分支，档位默认 observe', () => {
+  const ui = read('../js/ui.js');
+  assert.match(ui, /\/guard/, '/system 帮助应包含 /guard');
+  assert.match(ui, /\/resume/, '/system 帮助应包含 /resume');
+  assert.match(ui, /executionGuard/, '档位应写入 settings.executionGuard');
+  assert.match(ui, /observe/, '应说明默认 observe 档');
+  const ex = read('../js/execution.js');
+  assert.match(ex, /strict-l2/, 'strict-l2 档位应存在');
+  assert.match(ex, /GUARD_MODES/, '档位集合应集中定义');
+});
+await test('轨迹级评测：三个负向指标进 /nexus 报告，遥测暴露执行内核字段', () => {
+  const nexus = read('../js/nexus.js');
+  const agent = read('../js/agent.js');
+  const ui = read('../js/ui.js');
+  for (const key of ['overRouting', 'underRouting', 'silentFailure']) {
+    assert.ok(nexus.includes(key), `报告应覆盖负向指标 ${key}`);
+  }
+  assert.match(nexus, /轨迹级评测/, '报告应有轨迹级评一节');
+  assert.match(ui, /trajectoryTotals/, 'UI 应把轨迹累计传给报告');
+  assert.match(agent, /trajectoryLog/, 'agent 应维护轨迹日志');
+  assert.match(agent, /auditCompleteness|recoverySuccessRate/, '轨迹汇总应含恢复率与审计完整度');
+});
+
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);

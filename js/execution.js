@@ -1347,6 +1347,91 @@ export function formatConfirmationRequest({
   ].join('\n');
 }
 
+// ── 11b. P1 交互确认（风险分级 → 用户决定，fail-closed）──────────────────
+// P0 只做到「记录 + 严格模式拦截」；P1 把确认接成一次真实的等待：
+// 请求 → 用户决定（允许一次 / 本会话允许该工具 / 拒绝）→ 决定写进审计；超时或无人应答一律拒绝。
+export const CONFIRMATION_POLICY_VERSION = 'confirm-policy-2.4.0';
+export const CONFIRMATION_DECISIONS = Object.freeze({
+  ALLOW_ONCE: 'allow-once',
+  ALLOW_SESSION: 'allow-session',
+  DENY: 'deny',
+  TIMEOUT: 'timeout',
+});
+export const GUARD_MODES = Object.freeze(['observe', 'strict', 'strict-l2']);
+
+export function guardRequiresConfirmation({ guard = 'observe', risk = null } = {}) {
+  if (!risk) return false;
+  const mode = GUARD_MODES.includes(guard) ? guard : 'observe';
+  if (mode === 'observe') return false;
+  if (mode === 'strict') return risk.level === 'L3';
+  return risk.level === 'L3' || risk.level === 'L2';
+}
+
+export function createConfirmationGate({ timeoutMs = 180000, now = () => Date.now() } = {}) {
+  const pending = new Map();
+  const sessionAllow = new Set();
+  const history = [];
+  return {
+    policyVersion: CONFIRMATION_POLICY_VERSION,
+    timeoutMs,
+    allowlist: sessionAllow,
+    get pendingCount() { return pending.size; },
+    get history() { return [...history]; },
+    pendingKeys() { return [...pending.keys()]; },
+    isSessionAllowed(tool) { return sessionAllow.has(String(tool)); },
+    allowForSession(tool) { sessionAllow.add(String(tool)); return [...sessionAllow]; },
+    // 等待用户决定：resolveConfirmation(key, decision) 或超时（默认拒绝）
+    wait({ key, tool = '', requestText = '' } = {}) {
+      const k = String(key);
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          if (!pending.has(k)) return;
+          pending.delete(k);
+          const rec = { key: k, tool, decision: CONFIRMATION_DECISIONS.TIMEOUT, reason: `等待确认超时（${Math.round(timeoutMs / 1000)}s，默认拒绝）`, waitedMs: timeoutMs, at: now() };
+          history.push(rec);
+          resolve(rec);
+        }, timeoutMs);
+        pending.set(k, {
+          tool, requestText, createdAt: now(),
+          resolve: (decision, reason = '') => {
+            clearTimeout(timer);
+            pending.delete(k);
+            const rec = { key: k, tool, decision, reason, waitedMs: Math.max(0, now() - (pending.get(k) ? pending.get(k).createdAt : now())), at: now() };
+            history.push(rec);
+            resolve(rec);
+          },
+        });
+      });
+    },
+    resolve(key, decision, reason = '') {
+      const k = String(key);
+      const entry = pending.get(k);
+      if (!entry) return { ok: false, reason: '该确认请求不存在或已过期' };
+      const normalized = Object.values(CONFIRMATION_DECISIONS).includes(decision) ? decision : CONFIRMATION_DECISIONS.DENY;
+      if (normalized === CONFIRMATION_DECISIONS.ALLOW_SESSION) sessionAllow.add(entry.tool);
+      entry.resolve(normalized, reason);
+      return { ok: true, decision: normalized, tool: entry.tool };
+    },
+    cancelAll(reason = '回合结束，未决确认一律作废') {
+      for (const [k, entry] of [...pending.entries()]) {
+        pending.delete(k);
+        entry.resolve(CONFIRMATION_DECISIONS.DENY, reason);
+      }
+    },
+  };
+}
+
+export function formatConfirmationDecision(rec) {
+  if (!rec) return '';
+  const label = {
+    [CONFIRMATION_DECISIONS.ALLOW_ONCE]: '用户允许本次执行',
+    [CONFIRMATION_DECISIONS.ALLOW_SESSION]: '用户允许本会话内该工具的同类操作',
+    [CONFIRMATION_DECISIONS.DENY]: '用户拒绝执行',
+    [CONFIRMATION_DECISIONS.TIMEOUT]: '等待确认超时，按默认拒绝处理',
+  }[rec.decision] || rec.decision;
+  return `【执行内核 · 确认结果】${label}${rec.reason ? `（${rec.reason}）` : ''}`;
+}
+
 // ── 12. 静默失败检测（「工具失败但最终回答未披露」）──────────────────────
 // 披露判定是启发式的（工具名可能是中文动作词，如 read_file → 「读取」）：
 // 宁可判定「已披露」（不追加），也不能把明显已经如实说明的回答再补一条。
@@ -1475,6 +1560,13 @@ export function summarizeExecutionRecord({ machine = null, budget = null, toolRu
       durationMs: r.durationMs, argsSummary: r.argsSummary, idempotencyKey: r.idempotencyKey,
       riskLevel: r.risk && r.risk.level, failureKind: r.failure && r.failure.kind,
       issues: r.postValidation && r.postValidation.issues ? r.postValidation.issues.map((i) => i.id) : [],
+      // P1：幂等/确认标记与产物清单随执行记录一并保留（轨迹级评测与续跑核验都要用）
+      notes: Array.isArray(r.notes) ? [...r.notes] : [],
+      opKey: r.opKey || '',
+      retryOf: r.retryOf || null,
+      recovered: !!r.recovered,
+      changedFiles: Array.isArray(r.changedFiles) ? [...r.changedFiles] : [],
+      statusLabel: r.status,
     })),
     toolCallCount: (runs || []).length,
     failedCount: failed.length,

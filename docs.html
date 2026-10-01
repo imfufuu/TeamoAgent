@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.1.12" />
+<meta name="app-version" content="2026.10.1.13" />
 <meta name="app-release" content="V1.4" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.4</title>
@@ -180,7 +180,18 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.3 执行内核</span><span class="ver-build">2026.10.1.12</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-01</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.4 可恢复执行</span><span class="ver-build">2026.10.1.13</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-01</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag add">ADD</span><span><strong>轨迹级评测（<code>js/trajectory.js</code>）</strong>：评测从静态准确率扩展到<strong>轨迹质量</strong>——识别「答对但过程危险」。三个负向指标 Over-routing（简单任务走重链路）/ Under-routing（该检索计算却没动手）/ Silent-failure（工具失败未披露），配套恢复成功率、审计完整度、多余调用率、副作用安全、P95 耗时与健康回合，并按任务类型切分汇总；<code>/nexus</code> 报告新增「四、轨迹级评测」一节。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>可恢复的检查点与幂等机制（<code>js/recovery.js</code> + <code>js/idempotency.js</code>）</strong>：每波工具调用后落检查点（已完成步骤 / 未完成步骤 / 产物摘要 / 状态摘要 / 预算与风险等级，环形 12 条）；恢复计划回答「能不能续、哪些步骤可直接复用、哪些必须先核验、要不要重新确认」，<code>/resume</code> 随时可查，上一轮未干净收尾时自动注入续跑计划。幂等账本把幂等键升级为<strong>跨轮操作身份</strong>，四类裁决 复用 / 先核验 / 拦截重复副作用 / 放行，同轮并发同键调用复用同一次执行，绝不重复落副作用。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>记忆生命周期与冲突管理（<code>js/memorylife.js</code>）</strong>：每条记忆带 <code>source / confidence / scope / sensitivity / supersedes / status</code>；来源分级「用户明确要求 &gt; 用户长期稳定行为 &gt; 单轮推断 &gt; 模型推测」，只有前两类适合进长期库；写入门槛四问（未来仍有用 / 是否用户明确表达 / 是否敏感 / 是否会造成错误偏置），敏感信息默认只进候选区（候选区最多 8 条可见），过度概括降级；召回状态机 <code>RECALLED → VALIDATED → APPLIED / REJECTED_FOR_TURN</code>——与本轮指令冲突或已被取代的记忆<strong>本轮不注入提示词</strong>，取代关系保留 <code>supersededBy</code> 可追溯。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>交互确认闸门</strong>：<code>/guard observe|strict|strict-l2</code> 三档（默认 <code>observe</code> 只记录；<code>strict</code> 仅 L3 确认；<code>strict-l2</code> 覆盖 L2+L3）。确认卡展示「操作 / 原因 / 影响 / 可逆性 / 参数摘要 / 风险等级」，三个决定：允许本次 / 本会话允许该工具 / 拒绝；超时（3 分钟）、过期、回合结束的未决确认一律按拒绝收口（fail-closed），决定与等待时长全部进审计。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>状态与持久化</strong>：新增六个根级状态键（检查点 / 幂等账本 / 轨迹日志 / 轨迹累计 / 记忆候选区 / 记忆健康度），开机做形状与容量兜底并纳入落盘体积估算；全仓 313 项单测 + 独立验收脚本 <code>tests/recovery-kernel-smoke.mjs</code>（7/7，含「刷新后恢复」端到端）。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.3 执行内核（P0）</span><span class="ver-build">2026.10.1.13</span><span class="ver-date">2026-10-01</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>P0 执行内核（<code>js/execution.js</code>）</strong>：统一显式执行状态机（14 态 / 38 条合法边，转移必带理由与策略版本、可逐条重放，<code>COMMITTED</code> 只能从 <code>VERIFIED</code> 进入——工具失败不会隐式收尾）；工具运行记录可回答「为什么调用、调用前状态、调用后发生了什么」；刷新或中断后能判断任务处于哪个阶段并给出核验优先的续跑入口。</span></li>
           <li><span class="tag add">ADD</span><span><strong>预算与风险治理</strong>：六路资源预算（工具调用 / 重试 / 墙钟 / 并发 / 记忆写 / 外部副作用）实时扣减，耗尽即调用前拦截并转入带限制作答；工具风险分 L0–L3，L3 生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求。<code>settings.executionGuard = 'strict'</code> 时高风险操作执行前需确认。</span></li>
@@ -410,7 +421,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.10.1.12</span>
+  <span>TeamoAgent V1.4 · 构建 2026.10.1.13</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

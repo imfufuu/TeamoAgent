@@ -1,11 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.1.12';
-import { createAgent } from './agent.js?v=2026.10.1.12';
-import { mountUI, toast } from './ui.js?v=2026.10.1.12';
+import { createStore } from './state.js?v=2026.10.1.13';
+import { createAgent } from './agent.js?v=2026.10.1.13';
+import { mountUI, toast } from './ui.js?v=2026.10.1.13';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.1.12';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.1.13';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -33,6 +33,9 @@ const hooks = {
   onToolStart: (call) => ui && ui.onToolStart(call),
   onToolResult: (call, result) => ui && ui.onToolResult(call, result),
   onToolEvent: (call, patch) => ui && ui.onToolEvent(call, patch),
+  // P1 执行内核：高风险操作的交互确认（UI 渲染确认卡 → agent.resolveConfirmation 回传决定）
+  onConfirmationRequest: (call, requestText, key) => ui && ui.onConfirmationRequest && ui.onConfirmationRequest(call, requestText, key),
+  onConfirmationResolved: (call, rec) => ui && ui.onConfirmationResolved && ui.onConfirmationResolved(call, rec),
   onTurnEnd: () => {
     ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats();
     // 回合结束后让 Agent 给这次会话起个标题（用户手改过的不会被覆盖；失败静默退回兜底标题）

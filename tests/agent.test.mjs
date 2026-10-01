@@ -6140,6 +6140,560 @@ test('2026.10.1.12：P0-7 端到端——预算耗尽时调用前拦截并转入
   } finally { globalThis.fetch = realFetch; }
 });
 
+
+group('2026.10.1.13 天枢 THN v2.4 · P1 可恢复执行（检查点 / 幂等账本 / 交互确认 / 记忆生命周期 / 轨迹级评测）');
+
+test('2026.10.1.13：P1-1 执行检查点——步骤可复用、产物漂移可检出、恢复计划给出核验顺序', async () => {
+  const rc = await import('../js/recovery.js');
+
+  const files = { 'files/config.json': '{"port":8080}', 'files/keep.txt': 'keep' };
+  const cp = rc.buildCheckpoint({
+    turnId: 'turn-cp-1', sessionId: 's-cp', executionState: 'TOOL_SUCCEEDED',
+    completedSteps: [
+      { name: 'inspect-files', status: 'succeeded', artifacts: [] },
+      { name: 'write-config', status: 'succeeded', artifacts: ['files/config.json'] },
+      { name: 'run-tests', status: 'failed', artifacts: [] },
+    ],
+    pendingStep: 'run-tests',
+    artifacts: ['files/config.json'],
+    files, messages: [{ role: 'user', text: '改一下配置' }], memory: [{ id: 'mem-1', text: '用户偏好深色主题' }],
+    budget: { maxToolCalls: 32 }, riskLevel: 'L2', idempotencyKeys: ['idem-aaa'],
+  });
+  assert.match(cp.checkpointId, /^cp-/);
+  assert.equal(cp.schemaVersion, rc.CHECKPOINT_SCHEMA_VERSION);
+  assert.match(cp.stateDigest, /^[0-9a-f]{32}$/);
+  assert.equal(cp.artifacts[0].path, 'files/config.json');
+  assert.equal(cp.artifacts[0].exists, true);
+  assert.match(cp.artifacts[0].digest, /^[0-9a-f]{16}$/);
+
+  // 状态摘要稳定：同一状态重复摘要一致，改产物即变
+  const again = rc.buildCheckpoint({ turnId: 'turn-cp-1', sessionId: 's-cp', executionState: 'TOOL_SUCCEEDED', completedSteps: [], pendingStep: 'run-tests', artifacts: [], files, messages: [{ role: 'user', text: '改一下配置' }], memory: [{ id: 'mem-1', text: '用户偏好深色主题' }], idempotencyKeys: ['idem-aaa'] });
+  assert.equal(again.stateDigest, cp.stateDigest, '同状态必须得到同一摘要');
+  const moved = rc.buildCheckpoint({ turnId: 'turn-cp-1', sessionId: 's-cp', executionState: 'TOOL_SUCCEEDED', completedSteps: [], pendingStep: 'run-tests', artifacts: [], files: { ...files, 'files/config.json': '{"port":9090}' }, messages: [{ role: 'user', text: '改一下配置' }], memory: [{ id: 'mem-1', text: '用户偏好深色主题' }], idempotencyKeys: ['idem-aaa'] });
+  assert.notEqual(moved.stateDigest, cp.stateDigest, '产物变化必须改变状态摘要');
+
+  // ① 无漂移：步骤可复用、无需核验
+  const intact = rc.verifyCheckpoint(cp, { files });
+  assert.equal(intact.drift, 'none');
+  assert.equal(intact.completedSteps.filter((x) => x.reusable).length, 2, '两个成功步骤可复用，失败步骤不可复用');
+  assert.equal(intact.completedSteps.find((x) => x.name === 'run-tests').reusable, false);
+
+  // ② 产物被外部修改：该步骤降级为不可复用，并给出核验步骤
+  const drifted = { ...files, 'files/config.json': '{"port":9090}' };
+  const verdict = rc.verifyCheckpoint(cp, { files: drifted });
+  assert.equal(verdict.drift, 'artifact-drift');
+  assert.equal(verdict.changedArtifacts.length, 1);
+  assert.equal(verdict.completedSteps.find((x) => x.name === 'write-config').reusable, false);
+  assert.match(verdict.completedSteps.find((x) => x.name === 'write-config').reason, /外部修改/);
+  const plan = rc.planResume(cp, { files: drifted });
+  assert.equal(plan.resumable, true);
+  assert.equal(plan.entryState, 'RECOVERY_PENDING');
+  assert.ok(plan.verificationSteps.some((x) => x.includes('files/config.json')), '漂移产物必须进入「先核验」清单');
+  assert.ok(plan.reusableSteps.includes('inspect-files'));
+  const text = rc.formatResumePlan(plan);
+  assert.match(text, /断点续跑计划/);
+  assert.match(text, /先核验/);
+
+  // ③ 产物被删除：标记 missing，仍需核验
+  const missing = rc.verifyCheckpoint(cp, { files: { 'files/keep.txt': 'keep' } });
+  assert.equal(missing.drift, 'artifact-missing');
+  assert.equal(missing.missingArtifacts.length, 1);
+
+  // ④ 能力变化 + L3 续跑点：必须重新确认
+  const l3cp = { ...cp, riskLevel: 'L3', capabilityCode: 'R1·W1·S1·D1' };
+  const plan2 = rc.planResume(l3cp, { files, capabilities: { capCode: 'R1·W1·S0·D0', sandbox: { enabled: false } } });
+  assert.equal(plan2.needsConfirmation, true, 'L3 或能力变化必须重新确认');
+  assert.ok(plan2.verdict.capabilityDrift.length >= 1);
+
+  // 环形缓冲与按会话取最新
+  const store = rc.createCheckpointStore({ max: 3 });
+  store.record({ ...cp, checkpointId: 'cp-1' });
+  store.record({ ...cp, checkpointId: 'cp-2', sessionId: 's-other' });
+  store.record({ ...cp, checkpointId: 'cp-3' });
+  store.record({ ...cp, checkpointId: 'cp-4' });
+  assert.equal(store.size, 3, '超过上限必须丢弃最旧检查点');
+  assert.equal(store.latest('s-other').checkpointId, 'cp-2');
+  assert.equal(store.latest('s-cp').checkpointId, 'cp-4');
+  assert.equal(store.list('s-cp').length, 2);
+});
+
+test('2026.10.1.13：P1-2 幂等账本——同键调用四类裁决（复用 / 先核验 / 拦截重复副作用 / 放行）', async () => {
+  const id = await import('../js/idempotency.js');
+  const ledger = id.createIdempotencyLedger({});
+
+  // 未登记 → 放行；登记后 in-flight → 并发去重（复用）
+  assert.equal(id.planReplay({ entry: null }).decision, 'allow');
+  const claim = ledger.claim('idem-1', { tool: 'write_file', turnId: 't1' });
+  assert.equal(claim.ok, true);
+  assert.equal(ledger.lookup('idem-1').status, 'in-flight');
+  assert.equal(id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' } }).decision, 'reuse');
+  assert.equal(ledger.claim('idem-1', { tool: 'write_file', turnId: 't1' }).ok, false, '同轮同键并发登记必须被拒绝');
+
+  // 同轮已完成 → 复用（不重复执行）
+  ledger.settle('idem-1', { status: 'succeeded', tool: 'write_file', turnId: 't1', artifactPath: 'files/a.txt', artifactDigest: 'abc' });
+  const sameTurn = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't1' });
+  assert.equal(sameTurn.decision, 'reuse');
+
+  // 跨轮 + 目标状态已满足 → 复用；目标被改过 → 放行（新的有效操作）
+  const crossTurn = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't2', currentArtifactDigest: 'abc' });
+  assert.equal(crossTurn.decision, 'reuse');
+  assert.match(crossTurn.reason, /目标状态已满足/);
+  const changed = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't2', currentArtifactDigest: 'zzz' });
+  assert.equal(changed.decision, 'allow');
+  const unknown = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't2' });
+  assert.equal(unknown.decision, 'verify-first');
+
+  // 用户明确要求重做 → 放行
+  const authorized = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't2', currentArtifactDigest: 'abc', userText: '请覆盖 files/a.txt' });
+  assert.equal(authorized.decision, 'allow');
+
+  // 副作用不确定 → 先核验，禁止盲目重发
+  ledger.settle('idem-2', { status: 'uncertain', tool: 'write_file', turnId: 't1' });
+  const uncertain = id.planReplay({ entry: ledger.lookup('idem-2'), contract: { sideEffect: 'filesystem' } });
+  assert.equal(uncertain.decision, 'verify-first');
+  assert.equal(uncertain.verifyFirst, undefined);
+  assert.match(uncertain.guidance, /核验/);
+
+  // 非幂等外部副作用（生图 / 委派）→ 拦截，避免重复扣费
+  const costEntry = { key: 'idem-3', tool: 'generate_image', status: 'succeeded', turnId: 't1', at: 1 };
+  const blocked = id.planReplay({ entry: costEntry, contract: { sideEffect: 'cost' } });
+  assert.equal(blocked.decision, 'block');
+  assert.match(blocked.reason, /重复/);
+  assert.equal(id.planReplay({ entry: costEntry, contract: { sideEffect: 'cost' }, userText: '重新生成一张' }).decision, 'allow');
+
+  // 失败过的键 → 允许按新调用执行（不是无限拦截）
+  ledger.settle('idem-4', { status: 'failed', tool: 'write_file', turnId: 't1' });
+  assert.equal(id.planReplay({ entry: ledger.lookup('idem-4'), contract: { sideEffect: 'filesystem' } }).decision, 'allow');
+
+  // 持久化：in-flight 不落盘，终态才落盘并受上限约束
+  assert.ok(ledger.toJSON().every((e) => e.status !== 'in-flight'));
+  const big = id.createIdempotencyLedger({ max: 2 });
+  big.settle('a', { status: 'succeeded' }); big.settle('b', { status: 'succeeded' }); big.settle('c', { status: 'succeeded' });
+  assert.equal(big.size, 2);
+  assert.equal(big.policyVersion, id.IDEMPOTENCY_POLICY_VERSION);
+});
+
+test('2026.10.1.13：P1-3 记忆生命周期——写入门槛四问、来源分级、召回状态机与冲突取代', async () => {
+  const ml = await import('../js/memorylife.js');
+  const { createStore } = await import('../js/state.js');
+
+  // 门槛四问
+  const garbage = ml.evaluateMemoryWriteGate({ fact: '这个呢', source: 'agent-tool', userText: '这个呢' });
+  assert.equal(garbage.pool, 'reject');
+  const guess = ml.evaluateMemoryWriteGate({ fact: '用户可能喜欢深色主题', source: 'model-guess', userText: '你好' });
+  assert.equal(guess.pool, 'candidate', '模型推测只能进候选区');
+  assert.match(guess.reasons.join('；'), /模型推测/);
+  const explicit = ml.evaluateMemoryWriteGate({ fact: '用户偏好 Python 3.12', source: 'user-explicit', userText: '记住：我偏好 Python 3.12' });
+  assert.equal(explicit.pool, 'long_term');
+  const sensitive = ml.evaluateMemoryWriteGate({ fact: '我的 api key 是 sk-teamo-secret-1234', source: 'agent-tool', userText: '帮我看看这个环境' });
+  const sensitiveAsked = ml.evaluateMemoryWriteGate({ fact: '我的 api key 是 sk-teamo-secret-1234', source: 'agent-tool', userText: '帮我记一下环境' });
+  assert.equal(sensitiveAsked.pool, 'long_term', '用户说「记一下」即为明确要求保存');
+  assert.equal(sensitive.sensitivity, 'HIGH');
+  assert.equal(sensitive.pool, 'candidate', '敏感信息默认不进长期库');
+  const sensitiveExplicit = ml.evaluateMemoryWriteGate({ fact: '我的 api key 是 sk-teamo-secret-1234', source: 'user-explicit', userText: '记住我的 api key 是 sk-teamo-secret-1234' });
+  assert.equal(sensitiveExplicit.pool, 'long_term', '用户明确要求保存时放行（仍标记 HIGH）');
+  const over = ml.evaluateMemoryWriteGate({ fact: '用户永远不喜欢长回答', source: 'agent-tool', userText: '好的' });
+  assert.equal(over.pool, 'candidate');
+  assert.match(over.reasons.join('；'), /过度概括/);
+  assert.equal(over.scope, 'preference');
+  assert.equal(ml.detectSensitivity('我的手机号是 13800000000'), 'HIGH');
+  assert.equal(ml.classifyMemoryScope('以后一律用中文回答'), 'constraint');
+
+  // 冲突与取代：保留较新者
+  const oldFact = { id: 'mem-old', text: '用户偏好简洁回答', ts: 1000, lastConfirmedAt: 1000 };
+  const newFact = { id: 'mem-new', text: '用户偏好详细展开回答', ts: 2000, lastConfirmedAt: 2000 };
+  const conflicts = ml.detectConflicts([oldFact, newFact]);
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].keep, 'mem-new');
+  assert.equal(conflicts[0].supersede, 'mem-old');
+  const applied = ml.applySupersede([oldFact, newFact], conflicts);
+  assert.equal(oldFact.status, 'SUPERSEDED');
+  assert.deepEqual(newFact.supersedes, ['mem-old']);
+  assert.ok(applied.superseded.includes('mem-old'));
+
+  // 召回状态机：召回 ≠ 必须采用
+  const recalled = [
+    { id: 'mem-style', text: '用户偏好简洁回答' },
+    { id: 'mem-lang', text: '用户偏好中文回答' },
+    { id: 'mem-dead', text: '用户偏好英文回答', status: 'SUPERSEDED', supersededBy: 'mem-lang' },
+  ];
+  const states = ml.resolveRecallStates({ recalled, userText: '请详细展开分析这个问题' });
+  const byId = Object.fromEntries(states.states.map((x) => [x.id, x]));
+  assert.equal(byId['mem-style'].applicationState, 'REJECTED_FOR_TURN', '与本轮明确指令冲突的记忆不采用');
+  assert.match(byId['mem-style'].applicationReason, /本轮指令优先/);
+  assert.equal(byId['mem-dead'].applicationState, 'REJECTED_FOR_TURN');
+  assert.equal(byId['mem-lang'].applicationState, 'APPLIED');
+  const injection = ml.planMemoryInjection(recalled, states.states);
+  assert.equal(injection.injected.length, 1);
+  assert.equal(injection.dropped.length, 2);
+  assert.match(ml.formatMemoryApplicationReport(states), /REJECTED_FOR_TURN=2/);
+
+  // 用户主动提到 → VALIDATED；健康度汇总
+  const validated = ml.resolveRecallStates({ recalled: [{ id: 'mem-x', text: '用户偏好深色主题' }], userText: '还是用深色主题吧' });
+  assert.equal(validated.states[0].applicationState, 'VALIDATED');
+  const health = ml.summarizeMemoryHealth({ memory: [{ id: 'a', text: '用户偏好中文', confidence: 0.9 }, { id: 'b', text: '我的手机号是 138', confidence: 0.8 }], candidates: [{}] });
+  assert.equal(health.activeCount, 2);
+  assert.equal(health.sensitiveCount, 1);
+  assert.equal(health.candidateCount, 1);
+});
+
+test('2026.10.1.13：P1-4 交互确认——L3 停下来等用户决定（允许 / 拒绝 / 会话放行 / 超时默认拒绝）', async () => {
+  const ex = await import('../js/execution.js');
+  assert.equal(ex.guardRequiresConfirmation({ guard: 'observe', risk: { level: 'L3' } }), false, '默认观察模式不打断');
+  assert.equal(ex.guardRequiresConfirmation({ guard: 'strict', risk: { level: 'L3' } }), true);
+  assert.equal(ex.guardRequiresConfirmation({ guard: 'strict', risk: { level: 'L2' } }), false);
+  assert.equal(ex.guardRequiresConfirmation({ guard: 'strict-l2', risk: { level: 'L2' } }), true);
+
+  const gate = ex.createConfirmationGate({ timeoutMs: 5000 });
+  const wait = gate.wait({ key: 'cf-1', tool: 'delete_file', requestText: '操作：delete_file' });
+  assert.deepEqual(gate.pendingKeys(), ['cf-1']);
+  const decided = gate.resolve('cf-1', ex.CONFIRMATION_DECISIONS.ALLOW_SESSION, '用户点了本会话允许');
+  const rec = await wait;
+  assert.equal(decided.ok, true);
+  assert.equal(rec.decision, 'allow-session');
+  assert.equal(gate.isSessionAllowed('delete_file'), true, '会话放行后同类操作不再逐次确认');
+  assert.equal(gate.isSessionAllowed('write_file'), false);
+  assert.equal(gate.pendingCount, 0);
+
+  // 超时未应答 → 默认拒绝（fail-closed）
+  const gate2 = ex.createConfirmationGate({ timeoutMs: 80 });
+  const rec2 = await gate2.wait({ key: 'cf-2', tool: 'delete_file' });
+  assert.equal(rec2.decision, ex.CONFIRMATION_DECISIONS.TIMEOUT);
+  assert.match(rec2.reason, /默认拒绝/);
+  assert.match(ex.formatConfirmationDecision(rec2), /超时/);
+
+  // 回合结束作废未决确认
+  const gate3 = ex.createConfirmationGate({ timeoutMs: 5000 });
+  const pending = gate3.wait({ key: 'cf-3', tool: 'write_file' });
+  gate3.cancelAll();
+  assert.equal((await pending).decision, ex.CONFIRMATION_DECISIONS.DENY);
+  assert.equal(gate3.resolve('cf-3', 'allow-once').ok, false, '已作废的确认不可再被放行');
+});
+
+test('2026.10.1.13：P1-5 轨迹级评测——三个负向指标 + 恢复率 / 审计完整度 / 副作用安全', async () => {
+  const tj = await import('../js/trajectory.js');
+
+  // Over-routing：简单问答却走了重链路
+  const over = tj.evaluateTrajectory({
+    record: { turnId: 't1', toolRuns: [{ index: 1, name: 'write_file', status: 'succeeded', riskLevel: 'L2', notes: [] }], transitions: [], silentFailure: { silent: false } },
+    plan: { needSearch: false, needCode: false }, userText: '你好呀', taskClass: 'chat',
+  });
+  assert.equal(over.metrics.overRouting.flagged, true);
+  assert.match(over.metrics.overRouting.reason, /重链路/);
+  assert.equal(over.healthy, false);
+
+  // Under-routing：计划需要检索且 Web 可用，却没有联网
+  const under = tj.evaluateTrajectory({
+    record: { turnId: 't2', toolRuns: [], transitions: [], silentFailure: { silent: false } },
+    plan: { needSearch: true }, userText: '查一下最新的框架版本', taskClass: 'research',
+    capabilities: { web: { enabled: true }, sandbox: { enabled: true }, relay: 1 },
+  });
+  assert.equal(under.metrics.underRouting.flagged, true);
+  assert.match(under.metrics.underRouting.reason, /fetch_url/);
+  // 能力不可用时不得误报（宁可不报，也不给假阳性）
+  const noCap = tj.evaluateTrajectory({
+    record: { turnId: 't3', toolRuns: [], transitions: [], silentFailure: { silent: false } },
+    plan: { needSearch: true }, userText: '查一下最新的框架版本', taskClass: 'research',
+    capabilities: { web: { enabled: false }, sandbox: { enabled: false }, relay: 0 },
+  });
+  assert.equal(noCap.metrics.underRouting.flagged, false);
+
+  // Silent-failure + 恢复率 + 多余调用率
+  const mixed = tj.evaluateTrajectory({
+    record: {
+      turnId: 't4',
+      toolRuns: [
+        { index: 1, name: 'fetch_url', status: 'failed', riskLevel: 'L2', failure: { kind: 'TRANSIENT', label: '暂时性错误' }, notes: [] },
+        { index: 2, name: 'fetch_url', status: 'succeeded', riskLevel: 'L2', notes: ['auto-retry'] },
+        { index: 3, name: 'write_file', status: 'blocked', riskLevel: 'L2', notes: [] },
+        { index: 4, name: 'read_file', status: 'succeeded', riskLevel: 'L1', notes: ['idempotent-reuse'] },
+      ],
+      transitions: [{ seq: 1, from: 'RECEIVED', to: 'CLASSIFIED' }],
+      silentFailure: { silent: true, failedTools: ['fetch_url'] },
+    },
+    plan: { needSearch: true }, userText: '把官网内容抓下来存好', taskClass: 'research',
+    capabilities: { web: { enabled: true } },
+    auditEvents: [
+      { eventType: 'tool-call-start', payload: { index: 1 } }, { eventType: 'tool-call-end', payload: { index: 1 } },
+      { eventType: 'tool-call-start', payload: { index: 2 } }, { eventType: 'tool-call-end', payload: { index: 2 } },
+      { eventType: 'tool-call-start', payload: { index: 3 } }, { eventType: 'tool-call-end', payload: { index: 3 } },
+      { eventType: 'tool-call-start', payload: { index: 4 } }, { eventType: 'tool-call-end', payload: { index: 4 } },
+      { eventType: 'state-transition', payload: { seq: 1, from: 'RECEIVED', to: 'CLASSIFIED' } },
+    ],
+  });
+  assert.equal(mixed.metrics.silentFailure.flagged, true);
+  assert.equal(mixed.metrics.recovery.value, 1, '失败后同工具重试成功 = 100% 恢复');
+  assert.equal(mixed.metrics.audit.value, 1, '所有调用与转移都在审计里');
+  assert.ok(mixed.metrics.unnecessaryCallRate.value > 0);
+  assert.equal(mixed.negativeCount, 1);
+
+  // 审计缺失必须被发现
+  const gapped = tj.evaluateTrajectory({
+    record: { turnId: 't5', toolRuns: [{ index: 7, name: 'read_file', status: 'succeeded', notes: [] }], transitions: [], silentFailure: { silent: false } },
+    plan: {}, userText: '读文件', taskClass: 'file', auditEvents: [],
+  });
+  assert.equal(gapped.metrics.audit.value, 0);
+  assert.match(gapped.metrics.audit.reason, /审计缺失/);
+
+  // 未确认的 L3 执行必须被标记
+  const unsafe = tj.evaluateTrajectory({
+    record: { turnId: 't6', toolRuns: [{ index: 1, name: 'delete_file', status: 'succeeded', riskLevel: 'L3', notes: [] }], transitions: [], silentFailure: { silent: false } },
+    plan: {}, userText: '删掉它', taskClass: 'file',
+  });
+  assert.equal(unsafe.metrics.sideEffectSafety.flagged, true);
+  const safe = tj.evaluateTrajectory({
+    record: { turnId: 't7', toolRuns: [{ index: 1, name: 'delete_file', status: 'succeeded', riskLevel: 'L3', notes: ['confirmed'] }], transitions: [], silentFailure: { silent: false } },
+    plan: {}, userText: '删掉它', taskClass: 'file',
+  });
+  assert.equal(safe.metrics.sideEffectSafety.flagged, false, '确认过的 L3 不算越权');
+
+  // 会话级汇总：按任务类型切分 + P95 延迟
+  const totals = tj.summarizeTrajectoryTotals([over, under, mixed, safe]);
+  assert.equal(totals.turns, 4);
+  assert.equal(totals.overRoutingRate, 0.25);
+  assert.equal(totals.silentFailureRate, 0.25);
+  assert.ok(totals.byClass.chat.turns >= 1);
+  const log = tj.appendTrajectoryEntry(tj.appendTrajectoryEntry([], over), under);
+  assert.equal(log.length, 2);
+  assert.equal(tj.summarizeTrajectoryTotals(tj.appendTrajectoryEntry(log, mixed, 2)).turns, 2, '环形缓冲上限生效');
+  assert.match(tj.formatTrajectoryReport(totals), /Over-routing/);
+
+  // 可恢复性五问（故障注入用）
+  const recoverability = tj.evaluateRecoverability({ failureKind: 'SIDE_EFFECT_UNCERTAIN', verified: true, disclosed: true, audited: true });
+  assert.equal(recoverability.ok, true);
+  assert.equal(recoverability.checks.detectable, true);
+  assert.equal(recoverability.checks.stoppable, true);
+});
+
+test('2026.10.1.13：P1-6 端到端——检查点落盘、幂等复用拦截重复写入、断点续跑计划注入下一轮', async () => {
+  const rc = await import('../js/recovery.js');
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'files/report.md', content: '# 报告' })),
+    openaiTextTurn('已写入 files/report.md。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('把报告写到 files/report.md');
+
+    // 检查点：每波调用后落盘，含产物摘要与状态摘要
+    const cps = store.state.executionCheckpoints || [];
+    assert.ok(cps.length >= 1, '必须落下执行检查点');
+    const cp = cps[cps.length - 1];
+    assert.equal(cp.turnId, store.state.lastExecutionRecord.transitions[0].turnId);
+    assert.equal(cp.completedSteps.some((st) => st.name === 'write_file'), true);
+    assert.ok(cp.artifacts.some((a) => a.path === 'files/report.md'), '产物必须登记（用于续跑核验）');
+    assert.match(cp.stateDigest, /^[0-9a-f]{32}$/);
+    // 审计里必须有 checkpoint 事件
+    const audit = store.state.lastExecutionRecord;
+    assert.match(audit.auditDigest, /^[0-9a-f]{64}$/);
+    assert.equal(store.state.files['files/report.md'], '# 报告');
+    // 幂等账本跨轮落盘
+    assert.ok(Array.isArray(store.state.executionIdempotency) && store.state.executionIdempotency.length >= 1);
+    assert.equal(store.state.executionIdempotency[0].status, 'succeeded');
+    assert.equal(store.state.executionIdempotency[0].artifactDigest.length, 16);
+
+    // 第二轮：同一逻辑操作再来一次（用户没要求重写）→ 账本判定「目标状态已满足」→ 不重复执行
+    const calls2 = [];
+    mockFetch([
+      openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'files/report.md', content: '# 报告' })),
+      openaiTextTurn('内容已经就位，无需重复写入。'),
+    ], calls2);
+    await agent.send('确认一下 files/report.md 里的报告已经就位');
+    const toolMsg2 = [...store.state.messages].reverse().find((m) => m.role === 'tool');
+    assert.match(toolMsg2.content, /幂等复用/, '同一逻辑操作不重复执行，改为复用已完成的结果');
+    assert.match(toolMsg2.content, /目标状态已满足/);
+    assert.equal(store.state.lastExecutionRecord.toolRuns[0].notes.includes('idempotent-reuse'), true);
+    assert.equal(store.state.lastExecutionRecord.toolCallCount, 1);
+
+    // 第三轮：用户明确要求重写 → 账本放行（授权优先，仍全程记录）
+    const calls3b = [];
+    mockFetch([
+      openaiToolTurn('c3', 'write_file', JSON.stringify({ path: 'files/report.md', content: '# 报告' })),
+      openaiTextTurn('已重写。'),
+    ], calls3b);
+    await agent.send('请再写一遍覆盖 files/report.md');
+    const toolMsg3 = [...store.state.messages].reverse().find((m) => m.role === 'tool');
+    assert.match(toolMsg3.content, /已写入/, '用户明确要求重写时必须真的执行');
+    assert.equal(store.state.lastExecutionRecord.toolRuns[0].notes.includes('idempotent-reuse'), false);
+
+    // 再落一个新的产物（本次检查点登记 files/summary.md 的摘要）
+    const calls3c = [];
+    mockFetch([
+      openaiToolTurn('c4', 'write_file', JSON.stringify({ path: 'files/summary.md', content: '摘要：报告已就位' })),
+      openaiTextTurn('摘要已写入 files/summary.md。'),
+    ], calls3c);
+    await agent.send('顺便把摘要写到 files/summary.md');
+    assert.equal(store.state.files['files/summary.md'], '摘要：报告已就位');
+
+    // 产物被外部改动后（沙箱面板手工编辑 / 另一个回合写入）：续跑计划标记漂移并要求先核验
+    agent.fs.write('files/summary.md', '摘要：被别人改过了');
+    const plan = agent.getResumePlan();
+    assert.ok(plan, '应能取到续跑计划');
+    assert.equal(plan.drift, 'artifact-drift', '产物与检查点摘要不一致时必须报告漂移');
+    assert.ok(plan.verificationSteps.some((x) => x.includes('files/summary.md')));
+
+    // 下一轮把续跑计划注入提示词（只注入一次）
+    const calls4 = [];
+    mockFetch([openaiTextTurn('好的。')], calls4);
+    await agent.send('继续');
+    const promptText = JSON.stringify(calls4[0].body.messages);
+    assert.match(promptText, /断点续跑计划/, '中断/漂移后的下一轮必须看到续跑计划');
+    assert.match(promptText, /先核验/);
+    assert.ok(rc.formatResumePlan(plan).length > 0);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.1.13：P1-7 端到端——严格档位下高风险操作等待确认：拒绝不执行、允许才执行、决定进审计', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('d1', 'delete_file', JSON.stringify({ path: 'files/keep.txt' })),
+    openaiTextTurn('已按你的决定处理。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.executionGuard = 'strict';
+    store.state.files = { 'files/keep.txt': '重要内容' };
+    const seen = [];
+    const agent = createAgent(store, {
+      onConfirmationRequest: (call, requestText, key) => {
+        seen.push({ name: call.name, requestText, key });
+        // 用户点「拒绝」
+        setTimeout(() => agent.resolveConfirmation(key, 'deny', '测试：用户拒绝'), 0);
+      },
+    });
+    agent.loadFiles(store.state.files);
+    await agent.send('删掉 files/keep.txt');
+
+    assert.equal(seen.length, 1, '高风险操作必须先发起确认请求');
+    for (const field of ['操作：', '原因：', '影响：', '可逆性：', '参数摘要：', '风险等级：']) {
+      assert.ok(seen[0].requestText.includes(field), `确认请求缺少 ${field}`);
+    }
+    assert.equal(store.state.files['files/keep.txt'], '重要内容', '用户拒绝后绝不能执行删除');
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.blockedCount, 1);
+    assert.equal(rec.toolRuns[0].notes.includes('confirm-deny'), true);
+    const toolMsg = [...store.state.messages].reverse().find((m) => m.role === 'tool');
+    assert.match(toolMsg.content, /未执行/);
+  } finally { globalThis.fetch = realFetch; }
+
+  // 允许一次 → 真的执行，并把「已确认」写进记录
+  const calls2 = [];
+  mockFetch([
+    openaiToolTurn('d2', 'delete_file', JSON.stringify({ path: 'files/keep.txt' })),
+    openaiTextTurn('已删除。'),
+  ], calls2);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.executionGuard = 'strict';
+    store.state.files = { 'files/keep.txt': '重要内容' };
+    const agent = createAgent(store, {
+      onConfirmationRequest: (call, requestText, key) => {
+        setTimeout(() => agent.resolveConfirmation(key, 'allow-once', '测试：用户允许'), 0);
+      },
+    });
+    agent.loadFiles(store.state.files);
+    await agent.send('删掉 files/keep.txt');
+    assert.equal('files/keep.txt' in store.state.files, false, '用户允许后必须真的执行');
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.toolRuns[0].status, 'succeeded');
+    assert.equal(rec.toolRuns[0].notes.includes('confirmed'), true);
+    assert.equal(rec.trajectory.silentFailure, false);
+    assert.equal(store.state.trajectoryTotals.turns >= 1, true);
+  } finally { globalThis.fetch = realFetch; }
+
+  // 观察模式（默认）：不打断，但风险等级与理由照记
+  const calls3 = [];
+  mockFetch([
+    openaiToolTurn('d3', 'delete_file', JSON.stringify({ path: 'files/keep.txt' })),
+    openaiTextTurn('已删除（观察模式下直接执行）。'),
+  ], calls3);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.files = { 'files/keep.txt': 'x' };
+    let asked = 0;
+    const agent = createAgent(store, { onConfirmationRequest: () => { asked++; } });
+    agent.loadFiles(store.state.files);
+    await agent.send('删掉 files/keep.txt');
+    assert.equal(asked, 0, '默认观察模式不打断用户');
+    assert.equal('files/keep.txt' in store.state.files, false);
+    assert.equal(store.state.lastExecutionRecord.toolRuns[0].riskLevel, 'L3');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.1.13：P1-8 端到端——记忆按生命周期注入与写入：冲突记忆本轮不注入，过度概括不走长期库', async () => {
+  // ① 记忆与本轮指令冲突 → 不注入提示词，并在遥测中记录原因
+  const calls = [];
+  mockFetch([openaiTextTurn('好的，我会详细展开。')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.memory = [{ id: 'mem-style', text: '用户偏好极简回答，越短越好', source: 'user-explicit', confidence: 0.98, ttlMs: 1e10, ts: Date.now(), expiresAt: Date.now() + 1e10 }];
+    const agent = createAgent(store, {});
+    await agent.send('请详细展开分析这个方案，逐条说明');
+    const promptText = JSON.stringify(calls[0].body.messages);
+    assert.equal(promptText.includes('越短越好'), false, '与本轮明确指令冲突的记忆不得注入');
+    const tel = store.state.lastNexusTelemetry.execution;
+    assert.equal(tel.memoryApplication.rejectedForTurn, 1);
+    assert.match(tel.memoryApplication.reasons.join('；'), /本轮指令优先/);
+  } finally { globalThis.fetch = realFetch; }
+
+  // ② 用户主动提到 → VALIDATED 并正常注入
+  const calls2 = [];
+  mockFetch([openaiTextTurn('好的。')], calls2);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.memory = [{ id: 'mem-lang', text: '用户偏好中文回答', source: 'user-explicit', confidence: 0.98, ttlMs: 1e10, ts: Date.now(), expiresAt: Date.now() + 1e10 }];
+    const agent = createAgent(store, {});
+    await agent.send('还是用中文回答吧');
+    const promptText = JSON.stringify(calls2[0].body.messages);
+    assert.match(promptText, /中文回答/);
+    assert.equal(store.state.lastNexusTelemetry.execution.memoryApplication.validated, 1);
+    assert.equal(store.state.lastNexusTelemetry.execution.memoryApplication.rejectedForTurn, 0);
+  } finally { globalThis.fetch = realFetch; }
+
+  // ③ 过度概括的自动记忆点 → 只进候选区，不进长期库
+  const calls3 = [];
+  mockFetch([openaiTextTurn('收到。')], calls3);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('记住：所有人永远都不喜欢长回答');
+    const longTerm = (store.state.memory || []).map((m) => m.text).join(' ');
+    assert.equal(longTerm.includes('所有人'), false, '过度概括不得进长期库');
+    assert.ok((store.state.memoryCandidates || []).length >= 1, '应进短期候选区');
+    assert.match(JSON.stringify(store.state.memoryCandidates), /所有人/);
+  } finally { globalThis.fetch = realFetch; }
+
+  // ④ 敏感信息 + 用户明确要求保存 → 写入并标记 HIGH（可 purge）
+  const calls4 = [];
+  mockFetch([openaiTextTurn('记住了。')], calls4);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('记住：我的测试 token 是 sk-teamo-demo-778899');
+    const joined = (store.state.memory || []).map((m) => m.text).join(' ');
+    assert.match(joined, /sk-teamo-demo-778899/, '用户明确要求保存的敏感信息可写入');
+    assert.ok(Array.isArray(store.state.memoryCandidates));
+  } finally { globalThis.fetch = realFetch; }
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();
