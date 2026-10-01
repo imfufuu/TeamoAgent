@@ -1252,53 +1252,41 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .md-chart-bar, .md-chart-slice, .md-chart-point, .md-chart-dot {
   opacity: .92;
   cursor: pointer;
-  transform-box: fill-box;
   outline: none;
-  transition: transform .24s cubic-bezier(.22, 1, .36, 1), opacity .2s ease, filter .22s ease, stroke-width .2s ease;
+  transition: opacity .16s ease, stroke-width .16s ease;
 }
-.md-chart-bar { transform-origin: 50% 100%; }
-.md-chart-slice, .md-chart-point, .md-chart-dot { transform-origin: 50% 50%; }
-.md-chart-svg:has(.md-chart-bar:hover, .md-chart-bar.is-active) .md-chart-bar:not(:hover):not(.is-active) { opacity: .44; }
+.md-chart-svg:has(.md-chart-bar:hover, .md-chart-bar.is-active) .md-chart-bar:not(:hover):not(.is-active) { opacity: .48; }
 .md-chart-bar:hover, .md-chart-bar:focus-visible, .md-chart-bar.is-active {
   opacity: 1;
-  transform: scaleY(1.035) translateY(-1.5px);
-  filter: brightness(1.08) drop-shadow(0 6px 14px rgba(79, 70, 229, .24));
 }
 .md-chart-svg:has(.md-chart-slice:hover, .md-chart-slice.is-active) .md-chart-slice:not(:hover):not(.is-active) { opacity: .48; }
 .md-chart-slice:hover, .md-chart-slice:focus-visible, .md-chart-slice.is-active {
   opacity: 1;
-  transform: scale(1.055);
-  filter: brightness(1.06) drop-shadow(0 8px 18px rgba(0, 0, 0, .2));
 }
 .md-chart-dot:hover, .md-chart-dot:focus-visible, .md-chart-dot.is-active,
 .md-chart-point:hover, .md-chart-point:focus-visible, .md-chart-point.is-active {
   opacity: 1;
-  transform: scale(1.62);
   stroke-width: 3;
-  filter: drop-shadow(0 0 8px rgba(79, 70, 229, .42));
 }
 .md-flow-node, .md-mind-node {
-  cursor: pointer;
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
-  transition: transform .24s cubic-bezier(.22, 1, .36, 1), filter .24s ease;
+  cursor: default;
+  transition: opacity .16s ease;
 }
 .md-flow-node:hover, .md-mind-node:hover {
-  transform: translateY(-2px) scale(1.028);
-  filter: drop-shadow(0 6px 14px rgba(79, 70, 229, .18));
+  opacity: .94;
 }
 .md-chart-tooltip {
   position: absolute; left: 50%; top: 36px; z-index: 14;
   pointer-events: none; white-space: nowrap;
   display: inline-flex; align-items: center; gap: 7px;
-  padding: 6px 11px; border-radius: 999px;
+  padding: 5px 10px; border-radius: 6px;
   background: color-mix(in srgb, var(--fg) 92%, var(--bg));
   color: var(--bg); font-family: var(--mono); font-size: 11.5px; line-height: 1.3;
-  box-shadow: var(--shadow-lg);
-  opacity: 0; transform: translate(-50%, calc(-100% - 10px)) scale(.94);
-  transition: opacity .16s ease, transform .18s cubic-bezier(.22, 1, .36, 1);
+  border: 1px solid var(--line);
+  opacity: 0; transform: translate(-50%, calc(-100% - 8px));
+  transition: opacity .14s ease;
 }
-.md-chart-tooltip.show { opacity: 1; transform: translate(-50%, calc(-100% - 10px)) scale(1); }
+.md-chart-tooltip.show { opacity: 1; transform: translate(-50%, calc(-100% - 8px)); }
 .md-chart-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1.5px rgba(255,255,255,.45); }
 .md-chart-tip-label { font-family: var(--sans); font-weight: 650; }
 .md-chart-tip-val { opacity: .92; }

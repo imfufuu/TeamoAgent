@@ -1,61 +1,1709 @@
 {
-  "schemaVersion": "1.0.0",
-  "benchmarkName": "Teamo-Hermes Nexus (THN v2.1) Offline Evaluation Corpus",
-  "description": "独立可复现的离线标注评测集：包含 L1 路由升档判定样本（N=20，含隐式多步漏升 FN 与含触发词闲聊误升 FP 边界样本）与 L3 记忆写入守门人样本（N=20，含短文本高价值事实误杀 FN 与长复合祈使句漏网 FP 边界样本）。",
-  "costModel": {
+  "version": "2026.9.30.11",
+  "description": "天枢 THN v2.2 独立离线基准评测集（共 240 条：路由升档 120 条 [In-Domain 60 + OOD 60] + 记忆守门人 120 条 [In-Domain 60 + OOD 60]，支持 95% Wilson 置信区间与基线对比）",
+  "costWeights": {
     "routeEscalation": {
       "fnWeight": 5,
       "fpWeight": 1,
-      "rationale": "将多约束复杂问题误判进盲快路径（FN 漏升档）会导致跳过记忆召回与核验，代价权重设为 5；将日常寒暄误判进全链路（FP 误升档）仅增加毫秒级本地检索开销，代价权重设为 1。"
+      "rationale": "漏升档（将多步/对比复杂问题误放入盲快路径）导致回答质量降级，代价高于将寒暄误放入全链路的延迟成本"
     },
     "memoryGatekeeper": {
       "fpWeight": 4,
       "fnWeight": 1,
-      "rationale": "将噪声残片或一次性指令写入跨会话记忆（FP 污染）会持续污染后续每一轮系统提示词，代价权重设为 4；漏记单条过短事实（FN 误拦）可由用户显式重试弥补，代价权重设为 1。"
+      "rationale": "误写入（将追问/噪声永久注入后续所有会话 System Prompt）造成跨轮次持续污染，代价高于漏记单条隐式偏好"
     }
   },
-  "routeEscalationSamples": [
-    { "id": "rt-pos-01", "text": "这个呢？为什么会出现这个问题？", "shouldEscalate": true, "category": "pronoun-followup" },
-    { "id": "rt-pos-02", "text": "对比一下这两种缓存方案的优缺点", "shouldEscalate": true, "category": "comparison" },
-    { "id": "rt-pos-03", "text": "首先读取配置文件，然后分析性能瓶颈", "shouldEscalate": true, "category": "multi-step-explicit" },
-    { "id": "rt-pos-04", "text": "如何从架构上解决状态空间组合复杂度？", "shouldEscalate": true, "category": "architecture-how" },
-    { "id": "rt-pos-05", "text": "刚才那个结论不对，帮我重新推导验证一下", "shouldEscalate": true, "category": "correction-verify" },
-    { "id": "rt-pos-06", "text": "如果把 TTL 删除改成软归档，怎么设计？", "shouldEscalate": true, "category": "design-tradeoff" },
-    { "id": "rt-pos-07", "text": "评价一下这套 Agent 框架的工程可测性", "shouldEscalate": true, "category": "critique" },
-    { "id": "rt-pos-08", "text": "帮我算一下 sha256 哈希并写进文件", "shouldEscalate": true, "category": "tool-required" },
-    { "id": "rt-pos-09", "text": "把两份方案的差异点列个清单", "shouldEscalate": true, "category": "implicit-diff-fn-edge" },
-    { "id": "rt-pos-10", "text": "给这套状态机挑挑毛病", "shouldEscalate": true, "category": "colloquial-review-fn-edge" },
-    { "id": "rt-neg-01", "text": "你好，今天心情怎么样？", "shouldEscalate": false, "category": "greeting" },
-    { "id": "rt-neg-02", "text": "早上好！", "shouldEscalate": false, "category": "greeting" },
-    { "id": "rt-neg-03", "text": "谢谢你的解答，非常清楚", "shouldEscalate": false, "category": "thanks" },
-    { "id": "rt-neg-04", "text": "水的标准沸点是多少摄氏度？", "shouldEscalate": false, "category": "simple-fact" },
-    { "id": "rt-neg-05", "text": "一句话解释什么是光合作用", "shouldEscalate": false, "category": "simple-fact" },
-    { "id": "rt-neg-06", "text": "地球绕太阳公转一周大约多少天？", "shouldEscalate": false, "category": "simple-fact" },
-    { "id": "rt-neg-07", "text": "好的，明白了", "shouldEscalate": false, "category": "ack" },
-    { "id": "rt-neg-08", "text": "辛苦啦，晚安", "shouldEscalate": false, "category": "greeting" },
-    { "id": "rt-neg-09", "text": "为什么今天天气这么好呀？", "shouldEscalate": false, "category": "casual-why-fp-edge" },
-    { "id": "rt-neg-10", "text": "怎么称呼你比较好？", "shouldEscalate": false, "category": "casual-how-fp-edge" }
+  "routeEscalationCorpus": [
+    {
+      "id": "rt-pos-01",
+      "split": "in_domain",
+      "text": "这个呢？为什么会出现这个问题？",
+      "shouldEscalate": true,
+      "category": "pronoun-followup"
+    },
+    {
+      "id": "rt-pos-02",
+      "split": "in_domain",
+      "text": "对比一下这两种缓存方案的优缺点",
+      "shouldEscalate": true,
+      "category": "comparison"
+    },
+    {
+      "id": "rt-pos-03",
+      "split": "in_domain",
+      "text": "首先读取配置文件，然后分析性能瓶颈",
+      "shouldEscalate": true,
+      "category": "multi-step-explicit"
+    },
+    {
+      "id": "rt-pos-04",
+      "split": "in_domain",
+      "text": "如何从架构上解决状态空间组合复杂度？",
+      "shouldEscalate": true,
+      "category": "architecture-how"
+    },
+    {
+      "id": "rt-pos-05",
+      "split": "in_domain",
+      "text": "刚才那个结论不对，帮我重新推导验证一下",
+      "shouldEscalate": true,
+      "category": "correction-verify"
+    },
+    {
+      "id": "rt-pos-06",
+      "split": "in_domain",
+      "text": "如果把 TTL 删除改成软归档，怎么设计？",
+      "shouldEscalate": true,
+      "category": "design-tradeoff"
+    },
+    {
+      "id": "rt-pos-07",
+      "split": "in_domain",
+      "text": "评价一下这套 Agent 框架的工程可测性",
+      "shouldEscalate": true,
+      "category": "critique"
+    },
+    {
+      "id": "rt-pos-08",
+      "split": "in_domain",
+      "text": "帮我算一下 sha256 哈希并写进文件",
+      "shouldEscalate": true,
+      "category": "tool-required"
+    },
+    {
+      "id": "rt-pos-09",
+      "split": "in_domain",
+      "text": "把两份方案的差异点列个清单",
+      "shouldEscalate": true,
+      "category": "implicit-diff-list"
+    },
+    {
+      "id": "rt-pos-10",
+      "split": "in_domain",
+      "text": "给这套状态机挑挑毛病",
+      "shouldEscalate": true,
+      "category": "colloquial-review"
+    },
+    {
+      "id": "rt-pos-11",
+      "split": "in_domain",
+      "text": "首先解析 JSON，接着按时间戳排序并去重",
+      "shouldEscalate": true,
+      "category": "multi-step-explicit"
+    },
+    {
+      "id": "rt-pos-12",
+      "split": "in_domain",
+      "text": "对比 SQLite WAL 模式与传统回滚日志的区别",
+      "shouldEscalate": true,
+      "category": "comparison"
+    },
+    {
+      "id": "rt-pos-13",
+      "split": "in_domain",
+      "text": "为什么 KV Cache 前缀树在插入动态时间戳后会失效？",
+      "shouldEscalate": true,
+      "category": "causal-why"
+    },
+    {
+      "id": "rt-pos-14",
+      "split": "in_domain",
+      "text": "如何用 Python 在沙箱里计算 Wilson 置信区间？",
+      "shouldEscalate": true,
+      "category": "code-how"
+    },
+    {
+      "id": "rt-pos-15",
+      "split": "in_domain",
+      "text": "一步步推导贝叶斯后验概率公式",
+      "shouldEscalate": true,
+      "category": "derivation"
+    },
+    {
+      "id": "rt-pos-16",
+      "split": "in_domain",
+      "text": "那如果并发请求量翻十倍，现有的锁机制还能撑住吗？",
+      "shouldEscalate": true,
+      "category": "hypothetical-followup"
+    },
+    {
+      "id": "rt-pos-17",
+      "split": "in_domain",
+      "text": "前面第三条提到的哈希链校验，能详细讲讲底层原理吗？",
+      "shouldEscalate": true,
+      "category": "context-ref"
+    },
+    {
+      "id": "rt-pos-18",
+      "split": "in_domain",
+      "text": "帮我搜索一下项目里的所有 regex 工具定义",
+      "shouldEscalate": true,
+      "category": "tool-required"
+    },
+    {
+      "id": "rt-pos-19",
+      "split": "in_domain",
+      "text": "同时考虑延迟、吞吐量和成本，应该怎么权衡模型路由？",
+      "shouldEscalate": true,
+      "category": "multi-constraint"
+    },
+    {
+      "id": "rt-pos-20",
+      "split": "in_domain",
+      "text": "画一张天枢六层治理管线的 SVG 流程图",
+      "shouldEscalate": true,
+      "category": "chart-generation"
+    },
+    {
+      "id": "rt-pos-21",
+      "split": "in_domain",
+      "text": "帮我用 SQL 查询一下销售额排名前五的品类并画柱状图",
+      "shouldEscalate": true,
+      "category": "tool-and-chart"
+    },
+    {
+      "id": "rt-pos-22",
+      "split": "in_domain",
+      "text": "自评一下刚才那段重构代码的潜在缺陷与边界风险",
+      "shouldEscalate": true,
+      "category": "self-eval"
+    },
+    {
+      "id": "rt-pos-23",
+      "split": "in_domain",
+      "text": "不仅要支持软归档恢复，而且还要支持物理擦除，怎么重构？",
+      "shouldEscalate": true,
+      "category": "multi-constraint"
+    },
+    {
+      "id": "rt-pos-24",
+      "split": "in_domain",
+      "text": "核实一下 https://teamorouter.com/pricing 上的最新价格",
+      "shouldEscalate": true,
+      "category": "web-verify"
+    },
+    {
+      "id": "rt-pos-25",
+      "split": "in_domain",
+      "text": "上次我们讨论的那个缓存淘汰策略是什么来着？",
+      "shouldEscalate": true,
+      "category": "session-recall"
+    },
+    {
+      "id": "rt-pos-26",
+      "split": "in_domain",
+      "text": "对比 React Server Components 和传统 SSR 的架构利弊",
+      "shouldEscalate": true,
+      "category": "comparison"
+    },
+    {
+      "id": "rt-pos-27",
+      "split": "in_domain",
+      "text": "排查一下为什么单元测试在无网络沙箱下会超时",
+      "shouldEscalate": true,
+      "category": "troubleshooting"
+    },
+    {
+      "id": "rt-pos-28",
+      "split": "in_domain",
+      "text": "把这几个模块的依赖关系整理成思维导图",
+      "shouldEscalate": true,
+      "category": "chart-generation"
+    },
+    {
+      "id": "rt-pos-29",
+      "split": "in_domain",
+      "text": "如果把子智能体并发数从 4 提升到 18，会有什么瓶颈？",
+      "shouldEscalate": true,
+      "category": "hypothetical-bottleneck"
+    },
+    {
+      "id": "rt-pos-30",
+      "split": "in_domain",
+      "text": "帮我写一段 JavaScript 脚本验证正交掩码的不相交性",
+      "shouldEscalate": true,
+      "category": "code-generation"
+    },
+    {
+      "id": "rt-pos-31",
+      "split": "ood_holdout",
+      "text": "Why does FNV-1a have a higher collision risk than SHA-256?",
+      "shouldEscalate": true,
+      "category": "ood-english-why"
+    },
+    {
+      "id": "rt-pos-32",
+      "split": "ood_holdout",
+      "text": "Compare optimistic locking vs pessimistic locking in PostgreSQL",
+      "shouldEscalate": true,
+      "category": "ood-english-compare"
+    },
+    {
+      "id": "rt-pos-33",
+      "split": "ood_holdout",
+      "text": "What about the tail latency under bursty traffic?",
+      "shouldEscalate": true,
+      "category": "ood-english-followup"
+    },
+    {
+      "id": "rt-pos-34",
+      "split": "ood_holdout",
+      "text": "Evaluate the trade-off between prompt caching and dynamic context injection",
+      "shouldEscalate": true,
+      "category": "ood-english-tradeoff"
+    },
+    {
+      "id": "rt-pos-35",
+      "split": "ood_holdout",
+      "text": "分析这两种共识算法在弱网分区下的异同",
+      "shouldEscalate": true,
+      "category": "ood-comparison"
+    },
+    {
+      "id": "rt-pos-36",
+      "split": "ood_holdout",
+      "text": "帮我找找这段鉴权逻辑里有没有越权漏洞",
+      "shouldEscalate": true,
+      "category": "ood-security-review"
+    },
+    {
+      "id": "rt-pos-37",
+      "split": "ood_holdout",
+      "text": "把这三个备选架构的优劣整理成表",
+      "shouldEscalate": true,
+      "category": "ood-table-synthesis"
+    },
+    {
+      "id": "rt-pos-38",
+      "split": "ood_holdout",
+      "text": "那它呢？在高并发写场景下也会退化吗？",
+      "shouldEscalate": true,
+      "category": "ood-pronoun-followup"
+    },
+    {
+      "id": "rt-pos-39",
+      "split": "ood_holdout",
+      "text": "除了调整超时阈值，还有什么办法能根治级联雪崩？",
+      "shouldEscalate": true,
+      "category": "ood-multi-constraint"
+    },
+    {
+      "id": "rt-pos-40",
+      "split": "ood_holdout",
+      "text": "深入剖析一下 V8 隐藏类与内联缓存的工作原理",
+      "shouldEscalate": true,
+      "category": "ood-deep-dive"
+    },
+    {
+      "id": "rt-pos-41",
+      "split": "ood_holdout",
+      "text": "用折线图展示最近六个季度的毛利率变化趋势",
+      "shouldEscalate": true,
+      "category": "ood-chart"
+    },
+    {
+      "id": "rt-pos-42",
+      "split": "ood_holdout",
+      "text": "克隆远端 git 仓库并检查最近的 commit 记录",
+      "shouldEscalate": true,
+      "category": "ood-git-tool"
+    },
+    {
+      "id": "rt-pos-43",
+      "split": "ood_holdout",
+      "text": "证明在有向无环图上拓扑排序的时间复杂度为 O(V+E)",
+      "shouldEscalate": true,
+      "category": "ood-proof"
+    },
+    {
+      "id": "rt-pos-44",
+      "split": "ood_holdout",
+      "text": "为什么直接把全量工具挂载进每次请求会拉低推理准确率？",
+      "shouldEscalate": true,
+      "category": "ood-causal"
+    },
+    {
+      "id": "rt-pos-45",
+      "split": "ood_holdout",
+      "text": "如何设计一套支持幂等重试与死信队列的异步消息总线？",
+      "shouldEscalate": true,
+      "category": "ood-architecture"
+    },
+    {
+      "id": "rt-pos-46",
+      "split": "ood_holdout",
+      "text": "上面第二条建议里的参数如果设成 0 会发生什么？",
+      "shouldEscalate": true,
+      "category": "ood-context-ref"
+    },
+    {
+      "id": "rt-pos-47",
+      "split": "ood_holdout",
+      "text": "帮我运行一段 Python 代码校核混淆矩阵的 F1 分数",
+      "shouldEscalate": true,
+      "category": "ood-sandbox-verify"
+    },
+    {
+      "id": "rt-pos-48",
+      "split": "ood_holdout",
+      "text": "挑刺一下这份系统设计文档里的短板与工程痛点",
+      "shouldEscalate": true,
+      "category": "ood-critique"
+    },
+    {
+      "id": "rt-pos-49",
+      "split": "ood_holdout",
+      "text": "之前聊过的那个多路仲裁方案，它的冲突判定公式是怎么写的？",
+      "shouldEscalate": true,
+      "category": "ood-recall"
+    },
+    {
+      "id": "rt-pos-50",
+      "split": "ood_holdout",
+      "text": "既要保证零外部依赖，又要通过全部安全基线测试，怎么实现？",
+      "shouldEscalate": true,
+      "category": "ood-multi-constraint"
+    },
+    {
+      "id": "rt-pos-51",
+      "split": "ood_holdout",
+      "text": "读取 package.json 文件并对比各测试脚本的职责区别",
+      "shouldEscalate": true,
+      "category": "ood-file-tool"
+    },
+    {
+      "id": "rt-pos-52",
+      "split": "ood_holdout",
+      "text": "指派子智能体分别从性能、安全、可维护性三个维度并发审查代码",
+      "shouldEscalate": true,
+      "category": "ood-subagent"
+    },
+    {
+      "id": "rt-pos-53",
+      "split": "ood_holdout",
+      "text": "验证一下在 N=200 时 Wilson 95% 置信区间的半宽是否小于 5%",
+      "shouldEscalate": true,
+      "category": "ood-math-verify"
+    },
+    {
+      "id": "rt-pos-54",
+      "split": "ood_holdout",
+      "text": "分析冷启动延迟高的底层原因并给出三阶段优化路线",
+      "shouldEscalate": true,
+      "category": "ood-root-cause"
+    },
+    {
+      "id": "rt-pos-55",
+      "split": "ood_holdout",
+      "text": "How about partitioning the state table by tenant ID?",
+      "shouldEscalate": true,
+      "category": "ood-english-how-about"
+    },
+    {
+      "id": "rt-pos-56",
+      "split": "ood_holdout",
+      "text": "帮我绘制一张各模块 Token 消耗占比的饼图",
+      "shouldEscalate": true,
+      "category": "ood-pie-chart"
+    },
+    {
+      "id": "rt-pos-57",
+      "split": "ood_holdout",
+      "text": "权衡一下同步阻塞探测与 0ms 本地预筛在 P50 延迟上的取舍",
+      "shouldEscalate": true,
+      "category": "ood-tradeoff"
+    },
+    {
+      "id": "rt-pos-58",
+      "split": "ood_holdout",
+      "text": "A方案吞吐高但丢消息，B方案可靠但慢，选哪个？",
+      "shouldEscalate": true,
+      "category": "ood-implicit-tradeoff-fn-edge"
+    },
+    {
+      "id": "rt-pos-59",
+      "split": "ood_holdout",
+      "text": "线上接口偶发 502，日志只有连接重置，从哪下手？",
+      "shouldEscalate": true,
+      "category": "ood-implicit-debug-fn-edge"
+    },
+    {
+      "id": "rt-pos-60",
+      "split": "ood_holdout",
+      "text": "这段逻辑看著挺顺，上线后在极端并发下会翻车吗？",
+      "shouldEscalate": true,
+      "category": "ood-colloquial-risk-fn-edge"
+    },
+    {
+      "id": "rt-neg-01",
+      "split": "in_domain",
+      "text": "你好，今天心情怎么样？",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-02",
+      "split": "in_domain",
+      "text": "早上好！",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-03",
+      "split": "in_domain",
+      "text": "谢谢你的解答，非常清楚",
+      "shouldEscalate": false,
+      "category": "thanks"
+    },
+    {
+      "id": "rt-neg-04",
+      "split": "in_domain",
+      "text": "水的标准沸点是多少摄氏度？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-05",
+      "split": "in_domain",
+      "text": "一句话解释什么是光合作用",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-06",
+      "split": "in_domain",
+      "text": "地球绕太阳公转一周大约多少天？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-07",
+      "split": "in_domain",
+      "text": "好的，明白了",
+      "shouldEscalate": false,
+      "category": "ack"
+    },
+    {
+      "id": "rt-neg-08",
+      "split": "in_domain",
+      "text": "辛苦啦，晚安",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-09",
+      "split": "in_domain",
+      "text": "为什么今天天气这么好呀？",
+      "shouldEscalate": false,
+      "category": "casual-why-exemption"
+    },
+    {
+      "id": "rt-neg-10",
+      "split": "in_domain",
+      "text": "怎么称呼你比较好？",
+      "shouldEscalate": false,
+      "category": "casual-how-exemption"
+    },
+    {
+      "id": "rt-neg-11",
+      "split": "in_domain",
+      "text": "在吗？测试一下连接",
+      "shouldEscalate": false,
+      "category": "ping"
+    },
+    {
+      "id": "rt-neg-12",
+      "split": "in_domain",
+      "text": "法国的首都是哪个城市？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-13",
+      "split": "in_domain",
+      "text": "1 公里等于多少米？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-14",
+      "split": "in_domain",
+      "text": "收到，十分感谢！",
+      "shouldEscalate": false,
+      "category": "thanks"
+    },
+    {
+      "id": "rt-neg-15",
+      "split": "in_domain",
+      "text": "下午好，喝杯咖啡休息一下吧",
+      "shouldEscalate": false,
+      "category": "casual-chat"
+    },
+    {
+      "id": "rt-neg-16",
+      "split": "in_domain",
+      "text": "光在真空中的传播速度大约是多少？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-17",
+      "split": "in_domain",
+      "text": "《红楼梦》的作者是谁？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-18",
+      "split": "in_domain",
+      "text": "英语里的 Apple 是什么意思？",
+      "shouldEscalate": false,
+      "category": "translation"
+    },
+    {
+      "id": "rt-neg-19",
+      "split": "in_domain",
+      "text": "祝你今天工作愉快！",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-20",
+      "split": "in_domain",
+      "text": "没问题，就按这个来",
+      "shouldEscalate": false,
+      "category": "ack"
+    },
+    {
+      "id": "rt-neg-21",
+      "split": "in_domain",
+      "text": "一年有几个季节？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-22",
+      "split": "in_domain",
+      "text": "三角形的内角和是多少度？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-23",
+      "split": "in_domain",
+      "text": "太棒了，完全符合预期",
+      "shouldEscalate": false,
+      "category": "praise"
+    },
+    {
+      "id": "rt-neg-24",
+      "split": "in_domain",
+      "text": "嗨，很高兴认识你",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-25",
+      "split": "in_domain",
+      "text": "把“早上好”翻译成日语",
+      "shouldEscalate": false,
+      "category": "translation"
+    },
+    {
+      "id": "rt-neg-26",
+      "split": "in_domain",
+      "text": "水分子的化学式怎么写？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-27",
+      "split": "in_domain",
+      "text": "知道了，我先试试看",
+      "shouldEscalate": false,
+      "category": "ack"
+    },
+    {
+      "id": "rt-neg-28",
+      "split": "in_domain",
+      "text": "人体正常体温大约在多少度左右？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-29",
+      "split": "in_domain",
+      "text": "周末愉快！",
+      "shouldEscalate": false,
+      "category": "greeting"
+    },
+    {
+      "id": "rt-neg-30",
+      "split": "in_domain",
+      "text": "声音在空气中的传播速度大约是多少米每秒？",
+      "shouldEscalate": false,
+      "category": "simple-fact"
+    },
+    {
+      "id": "rt-neg-31",
+      "split": "ood_holdout",
+      "text": "Hello! Nice to meet you today.",
+      "shouldEscalate": false,
+      "category": "ood-english-greeting"
+    },
+    {
+      "id": "rt-neg-32",
+      "split": "ood_holdout",
+      "text": "Thanks a lot for your quick help!",
+      "shouldEscalate": false,
+      "category": "ood-english-thanks"
+    },
+    {
+      "id": "rt-neg-33",
+      "split": "ood_holdout",
+      "text": "What is the capital of Japan?",
+      "shouldEscalate": false,
+      "category": "ood-english-fact"
+    },
+    {
+      "id": "rt-neg-34",
+      "split": "ood_holdout",
+      "text": "Got it, sounds good to me.",
+      "shouldEscalate": false,
+      "category": "ood-english-ack"
+    },
+    {
+      "id": "rt-neg-35",
+      "split": "ood_holdout",
+      "text": "太阳系中体积最大的行星是哪一颗？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-36",
+      "split": "ood_holdout",
+      "text": "黄金的化学元素符号是什么？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-37",
+      "split": "ood_holdout",
+      "text": "一打鸡蛋有几个？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-38",
+      "split": "ood_holdout",
+      "text": "李白是哪个朝代的诗人？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-39",
+      "split": "ood_holdout",
+      "text": "世界上海拔最高的山峰叫什么？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-40",
+      "split": "ood_holdout",
+      "text": "圆周率小数点后前四位是多少？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-41",
+      "split": "ood_holdout",
+      "text": "中秋节是农历几月几日？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-42",
+      "split": "ood_holdout",
+      "text": "OK，那就先这样定下来",
+      "shouldEscalate": false,
+      "category": "ood-ack"
+    },
+    {
+      "id": "rt-neg-43",
+      "split": "ood_holdout",
+      "text": "明白啦，多谢提醒",
+      "shouldEscalate": false,
+      "category": "ood-thanks"
+    },
+    {
+      "id": "rt-neg-44",
+      "split": "ood_holdout",
+      "text": "给你点个赞，效率真高",
+      "shouldEscalate": false,
+      "category": "ood-praise"
+    },
+    {
+      "id": "rt-neg-45",
+      "split": "ood_holdout",
+      "text": "把“谢谢”翻译成法语",
+      "shouldEscalate": false,
+      "category": "ood-translation"
+    },
+    {
+      "id": "rt-neg-46",
+      "split": "ood_holdout",
+      "text": "成年人一共有多少颗恒牙？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-47",
+      "split": "ood_holdout",
+      "text": "一个标准大气压约等于多少帕斯卡？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-48",
+      "split": "ood_holdout",
+      "text": "中国最长的河流是哪一条？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-49",
+      "split": "ood_holdout",
+      "text": "冰水混合物的温度是多少摄氏度？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-50",
+      "split": "ood_holdout",
+      "text": "好的呀，那我稍后再来问你",
+      "shouldEscalate": false,
+      "category": "ood-ack"
+    },
+    {
+      "id": "rt-neg-51",
+      "split": "ood_holdout",
+      "text": "金刚石主要由什么元素组成？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-52",
+      "split": "ood_holdout",
+      "text": "袋鼠是哪个国家最具代表性的动物？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-53",
+      "split": "ood_holdout",
+      "text": "七大洲里面积最大的是哪一个洲？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-54",
+      "split": "ood_holdout",
+      "text": "钢琴一共有多少个琴键？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-55",
+      "split": "ood_holdout",
+      "text": "国际劳动节是每年的几月几日？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-56",
+      "split": "ood_holdout",
+      "text": "氧气的化学式是什么？",
+      "shouldEscalate": false,
+      "category": "ood-simple-fact"
+    },
+    {
+      "id": "rt-neg-57",
+      "split": "ood_holdout",
+      "text": "非常感谢，讲得通俗易懂",
+      "shouldEscalate": false,
+      "category": "ood-thanks"
+    },
+    {
+      "id": "rt-neg-58",
+      "split": "ood_holdout",
+      "text": "晚安，好梦！",
+      "shouldEscalate": false,
+      "category": "ood-greeting"
+    },
+    {
+      "id": "rt-neg-59",
+      "split": "ood_holdout",
+      "text": "为什么天空是蓝色的？一句话告诉我",
+      "shouldEscalate": false,
+      "category": "ood-simple-why-fp-edge"
+    },
+    {
+      "id": "rt-neg-60",
+      "split": "ood_holdout",
+      "text": "HTTP 状态码 404 代表什么意思？",
+      "shouldEscalate": false,
+      "category": "ood-tech-keyword-fp-edge"
+    }
   ],
-  "memoryGatekeeperSamples": [
-    { "id": "mem-pos-01", "text": "用户偏好使用 TypeScript 严格模式", "shouldAccept": true, "category": "preference" },
-    { "id": "mem-pos-02", "text": "当前项目后端运行在 Node.js 20 LTS 环境", "shouldAccept": true, "category": "project-spec" },
-    { "id": "mem-pos-03", "text": "代码缩进统一使用 2 个空格且不加分号", "shouldAccept": true, "category": "convention" },
-    { "id": "mem-pos-04", "text": "用户的生产数据库采用 PostgreSQL 16", "shouldAccept": true, "category": "project-spec" },
-    { "id": "mem-pos-05", "text": "回复语言固定为简体中文，专业术语保留英文原文", "shouldAccept": true, "category": "preference" },
-    { "id": "mem-pos-06", "text": "作者联系邮箱为 lks.tan.cn@gmail.com", "shouldAccept": true, "category": "identity" },
-    { "id": "mem-pos-07", "text": "单元测试框架使用 Node.js 原生 node:test", "shouldAccept": true, "category": "project-spec" },
-    { "id": "mem-pos-08", "text": "前端样式严禁引入 Tailwind 等外部构建依赖", "shouldAccept": true, "category": "constraint" },
-    { "id": "mem-pos-09", "text": "用Go", "shouldAccept": true, "category": "short-high-density-fn-edge" },
-    { "id": "mem-pos-10", "text": "用户在上海初三就读，偏好简洁为什么先讲结论的风格？", "shouldAccept": true, "category": "question-mark-in-fact-fn-edge" },
-    { "id": "mem-neg-01", "text": "这个呢", "shouldAccept": false, "category": "pronoun-fragment" },
-    { "id": "mem-neg-02", "text": "为什么会报错？", "shouldAccept": false, "category": "question" },
-    { "id": "mem-neg-03", "text": "那那个呢", "shouldAccept": false, "category": "pronoun-fragment" },
-    { "id": "mem-neg-04", "text": "继续往下写", "shouldAccept": false, "category": "ephemeral-imperative" },
-    { "id": "mem-neg-05", "text": "好的谢谢", "shouldAccept": false, "category": "greeting-noise" },
-    { "id": "mem-neg-06", "text": "帮我看看这段代码", "shouldAccept": false, "category": "ephemeral-imperative" },
-    { "id": "mem-neg-07", "text": "怎么回事呀", "shouldAccept": false, "category": "question-fragment" },
-    { "id": "mem-neg-08", "text": "重试一次", "shouldAccept": false, "category": "ephemeral-imperative" },
-    { "id": "mem-neg-09", "text": "今天下午三点前把这份临时日志里的第三段贴到群里", "shouldAccept": false, "category": "ephemeral-task-fp-edge" },
-    { "id": "mem-neg-10", "text": "刚才那段输出的第二行好像多了一个空格", "shouldAccept": false, "category": "ephemeral-observation-fp-edge" }
+  "memoryGatekeeperCorpus": [
+    {
+      "id": "mem-pos-001",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "用户偏好使用 TypeScript 严格模式编写前端工程",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-002",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "后端服务统一部署在 Debian 12 容器环境",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-003",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "数据库连接池上限固定为 32，超时 5 秒",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-004",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "代码注释与文档一律使用简体中文",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-005",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "构建工具优先使用 Vite 而非 Webpack",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-006",
+      "split": "in_domain",
+      "category": "identity",
+      "text": "用户是一名分布式存储研发工程师",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-007",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "以后所有 Python 脚本默认兼容 3.12",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-008",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "单元测试统一使用 node:test 原生断言",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-009",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "代码缩进统一使用 2 个空格且不加分号",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-010",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "用户的生产数据库采用 PostgreSQL 16",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-011",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "回复语言固定为简体中文，专业术语保留英文原文",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-012",
+      "split": "in_domain",
+      "category": "identity",
+      "text": "作者联系邮箱为 lks.tan.cn@gmail.com",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-013",
+      "split": "in_domain",
+      "category": "constraint",
+      "text": "前端样式严禁引入 Tailwind 等外部构建依赖",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-014",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "用户日常主力编辑器是 Neovim 0.10",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-015",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "API 网关认证统一采用 Bearer Token 头传输",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-016",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "Git 提交信息一律遵循 Conventional Commits 规范",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-017",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "架构图默认优先使用 Graphviz DOT 或客户端 SVG 绘制",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-018",
+      "split": "in_domain",
+      "category": "identity",
+      "text": "用户目前在上海就读初中，业余维护开源项目 TeamoAgent",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-019",
+      "split": "in_domain",
+      "category": "constraint",
+      "text": "所有哈希链路校验统一使用 FIPS 180-4 SHA-256 标准实现",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-020",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "本地中继服务默认监听 127.0.0.1:8787 端口",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-021",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "给出代码修改时优先提供可直接运行的完整函数实现",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-022",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "错误日志输出统一包含 ISO-8601 时间戳与模块前缀",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-023",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "虚拟文件系统单会话存储上限设定为 120MB",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-024",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "数学公式推导默认使用 LaTeX 行内与块级语法渲染",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-025",
+      "split": "in_domain",
+      "category": "constraint",
+      "text": "带图片回合在内容审核超时时必须执行 fail-closed 拦截",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-026",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "默认文生图模型为 gpt-image-2，备选 Nano Banana 2",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-027",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "技术方案对比习惯先给定量表格再写定性分析结论",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-028",
+      "split": "in_domain",
+      "category": "convention",
+      "text": "金钱与 Token 计费精确保留到小数点后 4 位美元",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-029",
+      "split": "in_domain",
+      "category": "project-spec",
+      "text": "浏览器端 Python 运行时基于 Pyodide WebAssembly 沙箱",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-030",
+      "split": "in_domain",
+      "category": "preference",
+      "text": "长期记忆淘汰默认走冷备软归档，仅隐私数据走物理 Purge",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-031",
+      "split": "ood_holdout",
+      "category": "hardware",
+      "text": "用户主力开发机为 MacBook Pro M3 Max (64GB 统一内存)",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-032",
+      "split": "ood_holdout",
+      "category": "network",
+      "text": "内网测试集群 DNS 根域统一配置为 .corp.internal",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-033",
+      "split": "ood_holdout",
+      "category": "security",
+      "text": "生产环境严禁在 localStorage 明文存储管理员主密钥",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-034",
+      "split": "ood_holdout",
+      "category": "workflow",
+      "text": "每次发布新构建号前必须同步更新 index/app/docs/sw 四处版本号",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-035",
+      "split": "ood_holdout",
+      "category": "style",
+      "text": "UI 配色倾向暖纸色亮色主题与克制的单像素边框设计",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-036",
+      "split": "ood_holdout",
+      "category": "compiler",
+      "text": "C++ 代码沙箱编译参数固定采用 g++ -O2 -std=c++20",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-037",
+      "split": "ood_holdout",
+      "category": "database",
+      "text": "本地 SQL 工具默认操作沙箱内 data/app.db 库文件",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-038",
+      "split": "ood_holdout",
+      "category": "habit",
+      "text": "今天起所有的接口评测报告一律附带 95% Wilson 置信区间",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-039",
+      "split": "ood_holdout",
+      "category": "habit",
+      "text": "刚才确定的规范：以后所有图表交互一律采用无立体阴影扁平设计",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-040",
+      "split": "ood_holdout",
+      "category": "habit",
+      "text": "帮我记住：输出消息底部严禁展示天枢内部链路摘要字样",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-041",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "量化回测脚本的基准无风险利率固定按年化 2.5% 计算",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-042",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "音频合成采样率统一输出为 44.1kHz 双声道 WAV 格式",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-043",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "论文排版引用格式固定遵循 IEEE Transactions 标准",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-044",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "Kubernetes 部署清单默认设置 resource requests 与 limits 相等",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-045",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "日志采样率在生产高峰期固定下调至 10% 以控制 I/O",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-046",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "前端 ESM 模块导入严禁依赖 Webpack/Rollup 打包器转换",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-047",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "所有外部 HTTP 抓取请求在服务端必须经过公网 IP SSRF 护栏校验",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-048",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "移动端抽屉面板统一从底部滑入，桌面端从右侧展开",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-049",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "图像分类 ONNX 推理输入分辨率固定保持 320x320 原生尺寸",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-050",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "跨会话检索采用 BM25 词频逆文档频率加权与同义词扩展",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-051",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "子智能体并发调度上限固定为每批 4 路以免触发网关限流",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-052",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "代码高亮主题固定使用自定义 assets/hljs/teamo.css 样式表",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-053",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "会话自动标题总结仅在首轮合规回复完成后触发一次",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-054",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "所有离线评测脚本必须支持零外部依赖通过 node 直接运行",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-055",
+      "split": "ood_holdout",
+      "category": "domain",
+      "text": "网关主域名优先连接 teamorouter.com，网络故障时自动切换 .cn",
+      "expected": true
+    },
+    {
+      "id": "mem-pos-056",
+      "split": "ood_holdout",
+      "category": "short-fn-edge",
+      "text": "用Go",
+      "expected": true,
+      "edgeNote": "仅 3 字符 (< MIN_FACT_LEN=4)，被最小长度阈值误拦 (FN)"
+    },
+    {
+      "id": "mem-pos-057",
+      "split": "ood_holdout",
+      "category": "short-fn-edge",
+      "text": "偏爱C",
+      "expected": true,
+      "edgeNote": "仅 3 字符 (< MIN_FACT_LEN=4)，被最小长度阈值误拦 (FN)"
+    },
+    {
+      "id": "mem-pos-058",
+      "split": "ood_holdout",
+      "category": "question-tail-fn-edge",
+      "text": "用户在上海初三就读，偏好简洁为什么先讲结论的风格？",
+      "expected": true,
+      "edgeNote": "含问号结尾的修辞性偏好陈述，被疑问句规则误拦 (FN)"
+    },
+    {
+      "id": "mem-pos-059",
+      "split": "ood_holdout",
+      "category": "particle-tail-fn-edge",
+      "text": "个人座右铭是凡事预则立不预则废呢",
+      "expected": true,
+      "edgeNote": "陈述句末尾带语气词“呢”，被反问尾缀规则误拦 (FN)"
+    },
+    {
+      "id": "mem-pos-060",
+      "split": "ood_holdout",
+      "category": "question-word-fn-edge",
+      "text": "报错归因模板的第三项固定命名为根因是什么",
+      "expected": true,
+      "edgeNote": "事实陈述末尾含“是什么”，被疑问尾缀规则误拦 (FN)"
+    },
+    {
+      "id": "mem-neg-001",
+      "split": "in_domain",
+      "category": "pronoun-fragment",
+      "text": "这个呢？",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-002",
+      "split": "in_domain",
+      "category": "pronoun-fragment",
+      "text": "那个呢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-003",
+      "split": "in_domain",
+      "category": "pronoun-fragment",
+      "text": "那它呢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-004",
+      "split": "in_domain",
+      "category": "question",
+      "text": "为什么会出现这个问题？",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-005",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "帮我写一个快速排序代码",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-006",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "现在帮我算一下 128 乘以 256",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-007",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "继续",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-008",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "好的",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-009",
+      "split": "in_domain",
+      "category": "question",
+      "text": "这样改行不行",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-010",
+      "split": "in_domain",
+      "category": "pronoun-fragment",
+      "text": "那这个呢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-011",
+      "split": "in_domain",
+      "category": "pronoun-fragment",
+      "text": "那那个呢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-012",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "继续往下写",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-013",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "好的谢谢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-014",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "帮我看看这段代码",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-015",
+      "split": "in_domain",
+      "category": "question",
+      "text": "怎么回事呀",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-016",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "重试一次",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-017",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "请帮我查一下这个报错",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-018",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "麻烦帮我画一张流程图",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-019",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "帮我翻译一下这段英文摘要",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-020",
+      "split": "in_domain",
+      "category": "question",
+      "text": "这段正则是什么意思？",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-021",
+      "split": "in_domain",
+      "category": "question",
+      "text": "现在该怎么办",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-022",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "明白了",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-023",
+      "split": "in_domain",
+      "category": "ack-noise",
+      "text": "知道了",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-024",
+      "split": "in_domain",
+      "category": "short-noise",
+      "text": "ok",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-025",
+      "split": "in_domain",
+      "category": "short-noise",
+      "text": "嗯",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-026",
+      "split": "in_domain",
+      "category": "question",
+      "text": "你觉得这个方案好不好",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-027",
+      "split": "in_domain",
+      "category": "question",
+      "text": "结果对不对",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-028",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "现在帮我运行一下单元测试",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-029",
+      "split": "in_domain",
+      "category": "ephemeral-imperative",
+      "text": "帮我生成一张赛博朋克猫的图片",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-030",
+      "split": "in_domain",
+      "category": "question",
+      "text": "为什么返回了 400 错误",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-031",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "今天下午三点前把这份临时日志里的第三段贴到群里",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-032",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "刚才那段输出的第二行好像多了一个空格",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-033",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "今天下午三点服务器刚刚重启过一次",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-034",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "明天上午十点提醒我看一下临时构建产物",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-035",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "本轮先把调试日志打印出来看看",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-036",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "这轮先不调用子智能体",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-037",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "刚刚上传的压缩包里包含三张测试截图",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-038",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "现在立刻把临时文件删掉",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-039",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "待会儿我再发一份新的测试数据过来",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-040",
+      "split": "ood_holdout",
+      "category": "time-ephemeral",
+      "text": "今晚八点前把这页 PPT 改完",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-041",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "看下第 42 行的变量名拼写",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-042",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "跑一下这个基准测试脚本",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-043",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "改下这里的边框颜色",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-044",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "总结一下上面那篇文章的核心观点",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-045",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "解释一下为什么这里会产生闭包内存泄漏",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-046",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "替我算一下这组数据的标准差",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-047",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "顺便帮我检查一下 package.json 的脚本配置",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-048",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "先帮我列出目录下的所有 Markdown 文件",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-049",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "再帮我对比一下修改前后的 diff",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-050",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "重写一下这段错误处理逻辑",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-051",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "展开说说第三节的证明过程",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-052",
+      "split": "ood_holdout",
+      "category": "colloquial-imperative",
+      "text": "接着讲刚才没说完的半段话",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-053",
+      "split": "ood_holdout",
+      "category": "ack-noise",
+      "text": "收到",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-054",
+      "split": "ood_holdout",
+      "category": "ack-noise",
+      "text": "没问题",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-055",
+      "split": "ood_holdout",
+      "category": "question",
+      "text": "这里改成异步调用会不会有竞态条件？",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-056",
+      "split": "ood_holdout",
+      "category": "question",
+      "text": "如果去掉这个缓存锁会怎样呢",
+      "expected": false
+    },
+    {
+      "id": "mem-neg-057",
+      "split": "ood_holdout",
+      "category": "implicit-ephemeral-fp-edge",
+      "text": "服务器监控显示 14:02 发生过一次连接重置",
+      "expected": false,
+      "edgeNote": "无显式时间前缀的临时故障观测，穿过规则守门人 (FP)"
+    },
+    {
+      "id": "mem-neg-058",
+      "split": "ood_holdout",
+      "category": "implicit-ephemeral-fp-edge",
+      "text": "示例 CSV 文件的第四列目前存在两处空值",
+      "expected": false,
+      "edgeNote": "单次任务文件状态描述，形态与项目规范高度相似而漏拦 (FP)"
+    },
+    {
+      "id": "mem-neg-059",
+      "split": "ood_holdout",
+      "category": "implicit-ephemeral-fp-edge",
+      "text": "临时压测容器的 CPU 占用率刚才飙到了 94%",
+      "expected": false,
+      "edgeNote": "“刚才”位于句中而非句首，规则守门人漏拦 (FP)"
+    },
+    {
+      "id": "mem-neg-060",
+      "split": "ood_holdout",
+      "category": "implicit-ephemeral-fp-edge",
+      "text": "日志第 108 行打印出的返回码是 502 Bad Gateway",
+      "expected": false,
+      "edgeNote": "一次性调试上下文陈述，未含祈使或句首时间词而漏拦 (FP)"
+    }
   ]
 }

@@ -2,19 +2,20 @@
 
 本文件记录 TeamoAgent 的阶段性改进（更早的逐轮修复也都保留在下面，便于回溯）。
 
-## Teamo V1.4 Stable（2026-09-30 · 构建 2026.9.30.10）
+## Teamo V1.4 Stable（2026-09-30 · 构建 2026.9.30.11）
 
-**V1.4 正式发布（Stable · 天枢 THN v2.1.0 三核正交架构与离线基准评测）。** V1.3 系列自 2026-09-27 起历经 21 个诊断构建，本日转正并完成天枢 THN v2.1 工程指标与可复现评测升级：
+**V1.4 正式发布（Stable · 天枢 THN v2.2.0 档位-工具表一致性锁、N=240 评测集与 Wilson 95% 置信区间）。** V1.3 系列自 2026-09-27 起历经 21 个诊断构建，本日转正并完成天枢 THN v2.2 工程闭环升级：
 
-* **天枢 THN v2.1 三核正交架构**：
-  - **4 位正交能力掩码（`computeCapabilityVector` & `verifyCapabilityOrthogonalityMatrix`）**：摒弃把子状态塞进单一 `DEGRADED_EXPLAINED` 伞状态的做法，用 `R·W·S·D` 显式编码 16 种能力组合，并严格证明各开关控制的工具子集互不相交（`fetch_url` vs 代码沙箱三件套 vs `dispatch_subagent` vs 15 个核心本地工具）。
-  - **软归档可恢复与物理彻底清除（Purge）双通道分流**：常规超期或 `forget` 走 0-Token 冷备软归档（可 `restore` 或提及唤醒）；用户隐私与敏感信息删除走 `remember(action="purge")` / `purgeMemoryFact` / `purgeLearnedSkill`，同步从活跃库与冷备库物理抹除（`recoverable: false`）。
-  - **离线标注评测集与代价加权混淆矩阵（`tests/nexus-eval-corpus.json` & `npm run eval:nexus`）**：移除无实验支撑的 `100% / 0%` 绝对值表述，完整披露路由升档（`5·FN + 1·FP`）与记忆守门人（`4·FP + 1·FN`）的 `TP/FP/TN/FN`、`Precision`、`Recall`、`F1` 与真实边界失败样本。
-  - **SHA-256 跨轮次追加哈希链与独立 Store 交叉审计（`sha256Hex` & `auditFootprintAgainstStore`）**：废除 32 位 FNV-1a 校验和，采用 FIPS 180-4 SHA-256 构造 `prevTurnDigest → eventHash → turnDigest` 追加哈希链，并对照外部 Store 中持久化的 `assistantMsg.toolCalls` 与 `role="tool"` 消息做独立交叉对账。
+* **天枢 THN v2.2 三核正交架构与评测升级**：
+  - **档位-工具表一致性锁（`resolveEffectiveReasoningState` & `verifyPromptToolAlignment`）**：统一由单一事实源锁死「有效思考档位 ↔ 系统提示词声明 ↔ L2 降级诊断 ↔ 实际 `tools` 数组」，彻底消除思考开关关闭（`Off`）时残留 `reasoningLevel='ultra'` 导致提示词自称处于 `ULTRA` 档位却又未挂载 `dispatch_subagent` 的口径矛盾。
+  - **N=240 离线基准评测与 95% Wilson 置信区间（`tests/nexus-eval-corpus.json` & `npm run eval:nexus`）**：将路由升档（`N=120` = In-Domain 60 + OOD 留出集 60）与记忆守门人（`N=120` = In-Domain 60 + OOD 留出集 60）扩充至共 **240 条独立标注样本**，同步输出 95% Wilson 置信区间（联合准确率 `94.2%`，95% CI `[90.5%, 96.5%]`，半宽 `±3.02%`）、与朴素基线的 F1 提升幅度（路由 `+14.3%`、记忆 `+23.4%`）以及 OOD 真实边界失败样本。
+  - **Ephemeral 元提示词按需预算控制（`budgetEphemeralGovernanceNotes`）**：快路径（`FAST_DIRECT`）治理元信息注入开销降为 `0 Token`；常规全链路对话默认折叠为单行能力掩码，仅在涉及框架/能力/排障时展开完整恢复指南。
+  - **界面与图表交互体验净空**：移除输出消息底栏的 `天枢 L1→L6 全链路 · 技能:... · 工具×...` 足迹字样；移除全部图表（柱状/饼图/折线/散点/流程图/思维导图）交互时的 3D 立体缩放抬升与阴影特效，保持纯粹 2D 扁平高亮。
+  - **4 位正交能力掩码、软归档/Purge 双通道与 SHA-256 跨轮哈希链**：`R·W·S·D` 16 组合正交工具子集无交集验证、`forget`（冷备可恢复）与 `purge`（物理彻底抹除）双通道隔离、FIPS 180-4 SHA-256 跨轮次哈希链及 Store 独立交叉审计。
 * **文档页 2.0**：分页展示（更新日志 / 用户协议 / 服务条款 / 隐私政策四页 hash 路由 + 页间平滑过渡）；对齐主页动效——滚动展开动画（IntersectionObserver 交错滑入）与外观切换颜色插值动画（@property 注册 + 0.7s film 曲线）；品牌区（轨道标 / 字标 / 版本徽章）与对话页逐像素对齐。
 * **协议条款完整版**：用户协议扩至 10 节（协议接受 / 软件许可 / 账号密钥 / 使用规范 / AI 内容 / 知识产权 / 责任限制 / 变更终止 / 准据法与争议 / 其他）；服务条款 7 节（可用性 / 审核安全 / 沙箱 / 用户行为 / 免责 / 变更）；隐私政策 8 节（本地存储技术说明 / 第三方数据 / 不收集承诺 / 数据保留安全 / 儿童隐私 / 用户权利 / 变更联系）。均标注修订版本与生效日期。
 * **发布标识**：APP_RELEASE V1.3 → V1.4，侧栏徽章 / 底部构建标识 / 页面标题 / meta 同步。
-* 版本 `2026.9.30.10`。
+* 版本 `2026.9.30.11`。
 
 ## V1.3 β 诊断构建（2026.9.27.20）：图标预热子路径修复
 

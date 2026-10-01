@@ -2320,10 +2320,6 @@ export function mountUI(store, agent) {
     if (m.toolCalls && m.toolCalls.length) { foot.hidden = true; foot.textContent = ''; return; }
     const bits = [];
     if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
-    if (m.nexusFootprint) {
-      const fpSummary = formatDecisionFootprintSummary(m.nexusFootprint);
-      if (fpSummary) bits.push(fpSummary);
-    }
     const clock = m.durationMs != null ? fmtClock(m.durationMs) : '';
     const ago = m.ts ? fmtAgo(m.ts) : '';
     const time = [clock, ago].filter(Boolean).join(' | ');
@@ -2332,8 +2328,7 @@ export function mountUI(store, agent) {
     if (!line) { foot.hidden = true; foot.textContent = ''; return; }
     foot.hidden = false;
     foot.textContent = line;
-    const fpDetail = m.nexusFootprint ? formatDecisionFootprintForPrompt(m.nexusFootprint) : '';
-    foot.title = [m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : ''), fpDetail].filter(Boolean).join('\n');
+    foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
   function paintAssistant(wrap, m) {

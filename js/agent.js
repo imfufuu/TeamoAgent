@@ -44,9 +44,12 @@ import {
   formatExecutionRoutingHint,
   arbitrateSubagentReports,
   formatSubagentArbitrationNote,
+  resolveEffectiveReasoningState,
+  computeCapabilityVector,
   arbitrateUnifiedEvidence,
   buildDegradationDiagnostics,
   formatDegradationDiagnostics,
+  budgetEphemeralGovernanceNotes,
   createFaithfulTraceRecorder,
   GENESIS_TURN_DIGEST,
   auditFootprintAgainstStore,
@@ -56,7 +59,7 @@ import {
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.10';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.11';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -248,8 +251,14 @@ export function createAgent(store, hooks = {}) {
     const userText = lastUser && lastUser.text ? String(lastUser.text) : '';
     const webOn = store.state.settings.webEnabled !== false && relayOk;
     const st = store.state.settings || {};
-    const lv = String(st.reasoningLevel || 'medium').toLowerCase();
-    const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
+    const turnTools = nexusState && Array.isArray(nexusState.turnTools) ? nexusState.turnTools : null;
+    const tierState = resolveEffectiveReasoningState({
+      thinking: st.thinking,
+      reasoningLevel: st.reasoningLevel || 'medium',
+      tools: turnTools,
+    });
+    const lv = tierState.effectiveLevel;
+    const canDispatch = tierState.canDispatch;
     if (!cachedPrefix) {
       // 回合开始前先跑一次记忆与技能整理：噪声条目（如 learned-这个呢）硬清除，超期条目转入软归档冷库，并按用户问题唤醒冷备记忆
       store.state.memoryArchive = Array.isArray(store.state.memoryArchive) ? store.state.memoryArchive : [];
@@ -269,7 +278,7 @@ export function createAgent(store, hooks = {}) {
         if (skillGc.archivedIds && skillGc.archivedIds.length) nexusState.archivedSkillIds = skillGc.archivedIds;
       }
       const wsCtx = discoverWorkspaceContext(fs);
-      const subGuide = subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' });
+      const subGuide = subagentGuide({ allow: canDispatch, ultra: canDispatch && lv === 'ultra' });
       cachedPrefix = assembleSystemLayers({
         identity: systemPrompt(new Date(), { webEnabled: webOn, allowDispatch: canDispatch, reasoningLevel: lv }),
         skillsIndex: formatSkillsIndex(store.state.learnedSkills),
@@ -321,7 +330,9 @@ export function createAgent(store, hooks = {}) {
     const unifiedArb = !execProfile.fastPath
       ? arbitrateUnifiedEvidence({
         canDispatch,
-        reasoningLevel: lv,
+        thinking: st.thinking !== false,
+        reasoningLevel: st.reasoningLevel || 'medium',
+        tools: turnTools,
         userText,
         stepHistory: nexusState ? nexusState.stepHistory : [],
         subagentReports: nexusState ? nexusState.subagentReports : [],
@@ -332,9 +343,16 @@ export function createAgent(store, hooks = {}) {
       webEnabled: webOn,
       sandboxEnabled: store.state.settings.sandboxEnabled !== false,
       canDispatch,
-      reasoningLevel: lv,
+      thinking: st.thinking !== false,
+      reasoningLevel: st.reasoningLevel || 'medium',
+      tools: turnTools,
     });
-    const degradationNote = formatDegradationDiagnostics(degradations);
+    const capVec = computeCapabilityVector({
+      relayOk,
+      webEnabled: webOn,
+      sandboxEnabled: store.state.settings.sandboxEnabled !== false,
+      canDispatch,
+    });
     const usedToolNamesNow = nexusState && nexusState.stepHistory ? nexusState.stepHistory.map((s) => s.name) : [];
     const prevAssistantWithFp = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.nexusFootprint && m.nexusFootprint.turnDigest);
     const prevTurnDigest = (prevAssistantWithFp && prevAssistantWithFp.nexusFootprint.turnDigest) || GENESIS_TURN_DIGEST;
@@ -360,6 +378,15 @@ export function createAgent(store, hooks = {}) {
       traceRecorder: traceRec,
       prevTurnDigest,
     });
+    const govBudget = budgetEphemeralGovernanceNotes({
+      fastPath: execProfile.fastPath,
+      userText,
+      footprint,
+      degradations,
+      capCode: capVec.code,
+      arbitrationNote: unifiedArb.note || '',
+      engineRoutingNote,
+    });
     if (nexusState) nexusState.lastFootprint = footprint;
     if (nexusState && nexusState.telemetry) {
       nexusState.telemetry.fastPath = execProfile.fastPath;
@@ -382,14 +409,14 @@ export function createAgent(store, hooks = {}) {
         relayNote: relayOk ? '' : RELAY_OFF_NOTE,
       }),
       ephemeral: [
-        formatDecisionFootprintForPrompt(footprint),
+        govBudget.footprintNote,
         activeMemReminder,
-        degradationNote,
+        govBudget.degradationNote,
         jevNote || '',
         skillBodyNote,
-        engineRoutingNote,
+        govBudget.engineRoutingNote,
         formatSessionRecallNote(recallHits),
-        unifiedArb.note || '',
+        govBudget.arbitrationNote,
         ledgerNote,
         reflectionNote,
         droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
@@ -504,8 +531,12 @@ export function createAgent(store, hooks = {}) {
     // 状态来自 main.js 启动时的一次探测（store.state.relayOk），没探过就当「可能在」，
     // 避免每次回合都多发一个 /api/health 请求，也避免测试桩被这层探测打乱。
     const relayOk = store.state.relayOk !== false;
-    const lv = String(settings.reasoningLevel || 'medium').toLowerCase();
-    const canDispatch = settings.thinking !== false && (lv === 'max' || lv === 'ultra');
+    const initTier = resolveEffectiveReasoningState({
+      thinking: settings.thinking,
+      reasoningLevel: settings.reasoningLevel || 'medium',
+    });
+    const lv = initTier.effectiveLevel;
+    const canDispatch = initTier.canDispatch;
     const tools = toolsFor(settings.sandboxEnabled)
       .filter((t) => {
         if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
@@ -516,7 +547,7 @@ export function createAgent(store, hooks = {}) {
       apiKey, model, signal,
       fastMode: !!settings.fastMode,
       thinking: settings.thinking !== false,
-      reasoningLevel: settings.reasoningLevel || 'medium',
+      reasoningLevel: lv,
       canDispatch,
       sandboxEnabled: settings.sandboxEnabled,
       webEnabled: settings.webEnabled !== false && relayOk,
@@ -538,7 +569,7 @@ export function createAgent(store, hooks = {}) {
       model,
       activeMemoryCount: Array.isArray(store.state.memory) ? store.state.memory.length : 0,
     });
-    const nexusState = { stepHistory, ledger: taskLedger, subagentReports: turn.subagentReports, telemetry };
+    const nexusState = { stepHistory, ledger: taskLedger, subagentReports: turn.subagentReports, telemetry, turnTools: tools };
 
     try {
       if (settings.jevEnabled !== false) {

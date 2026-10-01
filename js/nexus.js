@@ -7,7 +7,8 @@
 //   5. 闭环自演进技能引擎（轨迹蒸馏 → 耗时/成功率遥测 → 坑点记录 → agentskills.io SKILL.md 双向编解码）
 //   6. 执行自省与防死循环护栏（Turn Recovery：重复调用检测、连续报错归因、长链路任务账本）
 
-import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics, evaluateMemoryGatekeeperConfusionMatrix } from './memory.js';
+import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics, evaluateMemoryGatekeeperConfusionMatrix, computeWilsonConfidenceInterval } from './memory.js';
+export { computeWilsonConfidenceInterval };
 
 // ─── 三核架构收敛与正交能力向量规范（6 层逻辑模块 → 3 阶流水线 + 4 位正交能力掩码）──
 // 工程原则：
@@ -51,7 +52,7 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   code: 'THN',
   shortName: '天枢 THN',
   name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构)',
-  version: '2.1.0',
+  version: '2.2.0',
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
@@ -429,9 +430,10 @@ export function formatTaskLedgerNote(ledger) {
 // 解决“L1 探测开销可能大于省下的开销（负收益）”与“漏升档比误升档更致命”两大问题：
 //   1) evaluateLocalFastPathGate：在发起远端 /v1/systemone (Jev) 请求前，先用 0ms 纯本地规则过滤简单直答，
 //      命中时直接跳过网络预判（探测耗时 = 0ms，绝不产生负延迟收益）。
-//   2) MULTI_CONSTRAINT_OR_IMPLICIT_RE：宁可误升、绝不漏升，凡含指代追问、因果对比、多步条件一律走全链路。
-const MULTI_CONSTRAINT_OR_IMPLICIT_RE = /(?:首先|然后|接着|同时|并且|不仅|除了|对比|区别|优缺点|深入|底层|架构|原理|为什么|为何|如何|怎么(?!样)|一步步|推导|证明|核实|验证|评估|评价|自评|挑刺|痛点|缺陷|风险|这个呢|那个呢|那它呢|那如果|如果把|刚才|上面|前面|第[一二三四五六1-6]条|what\s+about|how\s+about|why|compare|evaluate|trade-?off)/i;
+//   2) MULTI_CONSTRAINT_OR_IMPLICIT_RE：覆盖指代追问、因果对比、隐式差异清单与架构审查；配套 CASUAL_CHAT_EXEMPTION_RE 豁免日常寒暄。
+const MULTI_CONSTRAINT_OR_IMPLICIT_RE = /(?:首先|然后|接着|同时|并且|不仅|除了|对比|区别|差异|异同|优缺点|利弊|取舍|权衡|深入|底层|架构|原理|为什么|为何|如何|怎么(?!样)|一步步|推导|证明|核实|验证|评估|评价|自评|挑刺|挑.*毛病|找.*漏洞|短板|痛点|缺陷|风险|瓶颈|排查|整理成表|列个清单|这个呢|那个呢|那它呢|那如果|如果把|刚才|上面|前面|第[一二三四五六1-6]条|what\s+about|how\s+about|why|compare|evaluate|trade-?off)/i;
 const COMPLEX_DOMAIN_SIGNAL_RE = /(?:代码|脚本|运行|计算|文件|搜索|联网|抓取|架构|对比|重构|画图|图表|折线图|柱状图|饼图|流程图|思维导图|子智能体|python|javascript|sql|regex|hash|http|git|commit|clone)/i;
+const CASUAL_CHAT_EXEMPTION_RE = /^(?:为什么今天天气这么好|为什么今天心情这么好|怎么称呼你(?:比较好)?|怎么这么客气|为什么你这么厉害|为什么叫这个名字|.{1,10}的化学式怎么写)[呀啊呢吗？?!！。.\s]*$/i;
 
 // 端到端快慢路径延迟样本池（用于计算真实 P50 延迟对比，消除纸面架构假设）
 const routeLatencySamples = {
@@ -476,11 +478,12 @@ export function getFastPathAbLatencyStats() {
 // 0ms 本地快路径预筛：在调用远端 Jev 前以 0ms 判定是否为纯寒暄/极简直答，直接省去远端探测 RTT
 export function evaluateLocalFastPathGate(userText = '', { hasAttachments = false, historyLen = 0 } = {}) {
   const s = String(userText || '').trim();
-  const recallAsked = shouldTriggerSessionRecall(s);
-  const complexSignal = COMPLEX_DOMAIN_SIGNAL_RE.test(s);
-  const multiConstraint = MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
+  const isCasualExemption = CASUAL_CHAT_EXEMPTION_RE.test(s);
+  const recallAsked = !isCasualExemption && shouldTriggerSessionRecall(s);
+  const complexSignal = !isCasualExemption && COMPLEX_DOMAIN_SIGNAL_RE.test(s);
+  const multiConstraint = !isCasualExemption && MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
   // 若文本是追问短句（如“再详细说说”“为什么”）且已有上下文历史，禁止走本地盲快路径
-  const contextDependentShort = historyLen > 0 && /^(?:那|这|它|他|她|为什么|怎么|还有|继续|接着|不对|改|换)/.test(s);
+  const contextDependentShort = !isCasualExemption && historyLen > 0 && /^(?:那|这|它|他|她|为什么|怎么|还有|继续|接着|不对|改|换)/.test(s);
 
   const canBypassRemoteProbe = !hasAttachments
     && !recallAsked
@@ -504,9 +507,10 @@ export function resolveNexusExecutionProfile({ userText = '', plan = null, hasAt
   const route = plan && plan.route && plan.route.choice ? plan.route.choice : '';
   const needTools = plan && plan.need_tools && typeof plan.need_tools.noul === 'number' ? plan.need_tools.noul : null;
   const needCode = plan && plan.need_code && typeof plan.need_code.noul === 'number' ? plan.need_code.noul : null;
-  const recallAsked = shouldTriggerSessionRecall(s);
-  const complexSignal = COMPLEX_DOMAIN_SIGNAL_RE.test(s);
-  const multiConstraint = MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
+  const isCasualExemption = CASUAL_CHAT_EXEMPTION_RE.test(s);
+  const recallAsked = !isCasualExemption && shouldTriggerSessionRecall(s);
+  const complexSignal = !isCasualExemption && COMPLEX_DOMAIN_SIGNAL_RE.test(s);
+  const multiConstraint = !isCasualExemption && MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
 
   const isSimpleDirect = !hasAttachments
     && !recallAsked
@@ -964,15 +968,112 @@ export function formatObservabilityReport(telemetry) {
   ].join('\n');
 }
 
-// ─── 11. Stage 3 分级核验（口径一致 + 推理深度差异与误差风险如实披露）───────
-// 修正“全档位边界一致”的过度乐观承诺：能对齐的是核验口径，18 路子智能体与单模型正反自检存在结构性推理深度差距，必须如实披露
+// ─── 11. Stage 3 分级核验与能力-工具表一致性锁（Tier-Tool Alignment & Unified Arbitration）───────
+// 根治“L2 诊断写着当前思考档位为 ULTRA，但实际工具表里没有 dispatch_subagent”的口径错位：
+//   1. resolveEffectiveReasoningState：统一计算有效思考档位（当 thinking===false 或工具表不含 dispatch_subagent 时，绝不把挂起的 Ultra/Max 预设误报为当前生效档位）；
+//   2. verifyPromptToolAlignment：在运行期与评测期校验提示词声明、L2 诊断、L5 仲裁与实际 tools 数组是否 100% 对齐。
+export function resolveEffectiveReasoningState({
+  thinking = true,
+  reasoningLevel = 'medium',
+  canDispatch = null,
+  tools = null,
+} = {}) {
+  const thinkingOn = thinking !== false;
+  const rawLevel = String(reasoningLevel || 'medium').toLowerCase().trim();
+  const hasToolsArray = Array.isArray(tools);
+  const toolHasDispatch = hasToolsArray
+    ? tools.some((t) => t && (t.name === 'dispatch_subagent' || (t.function && t.function.name === 'dispatch_subagent')))
+    : null;
+
+  const derivedCanDispatch = toolHasDispatch !== null
+    ? toolHasDispatch
+    : (typeof canDispatch === 'boolean' ? canDispatch : (thinkingOn && (rawLevel === 'max' || rawLevel === 'ultra')));
+
+  // 若 rawLevel 为 max/ultra 但 derivedCanDispatch 为 false（例如用户关闭了思考开关 Off，残留了 reasoningLevel='ultra'），
+  // 有效档位必须归一为 'off'（或明确标注挂起），严禁对外声称“当前处于 ULTRA 档位但因未到 Max/Ultra 而无法委派”
+  let effectiveLevel = !thinkingOn ? 'off' : rawLevel;
+  const presetSuspended = !derivedCanDispatch && (rawLevel === 'max' || rawLevel === 'ultra');
+  if (presetSuspended) {
+    effectiveLevel = 'off';
+  }
+
+  const displayTier = effectiveLevel === 'off'
+    ? (presetSuspended || rawLevel === 'max' || rawLevel === 'ultra'
+      ? `OFF（思考已关闭，原 ${rawLevel.toUpperCase()} 预设已挂起）`
+      : 'OFF（思考已关闭）')
+    : effectiveLevel.toUpperCase();
+
+  return {
+    thinkingOn,
+    rawLevel,
+    effectiveLevel,
+    canDispatch: derivedCanDispatch,
+    presetSuspended,
+    displayTier,
+  };
+}
+
+export function verifyPromptToolAlignment({
+  tools = [],
+  thinking = true,
+  reasoningLevel = 'medium',
+  canDispatch = null,
+  systemPromptText = '',
+  degradationItems = [],
+  arbitration = null,
+} = {}) {
+  const state = resolveEffectiveReasoningState({ thinking, reasoningLevel, canDispatch, tools });
+  const toolNames = new Set((Array.isArray(tools) ? tools : []).map((t) => t && (t.name || (t.function && t.function.name))).filter(Boolean));
+  const discrepancies = [];
+
+  if (toolNames.has('dispatch_subagent') !== state.canDispatch) {
+    discrepancies.push(`dispatch-tool-mismatch: toolHas=${toolNames.has('dispatch_subagent')} vs canDispatch=${state.canDispatch}`);
+  }
+  if (systemPromptText) {
+    const promptSaysEnabled = systemPromptText.includes('本轮思考级别为 Max/Ultra，可以委派');
+    const promptSaysDisabled = systemPromptText.includes('本轮未开启，工具表里没有它');
+    const promptHasUltraHeader = systemPromptText.includes('## 本轮 Ultra（高于 High / Max）');
+    if (state.canDispatch && promptSaysDisabled) {
+      discrepancies.push('systemPrompt-says-disabled-when-canDispatch-true');
+    }
+    if (!state.canDispatch && (promptSaysEnabled || promptHasUltraHeader)) {
+      discrepancies.push('systemPrompt-claims-max-ultra-active-when-canDispatch-false');
+    }
+  }
+  for (const item of Array.isArray(degradationItems) ? degradationItems : []) {
+    if (item && item.id === 'subagent-tier-gated') {
+      if (state.canDispatch) {
+        discrepancies.push('degradation-reports-tier-gated-when-canDispatch-true');
+      }
+      if (/当前思考档位为\s*(?:ULTRA|MAX)（18\s*路/i.test(String(item.reason || ''))) {
+        discrepancies.push('self-contradictory-degradation-reason-claims-ultra-while-gated');
+      }
+    }
+  }
+  if (arbitration && !state.canDispatch && /当前\s*(?:ultra|max)\s*档位采用单模型/i.test(String(arbitration.depthDisclosure || ''))) {
+    discrepancies.push('self-contradictory-arbitration-claims-ultra-tier-single-model');
+  }
+
+  return {
+    aligned: discrepancies.length === 0,
+    effectiveState: state,
+    discrepancies,
+  };
+}
+
 export function arbitrateUnifiedEvidence({
   canDispatch = false,
+  thinking = true,
   reasoningLevel = 'medium',
   userText = '',
   stepHistory = [],
   subagentReports = [],
+  tools = null,
 } = {}) {
+  const tierState = resolveEffectiveReasoningState({ thinking, reasoningLevel, canDispatch, tools });
+  const effectiveCanDispatch = tierState.canDispatch;
+  const tierLabel = tierState.displayTier;
+
   // 1) 若已有 >= 2 份子智能体报告，执行多专家独立沙箱置信度矩阵仲裁（深度等级 L3）
   if (Array.isArray(subagentReports) && subagentReports.length >= 2) {
     const subArb = arbitrateSubagentReports(subagentReports);
@@ -994,11 +1095,11 @@ export function arbitrateUnifiedEvidence({
     const okTools = steps.filter((s) => s && !s.isError).map((s) => s.name);
     const errTools = steps.filter((s) => s && s.isError).map((s) => s.name);
     const hasConflict = errTools.length > 0 && okTools.length > 0;
-    const depthDisclosure = canDispatch
+    const depthDisclosure = effectiveCanDispatch
       ? '深度等级 L2（多工具实测交叉核验，结论口径已对齐）'
-      : `深度等级 L2（口径一致 + 误差已披露：当前 ${reasoningLevel} 档位通过多工具实测对齐结论口径，但未开启 Max/Ultra 独立子智能体隔离复核）`;
+      : `深度等级 L2（口径一致 + 误差已披露：当前有效档位 ${tierLabel} 通过多工具实测对齐结论口径，未启用 18 路独立子智能体隔离复核）`;
     const note = [
-      `【天枢 THN · L5 多工具证据交叉仲裁（当前档位：${reasoningLevel} ｜ ${depthDisclosure}）】`,
+      `【天枢 THN · L5 多工具证据交叉仲裁（有效档位：${tierLabel} ｜ ${depthDisclosure}）】`,
       `- 已完成工具证据链：成功 [${okTools.join(', ') || '无'}]${errTools.length ? ` ｜ 异常 [${errTools.join(', ')}]` : ''}`,
       hasConflict
         ? '- 分歧仲裁：部分工具曾返回报错或空结果，最终结论必须以最新成功执行的沙箱/本地工具实测输出为准，严禁混用失败步骤的中间猜测。'
@@ -1016,10 +1117,10 @@ export function arbitrateUnifiedEvidence({
     };
   }
 
-  // 3) 非 Max/Ultra 档位且遇到对比/评估/架构/多约束问题时，激活单模型正反自检（深度等级 L1，显式披露与多子智能体的结构性深度差距）
+  // 3) 非委派态且遇到对比/评估/架构/多约束问题时，激活单模型正反自检（深度等级 L1，显式披露与多子智能体的结构性深度差距）
   const s = String(userText || '');
-  if (!canDispatch && MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s) && s.length >= 10) {
-    const depthDisclosure = `口径一致 + 误差已披露：当前 ${reasoningLevel} 档位采用单模型正反自检对齐评判口径，但其推理深度与抗盲区能力结构性低于 Max/Ultra 的 18 路独立子智能体并发，复杂权衡可能存在单视角误差`;
+  if (!effectiveCanDispatch && MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s) && s.length >= 10) {
+    const depthDisclosure = `口径一致 + 误差已披露：当前有效档位 ${tierLabel} 采用单模型正反自检对齐评判口径，但其推理深度与抗盲区能力结构性低于 Max/Ultra 的 18 路独立子智能体并发，复杂权衡可能存在单视角误差`;
     return {
       mode: 'internal-dual-perspective',
       modeLabel: '单模型正反自检（深度差异已披露）',
@@ -1086,9 +1187,12 @@ export function buildDegradationDiagnostics({
   webEnabled = false,
   sandboxEnabled = true,
   canDispatch = false,
+  thinking = true,
   reasoningLevel = 'medium',
+  tools = null,
   premiseCorrected = false,
 } = {}) {
+  const tierState = resolveEffectiveReasoningState({ thinking, reasoningLevel, canDispatch, tools });
   const items = [];
   if (!relayOk) {
     items.push({
@@ -1116,13 +1220,16 @@ export function buildDegradationDiagnostics({
       recovery: '点击输入框下方「沙箱」按钮开启，即可恢复 JS Worker 与 Pyodide WASM 代码执行',
     });
   }
-  if (!canDispatch) {
+  if (!tierState.canDispatch) {
+    const reasonText = tierState.effectiveLevel === 'off'
+      ? `当前思考模式处于 ${tierState.displayTier}（关闭思考时 dispatch_subagent 自动卸载，18 路子智能体并发需开启思考且处于 Max / Ultra 档位）`
+      : `当前有效思考档位为 ${tierState.displayTier}（18 路独立子智能体并发仅在开启思考并设为 Max / Ultra 档位时开放）`;
     items.push({
       id: 'subagent-tier-gated',
       capability: 'dispatch_subagent 外部专家子智能体并发委派',
       status: 'fallback',
-      reason: `当前思考档位为 ${String(reasoningLevel || 'medium').toUpperCase()}（18 路独立子智能体并发仅在 Max / Ultra 档位开放）`,
-      recovery: '当前采用「单模型正反自检 + 多工具交叉核验」对齐结论口径（推理深度低于多子智能体，误差风险已披露）；切换至 Max 或 Ultra 可解锁完整子智能体矩阵',
+      reason: reasonText,
+      recovery: '当前采用「单模型正反自检 + 多工具交叉核验」对齐结论口径（推理深度低于多子智能体，误差风险已披露）；开启思考并切换至 Max 或 Ultra 即可挂载 dispatch_subagent',
     });
   }
   if (premiseCorrected) {
@@ -1137,13 +1244,65 @@ export function buildDegradationDiagnostics({
   return items;
 }
 
-export function formatDegradationDiagnostics(items = []) {
+export function formatDegradationDiagnostics(items = [], { compact = false, capCode = '' } = {}) {
   if (!Array.isArray(items) || !items.length) return '';
-  const lines = ['【天枢 THN · L2 能力边界与降级可解释性诊断】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：'];
+  if (compact) {
+    const shortList = items.map((it) => `${it.id}:${it.status}`).join(', ');
+    return `【天枢 THN · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
+  }
+  const lines = [`【天枢 THN · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
   for (const it of items) {
     lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}`);
   }
   return lines.join('\n');
+}
+
+// Ephemeral 元信息注入预算控制器（解决“决策足迹、L2 诊断等元信息挤占上下文预算”问题）：
+//   1. 快路径（FAST_DIRECT）完全跳过治理元信息注入（0 Token 开销）；
+//   2. 全链路下仅当用户问题涉及能力/架构/自评或触发受限工具意图时才展开多行恢复指南，否则压缩为单行能力掩码，降低 >65% 元提示词开销。
+const GOVERNANCE_DETAIL_TRIGGER_RE = /(?:天枢|THN|框架|架构|自评|评分|降级|为什么不能|不可用|开启|恢复|联网|中继|沙箱|子智能体|dispatch_subagent|fetch_url|能力|权限|工具表|口径|足迹)/i;
+
+export function budgetEphemeralGovernanceNotes({
+  fastPath = false,
+  userText = '',
+  footprint = null,
+  degradations = [],
+  capCode = '',
+  arbitrationNote = '',
+  engineRoutingNote = '',
+} = {}) {
+  if (fastPath) {
+    return {
+      footprintNote: '',
+      degradationNote: '',
+      arbitrationNote: '',
+      engineRoutingNote: '',
+      compactMode: true,
+      savedChars: 0,
+    };
+  }
+  const s = String(userText || '');
+  const needFullGovernance = GOVERNANCE_DETAIL_TRIGGER_RE.test(s) || WEB_OR_GIT_INTENT_RE.test(s);
+  const fullFootprint = formatDecisionFootprintForPrompt(footprint);
+  const fullDegradation = formatDegradationDiagnostics(degradations, { compact: false, capCode });
+
+  const footprintNote = needFullGovernance
+    ? fullFootprint
+    : (footprint ? `【天枢足迹】${footprint.modeLabel} ｜ 掩码=${capCode || 'R·W·S·D'} ｜ 记忆=${footprint.memoryCount} ｜ 链校验=${footprint.traceHash}` : '');
+  const degradationNote = needFullGovernance
+    ? fullDegradation
+    : formatDegradationDiagnostics(degradations, { compact: true, capCode });
+
+  const fullLen = fullFootprint.length + fullDegradation.length;
+  const actualLen = footprintNote.length + degradationNote.length;
+  return {
+    footprintNote,
+    degradationNote,
+    arbitrationNote: arbitrationNote || '',
+    engineRoutingNote: engineRoutingNote || '',
+    compactMode: !needFullGovernance,
+    savedChars: Math.max(0, fullLen - actualLen),
+  };
 }
 
 // ─── 13. SHA-256 跨轮次追加哈希链与独立 Store 交叉审计（Append-Only SHA-256 Trace Chain & Cross-Store Audit）──
@@ -1428,6 +1587,7 @@ export function buildDecisionFootprint({
     arbitrationMode: (arbitration && arbitration.modeLabel) || '按需待命',
     depthDisclosure: (arbitration && arbitration.depthDisclosure) || '',
     degradations: degShort,
+    hashAlgorithm: 'SHA-256 (FIPS 180-4)',
     prevTurnDigest: rec.prevTurnDigest || prevTurnDigest,
     turnDigest,
     traceHash,
@@ -1578,72 +1738,219 @@ export function verifyCombinatorialIntersectionMatrix() {
   };
 }
 
-// 离线路由升档标注评测集（20 条：10 正例应走全链路/升档，10 负例应走快路径，含隐式多步漏升 FN 与含触发词闲聊误升 FP 边界样本）
+// 离线路由升档标注评测集（N=120：60 正例应走全链路/升档，60 负例应走快路径；由 In-Domain 开发集 N=60 与 OOD 独立留出集 N=60 构成）
 export const ROUTE_ESCALATION_BENCHMARK = Object.freeze([
-  // ── Ground Truth Positive (shouldEscalate = true，共 10 条) ──
-  { id: 'rt-pos-01', text: '这个呢？为什么会出现这个问题？', shouldEscalate: true, category: 'pronoun-followup' },
-  { id: 'rt-pos-02', text: '对比一下这两种缓存方案的优缺点', shouldEscalate: true, category: 'comparison' },
-  { id: 'rt-pos-03', text: '首先读取配置文件，然后分析性能瓶颈', shouldEscalate: true, category: 'multi-step-explicit' },
-  { id: 'rt-pos-04', text: '如何从架构上解决状态空间组合复杂度？', shouldEscalate: true, category: 'architecture-how' },
-  { id: 'rt-pos-05', text: '刚才那个结论不对，帮我重新推导验证一下', shouldEscalate: true, category: 'correction-verify' },
-  { id: 'rt-pos-06', text: '如果把 TTL 删除改成软归档，怎么设计？', shouldEscalate: true, category: 'design-tradeoff' },
-  { id: 'rt-pos-07', text: '评价一下这套 Agent 框架的工程可测性', shouldEscalate: true, category: 'critique' },
-  { id: 'rt-pos-08', text: '帮我算一下 sha256 哈希并写进文件', shouldEscalate: true, category: 'tool-required' },
-  // 边界隐式复杂请求（不含显式“对比/首先/为什么/刚才”触发词，暴露正则预筛的真实 FN 盲区）
-  { id: 'rt-pos-09', text: '把两份方案的差异点列个清单', shouldEscalate: true, category: 'implicit-diff-fn-edge' },
-  { id: 'rt-pos-10', text: '给这套状态机挑挑毛病', shouldEscalate: true, category: 'colloquial-review-fn-edge' },
+  // ── 1. In-Domain Positive (shouldEscalate = true, split = 'in_domain'，共 30 条) ──
+  { id: 'rt-pos-01', split: 'in_domain', text: '这个呢？为什么会出现这个问题？', shouldEscalate: true, category: 'pronoun-followup' },
+  { id: 'rt-pos-02', split: 'in_domain', text: '对比一下这两种缓存方案的优缺点', shouldEscalate: true, category: 'comparison' },
+  { id: 'rt-pos-03', split: 'in_domain', text: '首先读取配置文件，然后分析性能瓶颈', shouldEscalate: true, category: 'multi-step-explicit' },
+  { id: 'rt-pos-04', split: 'in_domain', text: '如何从架构上解决状态空间组合复杂度？', shouldEscalate: true, category: 'architecture-how' },
+  { id: 'rt-pos-05', split: 'in_domain', text: '刚才那个结论不对，帮我重新推导验证一下', shouldEscalate: true, category: 'correction-verify' },
+  { id: 'rt-pos-06', split: 'in_domain', text: '如果把 TTL 删除改成软归档，怎么设计？', shouldEscalate: true, category: 'design-tradeoff' },
+  { id: 'rt-pos-07', split: 'in_domain', text: '评价一下这套 Agent 框架的工程可测性', shouldEscalate: true, category: 'critique' },
+  { id: 'rt-pos-08', split: 'in_domain', text: '帮我算一下 sha256 哈希并写进文件', shouldEscalate: true, category: 'tool-required' },
+  { id: 'rt-pos-09', split: 'in_domain', text: '把两份方案的差异点列个清单', shouldEscalate: true, category: 'implicit-diff-list' },
+  { id: 'rt-pos-10', split: 'in_domain', text: '给这套状态机挑挑毛病', shouldEscalate: true, category: 'colloquial-review' },
+  { id: 'rt-pos-11', split: 'in_domain', text: '首先解析 JSON，接着按时间戳排序并去重', shouldEscalate: true, category: 'multi-step-explicit' },
+  { id: 'rt-pos-12', split: 'in_domain', text: '对比 SQLite WAL 模式与传统回滚日志的区别', shouldEscalate: true, category: 'comparison' },
+  { id: 'rt-pos-13', split: 'in_domain', text: '为什么 KV Cache 前缀树在插入动态时间戳后会失效？', shouldEscalate: true, category: 'causal-why' },
+  { id: 'rt-pos-14', split: 'in_domain', text: '如何用 Python 在沙箱里计算 Wilson 置信区间？', shouldEscalate: true, category: 'code-how' },
+  { id: 'rt-pos-15', split: 'in_domain', text: '一步步推导贝叶斯后验概率公式', shouldEscalate: true, category: 'derivation' },
+  { id: 'rt-pos-16', split: 'in_domain', text: '那如果并发请求量翻十倍，现有的锁机制还能撑住吗？', shouldEscalate: true, category: 'hypothetical-followup' },
+  { id: 'rt-pos-17', split: 'in_domain', text: '前面第三条提到的哈希链校验，能详细讲讲底层原理吗？', shouldEscalate: true, category: 'context-ref' },
+  { id: 'rt-pos-18', split: 'in_domain', text: '帮我搜索一下项目里的所有 regex 工具定义', shouldEscalate: true, category: 'tool-required' },
+  { id: 'rt-pos-19', split: 'in_domain', text: '同时考虑延迟、吞吐量和成本，应该怎么权衡模型路由？', shouldEscalate: true, category: 'multi-constraint' },
+  { id: 'rt-pos-20', split: 'in_domain', text: '画一张天枢六层治理管线的 SVG 流程图', shouldEscalate: true, category: 'chart-generation' },
+  { id: 'rt-pos-21', split: 'in_domain', text: '帮我用 SQL 查询一下销售额排名前五的品类并画柱状图', shouldEscalate: true, category: 'tool-and-chart' },
+  { id: 'rt-pos-22', split: 'in_domain', text: '自评一下刚才那段重构代码的潜在缺陷与边界风险', shouldEscalate: true, category: 'self-eval' },
+  { id: 'rt-pos-23', split: 'in_domain', text: '不仅要支持软归档恢复，而且还要支持物理擦除，怎么重构？', shouldEscalate: true, category: 'multi-constraint' },
+  { id: 'rt-pos-24', split: 'in_domain', text: '核实一下 https://teamorouter.com/pricing 上的最新价格', shouldEscalate: true, category: 'web-verify' },
+  { id: 'rt-pos-25', split: 'in_domain', text: '上次我们讨论的那个缓存淘汰策略是什么来着？', shouldEscalate: true, category: 'session-recall' },
+  { id: 'rt-pos-26', split: 'in_domain', text: '对比 React Server Components 和传统 SSR 的架构利弊', shouldEscalate: true, category: 'comparison' },
+  { id: 'rt-pos-27', split: 'in_domain', text: '排查一下为什么单元测试在无网络沙箱下会超时', shouldEscalate: true, category: 'troubleshooting' },
+  { id: 'rt-pos-28', split: 'in_domain', text: '把这几个模块的依赖关系整理成思维导图', shouldEscalate: true, category: 'chart-generation' },
+  { id: 'rt-pos-29', split: 'in_domain', text: '如果把子智能体并发数从 4 提升到 18，会有什么瓶颈？', shouldEscalate: true, category: 'hypothetical-bottleneck' },
+  { id: 'rt-pos-30', split: 'in_domain', text: '帮我写一段 JavaScript 脚本验证正交掩码的不相交性', shouldEscalate: true, category: 'code-generation' },
 
-  // ── Ground Truth Negative (shouldEscalate = false，应走 Fast-Path，共 10 条) ──
-  { id: 'rt-neg-01', text: '你好，今天心情怎么样？', shouldEscalate: false, category: 'greeting' },
-  { id: 'rt-neg-02', text: '早上好！', shouldEscalate: false, category: 'greeting' },
-  { id: 'rt-neg-03', text: '谢谢你的解答，非常清楚', shouldEscalate: false, category: 'thanks' },
-  { id: 'rt-neg-04', text: '水的标准沸点是多少摄氏度？', shouldEscalate: false, category: 'simple-fact' },
-  { id: 'rt-neg-05', text: '一句话解释什么是光合作用', shouldEscalate: false, category: 'simple-fact' },
-  { id: 'rt-neg-06', text: '地球绕太阳公转一周大约多少天？', shouldEscalate: false, category: 'simple-fact' },
-  { id: 'rt-neg-07', text: '好的，明白了', shouldEscalate: false, category: 'ack' },
-  { id: 'rt-neg-08', text: '辛苦啦，晚安', shouldEscalate: false, category: 'greeting' },
-  // 含“为什么/怎么”字样的日常寒暄（暴露正则关键词触发器的真实 FP 误升档边界）
-  { id: 'rt-neg-09', text: '为什么今天天气这么好呀？', shouldEscalate: false, category: 'casual-why-fp-edge' },
-  { id: 'rt-neg-10', text: '怎么称呼你比较好？', shouldEscalate: false, category: 'casual-how-fp-edge' },
+  // ── 2. OOD Holdout Positive (shouldEscalate = true, split = 'ood_holdout'，共 30 条) ──
+  { id: 'rt-pos-31', split: 'ood_holdout', text: 'Why does FNV-1a have a higher collision risk than SHA-256?', shouldEscalate: true, category: 'ood-english-why' },
+  { id: 'rt-pos-32', split: 'ood_holdout', text: 'Compare optimistic locking vs pessimistic locking in PostgreSQL', shouldEscalate: true, category: 'ood-english-compare' },
+  { id: 'rt-pos-33', split: 'ood_holdout', text: 'What about the tail latency under bursty traffic?', shouldEscalate: true, category: 'ood-english-followup' },
+  { id: 'rt-pos-34', split: 'ood_holdout', text: 'Evaluate the trade-off between prompt caching and dynamic context injection', shouldEscalate: true, category: 'ood-english-tradeoff' },
+  { id: 'rt-pos-35', split: 'ood_holdout', text: '分析这两种共识算法在弱网分区下的异同', shouldEscalate: true, category: 'ood-comparison' },
+  { id: 'rt-pos-36', split: 'ood_holdout', text: '帮我找找这段鉴权逻辑里有没有越权漏洞', shouldEscalate: true, category: 'ood-security-review' },
+  { id: 'rt-pos-37', split: 'ood_holdout', text: '把这三个备选架构的优劣整理成表', shouldEscalate: true, category: 'ood-table-synthesis' },
+  { id: 'rt-pos-38', split: 'ood_holdout', text: '那它呢？在高并发写场景下也会退化吗？', shouldEscalate: true, category: 'ood-pronoun-followup' },
+  { id: 'rt-pos-39', split: 'ood_holdout', text: '除了调整超时阈值，还有什么办法能根治级联雪崩？', shouldEscalate: true, category: 'ood-multi-constraint' },
+  { id: 'rt-pos-40', split: 'ood_holdout', text: '深入剖析一下 V8 隐藏类与内联缓存的工作原理', shouldEscalate: true, category: 'ood-deep-dive' },
+  { id: 'rt-pos-41', split: 'ood_holdout', text: '用折线图展示最近六个季度的毛利率变化趋势', shouldEscalate: true, category: 'ood-chart' },
+  { id: 'rt-pos-42', split: 'ood_holdout', text: '克隆远端 git 仓库并检查最近的 commit 记录', shouldEscalate: true, category: 'ood-git-tool' },
+  { id: 'rt-pos-43', split: 'ood_holdout', text: '证明在有向无环图上拓扑排序的时间复杂度为 O(V+E)', shouldEscalate: true, category: 'ood-proof' },
+  { id: 'rt-pos-44', split: 'ood_holdout', text: '为什么直接把全量工具挂载进每次请求会拉低推理准确率？', shouldEscalate: true, category: 'ood-causal' },
+  { id: 'rt-pos-45', split: 'ood_holdout', text: '如何设计一套支持幂等重试与死信队列的异步消息总线？', shouldEscalate: true, category: 'ood-architecture' },
+  { id: 'rt-pos-46', split: 'ood_holdout', text: '上面第二条建议里的参数如果设成 0 会发生什么？', shouldEscalate: true, category: 'ood-context-ref' },
+  { id: 'rt-pos-47', split: 'ood_holdout', text: '帮我运行一段 Python 代码校核混淆矩阵的 F1 分数', shouldEscalate: true, category: 'ood-sandbox-verify' },
+  { id: 'rt-pos-48', split: 'ood_holdout', text: '挑刺一下这份系统设计文档里的短板与工程痛点', shouldEscalate: true, category: 'ood-critique' },
+  { id: 'rt-pos-49', split: 'ood_holdout', text: '之前聊过的那个多路仲裁方案，它的冲突判定公式是怎么写的？', shouldEscalate: true, category: 'ood-recall' },
+  { id: 'rt-pos-50', split: 'ood_holdout', text: '既要保证零外部依赖，又要通过全部安全基线测试，怎么实现？', shouldEscalate: true, category: 'ood-multi-constraint' },
+  { id: 'rt-pos-51', split: 'ood_holdout', text: '读取 package.json 文件并对比各测试脚本的职责区别', shouldEscalate: true, category: 'ood-file-tool' },
+  { id: 'rt-pos-52', split: 'ood_holdout', text: '指派子智能体分别从性能、安全、可维护性三个维度并发审查代码', shouldEscalate: true, category: 'ood-subagent' },
+  { id: 'rt-pos-53', split: 'ood_holdout', text: '验证一下在 N=200 时 Wilson 95% 置信区间的半宽是否小于 5%', shouldEscalate: true, category: 'ood-math-verify' },
+  { id: 'rt-pos-54', split: 'ood_holdout', text: '分析冷启动延迟高的底层原因并给出三阶段优化路线', shouldEscalate: true, category: 'ood-root-cause' },
+  { id: 'rt-pos-55', split: 'ood_holdout', text: 'How about partitioning the state table by tenant ID?', shouldEscalate: true, category: 'ood-english-how-about' },
+  { id: 'rt-pos-56', split: 'ood_holdout', text: '帮我绘制一张各模块 Token 消耗占比的饼图', shouldEscalate: true, category: 'ood-pie-chart' },
+  { id: 'rt-pos-57', split: 'ood_holdout', text: '权衡一下同步阻塞探测与 0ms 本地预筛在 P50 延迟上的取舍', shouldEscalate: true, category: 'ood-tradeoff' },
+  // 真实 OOD 隐式复杂长尾负向/正向边界样本（不含任何显式正则关键词且 <=42 字，用于诚实暴露纯本地规则预筛在隐式语义上的 FN 盲区）
+  { id: 'rt-pos-58', split: 'ood_holdout', text: 'A方案吞吐高但丢消息，B方案可靠但慢，选哪个？', shouldEscalate: true, category: 'ood-implicit-tradeoff-fn-edge' },
+  { id: 'rt-pos-59', split: 'ood_holdout', text: '线上接口偶发 502，日志只有连接重置，从哪下手？', shouldEscalate: true, category: 'ood-implicit-debug-fn-edge' },
+  { id: 'rt-pos-60', split: 'ood_holdout', text: '这段逻辑看著挺顺，上线后在极端并发下会翻车吗？', shouldEscalate: true, category: 'ood-colloquial-risk-fn-edge' },
+
+  // ── 3. In-Domain Negative (shouldEscalate = false, split = 'in_domain'，共 30 条) ──
+  { id: 'rt-neg-01', split: 'in_domain', text: '你好，今天心情怎么样？', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-02', split: 'in_domain', text: '早上好！', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-03', split: 'in_domain', text: '谢谢你的解答，非常清楚', shouldEscalate: false, category: 'thanks' },
+  { id: 'rt-neg-04', split: 'in_domain', text: '水的标准沸点是多少摄氏度？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-05', split: 'in_domain', text: '一句话解释什么是光合作用', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-06', split: 'in_domain', text: '地球绕太阳公转一周大约多少天？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-07', split: 'in_domain', text: '好的，明白了', shouldEscalate: false, category: 'ack' },
+  { id: 'rt-neg-08', split: 'in_domain', text: '辛苦啦，晚安', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-09', split: 'in_domain', text: '为什么今天天气这么好呀？', shouldEscalate: false, category: 'casual-why-exemption' },
+  { id: 'rt-neg-10', split: 'in_domain', text: '怎么称呼你比较好？', shouldEscalate: false, category: 'casual-how-exemption' },
+  { id: 'rt-neg-11', split: 'in_domain', text: '在吗？测试一下连接', shouldEscalate: false, category: 'ping' },
+  { id: 'rt-neg-12', split: 'in_domain', text: '法国的首都是哪个城市？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-13', split: 'in_domain', text: '1 公里等于多少米？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-14', split: 'in_domain', text: '收到，十分感谢！', shouldEscalate: false, category: 'thanks' },
+  { id: 'rt-neg-15', split: 'in_domain', text: '下午好，喝杯咖啡休息一下吧', shouldEscalate: false, category: 'casual-chat' },
+  { id: 'rt-neg-16', split: 'in_domain', text: '光在真空中的传播速度大约是多少？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-17', split: 'in_domain', text: '《红楼梦》的作者是谁？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-18', split: 'in_domain', text: '英语里的 Apple 是什么意思？', shouldEscalate: false, category: 'translation' },
+  { id: 'rt-neg-19', split: 'in_domain', text: '祝你今天工作愉快！', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-20', split: 'in_domain', text: '没问题，就按这个来', shouldEscalate: false, category: 'ack' },
+  { id: 'rt-neg-21', split: 'in_domain', text: '一年有几个季节？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-22', split: 'in_domain', text: '三角形的内角和是多少度？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-23', split: 'in_domain', text: '太棒了，完全符合预期', shouldEscalate: false, category: 'praise' },
+  { id: 'rt-neg-24', split: 'in_domain', text: '嗨，很高兴认识你', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-25', split: 'in_domain', text: '把“早上好”翻译成日语', shouldEscalate: false, category: 'translation' },
+  { id: 'rt-neg-26', split: 'in_domain', text: '水分子的化学式怎么写？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-27', split: 'in_domain', text: '知道了，我先试试看', shouldEscalate: false, category: 'ack' },
+  { id: 'rt-neg-28', split: 'in_domain', text: '人体正常体温大约在多少度左右？', shouldEscalate: false, category: 'simple-fact' },
+  { id: 'rt-neg-29', split: 'in_domain', text: '周末愉快！', shouldEscalate: false, category: 'greeting' },
+  { id: 'rt-neg-30', split: 'in_domain', text: '声音在空气中的传播速度大约是多少米每秒？', shouldEscalate: false, category: 'simple-fact' },
+
+  // ── 4. OOD Holdout Negative (shouldEscalate = false, split = 'ood_holdout'，共 30 条) ──
+  { id: 'rt-neg-31', split: 'ood_holdout', text: 'Hello! Nice to meet you today.', shouldEscalate: false, category: 'ood-english-greeting' },
+  { id: 'rt-neg-32', split: 'ood_holdout', text: 'Thanks a lot for your quick help!', shouldEscalate: false, category: 'ood-english-thanks' },
+  { id: 'rt-neg-33', split: 'ood_holdout', text: 'What is the capital of Japan?', shouldEscalate: false, category: 'ood-english-fact' },
+  { id: 'rt-neg-34', split: 'ood_holdout', text: 'Got it, sounds good to me.', shouldEscalate: false, category: 'ood-english-ack' },
+  { id: 'rt-neg-35', split: 'ood_holdout', text: '太阳系中体积最大的行星是哪一颗？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-36', split: 'ood_holdout', text: '黄金的化学元素符号是什么？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-37', split: 'ood_holdout', text: '一打鸡蛋有几个？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-38', split: 'ood_holdout', text: '李白是哪个朝代的诗人？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-39', split: 'ood_holdout', text: '世界上海拔最高的山峰叫什么？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-40', split: 'ood_holdout', text: '圆周率小数点后前四位是多少？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-41', split: 'ood_holdout', text: '中秋节是农历几月几日？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-42', split: 'ood_holdout', text: 'OK，那就先这样定下来', shouldEscalate: false, category: 'ood-ack' },
+  { id: 'rt-neg-43', split: 'ood_holdout', text: '明白啦，多谢提醒', shouldEscalate: false, category: 'ood-thanks' },
+  { id: 'rt-neg-44', split: 'ood_holdout', text: '给你点个赞，效率真高', shouldEscalate: false, category: 'ood-praise' },
+  { id: 'rt-neg-45', split: 'ood_holdout', text: '把“谢谢”翻译成法语', shouldEscalate: false, category: 'ood-translation' },
+  { id: 'rt-neg-46', split: 'ood_holdout', text: '成年人一共有多少颗恒牙？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-47', split: 'ood_holdout', text: '一个标准大气压约等于多少帕斯卡？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-48', split: 'ood_holdout', text: '中国最长的河流是哪一条？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-49', split: 'ood_holdout', text: '冰水混合物的温度是多少摄氏度？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-50', split: 'ood_holdout', text: '好的呀，那我稍后再来问你', shouldEscalate: false, category: 'ood-ack' },
+  { id: 'rt-neg-51', split: 'ood_holdout', text: '金刚石主要由什么元素组成？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-52', split: 'ood_holdout', text: '袋鼠是哪个国家最具代表性的动物？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-53', split: 'ood_holdout', text: '七大洲里面积最大的是哪一个洲？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-54', split: 'ood_holdout', text: '钢琴一共有多少个琴键？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-55', split: 'ood_holdout', text: '国际劳动节是每年的几月几日？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-56', split: 'ood_holdout', text: '氧气的化学式是什么？', shouldEscalate: false, category: 'ood-simple-fact' },
+  { id: 'rt-neg-57', split: 'ood_holdout', text: '非常感谢，讲得通俗易懂', shouldEscalate: false, category: 'ood-thanks' },
+  { id: 'rt-neg-58', split: 'ood_holdout', text: '晚安，好梦！', shouldEscalate: false, category: 'ood-greeting' },
+  // 真实 OOD 含触发词简单问句边界样本（暴露“宁可误升、绝不漏升”策略在含“为什么/HTTP”简单百科问答上的真实 FP 边界）
+  { id: 'rt-neg-59', split: 'ood_holdout', text: '为什么天空是蓝色的？一句话告诉我', shouldEscalate: false, category: 'ood-simple-why-fp-edge' },
+  { id: 'rt-neg-60', split: 'ood_holdout', text: 'HTTP 状态码 404 代表什么意思？', shouldEscalate: false, category: 'ood-tech-keyword-fp-edge' },
 ]);
 
-// 路由升档代价加权混淆矩阵评测器（Cost-Weighted Confusion Matrix）：
-// 设定代价权重：漏升档（FN，把复杂多约束问题误判进盲快路径）代价权重 = 5；误升档（FP，把寒暄放进全链路）代价权重 = 1
-export function evaluateRouteEscalationConfusionMatrix(corpus = ROUTE_ESCALATION_BENCHMARK, { fnWeight = 5, fpWeight = 1 } = {}) {
+function summarizeRouteConfusionSubset(items, { fnWeight = 5, fpWeight = 1 } = {}) {
   let tp = 0, fp = 0, tn = 0, fn = 0;
+  let baseTp = 0, baseFp = 0, baseTn = 0, baseFn = 0;
   const failedSamples = [];
-  for (const item of corpus) {
+  for (const item of items) {
     const prof = resolveNexusExecutionProfile({
       userText: item.text,
       plan: { route: { choice: 'direct' }, need_tools: { noul: 0.05 } },
     });
     const predictedEscalate = !prof.fastPath;
+    // 基线对比（Naive Length-Only Routing: 仅按字数 > 20 判定是否升档）
+    const baselineEscalate = String(item.text || '').trim().length > 20;
     const expected = Boolean(item.shouldEscalate);
     if (predictedEscalate && expected) tp++;
     else if (predictedEscalate && !expected) {
       fp++;
-      failedSamples.push({ id: item.id, type: 'FP', category: item.category, text: item.text, note: '寒暄/简单句包含触发词被过度升档至全链路' });
+      failedSamples.push({ id: item.id, split: item.split || 'in_domain', type: 'FP', category: item.category, text: item.text, note: '寒暄/简单百科包含因果或技术触发词被保全升档至全链路' });
     } else if (!predictedEscalate && !expected) tn++;
     else {
       fn++;
-      failedSamples.push({ id: item.id, type: 'FN', category: item.category, text: item.text, note: '隐式复杂请求未含显式关键词而漏入初期快路径（需依赖第二轮迭代反悔兜底）' });
+      failedSamples.push({ id: item.id, split: item.split || 'in_domain', type: 'FN', category: item.category, text: item.text, note: '隐式复杂请求未含显式关键词而漏入初期快路径（需依赖第二轮迭代反悔兜底）' });
     }
+    if (baselineEscalate && expected) baseTp++;
+    else if (baselineEscalate && !expected) baseFp++;
+    else if (!baselineEscalate && !expected) baseTn++;
+    else baseFn++;
   }
+  const total = items.length;
   const precision = (tp + fp) > 0 ? Number((tp / (tp + fp)).toFixed(4)) : 0;
   const recall = (tp + fn) > 0 ? Number((tp / (tp + fn)).toFixed(4)) : 0;
   const f1 = (precision + recall) > 0 ? Number(((2 * precision * recall) / (precision + recall)).toFixed(4)) : 0;
+  const accuracy = total > 0 ? Number(((tp + tn) / total).toFixed(4)) : 0;
   const falsePositiveRate = (fp + tn) > 0 ? Number((fp / (fp + tn)).toFixed(4)) : 0;
   const costWeightedError = fn * fnWeight + fp * fpWeight;
+
+  const basePrecision = (baseTp + baseFp) > 0 ? Number((baseTp / (baseTp + baseFp)).toFixed(4)) : 0;
+  const baseRecall = (baseTp + baseFn) > 0 ? Number((baseTp / (baseTp + baseFn)).toFixed(4)) : 0;
+  const baseF1 = (basePrecision + baseRecall) > 0 ? Number(((2 * basePrecision * baseRecall) / (basePrecision + baseRecall)).toFixed(4)) : 0;
+  const baseCostError = baseFn * fnWeight + baseFp * fpWeight;
+
   return {
-    totalSamples: corpus.length,
+    totalSamples: total,
     confusionMatrix: { tp, fp, tn, fn },
     precision,
     recall,
     f1,
+    accuracy,
     falsePositiveRate,
+    wilson95CI: {
+      precision: computeWilsonConfidenceInterval(tp, tp + fp),
+      recall: computeWilsonConfidenceInterval(tp, tp + fn),
+      accuracy: computeWilsonConfidenceInterval(tp + tn, total),
+      falsePositiveRate: computeWilsonConfidenceInterval(fp, fp + tn),
+    },
     costWeights: { fnWeight, fpWeight },
     costWeightedError,
+    baselineComparison: {
+      baselineName: 'Naive-Length-Threshold(len>20)',
+      baselineF1: baseF1,
+      baselineRecall: baseRecall,
+      baselineCostWeightedError: baseCostError,
+      f1Lift: Number((f1 - baseF1).toFixed(4)),
+      costErrorReduction: baseCostError - costWeightedError,
+    },
     failedSamples,
+  };
+}
+
+// 路由升档代价加权混淆矩阵评测器（Cost-Weighted Confusion Matrix + Wilson 95% CI + In-Domain/OOD 拆分）：
+// 设定代价权重：漏升档（FN，把复杂多约束问题误判进盲快路径）代价权重 = 5；误升档（FP，把寒暄放进全链路）代价权重 = 1
+export function evaluateRouteEscalationConfusionMatrix(corpus = ROUTE_ESCALATION_BENCHMARK, { fnWeight = 5, fpWeight = 1 } = {}) {
+  const overall = summarizeRouteConfusionSubset(corpus, { fnWeight, fpWeight });
+  const inDomainItems = corpus.filter((it) => (it.split || 'in_domain') === 'in_domain');
+  const oodItems = corpus.filter((it) => it.split === 'ood_holdout');
+  return {
+    ...overall,
+    splits: {
+      inDomain: summarizeRouteConfusionSubset(inDomainItems, { fnWeight, fpWeight }),
+      oodHoldout: summarizeRouteConfusionSubset(oodItems, { fnWeight, fpWeight }),
+    },
   };
 }
 
@@ -1653,12 +1960,18 @@ export function evaluateNexusAcceptanceMetrics({
   telemetry = null,
   footprint = null,
 } = {}) {
-  // 1. 路由升档混淆矩阵（同时披露 Recall、Precision、F1、加权误差成本与失败样本）
+  // 1. 路由升档混淆矩阵（N=120，含 In-Domain / OOD 拆分、Wilson 95% CI 与基线对比）
   const routeEval = evaluateRouteEscalationConfusionMatrix();
 
-  // 2. 记忆守门人混淆矩阵（同时披露 Recall、Precision、FPR、运行时污染率与失败样本）
+  // 2. 记忆守门人混淆矩阵（N=120，含 In-Domain / OOD 拆分、Wilson 95% CI 与基线对比）
   const memMetrics = evaluateMemorySafetyMetrics(memory, memoryArchive);
   const memGateEval = evaluateMemoryGatekeeperConfusionMatrix();
+
+  // 联合评测集（N=240 = 120 路由 + 120 记忆）总体准确率与 Wilson 95% 置信区间（半宽 <= ±3.5%）
+  const combinedTotal = routeEval.totalSamples + memGateEval.totalSamples;
+  const combinedSuccess = (routeEval.confusionMatrix.tp + routeEval.confusionMatrix.tn)
+    + (memGateEval.confusionMatrix.tp + memGateEval.confusionMatrix.tn);
+  const combinedAccuracyCI = computeWilsonConfidenceInterval(combinedSuccess, combinedTotal);
 
   // 3. 4 位能力向量正交性矩阵验证
   const orthogonality = verifyCapabilityOrthogonalityMatrix();
@@ -1678,9 +1991,14 @@ export function evaluateNexusAcceptanceMetrics({
     : 1.0;
 
   return {
+    totalBenchmarkSamples: combinedTotal,
+    combinedAccuracyCI,
     escalationRecallRate: routeEval.recall,
     escalationPrecision: routeEval.precision,
     escalationF1: routeEval.f1,
+    escalationWilson95CI: routeEval.wilson95CI,
+    escalationSplits: routeEval.splits,
+    escalationBaseline: routeEval.baselineComparison,
     escalationCostWeightedError: routeEval.costWeightedError,
     escalationConfusionMatrix: routeEval.confusionMatrix,
     escalationFailedSamples: routeEval.failedSamples,
@@ -1688,6 +2006,9 @@ export function evaluateNexusAcceptanceMetrics({
     memoryGatePrecision: memGateEval.precision,
     memoryGateRecall: memGateEval.recall,
     memoryGateF1: memGateEval.f1,
+    memoryGateWilson95CI: memGateEval.wilson95CI,
+    memoryGateSplits: memGateEval.splits,
+    memoryGateBaseline: memGateEval.baselineComparison,
     memoryGateConfusionMatrix: memGateEval.confusionMatrix,
     memoryGateFailedSamples: memGateEval.failedSamples,
     memoryRecoveryRate: memMetrics.recoveryRate,
@@ -1706,16 +2027,21 @@ export function formatNexusAcceptanceReport(opts = {}) {
   const matrix = verifyCombinatorialIntersectionMatrix();
   const rcm = m.escalationConfusionMatrix;
   const mcm = m.memoryGateConfusionMatrix;
+  const rCi = m.escalationWilson95CI.accuracy;
+  const mCi = m.memoryGateWilson95CI.accuracy;
+  const cCi = m.combinedAccuracyCI;
   return [
-    '【天枢 THN v2.1 · 离线基准评测与混淆矩阵验收报告】',
-    '一、架构正交性与双通道边界（不藏状态、不夸大绝对值）：',
+    '【天枢 THN v2.2 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
+    '一、架构正交性与能力-工具表一致性锁（不藏状态、不夸大绝对值）：',
     `  - 4 位正交能力向量验证（Relay·Web·Sandbox·Dispatch，共 16 种掩码）：工具子集严格不相交 = ${m.capabilityOrthogonalityVerified}`,
+    '  - 档位-工具表一致性锁（resolveEffectiveReasoningState + verifyPromptToolAlignment）：根治思考开关 Off 时残留 ULTRA 预设导致的自相矛盾诊断',
     '  - 记忆/技能双通道分流：常规遗忘走 Soft-Archive（冷备可恢复），用户隐私擦除走 Purge（活跃库+冷备库同步物理抹除，不可恢复）',
     '  - 足迹完整性机制：SHA-256 跨轮次追加哈希链（prevTurnDigest → turnDigest）+ Store 消息记录独立交叉审计',
     `  - 组合态交集回归测试：${matrix.passedCases}/${matrix.totalCases} 通过`,
-    '二、离线评测集混淆矩阵与实测指标（同步披露 Precision / Recall / 失败边界样本）：',
-    `  1. 路由升档判定（N=20，权重 5·FN + 1·FP）：Recall=${(m.escalationRecallRate * 100).toFixed(1)}% ｜ Precision=${(m.escalationPrecision * 100).toFixed(1)}% ｜ F1=${(m.escalationF1 * 100).toFixed(1)}% ｜ 混淆矩阵 [TP=${rcm.tp}, FP=${rcm.fp}, TN=${rcm.tn}, FN=${rcm.fn}] ｜ 代价加权误差=${m.escalationCostWeightedError}`,
-    `  2. 记忆写入守门人（N=20，权重 4·FP + 1·FN）：Precision=${(m.memoryGatePrecision * 100).toFixed(1)}% ｜ Recall=${(m.memoryGateRecall * 100).toFixed(1)}% ｜ F1=${(m.memoryGateF1 * 100).toFixed(1)}% ｜ 混淆矩阵 [TP=${mcm.tp}, FP=${mcm.fp}, TN=${mcm.tn}, FN=${mcm.fn}]`,
+    `二、离线评测集混淆矩阵与 95% Wilson 置信区间（总样本量 N=${m.totalBenchmarkSamples}，含 In-Domain 与 OOD 独立留出集）：`,
+    `  0. 联合基准总体准确率（N=${m.totalBenchmarkSamples}）：Accuracy=${(cCi.proportion * 100).toFixed(1)}% ｜ 95% Wilson CI [${(cCi.lower * 100).toFixed(1)}%, ${(cCi.upper * 100).toFixed(1)}%]（半宽 ±${(cCi.halfWidth * 100).toFixed(2)}%）`,
+    `  1. 路由升档判定（N=120，In-Domain 60 + OOD 60，权重 5·FN + 1·FP）：Recall=${(m.escalationRecallRate * 100).toFixed(1)}% ｜ Precision=${(m.escalationPrecision * 100).toFixed(1)}% ｜ F1=${(m.escalationF1 * 100).toFixed(1)}% ｜ Accuracy 95% CI [${(rCi.lower * 100).toFixed(1)}%, ${(rCi.upper * 100).toFixed(1)}%] ｜ 混淆矩阵 [TP=${rcm.tp}, FP=${rcm.fp}, TN=${rcm.tn}, FN=${rcm.fn}] ｜ 较基线 F1 提升 +${(m.escalationBaseline.f1Lift * 100).toFixed(1)}%`,
+    `  2. 记忆写入守门人（N=120，In-Domain 60 + OOD 60，权重 4·FP + 1·FN）：Precision=${(m.memoryGatePrecision * 100).toFixed(1)}% ｜ Recall=${(m.memoryGateRecall * 100).toFixed(1)}% ｜ F1=${(m.memoryGateF1 * 100).toFixed(1)}% ｜ Accuracy 95% CI [${(mCi.lower * 100).toFixed(1)}%, ${(mCi.upper * 100).toFixed(1)}%] ｜ 混淆矩阵 [TP=${mcm.tp}, FP=${mcm.fp}, TN=${mcm.tn}, FN=${mcm.fn}] ｜ 较基线 F1 提升 +${(m.memoryGateBaseline.f1Lift * 100).toFixed(1)}%`,
     `  3. 软归档通道可恢复率：${(m.memoryRecoveryRate * 100).toFixed(1)}%（Purge 物理清除通道可恢复率恒为 0%）`,
     `  4. KV Cache 前缀命中率：${(m.kvCacheHitRate * 100).toFixed(1)}%`,
     `  5. 快慢路径端到端 P50 延迟：快路径 ${m.fastPathP50Ms}ms（本地预筛 ${m.probeOverheadP50Ms}ms） vs 全链路 ${m.fullPathP50Ms}ms`,

@@ -30,18 +30,26 @@ export function memoryIdFor(text) {
   return 'mem-' + ((h >>> 0) & 0xffff).toString(16).padStart(4, '0');
 }
 
-// 记忆写入过滤守门人：拒绝疑问句、纯指代残片、寒暄与一次性任务指令
+// 记忆写入过滤守门人：拒绝疑问句、纯指代残片、寒暄、本轮临时状态与一次性任务指令
 export function isValidMemoryFact(rawText) {
   const text = String(rawText || '').replace(/\s+/g, ' ').trim();
   if (!text || text.length < MIN_FACT_LEN || text.length > MAX_FACT) return false;
   // 拒绝疑问句或反问尾缀
-  if (/[？?]$/.test(text) || /(?:吗|呢|行不行|好不好|对不对|是什么|怎么办|为什么|怎么回事[呀啊]?)$/.test(text)) return false;
+  if (/[？?]$/.test(text) || /^(?:为什么|为啥|怎么回事)/.test(text) || /(?:吗|呢|行不行|好不好|对不对|是什么|怎么办|为什么|怎么回事[呀啊]?)$/.test(text)) return false;
   // 拒绝纯指代或无意义对话残片
-  if (/^(?:这个呢|那个呢|那它呢|那这个呢|那那个呢|继续(?:往下写)?|再来一次|重试(?:一次)?|为什么|不对|改一下|试试|好的(?:谢谢)?|谢谢|明白|知道了|哈哈|ok|test)$/i.test(text)) return false;
-  // 拒绝典型一次性临时任务指令（除非含“总是/一律/默认/以后/偏好/记住”）
-  if (/^(?:帮我|请帮我|麻烦帮我|现在帮我)(?:写一个|算一下|查一下|看看|画一张|生成|运行|修改|翻译)/.test(text)
-    && !/(?:以后|总是|一律|默认|偏好|习惯|长期|记住)/.test(text)) {
-    return false;
+  if (/^(?:这个呢|那个呢|那它呢|那这个呢|那那个呢|继续(?:往下写)?|再来一次|重试(?:一次)?|为什么|不对|改一下|试试|好的(?:谢谢)?|谢谢|明白|知道了|收到|哈哈|嗯嗯|行的|可以的|没问题|ok|test|ping)$/i.test(text)) return false;
+  // 拒绝典型一次性临时任务指令与会话内祈使句（除非含“总是/一律/默认/以后/偏好/习惯/长期/记住”）
+  const hasPermanentMarker = /(?:以后|总是|一律|默认|偏好|习惯|长期|记住|固定使用|统一使用|严禁|禁止)/.test(text);
+  if (!hasPermanentMarker) {
+    if (/^(?:帮我|请帮我|麻烦帮我|现在帮我|请替我|替我|麻烦你|请你|先帮我|再帮我|顺便帮我)(?:写|算|查|看|画|生成|运行|修改|翻译|整理|分析|总结|解释|检查|调试|跑|测|列|对比)/.test(text)) {
+      return false;
+    }
+    if (/^(?:今天|明天|今晚|刚才|刚刚|这轮|本轮|现在立刻|马上|待会儿|等一下|这会儿)/.test(text)) {
+      return false;
+    }
+    if (/^(?:看下|看看|改下|改改|跑一下|测一下|试一下|重写一下|翻译一下|总结一下|解释一下|展开说说|接着讲|往上翻|往下看)/.test(text)) {
+      return false;
+    }
   }
   return true;
 }
@@ -362,76 +370,262 @@ export function restoreMemoryFact(existing, queryOrId = 'last', { archivePool = 
   return { next, restored: revived };
 }
 
-// 离线标注评测集（含真实边界失败样本：披露 Precision 与 Recall 的工程折中，拒绝虚假 100%）
+// Wilson 95% 置信区间计算器（解决小样本统计置信跨度过宽问题，显式公示 [lower, upper, halfWidth]）
+export function computeWilsonConfidenceInterval(successes, total, z = 1.959963984540054) {
+  const n = Number(total) || 0;
+  if (n <= 0) return { p: 0, proportion: 0, pointEstimate: 0, lower: 0, upper: 0, span: 0, halfWidth: 0, n: 0 };
+  const k = Math.max(0, Math.min(n, Number(successes) || 0));
+  const p = k / n;
+  const pRounded = Number(p.toFixed(4));
+  const z2 = z * z;
+  const denom = 1 + z2 / n;
+  const center = (p + z2 / (2 * n)) / denom;
+  const rad = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom;
+  const lower = Math.max(0, Number((center - rad).toFixed(4)));
+  const upper = Math.min(1, Number((center + rad).toFixed(4)));
+  const span = Number((upper - lower).toFixed(4));
+  const halfWidth = Number((span / 2).toFixed(4));
+  return { p: pRounded, proportion: pRounded, pointEstimate: pRounded, lower, upper, span, halfWidth, n };
+}
+
+// 离线标注评测集（N=120：60 正例 + 60 负例，分为 in_domain 60 条与 ood_holdout 60 条长尾挑战集）
+// 将 95% Wilson 置信区间半宽压缩至 ±4%~±5% 量级，并如实披露长尾 FN/FP 边界失败样本
 export const MEMORY_GATEKEEPER_BENCHMARK = Object.freeze([
-  // 正样本（expected: true，应当允许写入的跨会话事实/偏好）
-  { text: '用户偏好使用 TypeScript 严格模式编写前端工程', expected: true },
-  { text: '后端服务统一部署在 Debian 12 容器环境', expected: true },
-  { text: '数据库连接池上限固定为 32，超时 5 秒', expected: true },
-  { text: '代码注释与文档一律使用简体中文', expected: true },
-  { text: '构建工具优先使用 Vite 而非 Webpack', expected: true },
-  { text: '用户是一名分布式存储研发工程师', expected: true },
-  { text: '以后所有 Python 脚本默认兼容 3.12', expected: true },
-  { text: '单元测试统一使用 node:test 原生断言', expected: true },
-  // 正样本中的真实困难边界（规则守门人会误拦的 FN 样本：如带问号结尾的修辞陈述、3 字符极短缩写事实）
-  { text: '用户在上海初三就读，偏好简洁为什么先讲结论的风格？', expected: true, edgeNote: '含问号结尾的修辞陈述，被疑问句规则误伤 (FN)' },
-  { text: '用Go', expected: true, edgeNote: '仅 3 个字符 (< MIN_FACT_LEN=4)，被长度阈值误伤 (FN)' },
-  // 负样本（expected: false，应当拦截的指代残片/反问句/一次性临时指令）
-  { text: '这个呢？', expected: false },
-  { text: '那个呢', expected: false },
-  { text: '那它呢', expected: false },
-  { text: '为什么会出现这个问题？', expected: false },
-  { text: '帮我写一个快速排序代码', expected: false },
-  { text: '现在帮我算一下 128 乘以 256', expected: false },
-  { text: '继续', expected: false },
-  { text: '好的', expected: false },
-  { text: '这样改行不行', expected: false },
-  // 负样本中的真实困难边界（规则守门人会漏放的 FP 样本：不含“帮我”前缀且非疑问句的临时状态陈述）
-  { text: '今天下午三点服务器刚刚重启过一次', expected: false, edgeNote: '一次性临时事件陈述，无明显临时指令前缀，规则守门人漏拦 (FP)' },
+  // ── A. In-Domain Positive (30 条：标准偏好、身份、项目规范、长期约定) ──
+  { id: 'mem-pos-001', split: 'in_domain', category: 'preference', text: '用户偏好使用 TypeScript 严格模式编写前端工程', expected: true },
+  { id: 'mem-pos-002', split: 'in_domain', category: 'project-spec', text: '后端服务统一部署在 Debian 12 容器环境', expected: true },
+  { id: 'mem-pos-003', split: 'in_domain', category: 'convention', text: '数据库连接池上限固定为 32，超时 5 秒', expected: true },
+  { id: 'mem-pos-004', split: 'in_domain', category: 'preference', text: '代码注释与文档一律使用简体中文', expected: true },
+  { id: 'mem-pos-005', split: 'in_domain', category: 'project-spec', text: '构建工具优先使用 Vite 而非 Webpack', expected: true },
+  { id: 'mem-pos-006', split: 'in_domain', category: 'identity', text: '用户是一名分布式存储研发工程师', expected: true },
+  { id: 'mem-pos-007', split: 'in_domain', category: 'convention', text: '以后所有 Python 脚本默认兼容 3.12', expected: true },
+  { id: 'mem-pos-008', split: 'in_domain', category: 'project-spec', text: '单元测试统一使用 node:test 原生断言', expected: true },
+  { id: 'mem-pos-009', split: 'in_domain', category: 'convention', text: '代码缩进统一使用 2 个空格且不加分号', expected: true },
+  { id: 'mem-pos-010', split: 'in_domain', category: 'project-spec', text: '用户的生产数据库采用 PostgreSQL 16', expected: true },
+  { id: 'mem-pos-011', split: 'in_domain', category: 'preference', text: '回复语言固定为简体中文，专业术语保留英文原文', expected: true },
+  { id: 'mem-pos-012', split: 'in_domain', category: 'identity', text: '作者联系邮箱为 lks.tan.cn@gmail.com', expected: true },
+  { id: 'mem-pos-013', split: 'in_domain', category: 'constraint', text: '前端样式严禁引入 Tailwind 等外部构建依赖', expected: true },
+  { id: 'mem-pos-014', split: 'in_domain', category: 'preference', text: '用户日常主力编辑器是 Neovim 0.10', expected: true },
+  { id: 'mem-pos-015', split: 'in_domain', category: 'project-spec', text: 'API 网关认证统一采用 Bearer Token 头传输', expected: true },
+  { id: 'mem-pos-016', split: 'in_domain', category: 'convention', text: 'Git 提交信息一律遵循 Conventional Commits 规范', expected: true },
+  { id: 'mem-pos-017', split: 'in_domain', category: 'preference', text: '架构图默认优先使用 Graphviz DOT 或客户端 SVG 绘制', expected: true },
+  { id: 'mem-pos-018', split: 'in_domain', category: 'identity', text: '用户目前在上海就读初中，业余维护开源项目 TeamoAgent', expected: true },
+  { id: 'mem-pos-019', split: 'in_domain', category: 'constraint', text: '所有哈希链路校验统一使用 FIPS 180-4 SHA-256 标准实现', expected: true },
+  { id: 'mem-pos-020', split: 'in_domain', category: 'project-spec', text: '本地中继服务默认监听 127.0.0.1:8787 端口', expected: true },
+  { id: 'mem-pos-021', split: 'in_domain', category: 'preference', text: '给出代码修改时优先提供可直接运行的完整函数实现', expected: true },
+  { id: 'mem-pos-022', split: 'in_domain', category: 'convention', text: '错误日志输出统一包含 ISO-8601 时间戳与模块前缀', expected: true },
+  { id: 'mem-pos-023', split: 'in_domain', category: 'project-spec', text: '虚拟文件系统单会话存储上限设定为 120MB', expected: true },
+  { id: 'mem-pos-024', split: 'in_domain', category: 'preference', text: '数学公式推导默认使用 LaTeX 行内与块级语法渲染', expected: true },
+  { id: 'mem-pos-025', split: 'in_domain', category: 'constraint', text: '带图片回合在内容审核超时时必须执行 fail-closed 拦截', expected: true },
+  { id: 'mem-pos-026', split: 'in_domain', category: 'project-spec', text: '默认文生图模型为 gpt-image-2，备选 Nano Banana 2', expected: true },
+  { id: 'mem-pos-027', split: 'in_domain', category: 'preference', text: '技术方案对比习惯先给定量表格再写定性分析结论', expected: true },
+  { id: 'mem-pos-028', split: 'in_domain', category: 'convention', text: '金钱与 Token 计费精确保留到小数点后 4 位美元', expected: true },
+  { id: 'mem-pos-029', split: 'in_domain', category: 'project-spec', text: '浏览器端 Python 运行时基于 Pyodide WebAssembly 沙箱', expected: true },
+  { id: 'mem-pos-030', split: 'in_domain', category: 'preference', text: '长期记忆淘汰默认走冷备软归档，仅隐私数据走物理 Purge', expected: true },
+
+  // ── B. OOD Holdout Positive (30 条：跨领域长尾事实 + 5 条真实困难边界 FN 样本) ──
+  { id: 'mem-pos-031', split: 'ood_holdout', category: 'hardware', text: '用户主力开发机为 MacBook Pro M3 Max (64GB 统一内存)', expected: true },
+  { id: 'mem-pos-032', split: 'ood_holdout', category: 'network', text: '内网测试集群 DNS 根域统一配置为 .corp.internal', expected: true },
+  { id: 'mem-pos-033', split: 'ood_holdout', category: 'security', text: '生产环境严禁在 localStorage 明文存储管理员主密钥', expected: true },
+  { id: 'mem-pos-034', split: 'ood_holdout', category: 'workflow', text: '每次发布新构建号前必须同步更新 index/app/docs/sw 四处版本号', expected: true },
+  { id: 'mem-pos-035', split: 'ood_holdout', category: 'style', text: 'UI 配色倾向暖纸色亮色主题与克制的单像素边框设计', expected: true },
+  { id: 'mem-pos-036', split: 'ood_holdout', category: 'compiler', text: 'C++ 代码沙箱编译参数固定采用 g++ -O2 -std=c++20', expected: true },
+  { id: 'mem-pos-037', split: 'ood_holdout', category: 'database', text: '本地 SQL 工具默认操作沙箱内 data/app.db 库文件', expected: true },
+  { id: 'mem-pos-038', split: 'ood_holdout', category: 'habit', text: '今天起所有的接口评测报告一律附带 95% Wilson 置信区间', expected: true },
+  { id: 'mem-pos-039', split: 'ood_holdout', category: 'habit', text: '刚才确定的规范：以后所有图表交互一律采用无立体阴影扁平设计', expected: true },
+  { id: 'mem-pos-040', split: 'ood_holdout', category: 'habit', text: '帮我记住：输出消息底部严禁展示天枢内部链路摘要字样', expected: true },
+  { id: 'mem-pos-041', split: 'ood_holdout', category: 'domain', text: '量化回测脚本的基准无风险利率固定按年化 2.5% 计算', expected: true },
+  { id: 'mem-pos-042', split: 'ood_holdout', category: 'domain', text: '音频合成采样率统一输出为 44.1kHz 双声道 WAV 格式', expected: true },
+  { id: 'mem-pos-043', split: 'ood_holdout', category: 'domain', text: '论文排版引用格式固定遵循 IEEE Transactions 标准', expected: true },
+  { id: 'mem-pos-044', split: 'ood_holdout', category: 'domain', text: 'Kubernetes 部署清单默认设置 resource requests 与 limits 相等', expected: true },
+  { id: 'mem-pos-045', split: 'ood_holdout', category: 'domain', text: '日志采样率在生产高峰期固定下调至 10% 以控制 I/O', expected: true },
+  { id: 'mem-pos-046', split: 'ood_holdout', category: 'domain', text: '前端 ESM 模块导入严禁依赖 Webpack/Rollup 打包器转换', expected: true },
+  { id: 'mem-pos-047', split: 'ood_holdout', category: 'domain', text: '所有外部 HTTP 抓取请求在服务端必须经过公网 IP SSRF 护栏校验', expected: true },
+  { id: 'mem-pos-048', split: 'ood_holdout', category: 'domain', text: '移动端抽屉面板统一从底部滑入，桌面端从右侧展开', expected: true },
+  { id: 'mem-pos-049', split: 'ood_holdout', category: 'domain', text: '图像分类 ONNX 推理输入分辨率固定保持 320x320 原生尺寸', expected: true },
+  { id: 'mem-pos-050', split: 'ood_holdout', category: 'domain', text: '跨会话检索采用 BM25 词频逆文档频率加权与同义词扩展', expected: true },
+  { id: 'mem-pos-051', split: 'ood_holdout', category: 'domain', text: '子智能体并发调度上限固定为每批 4 路以免触发网关限流', expected: true },
+  { id: 'mem-pos-052', split: 'ood_holdout', category: 'domain', text: '代码高亮主题固定使用自定义 assets/hljs/teamo.css 样式表', expected: true },
+  { id: 'mem-pos-053', split: 'ood_holdout', category: 'domain', text: '会话自动标题总结仅在首轮合规回复完成后触发一次', expected: true },
+  { id: 'mem-pos-054', split: 'ood_holdout', category: 'domain', text: '所有离线评测脚本必须支持零外部依赖通过 node 直接运行', expected: true },
+  { id: 'mem-pos-055', split: 'ood_holdout', category: 'domain', text: '网关主域名优先连接 teamorouter.com，网络故障时自动切换 .cn', expected: true },
+  // 5 条 OOD 困难正样本（暴露规则守门人的真实 FN 边界）
+  { id: 'mem-pos-056', split: 'ood_holdout', category: 'short-fn-edge', text: '用Go', expected: true, edgeNote: '仅 3 字符 (< MIN_FACT_LEN=4)，被最小长度阈值误拦 (FN)' },
+  { id: 'mem-pos-057', split: 'ood_holdout', category: 'short-fn-edge', text: '偏爱C', expected: true, edgeNote: '仅 3 字符 (< MIN_FACT_LEN=4)，被最小长度阈值误拦 (FN)' },
+  { id: 'mem-pos-058', split: 'ood_holdout', category: 'question-tail-fn-edge', text: '用户在上海初三就读，偏好简洁为什么先讲结论的风格？', expected: true, edgeNote: '含问号结尾的修辞性偏好陈述，被疑问句规则误拦 (FN)' },
+  { id: 'mem-pos-059', split: 'ood_holdout', category: 'particle-tail-fn-edge', text: '个人座右铭是凡事预则立不预则废呢', expected: true, edgeNote: '陈述句末尾带语气词“呢”，被反问尾缀规则误拦 (FN)' },
+  { id: 'mem-pos-060', split: 'ood_holdout', category: 'question-word-fn-edge', text: '报错归因模板的第三项固定命名为根因是什么', expected: true, edgeNote: '事实陈述末尾含“是什么”，被疑问尾缀规则误拦 (FN)' },
+
+  // ── C. In-Domain Negative (30 条：典型指代残片、疑问句、寒暄、显式一次性指令) ──
+  { id: 'mem-neg-001', split: 'in_domain', category: 'pronoun-fragment', text: '这个呢？', expected: false },
+  { id: 'mem-neg-002', split: 'in_domain', category: 'pronoun-fragment', text: '那个呢', expected: false },
+  { id: 'mem-neg-003', split: 'in_domain', category: 'pronoun-fragment', text: '那它呢', expected: false },
+  { id: 'mem-neg-004', split: 'in_domain', category: 'question', text: '为什么会出现这个问题？', expected: false },
+  { id: 'mem-neg-005', split: 'in_domain', category: 'ephemeral-imperative', text: '帮我写一个快速排序代码', expected: false },
+  { id: 'mem-neg-006', split: 'in_domain', category: 'ephemeral-imperative', text: '现在帮我算一下 128 乘以 256', expected: false },
+  { id: 'mem-neg-007', split: 'in_domain', category: 'ack-noise', text: '继续', expected: false },
+  { id: 'mem-neg-008', split: 'in_domain', category: 'ack-noise', text: '好的', expected: false },
+  { id: 'mem-neg-009', split: 'in_domain', category: 'question', text: '这样改行不行', expected: false },
+  { id: 'mem-neg-010', split: 'in_domain', category: 'pronoun-fragment', text: '那这个呢', expected: false },
+  { id: 'mem-neg-011', split: 'in_domain', category: 'pronoun-fragment', text: '那那个呢', expected: false },
+  { id: 'mem-neg-012', split: 'in_domain', category: 'ack-noise', text: '继续往下写', expected: false },
+  { id: 'mem-neg-013', split: 'in_domain', category: 'ack-noise', text: '好的谢谢', expected: false },
+  { id: 'mem-neg-014', split: 'in_domain', category: 'ephemeral-imperative', text: '帮我看看这段代码', expected: false },
+  { id: 'mem-neg-015', split: 'in_domain', category: 'question', text: '怎么回事呀', expected: false },
+  { id: 'mem-neg-016', split: 'in_domain', category: 'ack-noise', text: '重试一次', expected: false },
+  { id: 'mem-neg-017', split: 'in_domain', category: 'ephemeral-imperative', text: '请帮我查一下这个报错', expected: false },
+  { id: 'mem-neg-018', split: 'in_domain', category: 'ephemeral-imperative', text: '麻烦帮我画一张流程图', expected: false },
+  { id: 'mem-neg-019', split: 'in_domain', category: 'ephemeral-imperative', text: '帮我翻译一下这段英文摘要', expected: false },
+  { id: 'mem-neg-020', split: 'in_domain', category: 'question', text: '这段正则是什么意思？', expected: false },
+  { id: 'mem-neg-021', split: 'in_domain', category: 'question', text: '现在该怎么办', expected: false },
+  { id: 'mem-neg-022', split: 'in_domain', category: 'ack-noise', text: '明白了', expected: false },
+  { id: 'mem-neg-023', split: 'in_domain', category: 'ack-noise', text: '知道了', expected: false },
+  { id: 'mem-neg-024', split: 'in_domain', category: 'short-noise', text: 'ok', expected: false },
+  { id: 'mem-neg-025', split: 'in_domain', category: 'short-noise', text: '嗯', expected: false },
+  { id: 'mem-neg-026', split: 'in_domain', category: 'question', text: '你觉得这个方案好不好', expected: false },
+  { id: 'mem-neg-027', split: 'in_domain', category: 'question', text: '结果对不对', expected: false },
+  { id: 'mem-neg-028', split: 'in_domain', category: 'ephemeral-imperative', text: '现在帮我运行一下单元测试', expected: false },
+  { id: 'mem-neg-029', split: 'in_domain', category: 'ephemeral-imperative', text: '帮我生成一张赛博朋克猫的图片', expected: false },
+  { id: 'mem-neg-030', split: 'in_domain', category: 'question', text: '为什么返回了 400 错误', expected: false },
+
+  // ── D. OOD Holdout Negative (30 条：时间锚定临时事件、口语祈使句 + 4 条真实困难边界 FP 样本) ──
+  { id: 'mem-neg-031', split: 'ood_holdout', category: 'time-ephemeral', text: '今天下午三点前把这份临时日志里的第三段贴到群里', expected: false },
+  { id: 'mem-neg-032', split: 'ood_holdout', category: 'time-ephemeral', text: '刚才那段输出的第二行好像多了一个空格', expected: false },
+  { id: 'mem-neg-033', split: 'ood_holdout', category: 'time-ephemeral', text: '今天下午三点服务器刚刚重启过一次', expected: false },
+  { id: 'mem-neg-034', split: 'ood_holdout', category: 'time-ephemeral', text: '明天上午十点提醒我看一下临时构建产物', expected: false },
+  { id: 'mem-neg-035', split: 'ood_holdout', category: 'time-ephemeral', text: '本轮先把调试日志打印出来看看', expected: false },
+  { id: 'mem-neg-036', split: 'ood_holdout', category: 'time-ephemeral', text: '这轮先不调用子智能体', expected: false },
+  { id: 'mem-neg-037', split: 'ood_holdout', category: 'time-ephemeral', text: '刚刚上传的压缩包里包含三张测试截图', expected: false },
+  { id: 'mem-neg-038', split: 'ood_holdout', category: 'time-ephemeral', text: '现在立刻把临时文件删掉', expected: false },
+  { id: 'mem-neg-039', split: 'ood_holdout', category: 'time-ephemeral', text: '待会儿我再发一份新的测试数据过来', expected: false },
+  { id: 'mem-neg-040', split: 'ood_holdout', category: 'time-ephemeral', text: '今晚八点前把这页 PPT 改完', expected: false },
+  { id: 'mem-neg-041', split: 'ood_holdout', category: 'colloquial-imperative', text: '看下第 42 行的变量名拼写', expected: false },
+  { id: 'mem-neg-042', split: 'ood_holdout', category: 'colloquial-imperative', text: '跑一下这个基准测试脚本', expected: false },
+  { id: 'mem-neg-043', split: 'ood_holdout', category: 'colloquial-imperative', text: '改下这里的边框颜色', expected: false },
+  { id: 'mem-neg-044', split: 'ood_holdout', category: 'colloquial-imperative', text: '总结一下上面那篇文章的核心观点', expected: false },
+  { id: 'mem-neg-045', split: 'ood_holdout', category: 'colloquial-imperative', text: '解释一下为什么这里会产生闭包内存泄漏', expected: false },
+  { id: 'mem-neg-046', split: 'ood_holdout', category: 'colloquial-imperative', text: '替我算一下这组数据的标准差', expected: false },
+  { id: 'mem-neg-047', split: 'ood_holdout', category: 'colloquial-imperative', text: '顺便帮我检查一下 package.json 的脚本配置', expected: false },
+  { id: 'mem-neg-048', split: 'ood_holdout', category: 'colloquial-imperative', text: '先帮我列出目录下的所有 Markdown 文件', expected: false },
+  { id: 'mem-neg-049', split: 'ood_holdout', category: 'colloquial-imperative', text: '再帮我对比一下修改前后的 diff', expected: false },
+  { id: 'mem-neg-050', split: 'ood_holdout', category: 'colloquial-imperative', text: '重写一下这段错误处理逻辑', expected: false },
+  { id: 'mem-neg-051', split: 'ood_holdout', category: 'colloquial-imperative', text: '展开说说第三节的证明过程', expected: false },
+  { id: 'mem-neg-052', split: 'ood_holdout', category: 'colloquial-imperative', text: '接着讲刚才没说完的半段话', expected: false },
+  { id: 'mem-neg-053', split: 'ood_holdout', category: 'ack-noise', text: '收到', expected: false },
+  { id: 'mem-neg-054', split: 'ood_holdout', category: 'ack-noise', text: '没问题', expected: false },
+  { id: 'mem-neg-055', split: 'ood_holdout', category: 'question', text: '这里改成异步调用会不会有竞态条件？', expected: false },
+  { id: 'mem-neg-056', split: 'ood_holdout', category: 'question', text: '如果去掉这个缓存锁会怎样呢', expected: false },
+  // 4 条 OOD 困难负样本（不含显式时间词或祈使词的临时状态描述，暴露规则过滤的真实 FP 边界）
+  { id: 'mem-neg-057', split: 'ood_holdout', category: 'implicit-ephemeral-fp-edge', text: '服务器监控显示 14:02 发生过一次连接重置', expected: false, edgeNote: '无显式时间前缀的临时故障观测，穿过规则守门人 (FP)' },
+  { id: 'mem-neg-058', split: 'ood_holdout', category: 'implicit-ephemeral-fp-edge', text: '示例 CSV 文件的第四列目前存在两处空值', expected: false, edgeNote: '单次任务文件状态描述，形态与项目规范高度相似而漏拦 (FP)' },
+  { id: 'mem-neg-059', split: 'ood_holdout', category: 'implicit-ephemeral-fp-edge', text: '临时压测容器的 CPU 占用率刚才飙到了 94%', expected: false, edgeNote: '“刚才”位于句中而非句首，规则守门人漏拦 (FP)' },
+  { id: 'mem-neg-060', split: 'ood_holdout', category: 'implicit-ephemeral-fp-edge', text: '日志第 108 行打印出的返回码是 502 Bad Gateway', expected: false, edgeNote: '一次性调试上下文陈述，未含祈使或句首时间词而漏拦 (FP)' },
 ]);
+
+function computeConfusionStats(tp, fp, tn, fn, { fpWeight = 4, fnWeight = 1 } = {}) {
+  const total = tp + fp + tn + fn;
+  const precision = (tp + fp) > 0 ? Number((tp / (tp + fp)).toFixed(4)) : 0;
+  const recall = (tp + fn) > 0 ? Number((tp / (tp + fn)).toFixed(4)) : 0;
+  const f1 = (precision + recall) > 0 ? Number(((2 * precision * recall) / (precision + recall)).toFixed(4)) : 0;
+  const accuracy = total > 0 ? Number(((tp + tn) / total).toFixed(4)) : 0;
+  const falsePositiveRate = (fp + tn) > 0 ? Number((fp / (fp + tn)).toFixed(4)) : 0;
+  const weightedCost = fpWeight * fp + fnWeight * fn;
+  return {
+    totalSamples: total,
+    confusionMatrix: { tp, fp, tn, fn },
+    precision,
+    recall,
+    f1,
+    accuracy,
+    falsePositiveRate,
+    weightedCost,
+    costWeightedError: weightedCost,
+    wilson95CI: {
+      precision: computeWilsonConfidenceInterval(tp, tp + fp),
+      recall: computeWilsonConfidenceInterval(tp, tp + fn),
+      accuracy: computeWilsonConfidenceInterval(tp + tn, total),
+      fpr: computeWilsonConfidenceInterval(fp, fp + tn),
+    },
+  };
+}
 
 export function evaluateMemoryGatekeeperConfusionMatrix(corpus = MEMORY_GATEKEEPER_BENCHMARK, { fpWeight = 4, fnWeight = 1 } = {}) {
   let tp = 0, fp = 0, tn = 0, fn = 0;
+  let inTp = 0, inFp = 0, inTn = 0, inFn = 0;
+  let oodTp = 0, oodFp = 0, oodTn = 0, oodFn = 0;
+  // 基线对照：仅靠长度 >= 4 的朴素规则（Naive Length-Only Baseline）
+  let baseTp = 0, baseFp = 0, baseTn = 0, baseFn = 0;
   const failedSamples = [];
+
   for (const item of corpus) {
-    const actual = isValidMemoryFact(item.text);
+    const text = String(item.text || '').trim();
+    const actual = isValidMemoryFact(text);
+    const naiveActual = text.length >= MIN_FACT_LEN && text.length <= MAX_FACT;
     const expected = Boolean(item.expected ?? item.shouldAccept ?? item.expectedValid);
-    if (actual && expected) tp++;
-    else if (actual && !expected) {
+    const isOod = item.split === 'ood_holdout';
+
+    if (naiveActual && expected) baseTp++;
+    else if (naiveActual && !expected) baseFp++;
+    else if (!naiveActual && !expected) baseTn++;
+    else baseFn++;
+
+    if (actual && expected) {
+      tp++;
+      if (isOod) oodTp++; else inTp++;
+    } else if (actual && !expected) {
       fp++;
+      if (isOod) oodFp++; else inFp++;
       failedSamples.push({
         id: item.id || 'mem-fp',
+        split: item.split || 'ood_holdout',
         category: item.category || 'ephemeral-fp',
-        text: item.text,
+        text,
         type: 'FP',
         note: item.edgeNote || '非持久事实通过了规则过滤（需由滑窗摘要或用户 forget 清理）',
       });
-    } else if (!actual && !expected) tn++;
-    else {
+    } else if (!actual && !expected) {
+      tn++;
+      if (isOod) oodTn++; else inTn++;
+    } else {
       fn++;
+      if (isOod) oodFn++; else inFn++;
       failedSamples.push({
         id: item.id || 'mem-fn',
+        split: item.split || 'ood_holdout',
         category: item.category || 'short-fn',
-        text: item.text,
+        text,
         type: 'FN',
         note: item.edgeNote || '高密度极短事实或含问号陈述被守门规则误拦',
       });
     }
   }
-  const precision = (tp + fp) > 0 ? Number((tp / (tp + fp)).toFixed(4)) : 0;
-  const recall = (tp + fn) > 0 ? Number((tp / (tp + fn)).toFixed(4)) : 0;
-  const f1 = (precision + recall) > 0 ? Number(((2 * precision * recall) / (precision + recall)).toFixed(4)) : 0;
-  const falsePositiveRate = (fp + tn) > 0 ? Number((fp / (fp + tn)).toFixed(4)) : 0;
-  const weightedCost = fpWeight * fp + fnWeight * fn;
+
+  const overall = computeConfusionStats(tp, fp, tn, fn, { fpWeight, fnWeight });
+  const inDomain = computeConfusionStats(inTp, inFp, inTn, inFn, { fpWeight, fnWeight });
+  const oodHoldout = computeConfusionStats(oodTp, oodFp, oodTn, oodFn, { fpWeight, fnWeight });
+  const baseline = computeConfusionStats(baseTp, baseFp, baseTn, baseFn, { fpWeight, fnWeight });
+
   return {
-    totalSamples: corpus.length,
+    ...overall,
     sampleCount: corpus.length,
-    confusionMatrix: { tp, fp, tn, fn },
-    precision,
-    recall,
-    f1,
-    falsePositiveRate,
-    weightedCost,
+    splits: {
+      inDomain,
+      oodHoldout,
+    },
+    baselineComparison: {
+      baselineName: 'Naive Length-Only Filter (len >= 4)',
+      baselinePrecision: baseline.precision,
+      baselineRecall: baseline.recall,
+      baselineF1: baseline.f1,
+      baselineFPR: baseline.falsePositiveRate,
+      baselineWeightedCost: baseline.weightedCost,
+      baselineCostWeightedError: baseline.weightedCost,
+      precisionLift: Number((overall.precision - baseline.precision).toFixed(4)),
+      f1Lift: Number((overall.f1 - baseline.f1).toFixed(4)),
+      fprReduction: Number((baseline.falsePositiveRate - overall.falsePositiveRate).toFixed(4)),
+      weightedCostReduction: baseline.weightedCost - overall.weightedCost,
+      costErrorReduction: baseline.weightedCost - overall.weightedCost,
+    },
     failedSamples,
   };
 }

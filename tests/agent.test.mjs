@@ -5477,8 +5477,8 @@ test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛
     memory: [{ id: 'mem-1001', text: '用户偏好使用 TypeScript 编写前端项目' }],
     footprint: validFp,
   });
-  assert.equal(scorecard.escalationRecallRate, 0.8, '1. 离线评测集含隐式多步边界样本，披露真实 Recall=80.0%');
-  assert.equal(scorecard.escalationPrecision, 0.8, '1b. 同步披露真实 Precision=80.0%（拒绝只报单边指标）');
+  assert.equal(scorecard.escalationRecallRate, 0.95, '1. 离线评测集 N=120（含 OOD 隐式多步边界样本），披露真实 Recall=95.0%');
+  assert.equal(scorecard.escalationPrecision, 0.9661, '1b. 同步披露真实 Precision=96.6%（拒绝只报单边指标）');
   assert.equal(scorecard.memoryPollutionRate, 0, '2. 活跃记忆观测污染率为 0%');
   assert.equal(scorecard.memoryRecoveryRate, 1.0, '3. 软归档通道可恢复率 100%');
   assert.ok(scorecard.kvCacheHitRate > 0, '4. KV Cache 前缀命中率有效');
@@ -5514,21 +5514,21 @@ test('2026.9.30.10：天枢 THN v2.1 工程指标诚实化——代价加权混�
   assert.equal(canonDegraded.capCode, 'R0·W0·S1·D0', '运行态必须显式携带 4 位正交能力掩码，不隐藏降级子状态');
   assert.ok(Array.isArray(canonDegraded.disabledToolGroups) && canonDegraded.disabledToolGroups.length > 0);
 
-  // 3) 离线评测集代价加权混淆矩阵与真实边界失败样本披露（Route Escalation & Memory Gatekeeper）
+  // 3) 离线评测集代价加权混淆矩阵与真实边界失败样本披露（Route Escalation N=120 & Memory Gatekeeper N=120）
   const routeEval = nexus.evaluateRouteEscalationConfusionMatrix();
-  assert.equal(routeEval.totalSamples, 20);
-  assert.equal(routeEval.confusionMatrix.tp, 8);
+  assert.equal(routeEval.totalSamples, 120);
+  assert.equal(routeEval.confusionMatrix.tp, 57);
   assert.equal(routeEval.confusionMatrix.fp, 2);
-  assert.equal(routeEval.confusionMatrix.tn, 8);
-  assert.equal(routeEval.confusionMatrix.fn, 2);
-  assert.equal(routeEval.costWeightedError, 5 * 2 + 1 * 2, '漏升档权重 5·FN + 误升档权重 1·FP = 12');
-  assert.equal(routeEval.failedSamples.length, 4, '必须如实披露 FN 与 FP 边界失败样本');
+  assert.equal(routeEval.confusionMatrix.tn, 58);
+  assert.equal(routeEval.confusionMatrix.fn, 3);
+  assert.equal(routeEval.costWeightedError, 5 * 3 + 1 * 2, '漏升档权重 5·FN + 误升档权重 1·FP = 17');
+  assert.equal(routeEval.failedSamples.length, 5, '必须如实披露 OOD FN 与 FP 边界失败样本');
 
   const memEval = mem.evaluateMemoryGatekeeperConfusionMatrix();
-  assert.equal(memEval.totalSamples, 20);
-  assert.ok(memEval.precision > 0.7 && memEval.precision < 1.0, '记忆守门人必须披露真实 Precision（含 FP 边界样本）');
-  assert.ok(memEval.recall > 0.7 && memEval.recall < 1.0, '记忆守门人必须披露真实 Recall（含 FN 边界样本）');
-  assert.ok(memEval.failedSamples.length >= 2);
+  assert.equal(memEval.totalSamples, 120);
+  assert.ok(memEval.precision > 0.85 && memEval.precision < 1.0, '记忆守门人必须披露真实 Precision（含 OOD FP 边界样本）');
+  assert.ok(memEval.recall > 0.85 && memEval.recall < 1.0, '记忆守门人必须披露真实 Recall（含 OOD FN 边界样本）');
+  assert.ok(memEval.failedSamples.length >= 5);
 
   // 4) 软归档可恢复（forget/restore）与合规物理擦除（purge）双通道隔离验证
   const archivePool = [];
@@ -5594,6 +5594,102 @@ test('2026.9.30.10：天枢 THN v2.1 工程指标诚实化——代价加权混�
     { assistantMsg: { toolCalls: [] }, turnMessages: [], prevFootprint: fpTurn1 },
   );
   assert.equal(brokenChainAudit.passed, false, '跨轮次哈希链断裂时必须被独立审计器检出');
+});
+
+test('2026.9.30.11：天枢 THN v2.2 档位-工具表一致性锁、N=240 Wilson 95% 置信区间、元提示词预算控制、底栏净空与图表 2D 扁平交互', async () => {
+  const { readFileSync } = await import('node:fs');
+  const nexus = await import('../js/nexus.js');
+  const mem = await import('../js/memory.js');
+  const { systemPrompt } = await import('../js/config.js');
+  const { TOOL_DEFS } = await import('../js/tools.js');
+
+  // 1) 需求 1：输出内容最底下不再显示「天枢 L1→L6 全链路 · 技能:... · 工具×...」字样
+  const uiSrc = readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const paintFootMatch = uiSrc.match(/function paintFoot\(wrap,\s*m\)\s*\{[\s\S]*?\n  \}/);
+  assert.ok(paintFootMatch, 'ui.js 应包含 paintFoot 函数');
+  assert.doesNotMatch(paintFootMatch[0], /formatDecisionFootprintSummary/, 'paintFoot 底栏不应再渲染天枢足迹摘要文字');
+
+  // 2) 需求 2：图表交互移除 3D 立体缩放抬升与立体阴影（保持纯净 2D 扁平高亮）
+  const cssSrc = readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const chartInteractSection = cssSrc.slice(cssSrc.indexOf('/* ── 图表交互增强'), cssSrc.indexOf('/* ── 文件变更卡片'));
+  assert.doesNotMatch(chartInteractSection, /scaleY\(1\.035\)|translateY\(-1\.5px\)|translateY\(-2px\)|drop-shadow\(/, '图表交互样式不应包含 3D 立体抬升或立体投影');
+
+  // 3) 需求 3 Fix A：根治思考开关 Off + 残留 ULTRA 预设导致的「自称 ULTRA 档位但工具表无 dispatch_subagent」口径自相矛盾
+  const suspendedUltra = nexus.resolveEffectiveReasoningState({
+    thinking: false,
+    reasoningLevel: 'ultra',
+  });
+  assert.equal(suspendedUltra.canDispatch, false);
+  assert.equal(suspendedUltra.effectiveLevel, 'off');
+  assert.equal(suspendedUltra.presetSuspended, true);
+  assert.match(suspendedUltra.displayTier, /OFF（思考已关闭，原 ULTRA 预设已挂起）/);
+
+  const degsWhenOffUltra = nexus.buildDegradationDiagnostics({
+    relayOk: false,
+    webEnabled: false,
+    sandboxEnabled: true,
+    canDispatch: false,
+    thinking: false,
+    reasoningLevel: 'ultra',
+  });
+  const subDeg = degsWhenOffUltra.find((d) => d.id === 'subagent-tier-gated');
+  assert.ok(subDeg);
+  assert.doesNotMatch(subDeg.reason, /当前思考档位为\s*ULTRA（18/, '绝不能再输出“当前思考档位为 ULTRA（18 路独立子智能体并发仅在 Max / Ultra 档位开放）”的自相矛盾话术');
+
+  const sysWhenOffUltra = systemPrompt(new Date(), {
+    webEnabled: false,
+    allowDispatch: false,
+    reasoningLevel: 'ultra',
+  });
+  assert.doesNotMatch(sysWhenOffUltra, /## 本轮 Ultra/, 'allowDispatch=false 时系统提示词绝不能注入 ## 本轮 Ultra 章节');
+
+  const alignCheck = nexus.verifyPromptToolAlignment({
+    tools: TOOL_DEFS.filter((t) => t.name !== 'dispatch_subagent'),
+    thinking: false,
+    reasoningLevel: 'ultra',
+    canDispatch: false,
+    systemPromptText: sysWhenOffUltra,
+    degradationItems: degsWhenOffUltra,
+  });
+  assert.equal(alignCheck.aligned, true, `提示词声明与工具表必须 100% 对齐: ${alignCheck.discrepancies.join(', ')}`);
+
+  // 4) 需求 3 Fix B：N=240（120 路由 + 120 记忆，含 In-Domain 60 + OOD 60）与 95% Wilson 置信区间验证
+  const routeEval = nexus.evaluateRouteEscalationConfusionMatrix();
+  const memEval = mem.evaluateMemoryGatekeeperConfusionMatrix();
+  assert.equal(routeEval.totalSamples, 120);
+  assert.equal(routeEval.splits.inDomain.totalSamples, 60);
+  assert.equal(routeEval.splits.oodHoldout.totalSamples, 60);
+  assert.equal(memEval.totalSamples, 120);
+  assert.equal(memEval.splits.inDomain.totalSamples, 60);
+  assert.equal(memEval.splits.oodHoldout.totalSamples, 60);
+
+  const metrics = nexus.evaluateNexusAcceptanceMetrics();
+  assert.equal(metrics.totalBenchmarkSamples, 240);
+  assert.ok(metrics.combinedAccuracyCI.halfWidth <= 0.04, 'N=240 联合评测集的 95% Wilson CI 半宽应 <= 4%');
+  assert.ok(metrics.escalationBaseline.f1Lift > 0.1, '路由升档较朴素长度基线应有 >10% 的 F1 提升');
+  assert.ok(metrics.memoryGateBaseline.f1Lift > 0.15, '记忆守门人较朴素长度基线应有 >15% 的 F1 提升');
+
+  // 5) 需求 3 Fix C：Ephemeral 元提示词按需预算控制器（快路径 0 Token，常规对话折叠单行掩码）
+  const dummyFp = { modeLabel: 'L1→L6 全链路', memoryCount: 2, traceHash: 'tr-12345678', prevTurnDigest: '0'.repeat(64) };
+  const fastBudget = nexus.budgetEphemeralGovernanceNotes({
+    fastPath: true,
+    userText: '你好',
+    footprint: dummyFp,
+    degradations: degsWhenOffUltra,
+    capCode: 'R0·W0·S1·D0',
+  });
+  assert.equal(fastBudget.footprintNote, '', '快路径下足迹元提示词开销必须为 0');
+  assert.equal(fastBudget.degradationNote, '', '快路径下 L2 诊断元提示词开销必须为 0');
+
+  const compactBudget = nexus.budgetEphemeralGovernanceNotes({
+    fastPath: false,
+    userText: '帮我写一段快速排序算法并分析时间复杂度',
+    footprint: dummyFp,
+    degradations: degsWhenOffUltra,
+    capCode: 'R0·W0·S1·D0',
+  });
+  assert.equal(compactBudget.compactMode, true, '非框架/非受限工具问题应启用紧凑单行掩码模式');
+  assert.ok(compactBudget.savedChars > 150, '紧凑模式应比完整多行诊断节省 >150 字符的上下文预算');
 });
 
 for (const item of queue) {
