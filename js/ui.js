@@ -1,5 +1,5 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, ENCRYPTED_THINKING_RE } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, ENCRYPTED_THINKING_RE } from './config.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension } from './zip.js';
@@ -240,10 +240,13 @@ function renderQuickChart(kind, body, title = '') {
       const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
       const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
       const large = a1 - a0 > Math.PI ? 1 : 0;
+      const color = CHART_COLORS[i % CHART_COLORS.length];
+      const pct = `${Math.round(row.value / total * 100)}%`;
+      const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(chartFmt(row.value))}" data-chart-pct="${pct}" data-chart-color="${color}" tabindex="0"`;
       if (a1 - a0 >= Math.PI * 1.999) {
-        inner += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+        inner += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${color}" ${dataAttrs} class="md-chart-slice"><title>${esc(row.label)}: ${esc(row.value)} (${pct})</title></circle>`;
       } else {
-        inner += `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-slice"/>`;
+        inner += `<path d="M ${cx} ${cy} L ${x0.toFixed(1)} ${y0.toFixed(1)} A ${r} ${r} 0 ${large} 1 ${x1.toFixed(1)} ${y1.toFixed(1)} Z" fill="${color}" ${dataAttrs} class="md-chart-slice"><title>${esc(row.label)}: ${esc(row.value)} (${pct})</title></path>`;
       }
       const mid = (a0 + a1) / 2;
       const rightSide = Math.cos(mid) >= 0;
@@ -253,7 +256,7 @@ function renderQuickChart(kind, body, title = '') {
         rightSide,
         lx: Math.max(24, Math.min(w - 24, lx)),
         ly: Math.max(54, Math.min(h - 18, ly)),
-        text: `${truncateDiagramLabel(row.label, 12)} ${Math.round(row.value / total * 100)}%`,
+        text: `${truncateDiagramLabel(row.label, 12)} ${pct}`,
       });
       a0 = a1;
     });
@@ -282,11 +285,18 @@ function renderQuickChart(kind, body, title = '') {
     });
     if (kind === 'st') {
       const pts = rows.map((row) => `${x(row.x).toFixed(1)},${sc.y(row.value).toFixed(1)}`);
+      const baseY = sc.y(0).toFixed(1);
+      if (rows.length >= 2) {
+        const areaPts = [`${x(rows[0].x).toFixed(1)},${baseY}`, ...pts, `${x(rows[rows.length - 1].x).toFixed(1)},${baseY}`];
+        inner += `<polygon points="${areaPts.join(' ')}" class="md-chart-area md-chart-st-area"/>`;
+      }
       inner += `<polyline points="${pts.join(' ')}" class="md-chart-line md-chart-st-line"/>`;
     }
     rows.forEach((row, i) => {
-      const fill = kind === 'scatter' ? ` fill="${CHART_COLORS[i % CHART_COLORS.length]}"` : '';
-      inner += `<circle cx="${x(row.x).toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="${kind === 'st' ? 4 : 5}"${fill} class="${kind === 'st' ? 'md-chart-dot' : 'md-chart-point'}"><title>${esc(row.label)}: ${esc(row.x)}, ${esc(row.value)}</title></circle>`;
+      const color = kind === 'st' ? '#0ea5e9' : CHART_COLORS[i % CHART_COLORS.length];
+      const fill = kind === 'scatter' ? ` fill="${color}"` : '';
+      const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="(${esc(chartFmt(row.x))}, ${esc(chartFmt(row.value))})" data-chart-color="${color}" tabindex="0"`;
+      inner += `<circle cx="${x(row.x).toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="${kind === 'st' ? 4.5 : 5.5}"${fill} ${dataAttrs} class="${kind === 'st' ? 'md-chart-dot' : 'md-chart-point'}"><title>${esc(row.label)}: ${esc(row.x)}, ${esc(row.value)}</title></circle>`;
     });
   } else {
     const sc = chartScales(rows, w, h, m, { includeZero: true });
@@ -299,18 +309,26 @@ function renderQuickChart(kind, body, title = '') {
         const x = m.l + (i + .5) * sc.plotW / rows.length - bw / 2;
         const y = row.value >= 0 ? sc.y(row.value) : zero;
         const hh = Math.max(1, Math.abs(sc.y(row.value) - zero));
-        inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="6" fill="${CHART_COLORS[i % CHART_COLORS.length]}" class="md-chart-bar"><title>${esc(row.label)}: ${esc(row.value)}</title></rect>`;
+        const color = CHART_COLORS[i % CHART_COLORS.length];
+        const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(chartFmt(row.value))}" data-chart-color="${color}" tabindex="0"`;
+        inner += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="6" fill="${color}" ${dataAttrs} class="md-chart-bar"><title>${esc(row.label)}: ${esc(row.value)}</title></rect>`;
       });
     } else {
       const pts = rows.map((row, i) => `${xAt(i).toFixed(1)},${sc.y(row.value).toFixed(1)}`);
+      const baseY = sc.y(0).toFixed(1);
+      if (rows.length >= 2) {
+        const areaPts = [`${xAt(0).toFixed(1)},${baseY}`, ...pts, `${xAt(rows.length - 1).toFixed(1)},${baseY}`];
+        inner += `<polygon points="${areaPts.join(' ')}" class="md-chart-area"/>`;
+      }
       inner += `<polyline points="${pts.join(' ')}" class="md-chart-line"/>`;
       rows.forEach((row, i) => {
         const x = xAt(i);
-        inner += `<circle cx="${x.toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="4" class="md-chart-dot"><title>${esc(row.label)}: ${esc(row.value)}</title></circle>`;
+        const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(chartFmt(row.value))}" data-chart-color="#4f46e5" tabindex="0"`;
+        inner += `<circle cx="${x.toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="4.5" ${dataAttrs} class="md-chart-dot"><title>${esc(row.label)}: ${esc(row.value)}</title></circle>`;
       });
     }
   }
-  return `<div class="md-chart md-chart-${kind}"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg">${inner}</svg></div>`;
+  return `<div class="md-chart md-chart-${kind}"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg">${inner}</svg><div class="md-chart-tooltip" hidden></div></div>`;
 }
 
 const DIAGRAM_ALIAS = {
@@ -1016,13 +1034,28 @@ export function renderMarkdown(src) {
   return restoreMath(restoreCb(restoreWidgets(t)));
 }
 
-// ── Toast ───────────────────────────────────────────────────────────────
+// ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
+export const MAX_TOAST_STACK = 3;
 export function toast(msg, type = 'info', ms = 2600) {
   const wrap = $('#toasts');
+  if (!wrap) return;
+  const active = [...wrap.querySelectorAll('.toast:not(.leaving)')];
+  while (active.length >= MAX_TOAST_STACK) {
+    const oldest = active.shift();
+    if (oldest) {
+      oldest.classList.remove('in');
+      oldest.classList.add('leaving');
+      setTimeout(() => oldest.remove(), 220);
+    }
+  }
   const t = el('div', `toast ${type}`, `<span>${esc(msg)}</span>`);
   wrap.appendChild(t);
   requestAnimationFrame(() => t.classList.add('in'));
-  setTimeout(() => { t.classList.remove('in'); setTimeout(() => t.remove(), 400); }, ms);
+  setTimeout(() => {
+    t.classList.remove('in');
+    t.classList.add('leaving');
+    setTimeout(() => t.remove(), 350);
+  }, ms);
 }
 
 // ── 主 UI ───────────────────────────────────────────────────────────────
@@ -1145,7 +1178,7 @@ export function mountUI(store, agent) {
     for (const p of order) {
       const g = el('div', 'dd-group');
       g.appendChild(el('div', 'dd-group-title', `${providerIcon(p)}<span>${esc(p)}</span>`));
-      for (const m of groups.get(p)) {
+      for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
         const hit = FALLBACK_MODELS.find((x) => x.id === m.id) || {};
@@ -1760,9 +1793,10 @@ export function mountUI(store, agent) {
     }
     ctx.scale(dpr, dpr);
     const dark = document.documentElement.dataset.theme === 'dark';
-    const palette = dark
-      ? ['#93c5fd', '#60a5fa', '#a5b4fc', '#e2e8f0', '#94a3b8', '#38bdf8']
-      : ['#3b82f6', '#2563eb', '#6366f1', '#1e293b', '#475569', '#0ea5e9'];
+    // 小黑色微粒调色盘：高精细度墨黑/炭黑/石墨微尘（深色模式下混入少量深灰炭粒保证清晰层次）
+    const BLACK_MICRO_PALETTE = dark
+      ? ['#09090b', '#111110', '#18181b', '#27272a', '#3f3f46', '#52525b', '#71717a']
+      : ['#050505', '#09090b', '#111110', '#18181b', '#27272a', '#3f3f46', '#52525b'];
     const particles = [];
     for (const node of list) {
       const r = node.getBoundingClientRect();
@@ -1774,25 +1808,33 @@ export function mountUI(store, agent) {
       const h = Math.max(24, Math.min(r.height, hostRect.height));
       if (relY + r.height < -40 || relY > hostRect.height + 40) continue;
       const area = w * h;
-      const count = Math.max(72, Math.min(180, Math.round(area / 420)));
+      // 提升粒子密度与空间采样精细度（分层网格抖动采样 + 微米级墨粒尺寸 0.65px ~ 2.2px）
+      const count = Math.max(260, Math.min(720, Math.round(area / 92)));
+      const cols = Math.max(12, Math.round(Math.sqrt(count * (w / Math.max(1, h)))));
+      const rowsGrid = Math.max(6, Math.ceil(count / cols));
+      const cellW = w / cols;
+      const cellH = h / rowsGrid;
       for (let i = 0; i < count; i++) {
-        const px = relX + Math.random() * w;
-        const py = Math.max(0, Math.min(hostRect.height, relY + Math.random() * h));
-        const wave = ((px - relX) / Math.max(1, w)) * 0.42 + ((py - relY) / Math.max(1, h)) * 0.18;
-        const angle = (Math.random() - 0.5) * Math.PI * 1.4 - Math.PI * 0.28;
-        const speed = 28 + Math.random() * 96;
+        const gx = i % cols;
+        const gy = Math.floor(i / cols) % rowsGrid;
+        const px = relX + (gx + 0.15 + Math.random() * 0.7) * cellW;
+        const py = Math.max(0, Math.min(hostRect.height, relY + (gy + 0.15 + Math.random() * 0.7) * cellH));
+        const wave = ((px - relX) / Math.max(1, w)) * 0.44 + ((py - relY) / Math.max(1, h)) * 0.2;
+        const angle = (Math.random() - 0.5) * Math.PI * 1.35 - Math.PI * 0.32;
+        const speed = 22 + Math.random() * 84;
         particles.push({
           x: px,
           y: py,
-          vx: Math.cos(angle) * speed + (Math.random() - 0.32) * 44,
-          vy: Math.sin(angle) * speed - (18 + Math.random() * 48),
-          size: 1.8 + Math.random() * 3.8,
+          vx: Math.cos(angle) * speed + (Math.random() - 0.34) * 36,
+          vy: Math.sin(angle) * speed - (16 + Math.random() * 42),
+          size: 0.65 + Math.random() * 1.55,
           rot: Math.random() * Math.PI * 2,
-          vrot: (Math.random() - 0.5) * 9,
-          delay: wave * 220 + Math.random() * 60,
-          life: 440 + Math.random() * 240,
-          color: palette[i % palette.length],
-          shard: i % 3 !== 0,
+          vrot: (Math.random() - 0.5) * 11,
+          phase: Math.random() * Math.PI * 2,
+          delay: wave * 210 + Math.random() * 55,
+          life: 460 + Math.random() * 260,
+          color: BLACK_MICRO_PALETTE[i % BLACK_MICRO_PALETTE.length],
+          grainKind: i % 4, // 0,1: 极细圆点墨尘；2: 微矩炭粒；3: 锐利微晶碎屑
         });
       }
     }
@@ -1822,28 +1864,36 @@ export function mountUI(store, agent) {
         const prog = local / p.life;
         if (prog >= 1) continue;
         alive++;
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vy -= 22 * dt; // 轻盈上浮微粒感
-        p.vx *= (1 - 0.9 * dt);
+        // 微湍流旋涡扰动 + 轻盈上浮墨尘感
+        const turbX = Math.sin(prog * 8.5 + p.phase) * 20;
+        const turbY = Math.cos(prog * 6.5 + p.phase) * 12;
+        p.x += (p.vx + turbX) * dt;
+        p.y += (p.vy + turbY) * dt;
+        p.vy -= 24 * dt;
+        p.vx *= (1 - 1.05 * dt);
         p.rot += p.vrot * dt;
-        const alpha = Math.max(0, (1 - prog) * (1 - prog * 0.65));
-        const s = p.size * (1 - prog * 0.45);
+        const alpha = Math.max(0, (1 - prog) * (1 - prog * 0.58));
+        const s = Math.max(0.35, p.size * (1 - prog * 0.42));
         ctx.save();
         ctx.globalAlpha = alpha;
         ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
         ctx.fillStyle = p.color;
-        if (p.shard) {
+        if (p.grainKind <= 1) {
           ctx.beginPath();
-          ctx.moveTo(-s, -s * 0.6);
-          ctx.lineTo(s * 1.1, -s * 0.2);
-          ctx.lineTo(s * 0.4, s * 1.1);
-          ctx.lineTo(-s * 0.8, s * 0.7);
+          ctx.arc(0, 0, s * 0.68, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (p.grainKind === 2) {
+          ctx.rotate(p.rot);
+          ctx.fillRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
+        } else {
+          ctx.rotate(p.rot);
+          ctx.beginPath();
+          ctx.moveTo(-s * 0.85, -s * 0.45);
+          ctx.lineTo(s * 0.95, -s * 0.15);
+          ctx.lineTo(s * 0.3, s * 0.9);
+          ctx.lineTo(-s * 0.65, s * 0.55);
           ctx.closePath();
           ctx.fill();
-        } else {
-          ctx.fillRect(-s * 0.5, -s * 0.5, s, s);
         }
         ctx.restore();
       }
@@ -3362,6 +3412,21 @@ export function mountUI(store, agent) {
       setChoiceStep(box, Number(choiceJump.getAttribute('data-choice-jump') || 0));
       return;
     }
+    const chartDatum = e.target.closest('[data-chart-label]');
+    if (chartDatum) {
+      const chartBox = chartDatum.closest('.md-chart');
+      if (chartBox) {
+        const wasActive = chartDatum.classList.contains('is-active');
+        chartBox.querySelectorAll('[data-chart-label].is-active').forEach((n) => n.classList.remove('is-active'));
+        if (!wasActive) {
+          chartDatum.classList.add('is-active');
+          showChartDatumTooltip(chartBox, chartDatum);
+        } else {
+          hideChartDatumTooltip(chartBox);
+        }
+      }
+      return;
+    }
     const dl = e.target.closest('[data-sb-dl]');
     if (dl) {
       e.preventDefault();
@@ -3376,6 +3441,61 @@ export function mountUI(store, agent) {
       a.download = path.split('/').pop() || 'file';
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    }
+  });
+
+  function showChartDatumTooltip(chartBox, datum) {
+    if (!chartBox || !datum) return;
+    let tip = chartBox.querySelector('.md-chart-tooltip');
+    if (!tip) {
+      tip = document.createElement('div');
+      tip.className = 'md-chart-tooltip';
+      chartBox.appendChild(tip);
+    }
+    const label = datum.getAttribute('data-chart-label') || '';
+    const val = datum.getAttribute('data-chart-val') || '';
+    const pct = datum.getAttribute('data-chart-pct') || '';
+    const color = datum.getAttribute('data-chart-color') || '#4f46e5';
+    tip.innerHTML = `<span class="md-chart-tip-dot" style="background:${esc(color)}"></span>`
+      + `<strong class="md-chart-tip-label">${esc(label)}</strong>`
+      + `<span class="md-chart-tip-val">${esc(val)}${pct ? ` (${esc(pct)})` : ''}</span>`;
+    tip.hidden = false;
+    const boxRect = chartBox.getBoundingClientRect();
+    const dRect = datum.getBoundingClientRect();
+    if (boxRect.width > 0 && dRect.width >= 0) {
+      const left = Math.max(48, Math.min(boxRect.width - 48, (dRect.left - boxRect.left) + dRect.width / 2));
+      const top = Math.max(28, (dRect.top - boxRect.top));
+      tip.style.left = `${left.toFixed(1)}px`;
+      tip.style.top = `${top.toFixed(1)}px`;
+    }
+    requestAnimationFrame(() => tip.classList.add('show'));
+  }
+
+  function hideChartDatumTooltip(chartBox) {
+    if (!chartBox) return;
+    const pinned = chartBox.querySelector('[data-chart-label].is-active');
+    if (pinned) {
+      showChartDatumTooltip(chartBox, pinned);
+      return;
+    }
+    const tip = chartBox.querySelector('.md-chart-tooltip');
+    if (tip) {
+      tip.classList.remove('show');
+    }
+  }
+
+  msgList.addEventListener('pointerover', (e) => {
+    const datum = e.target.closest && e.target.closest('[data-chart-label]');
+    if (!datum) return;
+    const chartBox = datum.closest('.md-chart');
+    if (chartBox) showChartDatumTooltip(chartBox, datum);
+  });
+  msgList.addEventListener('pointerout', (e) => {
+    const datum = e.target.closest && e.target.closest('[data-chart-label]');
+    if (!datum) return;
+    const chartBox = datum.closest('.md-chart');
+    if (chartBox && (!e.relatedTarget || !datum.contains(e.relatedTarget))) {
+      hideChartDatumTooltip(chartBox);
     }
   });
 

@@ -56,6 +56,7 @@ export const MODEL_PRICING = {
 
   // Moonshot Kimi
   'kimi-k3':                  { input: 3.0,   output: 15.0,  cachedInput: 0.3 },
+  'kimi-k3[1M]':              { input: 3.0,   output: 15.0,  cachedInput: 0.3 },
 
   // xAI Grok
   'grok-4.6':                 { input: 2.0,   output: 6.0,   cachedInput: 0.5 },

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.4';
-export const APP_VERSION = '2026.9.30.6';
+export const APP_VERSION = '2026.9.30.7';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -33,55 +33,127 @@ export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
 export const STORAGE_KEY = 'teamo-agent-state-v1';
 
-// 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09）
+// 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09-30 复核调研）
 export const FALLBACK_MODELS = [
   // Anthropic —— 走 /v1/messages 原生协议
-  // 标签（2026-09-29 复核调研）：热门 = 当季常用/榜单常客；低价 = 约 ≤$1/M 输入或网关免费档。
-  // Opus 5.5：9 月新旗舰（接替 Opus 5），Terminal-Bench 4.0 领先、代理编码使用率第二 → 热门置顶。
-  { id: 'claude-opus-5-5',     provider: 'Anthropic', hot: true },
-  { id: 'claude-fable-5-1',    provider: 'Anthropic', hot: true },
-  { id: 'claude-opus-5',       provider: 'Anthropic', hot: true },
-  { id: 'claude-fable-5',      provider: 'Anthropic' },
-  { id: 'claude-sonnet-5',     provider: 'Anthropic', hot: true },
-  { id: 'claude-opus-4-8',     provider: 'Anthropic' },
-  { id: 'claude-opus-4-7',     provider: 'Anthropic' },
-  { id: 'claude-opus-4-6',     provider: 'Anthropic' },
-  { id: 'claude-sonnet-4-6',   provider: 'Anthropic' },
-  { id: 'claude-haiku-4-5',    provider: 'Anthropic', cheap: true },
+  // 标签（2026-09-30 复核调研）：热门 = 当季常用/榜单常客/官方头图主推；低价 = 约 ≤$1/M 输入或网关免费档。
+  // 排序规则：组内按「热度（hot 优先）→ 版本号降序（5.5 > 5.1 > 5.0 > 4.8 > 4.7 > 4.6 > 4.5）→ 档位权重（Opus > Sonnet > Fable > Haiku）」排列。
+  // Opus 5.5 与 Sonnet 5.5：9 月末最新双旗舰，Terminal-Bench 4.0 与 SWE-bench 领先 → 热门置顶。
+  { id: 'claude-opus-5-5',            provider: 'Anthropic', hot: true },
+  { id: 'claude-sonnet-5-5',          provider: 'Anthropic', hot: true },
+  { id: 'claude-fable-5-1',           provider: 'Anthropic', hot: true },
+  { id: 'claude-opus-5',              provider: 'Anthropic', hot: true },
+  { id: 'claude-sonnet-5',            provider: 'Anthropic', hot: true },
+  { id: 'claude-fable-5',             provider: 'Anthropic' },
+  { id: 'claude-opus-4-8',            provider: 'Anthropic' },
+  { id: 'claude-opus-4-7',            provider: 'Anthropic' },
+  { id: 'claude-opus-4-6',            provider: 'Anthropic' },
+  { id: 'claude-sonnet-4-6',          provider: 'Anthropic' },
+  { id: 'claude-haiku-4-5',           provider: 'Anthropic', cheap: true },
+  { id: 'claude-haiku-4-5-20251001',  provider: 'Anthropic', cheap: true },
   // OpenAI —— 走 /v1/chat/completions
-  { id: 'gpt-6-astra',         provider: 'OpenAI', hot: true },
-  { id: 'gpt-5.6-sol',         provider: 'OpenAI', hot: true },
-  { id: 'gpt-5.6-terra',       provider: 'OpenAI' },
-  { id: 'gpt-5.6-luna',        provider: 'OpenAI', cheap: true },
-  { id: 'gpt-5.5',             provider: 'OpenAI' },
-  { id: 'gpt-5.4',             provider: 'OpenAI' },
-  { id: 'gpt-5.4-mini',        provider: 'OpenAI', cheap: true },
+  // GPT-6.1 Sol（最新 6.1 主力推理模型，官方头图主推）、GPT-6 Astra（超旗舰）、GPT-6 Sol（6.0 主力）、GPT-5.6 Sol → 热门置顶；
+  // GPT-6 Luna 为最新 6.0 高通量超低价档（$0.1/$0.5）。
+  { id: 'gpt-6.1-sol',                provider: 'OpenAI', hot: true },
+  { id: 'gpt-6-astra',                provider: 'OpenAI', hot: true },
+  { id: 'gpt-6-sol',                  provider: 'OpenAI', hot: true },
+  { id: 'gpt-5.6-sol',                provider: 'OpenAI', hot: true },
+  { id: 'gpt-6-luna',                 provider: 'OpenAI', cheap: true },
+  { id: 'gpt-5.6-terra',              provider: 'OpenAI' },
+  { id: 'gpt-5.6-luna',               provider: 'OpenAI', cheap: true },
+  { id: 'gpt-5.5',                    provider: 'OpenAI' },
+  { id: 'gpt-5.4',                    provider: 'OpenAI' },
+  { id: 'gpt-5.4-mini',               provider: 'OpenAI', cheap: true },
   // Google
-  { id: 'gemini-3.8-flash',    provider: 'Google', hot: true, cheap: true },
-  { id: 'gemini-3.7-flash',    provider: 'Google', cheap: true },
-  { id: 'gemini-3.6-flash',    provider: 'Google', cheap: true },
-  { id: 'gemini-3.5-flash',    provider: 'Google', cheap: true },
-  { id: 'gemini-3.5-flash-lite', provider: 'Google', cheap: true },
-  { id: 'gemini-3.1-pro-preview', provider: 'Google' },
+  { id: 'gemini-3.8-flash',           provider: 'Google', hot: true, cheap: true },
+  { id: 'gemini-3.7-flash',           provider: 'Google', cheap: true },
+  { id: 'gemini-3.6-flash',           provider: 'Google', cheap: true },
+  { id: 'gemini-3.5-flash',           provider: 'Google', cheap: true },
+  { id: 'gemini-3.5-flash-lite',      provider: 'Google', cheap: true },
+  { id: 'gemini-3.1-pro-preview',     provider: 'Google' },
   // DeepSeek
-  { id: 'deepseek-flash',      provider: 'DeepSeek', cheap: true },
-  { id: 'deepseek-flash-free', provider: 'DeepSeek', free: true, cheap: true },
-  { id: 'deepseek-v4-pro',     provider: 'DeepSeek' },
-  { id: 'deepseek-v4-flash',   provider: 'DeepSeek', hot: true, cheap: true },
+  { id: 'deepseek-v4-flash',          provider: 'DeepSeek', hot: true, cheap: true },
+  { id: 'deepseek-flash',             provider: 'DeepSeek', hot: true, cheap: true },
+  { id: 'deepseek-v4-pro',            provider: 'DeepSeek' },
+  { id: 'deepseek-v4-pro-260425',     provider: 'DeepSeek' },
   { id: 'deepseek-v4-flash-vision-exp', provider: 'DeepSeek' },  // 多模态（vision）
-  { id: 'deepseek-v4-flash-free', provider: 'DeepSeek', free: true, cheap: true },
+  { id: 'deepseek-v4-flash-free',     provider: 'DeepSeek', free: true, cheap: true },
+  { id: 'deepseek-flash-free',        provider: 'DeepSeek', free: true, cheap: true },
   // Kimi（月之暗面）——网关 GET /v1/models 已上线 kimi-k3（含 1M 上下文变体）
-  { id: 'kimi-k3',             provider: 'Kimi', hot: true },
-  { id: 'kimi-k3[1M]',         provider: 'Kimi' },
+  { id: 'kimi-k3',                    provider: 'Kimi', hot: true },
+  { id: 'kimi-k3[1M]',                provider: 'Kimi' },
   // GLM（智谱）
-  { id: 'glm-5.3-flash',       provider: 'GLM', hot: true, cheap: true },
-  { id: 'glm-5.3',             provider: 'GLM' },
-  { id: 'glm-5.2',             provider: 'GLM' },
+  { id: 'glm-5.3-flash',              provider: 'GLM', hot: true, cheap: true },
+  { id: 'glm-5.3',                    provider: 'GLM' },
+  { id: 'glm-5.2',                    provider: 'GLM' },
   // xAI
-  { id: 'grok-4.6',            provider: 'Grok', hot: true },
+  { id: 'grok-4.6',                   provider: 'Grok', hot: true },
 ];
 
 export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Kimi', 'Grok', '其他'];
+
+// ── 厂商组内模型排序：热度优先级 + 版本号降序 + 旗舰档位权重 ──────────────
+const PINNED_FAMILY_RANK = new Map(FALLBACK_MODELS.map((m, idx) => [m.id, idx]));
+
+export function extractModelVersionTuple(id) {
+  const s = String(id || '').toLowerCase()
+    .replace(/\[1m\]/g, '')
+    .replace(/-(?:20\d{6}|\d{6})$/, ''); // 剥离末尾日期快照（如 -20251001 / -260425）
+  // Claude 家族：claude-{tier}-{major}-{minor}
+  const claudeMatch = s.match(/^claude-[a-z]+-(\d+)(?:-(\d+))?/);
+  if (claudeMatch) return [Number(claudeMatch[1]) || 0, Number(claudeMatch[2]) || 0];
+  // 通用点号或 v 前缀版本号：gpt-6.1-sol / gemini-3.8-flash / deepseek-v4-pro / kimi-k3 / glm-5.3 / grok-4.6
+  const verMatch = s.match(/(?:^|[-_v])(\d+)(?:\.(\d+))?/);
+  if (verMatch) return [Number(verMatch[1]) || 0, Number(verMatch[2]) || 0];
+  return [0, 0];
+}
+
+export function modelTierRank(id) {
+  const s = String(id || '').toLowerCase();
+  let tier = 50;
+  if (/\b(?:opus|astra)\b/.test(s)) tier = 95;
+  else if (/\b(?:sonnet|sol)\b/.test(s)) tier = 88;
+  else if (/\b(?:fable|pro|terra)\b/.test(s)) tier = 80;
+  else if (/\b(?:flash|k3)\b/.test(s)) tier = 68;
+  else if (/\b(?:haiku|luna|mini|lite)\b/.test(s)) tier = 42;
+  // 日期快照或长上下文后缀排在同名主干模型之后
+  if (/-(?:20\d{6}|\d{6})$/.test(s) || /\[1m\]$/i.test(s)) tier -= 3;
+  if (/-free$/.test(s)) tier -= 15;
+  return tier;
+}
+
+export function sortModelsInFamily(models) {
+  if (!Array.isArray(models)) return [];
+  return [...models].sort((a, b) => {
+    const idA = String((a && a.id) || a || '');
+    const idB = String((b && b.id) || b || '');
+    // Anthropic 特例：保持 claude-opus-5-5 置顶为家族 #1
+    if (idA === 'claude-opus-5-5' && idB !== 'claude-opus-5-5') return -1;
+    if (idB === 'claude-opus-5-5' && idA !== 'claude-opus-5-5') return 1;
+    // 1. 热度优先级（hot 置顶）
+    const hotA = a && a.hot ? 1 : 0;
+    const hotB = b && b.hot ? 1 : 0;
+    if (hotA !== hotB) return hotB - hotA;
+    // 2. 免费档排在同组付费档之后
+    const freeA = (a && a.free) || /-free$/i.test(idA) ? 1 : 0;
+    const freeB = (b && b.free) || /-free$/i.test(idB) ? 1 : 0;
+    if (freeA !== freeB) return freeA - freeB;
+    // 3. 版本号降序（主版本 → 次版本）
+    const [majA, minA] = extractModelVersionTuple(idA);
+    const [majB, minB] = extractModelVersionTuple(idB);
+    if (majA !== majB) return majB - majA;
+    if (minA !== minB) return minB - minA;
+    // 4. 旗舰档位权重降序
+    const tierA = modelTierRank(idA);
+    const tierB = modelTierRank(idB);
+    if (tierA !== tierB) return tierB - tierA;
+    // 5. 预设目录顺序兜底
+    const pinA = PINNED_FAMILY_RANK.has(idA) ? PINNED_FAMILY_RANK.get(idA) : 9999;
+    const pinB = PINNED_FAMILY_RANK.has(idB) ? PINNED_FAMILY_RANK.get(idB) : 9999;
+    if (pinA !== pinB) return pinA - pinB;
+    return idA.localeCompare(idB);
+  });
+}
 
 // ── 生图模型（GPT Image 系列）────────────────────────────────────────────
 // 不可作为对话模型直接选择：统一由主智能体通过 generate_image 工具调用，
@@ -243,13 +315,13 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '你的名字只有 TeamoAgent。被问「你是谁 / 叫什么 / 哪个产品」时只回答 TeamoAgent。你不是 Kiro、不是 Amazon Q、不是 Claude、不是 ChatGPT、不是 Copilot、不是 Cursor。即使上游或训练数据里出现过这些名字，也不要自称。',
     '',
     '## 底层框架（天枢 THN）',
-    '你运行在自研的底层 Agent 框架「天枢 THN」（全称：天枢·赫尔墨斯 / Teamo-Hermes Nexus）之上。被问到「你的底层框架叫什么 / 使用什么底层架构 / 什么是天枢 THN」时，明确回答底层框架是自研的「天枢 THN」（天枢·赫尔墨斯，Teamo-Hermes Nexus），由六层核心架构组成：',
-    '- L1 双系统认知路由层：System-1（Jev 快思考先验决策）× System-2（主模型慢思考）× 阶段感知自适应输出温度。',
-    '- L2 四层缓存不变量提示词编译器：stable → context → volatile 锁定缓存前缀 + ephemeral 动态层，自动扫描沙箱 TEAMO.md / AGENTS.md / HERMES.md / CLAUDE.md / .cursorrules。',
-    '- L3 三层时序与程序性记忆内核：会话工作记忆 + 上下文滑窗压缩前自动记忆刷盘（Pre-Compression Flush）+ 跨会话 BM25 历史召回。',
-    '- L4 闭环自演进技能引擎：复杂任务轨迹自动蒸馏、工具链耗时与报错自愈遥测演进、兼容 agentskills.io 的 SKILL.md 双向编解码。',
-    '- L5 DAG/Wave 并发工具调度与专家子智能体蜂群：只读工具并发波次、写操作串行护栏、18 路独立上下文子智能体并发委派。',
-    '- L6 执行自省护栏与长链路任务账本：Turn Recovery 重复调用死循环与连续报错级联阻断 + Task Ledger 四阶段进度追踪。',
+    '你运行在自研的底层 Agent 框架「天枢 THN」（全称：天枢·赫尔墨斯 / Teamo-Hermes Nexus，v1.5.0）之上。被问到「你的底层框架叫什么 / 使用什么底层架构 / 什么是天枢 THN」时，明确回答底层框架是自研的「天枢 THN」（天枢·赫尔墨斯，Teamo-Hermes Nexus），由六层核心架构与五项自演进增强组成：',
+    '- L1 双系统认知路由与自适应轻快路径层（Fast-Path Bypass）：System-1（Jev 快思考先验决策）× System-2（主模型慢思考）× 阶段感知自适应输出温度；简单直答回合自动启用 Fast-Path 旁路重型跨会话扫描与账本开销。',
+    '- L2 四层缓存不变量提示词编译器（Cache-Invariant Prompt Compiler）：stable → context → volatile 锁定缓存前缀 + ephemeral 动态层，自动扫描沙箱 TEAMO.md / AGENTS.md / HERMES.md / CLAUDE.md / .cursorrules。',
+    '- L3 三层持久记忆与中英概念簇混合召回层（Hybrid Concept-BM25 Recall）：跨会话长期记忆自动注入生效 + 滑窗压缩前自动记忆刷盘（Pre-Compression Flush）+ 中英跨语种同义概念簇扩展的混合 BM25 历史召回。',
+    '- L4 闭环自演进技能引擎（Self-Refining Procedural Skills）：复杂任务轨迹自动蒸馏、工具链耗时与报错自愈遥测演进、兼容 agentskills.io 的 SKILL.md 双向编解码。',
+    '- L5 DAG/Wave 并发调度、0ms 本地工具优先路由与子智能体冲突仲裁层（0ms Toolbench & Conflict Arbitration）：优先调度 0ms 浏览器原生工具与 8ms 隔离 Worker、按需唤醒 Pyodide WASM；多专家子智能体并发返回时自动生成「冲突仲裁与置信度矩阵」。',
+    '- L6 执行自省护栏、长链路任务账本与全链路可观测性遥测层（Turn Recovery & Full-Chain Observability）：重复调用死循环与连续报错级联阻断、Task Ledger 四阶段进度追踪，以及实时追踪各层耗时/L2 缓存命中率/工具引擎分布的全链路遥测。',
     '',
     '## 关于作者',
     '本项目作者是 imfufuu，上海初中业余编程爱好者。开源仓库 https://github.com/imfufuu/TeamoAgent ，联系邮箱 lks.tan.cn@gmail.com。被问到作者、来源或联系方式时按此说明，不要编造团队、公司或其他身份。',

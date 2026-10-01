@@ -2,6 +2,8 @@
 // 不移植 skill_view 工具：浏览器 Agent 多一轮加载成本高，Jev/关键词命中后直接注入正文。
 // 复杂回合结束后用工具轨迹蒸馏一条会话技能（无额外 LLM 调用，fail-open）。
 
+import { tokenizeForSearch } from './nexus.js';
+
 export const BUNDLED_SKILLS = [
   {
     id: 'web-research',
@@ -117,10 +119,22 @@ export function selectSkillBodies(plan, userText, learned = []) {
     } catch { /* 单条技能匹配失败不影响其它 */ }
   }
   const q = String(userText || '').slice(0, 200);
+  const qTokens = new Set(tokenizeForSearch(q, { expandSynonyms: true }));
   for (const s of learned || []) {
     if (!s || !s.body) continue;
     const key = `${s.id} ${s.description || ''} ${s.body}`;
-    if (q && key.toLowerCase().includes(q.slice(0, 24).toLowerCase())) hits.push(s);
+    if (q && key.toLowerCase().includes(q.slice(0, 24).toLowerCase())) {
+      hits.push(s);
+      continue;
+    }
+    if (qTokens.size >= 2) {
+      const skillTokens = tokenizeForSearch(key, { expandSynonyms: true });
+      let overlap = 0;
+      for (const st of new Set(skillTokens)) {
+        if (qTokens.has(st)) overlap++;
+      }
+      if (overlap >= 2) hits.push(s);
+    }
   }
   const seen = new Set();
   const uniq = [];

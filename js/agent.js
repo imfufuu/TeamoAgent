@@ -25,7 +25,7 @@ import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IM
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
-import { formatMemory } from './memory.js';
+import { formatMemory, formatActiveMemoryReminder, extractAutoMemoryFacts, upsertFacts } from './memory.js';
 import {
   discoverWorkspaceContext,
   shouldTriggerSessionRecall,
@@ -37,8 +37,14 @@ import {
   formatReflectionNote,
   createTaskLedger,
   formatTaskLedgerNote,
+  resolveNexusExecutionProfile,
+  recommendExecutionEngine,
+  formatExecutionRoutingHint,
+  arbitrateSubagentReports,
+  formatSubagentArbitrationNote,
+  createTurnTelemetry,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.6';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.7';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -92,10 +98,11 @@ export function subagentTools(sandboxEnabled, def) {
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage, memory }) {
   const subTools = subagentTools(sandboxEnabled, def);
+  const memBlock = formatMemory(memory);
   const messages = [
-    { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}\n\n${OUTPUT_SPEC}` },
+    { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}${memBlock ? `\n\n${memBlock}` : ''}\n\n${OUTPUT_SPEC}` },
     { role: 'user', text: task },
   ];
   let finalText = '';
@@ -240,15 +247,39 @@ export function createAgent(store, hooks = {}) {
         contextFiles: [subGuide, wsCtx].filter(Boolean).join('\n\n'),
       }).cached;
     }
-    const recallHits = (iteration === 1 && shouldTriggerSessionRecall(userText) && Array.isArray(store.state.sessions))
+    const execProfile = resolveNexusExecutionProfile({
+      userText,
+      plan,
+      hasAttachments: !!(lastUser && Array.isArray(lastUser.attachments) && lastUser.attachments.length),
+    });
+    const recallT0 = Date.now();
+    const recallHits = (!execProfile.fastPath && iteration === 1 && shouldTriggerSessionRecall(userText) && Array.isArray(store.state.sessions))
       ? searchCrossSessionMemory(store.state.sessions, userText, { excludeSessionId: store.state.activeSessionId })
       : [];
-    const reflectionNote = nexusState && nexusState.stepHistory
+    const skillBodyNote = selectSkillBodies(plan, userText, store.state.learnedSkills);
+    const engineRec = !execProfile.fastPath
+      ? recommendExecutionEngine(userText, { sandboxEnabled: store.state.settings.sandboxEnabled !== false, webEnabled: webOn })
+      : null;
+    const engineRoutingNote = iteration === 1 ? formatExecutionRoutingHint(engineRec) : '';
+    const activeMemReminder = formatActiveMemoryReminder(store.state.memory);
+    const reflectionNote = (!execProfile.fastPath && nexusState && nexusState.stepHistory)
       ? formatReflectionNote(analyzeToolTrajectory(nexusState.stepHistory))
       : '';
-    const ledgerNote = nexusState && nexusState.ledger
+    const ledgerNote = (!execProfile.fastPath && nexusState && nexusState.ledger)
       ? formatTaskLedgerNote(nexusState.ledger)
       : '';
+    const subagentArb = (nexusState && Array.isArray(nexusState.subagentReports) && nexusState.subagentReports.length >= 2)
+      ? arbitrateSubagentReports(nexusState.subagentReports)
+      : null;
+    const subagentArbNote = subagentArb ? formatSubagentArbitrationNote(subagentArb) : '';
+    if (nexusState && nexusState.telemetry) {
+      nexusState.telemetry.fastPath = execProfile.fastPath;
+      nexusState.telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
+      nexusState.telemetry.recalledSessions = recallHits.length;
+      nexusState.telemetry.recalledSkills = skillBodyNote ? (skillBodyNote.match(/## (?:Skill|Learned skill):/g) || []).length : 0;
+      if (subagentArb) nexusState.telemetry.subagentConflicts = subagentArb.conflicts.length;
+      nexusState.telemetry.recordLayer('L2+L3', Date.now() - recallT0);
+    }
     const layers = assembleSystemLayers({
       identity: cachedPrefix,
       memory: formatMemory(store.state.memory),
@@ -261,9 +292,12 @@ export function createAgent(store, hooks = {}) {
         relayNote: relayOk ? '' : RELAY_OFF_NOTE,
       }),
       ephemeral: [
+        activeMemReminder,
         jevNote || '',
-        selectSkillBodies(plan, userText, store.state.learnedSkills),
+        skillBodyNote,
+        engineRoutingNote,
         formatSessionRecallNote(recallHits),
+        subagentArbNote,
         ledgerNote,
         reflectionNote,
         droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
@@ -287,7 +321,8 @@ export function createAgent(store, hooks = {}) {
       memory: store.state.memory,
       setMemory: (next) => {
         store.state.memory = Array.isArray(next) ? next : [];
-        if (typeof store.save === 'function') store.save(true);
+        if (typeof store.notify === 'function') store.notify();
+        else if (typeof store.save === 'function') store.save(true);
       },
       apiKey: turn.apiKey,
       imageModel: turn.imageModel,
@@ -310,6 +345,7 @@ export function createAgent(store, hooks = {}) {
           sandboxEnabled: turn.sandboxEnabled,
           webEnabled: turn.webEnabled,
           imageModel: turn.imageModel,
+          memory: store.state.memory,
           onThinkingFallback: (m) => emit('onThinkingFallback', m),
           onWebFallback: (m, why) => emit('onWebFallback', m, why),
           onSubagentUsage: (b) => {
@@ -321,6 +357,9 @@ export function createAgent(store, hooks = {}) {
           fs,
           signal: turn.signal,
         });
+        if (turn && Array.isArray(turn.subagentReports)) {
+          turn.subagentReports.push({ agent: def.id, name: def.name, task: subTask, report });
+        }
         return `[子智能体报告 · ${def.name}（${def.tag}）]\n${report}`;
       },
     };
@@ -389,6 +428,7 @@ export function createAgent(store, hooks = {}) {
       sandboxEnabled: settings.sandboxEnabled,
       webEnabled: settings.webEnabled !== false && relayOk,
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
+      subagentReports: [],
     };
     let iterations = 0;
     cachedPrefix = null;
@@ -401,10 +441,15 @@ export function createAgent(store, hooks = {}) {
     let lastStepFailed = false;
     const lastUserInit = [...store.state.messages].reverse().find((m) => m.role === 'user');
     const taskLedger = createTaskLedger(lastUserInit && lastUserInit.text);
-    const nexusState = { stepHistory, ledger: taskLedger };
+    const telemetry = createTurnTelemetry({
+      model,
+      activeMemoryCount: Array.isArray(store.state.memory) ? store.state.memory.length : 0,
+    });
+    const nexusState = { stepHistory, ledger: taskLedger, subagentReports: turn.subagentReports, telemetry };
 
     try {
       if (settings.jevEnabled !== false) {
+        const jevT0 = Date.now();
         setStatus(turn.thinking ? 'thinking' : 'connecting');
         const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
         const plan = await planTurn({
@@ -412,6 +457,7 @@ export function createAgent(store, hooks = {}) {
           text: lastUser ? lastUser.text : '',
           attachments: lastUser && lastUser.attachments,
         });
+        telemetry.recordLayer('L1-jev', Date.now() - jevT0);
         if (plan && plan.ok && plan.note) {
           turnPlan = plan;
           jevNote = '\n\n' + plan.note;
@@ -570,6 +616,7 @@ export function createAgent(store, hooks = {}) {
         const toolCalls = acc.result();
         const thinkingBlocks = turn.thinking ? tb.blocks() : [];
         const nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        telemetry.recordUsage({ input_tokens: usage.input, output_tokens: usage.output });
         store.updateMessage(assistantMsg.id, {
           text,
           reasoning: turn.thinking && reasoning ? reasoning : undefined,
@@ -595,7 +642,9 @@ export function createAgent(store, hooks = {}) {
 
         // ── 执行工具，结果写回对话（模型侧截断保护，UI 侧全量展示）──
         setStatus('executing');
+        const toolWaveT0 = Date.now();
         const results = await runToolCalls(toolCalls, turn);
+        const waveMs = Math.max(1, Date.now() - toolWaveT0);
         store.updateMessage(assistantMsg.id, { toolCalls: toolCalls.map((c) => ({ ...c })) });
         let roundHasError = false;
         for (const [i, call] of toolCalls.entries()) {
@@ -604,10 +653,19 @@ export function createAgent(store, hooks = {}) {
           const isErr = typeof result === 'string' && /(失败|报错|错误|参数不是合法 JSON|未执行|拒绝执行)/.test(result.slice(0, 120));
           if (isErr) { hadToolError = true; roundHasError = true; }
           stepHistory.push({ name: call.name, args: call.args, isError: isErr });
+          const engine = call.name === 'execute_python'
+            ? 'pyodide-wasm'
+            : call.name === 'execute_javascript'
+              ? 'worker-8ms'
+              : (call.name === 'dispatch_subagent' || call.name === 'generate_image' || call.name === 'analyze_image')
+                ? 'gateway-api'
+                : 'browser-0ms';
+          telemetry.recordTool(call.name, Math.round(waveMs / Math.max(1, toolCalls.length)), { engine, ok: !isErr });
           syncFS();
           store.pushMessage({ role: 'tool', toolCallId: call.id, name: call.name, content: result });
           emit('onToolResult', call, result);
         }
+        telemetry.subagentDispatches = turn.subagentReports.length;
         lastStepFailed = roundHasError;
         taskLedger.advance(iterations + 1, toolCalls.map((c) => c.name), roundHasError);
       }
@@ -629,9 +687,13 @@ export function createAgent(store, hooks = {}) {
       }
     } finally {
       abortController = null;
-      // 只在正常结束时蒸馏技能：取消/报错的轨迹不能写成可复用规程
+      // 只在正常结束时蒸馏技能并自动捕获显式长期记忆点
       if (status === 'done') {
         const lastUser = [...store.state.messages].reverse().find((m) => m.role === 'user');
+        const autoFacts = extractAutoMemoryFacts(lastUser && lastUser.text);
+        if (autoFacts.length) {
+          store.state.memory = upsertFacts(store.state.memory, autoFacts);
+        }
         const rawLearned = distillSkill({ userText: lastUser && lastUser.text, toolNames: usedTools, iterations });
         if (rawLearned) {
           const learned = refineSkillWithTelemetry(rawLearned, {
@@ -643,6 +705,8 @@ export function createAgent(store, hooks = {}) {
           store.state.learnedSkills = rememberSkill(store.state.learnedSkills, learned);
         }
       }
+      telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
+      store.state.lastNexusTelemetry = telemetry.finish();
       syncFS();
       store.notify();
       emit('onTurnTiming', Math.round(performance.now() - t0)); // emit 内部已吞掉视图层异常

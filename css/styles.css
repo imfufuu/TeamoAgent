@@ -1064,7 +1064,7 @@ a { color: var(--fg); }
 .primary-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); }
 .primary-btn:active { transform: scale(.97); }
 
-/* ── Toast ───────────────────────────────────────────────────────────── */
+/* ── Toast（最多堆叠 3 条，超出自动收起并隐藏）───────────────────────── */
 .toasts { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; }
 .toast {
   background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 999px;
@@ -1074,6 +1074,8 @@ a { color: var(--fg); }
   max-width: min(560px, 90vw); text-align: center;
 }
 .toast.in { opacity: 1; transform: none; }
+.toast.leaving { opacity: 0; transform: translateY(-8px) scale(.92); pointer-events: none; }
+.toasts > .toast:nth-last-child(n+4) { display: none !important; }
 .toast.err { background: var(--bg); color: var(--fg); border: 1.5px solid var(--fg); }
 .toast.warn { background: var(--bg); color: var(--fg); border: 1.5px dashed var(--fg-3); }
 .toast.ok { background: var(--fg); color: var(--bg); }
@@ -1224,21 +1226,81 @@ a { color: var(--fg); }
 .md-align-center { text-align: center; }
 .md-align-right { text-align: right; }
 .md-align-center > *, .md-align-right > * { text-align: inherit; }
-.md-chart, .md-diagram { margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.md-chart, .md-diagram { position: relative; margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .md-chart-svg {
   display: block; width: min(720px, 100%); height: auto;
   background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px;
+  transition: border-color .22s ease, box-shadow .22s ease;
+}
+.md-chart:hover .md-chart-svg, .md-diagram:hover .md-chart-svg {
+  border-color: color-mix(in oklab, var(--accent, #4f46e5) 38%, var(--line));
 }
 .md-chart-title { font-family: var(--sans); font-size: 17px; font-weight: 650; fill: var(--fg); stroke: none; }
 .md-chart-axis { stroke: var(--fg-3); stroke-width: 1; opacity: .75; }
 .md-chart-grid { stroke: var(--line-2); stroke-width: 1; opacity: .72; }
-.md-chart-tick, .md-chart-label { font-family: var(--mono); font-size: 10.5px; fill: var(--fg-3); stroke: none; }
+.md-chart-tick, .md-chart-label { font-family: var(--mono); font-size: 10.5px; fill: var(--fg-3); stroke: none; transition: fill .18s ease; }
 .md-chart-axis-label { font-family: var(--sans); font-size: 11.5px; fill: var(--fg-2); stroke: none; }
 div.md-chart-line { stroke: none; fill: initial; }
-polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
+polygon.md-chart-area { fill: color-mix(in srgb, var(--accent, #4f46e5) 10%, transparent); stroke: none; pointer-events: none; transition: fill .22s ease; }
+polygon.md-chart-st-area { fill: color-mix(in srgb, #0ea5e9 10%, transparent); }
+.md-chart:hover polygon.md-chart-area { fill: color-mix(in srgb, var(--accent, #4f46e5) 15%, transparent); }
+.md-chart:hover polygon.md-chart-st-area { fill: color-mix(in srgb, #0ea5e9 15%, transparent); }
+polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; transition: stroke-width .2s ease; }
 .md-chart-st-line { stroke: #0ea5e9; }
-.md-chart-dot { fill: var(--bg); stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2; }
-.md-chart-bar, .md-chart-slice, .md-chart-point { opacity: .9; }
+.md-chart-dot { fill: var(--bg); stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.2; }
+.md-chart-bar, .md-chart-slice, .md-chart-point, .md-chart-dot {
+  opacity: .92;
+  cursor: pointer;
+  transform-box: fill-box;
+  outline: none;
+  transition: transform .24s cubic-bezier(.22, 1, .36, 1), opacity .2s ease, filter .22s ease, stroke-width .2s ease;
+}
+.md-chart-bar { transform-origin: 50% 100%; }
+.md-chart-slice, .md-chart-point, .md-chart-dot { transform-origin: 50% 50%; }
+.md-chart-svg:has(.md-chart-bar:hover, .md-chart-bar.is-active) .md-chart-bar:not(:hover):not(.is-active) { opacity: .44; }
+.md-chart-bar:hover, .md-chart-bar:focus-visible, .md-chart-bar.is-active {
+  opacity: 1;
+  transform: scaleY(1.035) translateY(-1.5px);
+  filter: brightness(1.08) drop-shadow(0 6px 14px rgba(79, 70, 229, .24));
+}
+.md-chart-svg:has(.md-chart-slice:hover, .md-chart-slice.is-active) .md-chart-slice:not(:hover):not(.is-active) { opacity: .48; }
+.md-chart-slice:hover, .md-chart-slice:focus-visible, .md-chart-slice.is-active {
+  opacity: 1;
+  transform: scale(1.055);
+  filter: brightness(1.06) drop-shadow(0 8px 18px rgba(0, 0, 0, .2));
+}
+.md-chart-dot:hover, .md-chart-dot:focus-visible, .md-chart-dot.is-active,
+.md-chart-point:hover, .md-chart-point:focus-visible, .md-chart-point.is-active {
+  opacity: 1;
+  transform: scale(1.62);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 8px rgba(79, 70, 229, .42));
+}
+.md-flow-node, .md-mind-node {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: transform .24s cubic-bezier(.22, 1, .36, 1), filter .24s ease;
+}
+.md-flow-node:hover, .md-mind-node:hover {
+  transform: translateY(-2px) scale(1.028);
+  filter: drop-shadow(0 6px 14px rgba(79, 70, 229, .18));
+}
+.md-chart-tooltip {
+  position: absolute; left: 50%; top: 36px; z-index: 14;
+  pointer-events: none; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 11px; border-radius: 999px;
+  background: color-mix(in srgb, var(--fg) 92%, var(--bg));
+  color: var(--bg); font-family: var(--mono); font-size: 11.5px; line-height: 1.3;
+  box-shadow: var(--shadow-lg);
+  opacity: 0; transform: translate(-50%, calc(-100% - 10px)) scale(.94);
+  transition: opacity .16s ease, transform .18s cubic-bezier(.22, 1, .36, 1);
+}
+.md-chart-tooltip.show { opacity: 1; transform: translate(-50%, calc(-100% - 10px)) scale(1); }
+.md-chart-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1.5px rgba(255,255,255,.45); }
+.md-chart-tip-label { font-family: var(--sans); font-weight: 650; }
+.md-chart-tip-val { opacity: .92; }
 .md-chart-error { margin: 8px 0; color: var(--fg-3); font-size: 12px; }
 .md-diagram-svg { width: min(880px, 100%); max-width: 100%; height: auto; }
 .md-diagram-link { fill: none; stroke: #9ca3af; stroke: color-mix(in oklab, var(--fg-3) 72%, transparent); stroke-width: 1.6; stroke-linecap: round; }

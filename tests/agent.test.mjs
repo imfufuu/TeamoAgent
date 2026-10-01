@@ -5076,6 +5076,160 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
   assert.match(docsHtml, /V1\.4 Stable（天枢 THN 融合架构）/);
 });
 
+group('2026.9.30.7 40模型全支持与热度版本排序 / 长期记忆自动生效 / 天枢THN自演进增强 / 黑粒回滚与图表微交互');
+
+test('2026.9.30.7：支持全部 40 个可用对话模型，且按热度与版本优先级排序', async () => {
+  const expected40 = [
+    'claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-fable-5', 'claude-sonnet-5',
+    'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
+    'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini',
+    'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview',
+    'deepseek-flash', 'deepseek-flash-free', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-free',
+    'kimi-k3', 'kimi-k3[1M]',
+    'glm-5.3-flash', 'glm-5.3', 'glm-5.2',
+    'grok-4.6',
+    'claude-haiku-4-5-20251001', 'claude-sonnet-5-5', 'deepseek-v4-pro-260425', 'gpt-6-luna', 'gpt-6-sol', 'gpt-6.1-sol',
+  ];
+  const fallbackIds = new Set(cfg.FALLBACK_MODELS.map((m) => m.id));
+  for (const id of expected40) {
+    assert.ok(fallbackIds.has(id), `FALLBACK_MODELS 缺少模型：${id}`);
+  }
+  const chatModels = cfg.FALLBACK_MODELS.filter((m) => !cfg.isImageModel(m.id));
+  assert.equal(chatModels.length, 40, '排除识图/生图专用模型后应恰好包含 40 个对话模型');
+
+  // Claude 与 GPT 新模型热度与组内版本优先级排序验证
+  const anthropic = cfg.FALLBACK_MODELS.filter((m) => m.provider === 'Anthropic');
+  assert.equal(anthropic[0].id, 'claude-opus-5-5', 'Claude Opus 5.5 应置顶');
+  assert.equal(anthropic[1].id, 'claude-sonnet-5-5', 'Claude Sonnet 5.5 新旗舰应紧随其后');
+  assert.equal(anthropic[1].hot, true, 'Claude Sonnet 5.5 应标热门');
+
+  const openai = cfg.FALLBACK_MODELS.filter((m) => m.provider === 'OpenAI');
+  assert.equal(openai[0].id, 'gpt-6.1-sol', 'GPT-6.1 Sol 最新主力推理模型应在 OpenAI 组置顶');
+  assert.equal(openai[0].hot, true);
+  assert.equal(openai[1].id, 'gpt-6-astra');
+  assert.equal(openai[2].id, 'gpt-6-sol');
+  assert.equal(openai[2].hot, true);
+  const gpt6Luna = openai.find((m) => m.id === 'gpt-6-luna');
+  assert.equal(gpt6Luna.cheap, true, 'GPT-6 Luna 为超低价高通量模型');
+
+  // sortModelsInFamily 对乱序输入也能按热度 + 版本降序排好
+  const shuffled = [
+    { id: 'gpt-5.4-mini', provider: 'OpenAI', cheap: true },
+    { id: 'gpt-6-sol', provider: 'OpenAI', hot: true },
+    { id: 'gpt-6.1-sol', provider: 'OpenAI', hot: true },
+    { id: 'gpt-5.5', provider: 'OpenAI' },
+  ];
+  const sorted = cfg.sortModelsInFamily(shuffled).map((m) => m.id);
+  assert.deepEqual(sorted, ['gpt-6.1-sol', 'gpt-6-sol', 'gpt-5.5', 'gpt-5.4-mini']);
+});
+
+test('2026.9.30.7：长期记忆点自动传递给 Agent 与子智能体生效，并支持显式记忆指令自动捕获', async () => {
+  const mem = await import('../js/memory.js');
+  // 支持 4 字以上的精炼中文事实（如“偏好中文”）
+  const merged = mem.upsertFacts([], ['偏好中文', '我是后端架构师']);
+  assert.equal(merged.length, 2);
+  const formatted = mem.formatMemory(merged);
+  assert.match(formatted, /Persistent Memory/);
+  assert.match(formatted, /已由系统自动传递给 Agent/);
+  assert.doesNotMatch(formatted, /与当前问题无关的条目请忽略/, '不应再用消极措辞让模型忽略长期记忆');
+
+  const activeNote = mem.formatActiveMemoryReminder(merged);
+  assert.match(activeNote, /长期记忆已自动生效/);
+  assert.match(activeNote, /偏好中文/);
+
+  // 自动提取用户显式“请记住：...”指令
+  const autoFacts = mem.extractAutoMemoryFacts('请记住：我所有的代码都使用 TypeScript 严格模式。顺便帮我算一下 1+1。');
+  assert.equal(autoFacts.length, 1);
+  assert.match(autoFacts[0], /TypeScript 严格模式/);
+});
+
+test('2026.9.30.7：天枢 THN 五项自演进增强（L1 轻快路径、L3 中英概念簇召回、L5 0ms工具路由与子智能体冲突仲裁、L6+ 可观测性）', async () => {
+  const nexus = await import('../js/nexus.js');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.enhancements.length, 5);
+
+  // 1. L1 Fast-Path 轻快路径裁剪
+  const fastProf = nexus.resolveNexusExecutionProfile({
+    userText: '你好，今天心情怎么样？',
+    plan: { route: { choice: 'direct' }, need_tools: { noul: 0.05 } },
+  });
+  assert.equal(fastProf.fastPath, true);
+  assert.equal(fastProf.mode, 'fast-path');
+
+  const fullProf = nexus.resolveNexusExecutionProfile({
+    userText: '请编写 Python 脚本计算矩阵特征值并生成折线图对比',
+    plan: { route: { choice: 'code' }, need_tools: { noul: 0.92 } },
+  });
+  assert.equal(fullProf.fastPath, false);
+
+  // 2. L3 中英跨语种概念簇混合检索（英文会话写 rollback particle，中文搜“回滚粒子”仍能命中）
+  const crossLangSessions = [
+    {
+      id: 'en-sess',
+      title: 'Canvas Disintegrate Effect',
+      updatedAt: 2000,
+      messages: [
+        { role: 'user', text: 'How to implement rollback particle animation?' },
+        { role: 'assistant', text: 'Use requestAnimationFrame and charcoal micro-particles for undo.' },
+      ],
+    },
+  ];
+  const hits = nexus.searchCrossSessionMemory(crossLangSessions, '上次那个回滚粒子消散是怎么做的', { excludeSessionId: 'cur' });
+  assert.equal(hits.length, 1, '中英同义概念簇应能跨语种召回历史会话');
+  assert.equal(hits[0].sessionId, 'en-sess');
+
+  // 3. L5 0ms 本地工具优先路由与环境溯源
+  const routeRec = nexus.recommendExecutionEngine('帮我算一下 sha256 哈希和正则匹配', { sandboxEnabled: true, webEnabled: false });
+  assert.equal(routeRec.tier, 'browser-local-0ms');
+  assert.ok(routeRec.recommendedTools.includes('hash_tool'));
+  assert.ok(routeRec.recommendedTools.includes('regex_tool'));
+  assert.match(nexus.formatExecutionRoutingHint(routeRec), /环境溯源/);
+
+  // 4. L5 子智能体冲突仲裁矩阵
+  const arb = nexus.arbitrateSubagentReports([
+    { agent: 'coder', task: '检查模块', report: '代码验证通过，延迟 12ms，修改了 js/nexus.js' },
+    { agent: 'verifier', task: '复核模块', report: '测试失败：存在边界报错，延迟 45ms，位于 js/nexus.js' },
+  ]);
+  assert.equal(arb.hasConflict, true, '正负结论对立时应检出冲突');
+  assert.equal(arb.ranked[0].agent, 'verifier', 'verifier 置信度权重应最高');
+  const arbNote = nexus.formatSubagentArbitrationNote(arb);
+  assert.match(arbNote, /子智能体冲突仲裁与置信度矩阵/);
+  assert.match(arbNote, /js\/nexus\.js/);
+
+  // 5. L6+ 全链路可观测性遥测
+  const tel = nexus.createTurnTelemetry({ model: 'claude-sonnet-5-5', fastPath: false, activeMemoryCount: 3 });
+  tel.recordLayer('L1-jev', 18).recordTool('hash_tool', 1, { engine: 'browser-0ms', ok: true });
+  tel.recordUsage({ input_tokens: 1000, output_tokens: 250, cache_read_input_tokens: 800 });
+  tel.finish();
+  const obsReport = nexus.formatObservabilityReport(tel);
+  assert.match(obsReport, /全链路可观测性遥测/);
+  assert.match(obsReport, /L2 缓存命中率：44%/);
+  assert.match(obsReport, /hash_tool\(browser-0ms,1ms\)/);
+});
+
+test('2026.9.30.7：Toast 最多堆叠 3 条、回滚小黑色高精细微粒特效、图表微交互性', async () => {
+  const fsp = await import('node:fs');
+  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+
+  // Req 4: Toast 最多堆叠 3 条
+  assert.match(uiJs, /export const MAX_TOAST_STACK = 3/);
+  assert.match(stylesCss, /\.toasts\s*>\s*\.toast:nth-last-child\(n\+4\)\s*\{\s*display:\s*none\s*!important;\s*\}/);
+
+  // Req 5: 回滚改为小黑色粒子特效并增加精细度
+  assert.match(uiJs, /BLACK_MICRO_PALETTE/);
+  assert.match(uiJs, /#09090b/);
+  assert.match(uiJs, /grainKind/);
+
+  // Req 6: 图表增加微交互性（悬停/点击浮层提示 + 面积渐变 + 数据属性）
+  const barHtml = renderMarkdown(':::chart bar 季度营收\nQ1, 120\nQ2, 180\n:::');
+  assert.match(barHtml, /data-chart-label="Q1"/);
+  assert.match(barHtml, /data-chart-val="120"/);
+  assert.match(barHtml, /class="md-chart-tooltip"/);
+  const lineHtml = renderMarkdown(':::chart line 趋势\n一月, 10\n二月, 25\n:::');
+  assert.match(lineHtml, /class="md-chart-area"/);
+  assert.match(stylesCss, /\.md-chart-tooltip\.show/);
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();

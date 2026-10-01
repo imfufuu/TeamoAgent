@@ -938,11 +938,11 @@ async function executeToolBody(name, args, ctx) {
           return n ? `已从长效记忆删除 ${n} 条。剩余 ${next.length} 条。` : `没有匹配「${q}」的记忆。`;
         }
         const fact = String((args && args.fact) || '').trim();
-        if (fact.length < 8) return 'add 需要一条至少 8 个字的事实（偏好、身份、项目、约定），不要记临时步骤。';
+        if (fact.length < 4) return 'add 需要一条至少 4 个字符的事实（偏好、身份、项目、约定），不要记临时步骤。';
         const next = upsertFacts(mem, [fact]);
         commit(next);
         emit({ status: 'ok', note: `记下 ${next[0] && next[0].text}` });
-        return `已记下（跨会话保留，最多 20 条）：${next[0] && next[0].text}`;
+        return `已记下（跨会话保留并自动传递给 Agent 生效，最多 24 条）：${next[0] && next[0].text}`;
       }
       case 'evaluate_expression': {
         emit({ status: 'running', note: '求值…' });
