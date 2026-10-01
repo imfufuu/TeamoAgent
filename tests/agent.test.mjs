@@ -5145,7 +5145,7 @@ test('2026.9.30.7：长期记忆点自动传递给 Agent 与子智能体生效�
 
 test('2026.9.30.7：天枢 THN 五项自演进增强（L1 轻快路径、L3 中英概念簇召回、L5 0ms工具路由与子智能体冲突仲裁、L6+ 可观测性）', async () => {
   const nexus = await import('../js/nexus.js');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.enhancements.length, 5);
+  assert.ok(nexus.NEXUS_ARCHITECTURE_SPEC.enhancements.length >= 5);
 
   // 1. L1 Fast-Path 轻快路径裁剪
   const fastProf = nexus.resolveNexusExecutionProfile({
@@ -5228,6 +5228,120 @@ test('2026.9.30.7：Toast 最多堆叠 3 条、回滚小黑色高精细微粒特
   const lineHtml = renderMarkdown(':::chart line 趋势\n一月, 10\n二月, 25\n:::');
   assert.match(lineHtml, /class="md-chart-area"/);
   assert.match(stylesCss, /\.md-chart-tooltip\.show/);
+});
+
+group('2026.9.30.8 天枢 THN 深度自评六大痛点闭环治理（写入守门与遗忘GC / L1可逆路由 / 决策足迹 / 记忆ID置信度TTL / 可解释降级 / 全档位L5仲裁）');
+
+test('2026.9.30.8：痛点1&4 治理——技能与记忆统一质量守门人、自动淘汰 learned-这个呢 噪声技能、记忆带 ID/置信度/TTL 并支持精准删除', async () => {
+  const sk = await import('../js/skills.js');
+  const mem = await import('../js/memory.js');
+
+  // 1) 技能写入守门人：拦截“这个呢”、“继续”、“为什么”等无意义指代残片与未自愈报错回合
+  assert.equal(sk.distillSkill({ userText: '这个呢', toolNames: ['analyze_image', 'read_file', 'write_file'], iterations: 3 }), null, '“这个呢”指代残片严禁固化为技能');
+  assert.equal(sk.distillSkill({ userText: '继续', toolNames: ['read_file', 'write_file', 'execute_python'], iterations: 3 }), null, '“继续”严禁固化为技能');
+  assert.equal(sk.distillSkill({ userText: '把仓库 clone 下来再跑测试', toolNames: ['run_git', 'execute_python', 'read_file'], iterations: 3, unrecoveredError: true }), null, '未自愈的失败回合严禁固化为技能');
+
+  // 2) 技能遗忘 GC（pruneLearnedSkills）：存量中含有 learned-这个呢 时自动清理并上报 prunedIds
+  const dirtySkills = [
+    { id: 'learned-这个呢', description: '这个呢', body: '## Learned skill: 这个呢\n- 工具: analyze_image', ts: Date.now() },
+    { id: 'learned-clone-test', description: '把仓库 clone 下来再跑测试', body: '## Learned skill: 把仓库 clone 下来再跑测试\n- 工具: run_git', ts: Date.now() },
+  ];
+  const gcReport = sk.pruneLearnedSkillsWithReport(dirtySkills);
+  assert.ok(gcReport.prunedIds.includes('learned-这个呢'), 'GC 应自动识别并清除 learned-这个呢');
+  assert.equal(gcReport.kept.length, 1);
+  assert.equal(gcReport.kept[0].id, 'learned-clone-test');
+  assert.equal(sk.formatSkillsIndex(dirtySkills).includes('learned-这个呢'), false, '技能目录中绝不应再出现 learned-这个呢');
+
+  // 3) 记忆质量守门人 + ID / 置信度 / 来源 / TTL + 按 ID 零误伤精准删除
+  assert.equal(mem.isValidMemoryFact('这个呢？'), false, '反问句/指代残片不应入长期记忆');
+  assert.equal(mem.isValidMemoryFact('帮我写一个快速排序代码'), false, '一次性临时指令不应入长期记忆');
+  const facts = mem.upsertFacts([], [
+    { text: '用户偏好使用 Python 3.12 编写后端服务', source: 'user-explicit' },
+    { text: '用户习惯用 Python Matplotlib 画科研图', source: 'agent-tool' },
+  ]);
+  assert.equal(facts.length, 2);
+  assert.ok(facts[0].id.startsWith('mem-'), '每条记忆应分配唯一短 ID');
+  assert.equal(facts[0].confidence, 0.98, '用户显式记忆置信度应最高');
+  // 按精确 ID 删除第一条，绝不误伤同样包含 Python 的第二条记忆
+  const delRes = mem.forgetMemoryFact(facts, facts[0].id);
+  assert.equal(delRes.byId, true);
+  assert.equal(delRes.removed.length, 1);
+  assert.equal(delRes.next.length, 1, '按 ID 删除不应误伤同关键词的另一条 Python 记忆');
+  assert.match(delRes.next[0].text, /Matplotlib/);
+});
+
+test('2026.9.30.8：痛点2/3/5/6 治理——L1 路由可逆化中途升档、面向用户的决策足迹、可解释降级诊断、全档位 L5 统一仲裁', async () => {
+  const nexus = await import('../js/nexus.js');
+
+  // 痛点 2：L1 多约束防误判 + Fast-Path 中途反悔升档（escalateNexusProfile）
+  const multiConstraintProf = nexus.resolveNexusExecutionProfile({
+    userText: '这个呢？为什么会出现这个问题，如何从架构上解决？',
+    plan: { route: { choice: 'direct' }, need_tools: { noul: 0.1 } },
+  });
+  assert.equal(multiConstraintProf.fastPath, false, '含指代追问或多约束分析的问题不应误入 Fast-Path');
+
+  const initialFast = nexus.resolveNexusExecutionProfile({
+    userText: '你好呀',
+    plan: { route: { choice: 'direct' }, need_tools: { noul: 0.05 } },
+  });
+  assert.equal(initialFast.fastPath, true);
+  const escalated = nexus.escalateNexusProfile(initialFast, { iteration: 2, toolCallsCount: 1, userText: '你好呀' });
+  assert.equal(escalated.fastPath, false, '触发工具调用或进入第 2 轮迭代时应立即从 Fast-Path 反悔升档');
+  assert.equal(escalated.escalated, true);
+  assert.equal(escalated.mode, 'escalated-full-nexus');
+
+  // 痛点 6：全档位统一 L5 冲突仲裁（普通档位无子智能体时自动切换为内源正反双视角自检或多工具交叉核验）
+  const dualArb = nexus.arbitrateUnifiedEvidence({
+    canDispatch: false,
+    reasoningLevel: 'medium',
+    userText: '请深入对比这两种缓存架构的优缺点并评估边界风险',
+    stepHistory: [],
+    subagentReports: [],
+  });
+  assert.equal(dualArb.mode, 'internal-dual-perspective');
+  assert.match(dualArb.note, /内源双视角交叉仲裁/);
+
+  const toolArb = nexus.arbitrateUnifiedEvidence({
+    canDispatch: false,
+    reasoningLevel: 'high',
+    userText: '计算结果',
+    stepHistory: [
+      { name: 'execute_javascript', isError: true },
+      { name: 'evaluate_expression', isError: false },
+    ],
+    subagentReports: [],
+  });
+  assert.equal(toolArb.mode, 'multi-tool-cross-check');
+  assert.equal(toolArb.hasConflict, true);
+  assert.match(toolArb.note, /多工具证据交叉仲裁/);
+
+  // 痛点 5：降级可解释性诊断（Explainable Degradation）
+  const degs = nexus.buildDegradationDiagnostics({
+    relayOk: false,
+    webEnabled: false,
+    sandboxEnabled: true,
+    canDispatch: false,
+    reasoningLevel: 'medium',
+  });
+  assert.ok(degs.some((d) => d.id === 'relay-offline' && /python3 server\.py/.test(d.recovery)));
+  assert.match(nexus.formatDegradationDiagnostics(degs), /恢复方式/);
+
+  // 痛点 3：面向用户与输出的轻量决策足迹（Decision Footprint）
+  const fp = nexus.buildDecisionFootprint({
+    profile: escalated,
+    memories: [{ id: 'mem-1234', text: '偏好中文' }],
+    recalledSessions: [{ title: '架构讨论' }],
+    matchedSkillIds: ['structured-diagrams'],
+    prunedSkillIds: ['learned-这个呢'],
+    usedTools: ['render_dot'],
+    arbitration: dualArb,
+    degradations: degs,
+  });
+  const promptFp = nexus.formatDecisionFootprintForPrompt(fp);
+  const summaryFp = nexus.formatDecisionFootprintSummary(fp);
+  assert.match(promptFp, /L1↗L6 中途升档/);
+  assert.match(promptFp, /GC淘汰噪声技能=learned-这个呢/);
+  assert.match(summaryFp, /天枢 L1↗L6 中途升档 · 记忆×1 · 召回×1 · 技能:structured-diagrams · 工具×1 · GC清理×1/);
 });
 
 for (const item of queue) {

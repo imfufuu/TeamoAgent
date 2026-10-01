@@ -24,8 +24,8 @@ import { findSubagent, subagentGuide } from './subagents.js';
 import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
-import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill } from './skills.js';
-import { formatMemory, formatActiveMemoryReminder, extractAutoMemoryFacts, upsertFacts } from './memory.js';
+import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
+import { formatMemory, formatActiveMemoryReminder, extractAutoMemoryFacts, upsertFacts, pruneMemoryFacts } from './memory.js';
 import {
   discoverWorkspaceContext,
   shouldTriggerSessionRecall,
@@ -38,13 +38,19 @@ import {
   createTaskLedger,
   formatTaskLedgerNote,
   resolveNexusExecutionProfile,
+  escalateNexusProfile,
   recommendExecutionEngine,
   formatExecutionRoutingHint,
   arbitrateSubagentReports,
   formatSubagentArbitrationNote,
+  arbitrateUnifiedEvidence,
+  buildDegradationDiagnostics,
+  formatDegradationDiagnostics,
+  buildDecisionFootprint,
+  formatDecisionFootprintForPrompt,
   createTurnTelemetry,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.9.30.7';
+import { moderateUserTurn } from './moderation.js?v=2026.9.30.8';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -239,6 +245,13 @@ export function createAgent(store, hooks = {}) {
     const lv = String(st.reasoningLevel || 'medium').toLowerCase();
     const canDispatch = st.thinking !== false && (lv === 'max' || lv === 'ultra');
     if (!cachedPrefix) {
+      // 回合开始前先跑一次记忆与技能 GC，自动淘汰如 learned-这个呢 等噪声条目或过期记忆
+      store.state.memory = pruneMemoryFacts(store.state.memory);
+      const skillGc = pruneLearnedSkillsWithReport(store.state.learnedSkills);
+      store.state.learnedSkills = skillGc.kept;
+      if (nexusState && skillGc.prunedIds.length) {
+        nexusState.prunedSkillIds = skillGc.prunedIds;
+      }
       const wsCtx = discoverWorkspaceContext(fs);
       const subGuide = subagentGuide({ allow: canDispatch, ultra: lv === 'ultra' });
       cachedPrefix = assembleSystemLayers({
@@ -247,16 +260,32 @@ export function createAgent(store, hooks = {}) {
         contextFiles: [subGuide, wsCtx].filter(Boolean).join('\n\n'),
       }).cached;
     }
-    const execProfile = resolveNexusExecutionProfile({
+    const baseProfile = (nexusState && nexusState.profile) || resolveNexusExecutionProfile({
       userText,
       plan,
       hasAttachments: !!(lastUser && Array.isArray(lastUser.attachments) && lastUser.attachments.length),
+      iteration,
+      toolCallsCount: nexusState && nexusState.stepHistory ? nexusState.stepHistory.length : 0,
     });
+    const execProfile = escalateNexusProfile(baseProfile, {
+      iteration,
+      toolCallsCount: nexusState && nexusState.stepHistory ? nexusState.stepHistory.length : 0,
+      userText,
+    });
+    if (nexusState) nexusState.profile = execProfile;
+
     const recallT0 = Date.now();
-    const recallHits = (!execProfile.fastPath && iteration === 1 && shouldTriggerSessionRecall(userText) && Array.isArray(store.state.sessions))
+    const shouldRecallNow = !execProfile.fastPath
+      && (iteration === 1 || execProfile.escalated)
+      && shouldTriggerSessionRecall(userText)
+      && Array.isArray(store.state.sessions);
+    const recallHits = shouldRecallNow
       ? searchCrossSessionMemory(store.state.sessions, userText, { excludeSessionId: store.state.activeSessionId })
       : [];
     const skillBodyNote = selectSkillBodies(plan, userText, store.state.learnedSkills);
+    const matchedSkillIds = skillBodyNote
+      ? [...skillBodyNote.matchAll(/## (?:Skill|Learned skill):\s*([^\n\r]+)/g)].map((m) => m[1].trim())
+      : [];
     const engineRec = !execProfile.fastPath
       ? recommendExecutionEngine(userText, { sandboxEnabled: store.state.settings.sandboxEnabled !== false, webEnabled: webOn })
       : null;
@@ -268,16 +297,41 @@ export function createAgent(store, hooks = {}) {
     const ledgerNote = (!execProfile.fastPath && nexusState && nexusState.ledger)
       ? formatTaskLedgerNote(nexusState.ledger)
       : '';
-    const subagentArb = (nexusState && Array.isArray(nexusState.subagentReports) && nexusState.subagentReports.length >= 2)
-      ? arbitrateSubagentReports(nexusState.subagentReports)
-      : null;
-    const subagentArbNote = subagentArb ? formatSubagentArbitrationNote(subagentArb) : '';
+    const unifiedArb = !execProfile.fastPath
+      ? arbitrateUnifiedEvidence({
+        canDispatch,
+        reasoningLevel: lv,
+        userText,
+        stepHistory: nexusState ? nexusState.stepHistory : [],
+        subagentReports: nexusState ? nexusState.subagentReports : [],
+      })
+      : { mode: 'none', modeLabel: '轻快旁路', hasConflict: false, note: '' };
+    const degradations = buildDegradationDiagnostics({
+      relayOk,
+      webEnabled: webOn,
+      sandboxEnabled: store.state.settings.sandboxEnabled !== false,
+      canDispatch,
+      reasoningLevel: lv,
+    });
+    const degradationNote = formatDegradationDiagnostics(degradations);
+    const footprint = buildDecisionFootprint({
+      profile: execProfile,
+      memories: store.state.memory,
+      recalledSessions: recallHits,
+      matchedSkillIds,
+      prunedSkillIds: (nexusState && nexusState.prunedSkillIds) || [],
+      usedTools: nexusState && nexusState.stepHistory ? nexusState.stepHistory.map((s) => s.name) : [],
+      arbitration: unifiedArb,
+      degradations,
+    });
+    if (nexusState) nexusState.lastFootprint = footprint;
     if (nexusState && nexusState.telemetry) {
       nexusState.telemetry.fastPath = execProfile.fastPath;
+      nexusState.telemetry.escalated = !!execProfile.escalated;
       nexusState.telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
       nexusState.telemetry.recalledSessions = recallHits.length;
-      nexusState.telemetry.recalledSkills = skillBodyNote ? (skillBodyNote.match(/## (?:Skill|Learned skill):/g) || []).length : 0;
-      if (subagentArb) nexusState.telemetry.subagentConflicts = subagentArb.conflicts.length;
+      nexusState.telemetry.recalledSkills = matchedSkillIds.length;
+      if (unifiedArb.hasConflict) nexusState.telemetry.subagentConflicts = 1;
       nexusState.telemetry.recordLayer('L2+L3', Date.now() - recallT0);
     }
     const layers = assembleSystemLayers({
@@ -292,12 +346,14 @@ export function createAgent(store, hooks = {}) {
         relayNote: relayOk ? '' : RELAY_OFF_NOTE,
       }),
       ephemeral: [
+        formatDecisionFootprintForPrompt(footprint),
         activeMemReminder,
+        degradationNote,
         jevNote || '',
         skillBodyNote,
         engineRoutingNote,
         formatSessionRecallNote(recallHits),
-        subagentArbNote,
+        unifiedArb.note || '',
         ledgerNote,
         reflectionNote,
         droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
@@ -634,6 +690,7 @@ export function createAgent(store, hooks = {}) {
           ...(!!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)) ? (() => { try { store.state.observedHiddenThink = { ...(store.state.observedHiddenThink || {}), [model]: true }; } catch { /* 忽略 */ } return {}; })() : {}),
           finishReason, done: true, lengthContinues: lengthContinues || undefined, transport: getTransport(),
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
+          nexusFootprint: nexusState.lastFootprint ? { ...nexusState.lastFootprint, usedTools: [...new Set(usedTools)] } : undefined,
         });
         emit('onAssistantDone', assistantMsg);
 
@@ -694,7 +751,12 @@ export function createAgent(store, hooks = {}) {
         if (autoFacts.length) {
           store.state.memory = upsertFacts(store.state.memory, autoFacts);
         }
-        const rawLearned = distillSkill({ userText: lastUser && lastUser.text, toolNames: usedTools, iterations });
+        const rawLearned = distillSkill({
+          userText: lastUser && lastUser.text,
+          toolNames: usedTools,
+          iterations,
+          unrecoveredError: hadToolError && lastStepFailed,
+        });
         if (rawLearned) {
           const learned = refineSkillWithTelemetry(rawLearned, {
             toolSequence: usedTools,

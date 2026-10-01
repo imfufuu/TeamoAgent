@@ -9,7 +9,7 @@ import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
-import { formatMemory, upsertFacts } from './memory.js';
+import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
@@ -929,20 +929,25 @@ async function executeToolBody(name, args, ctx) {
           return block;
         }
         if (action === 'forget') {
-          const q = String((args && args.fact) || '').trim().toLowerCase();
-          if (q.length < 2) return 'forget 需要 fact（至少 2 个字符的关键词）。';
-          const next = mem.filter((f) => !String(f.text || f).toLowerCase().includes(q));
-          commit(next);
-          const n = mem.length - next.length;
+          const q = String((args && (args.id || args.fact)) || '').trim();
+          const res = forgetMemoryFact(mem, q);
+          if (res.error) return res.error;
+          commit(res.next);
+          const n = res.removed.length;
           emit({ status: 'ok', note: `删除 ${n} 条` });
-          return n ? `已从长效记忆删除 ${n} 条。剩余 ${next.length} 条。` : `没有匹配「${q}」的记忆。`;
+          return n
+            ? `已从长效记忆删除 ${n} 条（${res.removed.map((r) => `[${r.id}] ${r.text}`).join('；')}）。剩余 ${res.next.length} 条。`
+            : `没有匹配「${q}」的记忆。`;
         }
         const fact = String((args && args.fact) || '').trim();
-        if (fact.length < 4) return 'add 需要一条至少 4 个字符的事实（偏好、身份、项目、约定），不要记临时步骤。';
-        const next = upsertFacts(mem, [fact]);
+        if (!isValidMemoryFact(fact)) {
+          return '记忆质量闸门已拦截：add 需要一条至少 4 个字符、非反问句、非指代残片（如“这个呢”）、非一次性临时指令的跨会话事实（偏好、身份、项目、约定）。';
+        }
+        const next = upsertFacts(mem, [{ text: fact, source: 'agent-tool' }]);
         commit(next);
-        emit({ status: 'ok', note: `记下 ${next[0] && next[0].text}` });
-        return `已记下（跨会话保留并自动传递给 Agent 生效，最多 24 条）：${next[0] && next[0].text}`;
+        const saved = next.find((f) => f.text.toLowerCase() === fact.toLowerCase()) || next[0];
+        emit({ status: 'ok', note: `记下 [${saved && saved.id}] ${saved && saved.text}` });
+        return `已记下（ID: ${saved && saved.id}，置信度: ${saved && saved.confidence}，跨会话保留并自动传递给 Agent 生效）：${saved && saved.text}`;
       }
       case 'evaluate_expression': {
         emit({ status: 'running', note: '求值…' });

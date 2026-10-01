@@ -16,6 +16,7 @@ import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
+import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport } from './nexus.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -1362,13 +1363,17 @@ export function mountUI(store, agent) {
     if (!webToggle) return;
     webToggle.innerHTML = GLOBE_SVG + '联网';
     if (!hasRelay()) {
-      webToggle.disabled = true;
+      webToggle.disabled = false;
       webToggle.classList.remove('on');
-      webToggle.title = '未检测到本地中继（python3 server.py）。没有中继时联网不可用，按钮保持灰色。';
+      webToggle.classList.add('degraded-off');
+      webToggle.setAttribute('aria-disabled', 'true');
+      webToggle.title = '【降级说明】当前为纯静态网页环境，未检测到本地 127.0.0.1:8787 的 server.py 中继，已自动裁剪 fetch_url。在项目目录执行 python3 server.py 后刷新页面即可开启联网抓取。';
       syncCapLine();
       return;
     }
     webToggle.disabled = false;
+    webToggle.classList.remove('degraded-off');
+    webToggle.removeAttribute('aria-disabled');
     const on = store.state.settings.webEnabled !== false;
     webToggle.classList.toggle('on', on);
     webToggle.title = on
@@ -1378,7 +1383,10 @@ export function mountUI(store, agent) {
   };
   if (webToggle) {
     webToggle.addEventListener('click', () => {
-      if (webToggle.disabled || !hasRelay()) return;
+      if (!hasRelay()) {
+        toast('未检测到本地中继（server.py），fetch_url 已降级隐藏。请在项目目录运行 python3 server.py 后刷新页面恢复联网', 'warn', 4200);
+        return;
+      }
       store.state.settings.webEnabled = store.state.settings.webEnabled === false;
       store.notify();
       syncWeb();
@@ -2302,14 +2310,20 @@ export function mountUI(store, agent) {
     if (m.toolCalls && m.toolCalls.length) { foot.hidden = true; foot.textContent = ''; return; }
     const bits = [];
     if (m.reasoningLevel && m.reasoningLevel !== 'off') bits.push(reasoningLevelLabel(m.reasoningLevel));
+    if (m.nexusFootprint) {
+      const fpSummary = formatDecisionFootprintSummary(m.nexusFootprint);
+      if (fpSummary) bits.push(fpSummary);
+    }
     const clock = m.durationMs != null ? fmtClock(m.durationMs) : '';
     const ago = m.ts ? fmtAgo(m.ts) : '';
     const time = [clock, ago].filter(Boolean).join(' | ');
-    const line = bits.length && time ? `${bits[0]} · ${time}` : (bits[0] || time);
+    const head = bits.join(' · ');
+    const line = head && time ? `${head} · ${time}` : (head || time);
     if (!line) { foot.hidden = true; foot.textContent = ''; return; }
     foot.hidden = false;
     foot.textContent = line;
-    foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
+    const fpDetail = m.nexusFootprint ? formatDecisionFootprintForPrompt(m.nexusFootprint) : '';
+    foot.title = [m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : ''), fpDetail].filter(Boolean).join('\n');
   }
 
   function paintAssistant(wrap, m) {
@@ -3255,6 +3269,8 @@ export function mountUI(store, agent) {
         `真实会话：${(store.state.sessions || []).length} 个（${preSystem ? '已隔离，未写入' : '当前'}）`,
         `最近回合：${st.lastMs ? fmtSpan(st.lastMs) : '—'}`,
         `累计耗时：${st.totalMs ? fmtSpan(st.totalMs) : '—'}`,
+        '',
+        formatObservabilityReport(store.state.lastNexusTelemetry),
       ].join('\n');
     } else if (name === 'theme') {
       const v = String(arg || '').toLowerCase();

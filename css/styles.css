@@ -416,6 +416,7 @@ a { color: var(--fg); }
 .pill.on:hover:not(:disabled),
 .pill.on:active { background: var(--fg); color: var(--bg); border-color: var(--fg); }
 .pill:disabled { opacity: .35; cursor: not-allowed; }
+.pill.degraded-off { opacity: .42; cursor: help; }
 .topbar-right { display: flex; gap: 8px; }
 .think-picker { position: relative; flex: 0 0 auto; }
 .think-menu { padding: 6px; }

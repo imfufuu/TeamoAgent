@@ -14,21 +14,21 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
   code: 'THN',
   shortName: '天枢 THN',
   name: '天枢 THN · Teamo-Hermes Nexus Architecture (天枢·赫尔墨斯融合架构)',
-  version: '1.5.0',
+  version: '1.6.0',
   layers: [
-    { id: 'L1-cognition', name: 'System-1/System-2 双系统认知路由与自适应轻快路径层（Fast-Path Bypass）', modules: ['jev.js', 'temperature.js', 'reasoning.js', 'nexus.js#resolveNexusExecutionProfile'] },
-    { id: 'L2-prompt', name: '四层缓存不变量提示词与上下文发现层（Cache-Invariant Prompt Compiler）', modules: ['prompt.js', 'nexus.js#discoverWorkspaceContext'] },
-    { id: 'L3-memory', name: '三层持久记忆与中英跨语种概念簇混合 BM25 召回层（Hybrid Concept-BM25 Recall）', modules: ['memory.js', 'context.js', 'nexus.js#searchCrossSessionMemory', 'nexus.js#expandQuerySemantics'] },
-    { id: 'L4-skills', name: '闭环自演进技能与 SKILL.md 开放标准层（Self-Refining Procedural Skills）', modules: ['skills.js', 'nexus.js#refineSkillWithTelemetry'] },
-    { id: 'L5-orchestration', name: 'DAG/Wave 并发工具、0ms 本地工具优先路由与子智能体冲突仲裁层（Conflict Arbitration）', modules: ['agent.js#batchToolCalls', 'subagents.js', 'nexus.js#arbitrateSubagentReports', 'nexus.js#recommendExecutionEngine'] },
-    { id: 'L6-reflection', name: '执行自省、死循环阻断、任务账本与全链路可观测性遥测层（Turn Recovery & Observability）', modules: ['nexus.js#analyzeToolTrajectory', 'nexus.js#createTaskLedger', 'nexus.js#createTurnTelemetry'] },
+    { id: 'L1-cognition', name: 'System-1/System-2 双系统可逆认知路由层（Reversible Fast-Path & Mid-Turn Escalation）', modules: ['jev.js', 'temperature.js', 'reasoning.js', 'nexus.js#resolveNexusExecutionProfile', 'nexus.js#escalateNexusProfile'] },
+    { id: 'L2-prompt', name: '四层缓存不变量提示词与可解释降级诊断层（Cache-Invariant Compiler & Explainable Degradation）', modules: ['prompt.js', 'nexus.js#discoverWorkspaceContext', 'nexus.js#buildDegradationDiagnostics'] },
+    { id: 'L3-memory', name: '带质量闸门、置信度与 TTL 衰减 GC 的三层持久记忆与中英概念簇混合 BM25 召回层', modules: ['memory.js#isValidMemoryFact', 'memory.js#pruneMemoryFacts', 'nexus.js#searchCrossSessionMemory'] },
+    { id: 'L4-skills', name: '带写入守门人、活力衰减淘汰（Forgetting GC）与 SKILL.md 标准的自演进技能引擎', modules: ['skills.js#isValidSkillCandidate', 'skills.js#pruneLearnedSkills', 'nexus.js#refineSkillWithTelemetry'] },
+    { id: 'L5-orchestration', name: 'DAG/Wave 并发、0ms 本地工具优先与全档位统一冲突仲裁层（子智能体矩阵 + 多工具核验 + 内源双视角自检）', modules: ['agent.js#batchToolCalls', 'subagents.js', 'nexus.js#arbitrateSubagentReports', 'nexus.js#arbitrateUnifiedEvidence'] },
+    { id: 'L6-reflection', name: '执行自省护栏、Task Ledger 四阶段账本與面向用户的决策足迹层（Decision Footprint & Observability）', modules: ['nexus.js#analyzeToolTrajectory', 'nexus.js#createTaskLedger', 'nexus.js#buildDecisionFootprint'] },
   ],
   enhancements: [
-    'L1 自适应轻快路径（Fast-Path Bypass）：简单直答回合自动旁路重型跨会话扫描与账本开销，实现零冗余直达',
-    'L3 中英跨语种概念簇 + 模糊双字混合检索（Hybrid Concept-BM25）：突破纯字面匹配局限，支持中英同义概念跨会话召回',
-    'L5 子智能体冲突仲裁矩阵（Subagent Conflict Arbitration）：自动对比多专家报告的数值结论与判定倾向，生成共识/分歧仲裁注入',
-    'L5 零冷启动本地工具优先路由（0ms Local Toolbench Routing）：优先调度 0ms 浏览器原生工具与 8ms JS Worker，按需唤醒 Pyodide WASM',
-    'L6+ 全链路可观测性遥测（Full-Chain Observability）：实时追踪各层耗时、L2 缓存命中率、记忆激活数与工具引擎分布',
+    '记忆与技能统一质量闸门 + TTL/命中衰减自动遗忘 GC（Memory & Skill Gatekeeper + Decay GC）：拦截“这个呢”等指代噪声固化，自动淘汰过期低活力条目，支持按 [mem-xxxx] ID 精准删除',
+    'L1 路由可逆化与中途反悔升档（Reversible Fast-Path Escalation）：探测到多约束、隐式指代或触发工具调用时，实时从 Fast-Path 反悔升级至全链路慢思考',
+    '面向用户与输出的轻量决策足迹（User-Facing Decision Footprint）：每轮显式标注路由路径、命中的记忆 ID、激活的技能、GC 清理项与工具引擎，告别黑箱',
+    '全档位统一的 L5 冲突仲裁（Cross-Tier Unified Arbitration）：Max/Ultra 跑子智能体置信度矩阵，普通档位自动降级为「多工具结果交叉核验 + 内源正反双视角自检」',
+    '可解释的优雅降级诊断（Explainable Degradation）：工具裁剪（如静态页面无本地 server.py 中继隐藏 fetch_url）时，向用户与 Agent 同步输出缺失原因与一键恢复指令',
   ],
 });
 
@@ -220,20 +220,27 @@ const DURABLE_FACT_RE = /(偏好|喜欢|习惯|一律|总是|默认用|项目|�
 
 export function flushDroppedTurnsToMemory(existingMemory, droppedDigest) {
   if (!droppedDigest) return Array.isArray(existingMemory) ? existingMemory : [];
-  const candidates = factsFromDigest(droppedDigest).filter((f) => DURABLE_FACT_RE.test(f));
+  const candidates = factsFromDigest(droppedDigest)
+    .filter((f) => DURABLE_FACT_RE.test(f))
+    .map((text) => ({ text, source: 'compression-flush', confidence: 0.72 }));
   if (!candidates.length) return Array.isArray(existingMemory) ? existingMemory : [];
-  return upsertFacts(existingMemory, candidates);
+  return upsertFacts(existingMemory, candidates, { source: 'compression-flush' });
 }
 
 // ─── 4. 闭环自演进技能遥测与 SKILL.md 双向编解码（对齐 agentskills.io）────────
 export function refineSkillWithTelemetry(skill, { toolSequence = [], hadErrors = false, recovered = false, durationMs = 0 } = {}) {
   if (!skill || !skill.id) return skill;
+  // 未自愈的失败回合不产生也不污染技能
+  if (hadErrors && !recovered && !skill.uses) return null;
   const seq = toolSequence.filter(Boolean);
   const pipeline = seq.length ? seq.slice(0, 8).join(' → ') : '';
   const prevUses = Number(skill.uses) || 0;
   const prevSuccess = Number(skill.successCount) || 0;
   const uses = prevUses + 1;
   const successCount = prevSuccess + (hadErrors && !recovered ? 0 : 1);
+  const successRate = Number((successCount / uses).toFixed(2));
+  const baseConf = typeof skill.confidence === 'number' ? skill.confidence : 0.86;
+  const confidence = Number(Math.max(0.35, Math.min(0.99, baseConf * 0.7 + successRate * 0.3)).toFixed(2));
   const bodyLines = String(skill.body || '').split('\n').filter((l) => !l.startsWith('- 推荐执行链：') && !l.startsWith('- 避坑记录：'));
   if (pipeline) bodyLines.push(`- 推荐执行链：${pipeline}`);
   if (hadErrors && recovered) {
@@ -243,7 +250,9 @@ export function refineSkillWithTelemetry(skill, { toolSequence = [], hadErrors =
     ...skill,
     uses,
     successCount,
-    successRate: Number((successCount / uses).toFixed(2)),
+    successRate,
+    confidence,
+    lastHitAt: Date.now(),
     lastDurationMs: durationMs || skill.lastDurationMs || 0,
     pipeline: pipeline || skill.pipeline || '',
     body: bodyLines.join('\n'),
@@ -377,38 +386,69 @@ export function formatTaskLedgerNote(ledger) {
   return lines.join('\n');
 }
 
-// ─── 7. L1 自适应轻快路径裁剪（Fast-Path Adaptive Layer Bypass）───────────────
-// 针对简单直答回合，动态旁路 L3 跨会话扫描与 L6 任务账本开销，仅保留 L2 前缀缓存与持久记忆
-export function resolveNexusExecutionProfile({ userText = '', plan = null, hasAttachments = false } = {}) {
+// ─── 7. L1 可逆认知路由与中途自动升档（Reversible Fast-Path & Mid-Turn Escalation）──
+// 针对简单直答回合启用 Fast-Path；但一旦检测到多约束、隐式上下文指代、外部事实依赖或中途触发工具调用，
+// 立即允许“中途反悔”升级为全链路慢思考（Reversible Escalation），杜绝静默降级交付次品。
+const MULTI_CONSTRAINT_OR_IMPLICIT_RE = /(?:首先|然后|接着|同时|并且|不仅|除了|对比|区别|优缺点|深入|底层|架构|原理|为什么|如何|怎么(?!样)|一步步|推导|证明|核实|验证|评估|评价|自评|这个呢|那个呢|那如果|如果把|刚才)/i;
+
+export function resolveNexusExecutionProfile({ userText = '', plan = null, hasAttachments = false, iteration = 1, toolCallsCount = 0 } = {}) {
   const s = String(userText || '').trim();
   const route = plan && plan.route && plan.route.choice ? plan.route.choice : '';
   const needTools = plan && plan.need_tools && typeof plan.need_tools.noul === 'number' ? plan.need_tools.noul : null;
   const needCode = plan && plan.need_code && typeof plan.need_code.noul === 'number' ? plan.need_code.noul : null;
   const recallAsked = shouldTriggerSessionRecall(s);
   const complexSignal = /(?:代码|脚本|运行|计算|文件|搜索|联网|抓取|架构|对比|重构|画图|图表|子智能体|python|javascript|sql|regex|hash|http)/i.test(s);
+  const multiConstraint = MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
 
   const isSimpleDirect = !hasAttachments
     && !recallAsked
     && !complexSignal
+    && !multiConstraint
+    && iteration <= 1
+    && toolCallsCount === 0
     && s.length > 0
-    && s.length <= 90
-    && (route === 'direct' || (needTools !== null && needTools < 0.28 && (needCode === null || needCode < 0.25)));
+    && s.length <= 56
+    && (route === 'direct' || (needTools !== null && needTools < 0.22 && (needCode === null || needCode < 0.2)));
 
   if (isSimpleDirect) {
     return {
       mode: 'fast-path',
       fastPath: true,
+      escalated: false,
+      reversible: true,
       activeLayers: ['L1-cognition', 'L2-prompt', 'L3-persistent-memory'],
       bypassedLayers: ['L3-session-recall', 'L5-swarm-arbitration', 'L6-task-ledger'],
-      reason: '轻量直答请求，已自动启用天枢 L1 Fast-Path 旁路重型检索与账本层',
+      reason: '单步轻量直答请求，启用 L1 可逆轻快路径（若中途触发工具或深层依赖将自动升档）',
     };
   }
   return {
     mode: 'full-nexus',
     fastPath: false,
+    escalated: false,
+    reversible: true,
     activeLayers: ['L1-cognition', 'L2-prompt', 'L3-memory', 'L4-skills', 'L5-orchestration', 'L6-reflection'],
     bypassedLayers: [],
-    reason: '标准多维任务，天枢六层全链路协同激活',
+    reason: '多约束或专业任务，天枢 L1→L6 全链路协同激活',
+  };
+}
+
+// L1 中途反悔升档器：若初始走 Fast-Path，但产生了工具调用、迭代推进或发现隐式复杂约束，立即升档解锁全层
+export function escalateNexusProfile(prevProfile, { iteration = 1, toolCallsCount = 0, finishReason = '', userText = '' } = {}) {
+  if (!prevProfile || !prevProfile.fastPath) return prevProfile;
+  const s = String(userText || '');
+  const needsEscalation = iteration > 1
+    || toolCallsCount > 0
+    || /^(?:length|max_tokens|max_output_tokens)$/i.test(String(finishReason || ''))
+    || MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s);
+  if (!needsEscalation) return prevProfile;
+  return {
+    mode: 'escalated-full-nexus',
+    fastPath: false,
+    escalated: true,
+    reversible: true,
+    activeLayers: ['L1-cognition', 'L2-prompt', 'L3-memory', 'L4-skills', 'L5-orchestration', 'L6-reflection'],
+    bypassedLayers: [],
+    reason: `检测到多步工具依赖或深层约束（迭代 #${iteration}），已由 L1 Fast-Path 自动反悔升档至 L1→L6 全链路模式`,
   };
 }
 
@@ -642,12 +682,194 @@ export function formatObservabilityReport(telemetry) {
     .map((t) => `${t.name}(${t.engine},${t.durationMs}ms${t.ok ? '' : ',ERR'})`)
     .join(' → ') || '无工具调用';
   return [
-    `【天枢 THN · L6+ 全链路可观测性遥测（v${telemetry.version || '1.5.0'}）】`,
-    `- 执行模式：${telemetry.fastPath ? 'L1 Fast-Path 轻快直达' : 'L1-L6 全链路协同'} ｜ 总耗时：${telemetry.totalDurationMs || 0}ms`,
+    `【天枢 THN · L6+ 全链路可观测性遥测（v${telemetry.version || '1.6.0'}）】`,
+    `- 执行模式：${telemetry.escalated ? 'L1↗L6 中途反悔升档' : (telemetry.fastPath ? 'L1 Fast-Path 轻快直达' : 'L1-L6 全链路协同')} ｜ 总耗时：${telemetry.totalDurationMs || 0}ms`,
     `- 分层耗时：${spans}`,
     `- L2 缓存命中率：${cacheHitRate}（缓存读取 ${telemetry.cacheReadTokens} tok / 新增缓存 ${telemetry.cacheCreationTokens} tok / 输入 ${telemetry.inputTokens} tok）`,
     `- L3/L4 记忆与技能激活：长期记忆 ${telemetry.activeMemoryCount} 条 · 跨会话召回 ${telemetry.recalledSessions} 条 · 技能直注 ${telemetry.recalledSkills} 项`,
     `- L5 工具与蜂群轨迹：${tools}${telemetry.subagentDispatches ? `（子智能体委派 ${telemetry.subagentDispatches} 次，冲突仲裁 ${telemetry.subagentConflicts} 项）` : ''}`,
   ].join('\n');
+}
+
+// ─── 11. L5 全档位统一冲突仲裁（子智能体矩阵 + 多工具交叉核验 + 内源双视角自检）──
+// 解决“dispatch_subagent 仅在 Max/Ultra 出现导致普通档位无冲突仲裁”的架构边界割裂问题
+export function arbitrateUnifiedEvidence({
+  canDispatch = false,
+  reasoningLevel = 'medium',
+  userText = '',
+  stepHistory = [],
+  subagentReports = [],
+} = {}) {
+  // 1) 若已有 >= 2 份子智能体报告，优先执行多专家置信度矩阵仲裁
+  if (Array.isArray(subagentReports) && subagentReports.length >= 2) {
+    const subArb = arbitrateSubagentReports(subagentReports);
+    return {
+      mode: 'subagent-matrix',
+      modeLabel: '子智能体置信度矩阵仲裁',
+      hasConflict: subArb.hasConflict,
+      note: formatSubagentArbitrationNote(subArb),
+    };
+  }
+
+  // 2) 若当前回合已执行 >= 2 次工具调用（全档位通用），执行多工具结果交叉核验仲裁
+  const steps = Array.isArray(stepHistory) ? stepHistory : [];
+  if (steps.length >= 2) {
+    const okTools = steps.filter((s) => s && !s.isError).map((s) => s.name);
+    const errTools = steps.filter((s) => s && s.isError).map((s) => s.name);
+    const hasConflict = errTools.length > 0 && okTools.length > 0;
+    const note = [
+      `【天枢 THN · L5 多工具证据交叉仲裁（当前档位：${reasoningLevel}）】`,
+      `- 已完成工具证据链：成功 [${okTools.join(', ') || '无'}]${errTools.length ? ` ｜ 异常 [${errTools.join(', ')}]` : ''}`,
+      hasConflict
+        ? '- 分歧仲裁：部分工具曾返回报错或空结果，最终结论必须以最新成功执行的沙箱/本地工具实测输出为准，严禁混用失败步骤的中间猜测。'
+        : '- 交叉核验：多步工具执行均通过，请校核各工具返回数值/路径的一致性后再收敛结论。',
+    ].join('\n');
+    return {
+      mode: 'multi-tool-cross-check',
+      modeLabel: '多工具结果交叉核验',
+      hasConflict,
+      note,
+    };
+  }
+
+  // 3) 非 Max/Ultra 档位且遇到对比/评估/架构/多约束问题时，激活“内源正反双视角自检仲裁”
+  const s = String(userText || '');
+  if (!canDispatch && MULTI_CONSTRAINT_OR_IMPLICIT_RE.test(s) && s.length >= 10) {
+    return {
+      mode: 'internal-dual-perspective',
+      modeLabel: '内源正反双视角自检',
+      hasConflict: false,
+      note: `【天枢 THN · L5 内源双视角交叉仲裁（当前思考档位 ${reasoningLevel} 未开启外部子智能体 RPC，已自动切换为内源双视角自检）】请在内部同时从「方案正向成立依据」与「边界反例/潜在隐患」两个对立视角交叉审视后再输出最终结论。`,
+    };
+  }
+
+  return { mode: 'none', modeLabel: '按需待命', hasConflict: false, note: '' };
+}
+
+// ─── 12. 可解释的优雅降级诊断（Explainable Degradation Diagnostics）──────────
+// 解决“工具表裁剪合理但缺失原因不解释”的问题：明确说明何处降级、原因及恢复命令
+export function buildDegradationDiagnostics({
+  relayOk = false,
+  webEnabled = false,
+  sandboxEnabled = true,
+  canDispatch = false,
+  reasoningLevel = 'medium',
+} = {}) {
+  const items = [];
+  if (!relayOk) {
+    items.push({
+      id: 'relay-offline',
+      capability: 'fetch_url 网页抓取 / 远端真实 Git (clone/push)',
+      status: 'degraded',
+      reason: '当前运行在纯静态页面环境（如 GitHub Pages），未检测到本地 127.0.0.1:8787 的 server.py 中继服务',
+      recovery: '在项目根目录终端执行 `python3 server.py` 启动本地中继后刷新页面，即可解锁顶栏「联网」与真实远端 Git',
+    });
+  } else if (!webEnabled) {
+    items.push({
+      id: 'web-switched-off',
+      capability: 'fetch_url 网页抓取',
+      status: 'paused',
+      reason: '本地中继在线，但当前会话已手动关闭顶栏「联网」开关',
+      recovery: '点击顶栏「联网」胶囊开关即可立即恢复网页抓取能力',
+    });
+  }
+  if (!sandboxEnabled) {
+    items.push({
+      id: 'sandbox-switched-off',
+      capability: 'execute_javascript / execute_python / execute_cpp 代码沙箱',
+      status: 'paused',
+      reason: '用户已手动关闭「沙箱」开关（0ms 本地纯函数工具如 evaluate_expression / execute_sql / regex / hash 仍正常可用）',
+      recovery: '点击输入框下方「沙箱」按钮开启，即可恢复 JS Worker 与 Pyodide WASM 代码执行',
+    });
+  }
+  if (!canDispatch) {
+    items.push({
+      id: 'subagent-tier-gated',
+      capability: 'dispatch_subagent 外部专家子智能体并发委派',
+      status: 'fallback',
+      reason: `当前思考档位为 ${String(reasoningLevel || 'medium').toUpperCase()}（外部子智能体 RPC 仅在 Max / Ultra 档位开放以节省延迟与额度）`,
+      recovery: '已自动降级为「L5 内源正反双视角自检 + 多工具交叉核验」；如需 18 路独立子智能体并发，可将思考档位切换至 Max 或 Ultra',
+    });
+  }
+  return items;
+}
+
+export function formatDegradationDiagnostics(items = []) {
+  if (!Array.isArray(items) || !items.length) return '';
+  const lines = ['【天枢 THN · L2 能力边界与降级可解释性诊断】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：'];
+  for (const it of items) {
+    lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}`);
+  }
+  return lines.join('\n');
+}
+
+// ─── 13. 面向用户与输出的轻量决策足迹（User-Facing Decision Footprint）───────
+// 把可观测性从后台仪表盘搬到用户与输出眼前：清晰记录本轮走了哪条路径、召回了哪些记忆、命中了哪些技能
+export function buildDecisionFootprint({
+  profile = null,
+  memories = [],
+  recalledSessions = [],
+  matchedSkillIds = [],
+  prunedSkillIds = [],
+  usedTools = [],
+  arbitration = null,
+  degradations = [],
+} = {}) {
+  const mode = profile ? profile.mode : 'full-nexus';
+  const escalated = !!(profile && profile.escalated);
+  const fastPath = !!(profile && profile.fastPath);
+  const modeLabel = escalated
+    ? 'L1↗L6 中途升档'
+    : (fastPath ? 'L1 轻快直达' : 'L1→L6 全链路');
+
+  const memTags = (Array.isArray(memories) ? memories : [])
+    .slice(0, 4)
+    .map((m) => `${m.id || 'mem'}:${String(m.text || m).slice(0, 18)}`);
+  const sessTitles = (Array.isArray(recalledSessions) ? recalledSessions : [])
+    .slice(0, 3)
+    .map((s) => s.title || s.sessionId || '历史会话');
+  const skills = [...new Set((Array.isArray(matchedSkillIds) ? matchedSkillIds : []).filter(Boolean))];
+  const pruned = [...new Set((Array.isArray(prunedSkillIds) ? prunedSkillIds : []).filter(Boolean))];
+  const tools = [...new Set((Array.isArray(usedTools) ? usedTools : []).filter(Boolean))];
+  const degShort = (Array.isArray(degradations) ? degradations : []).map((d) => d.id);
+
+  return {
+    mode,
+    fastPath,
+    escalated,
+    modeLabel,
+    memoryCount: Array.isArray(memories) ? memories.length : 0,
+    memoryTags: memTags,
+    recalledSessions: sessTitles,
+    matchedSkills: skills,
+    prunedSkills: pruned,
+    usedTools: tools,
+    arbitrationMode: (arbitration && arbitration.modeLabel) || '按需待命',
+    degradations: degShort,
+  };
+}
+
+export function formatDecisionFootprintForPrompt(fp) {
+  if (!fp) return '';
+  const parts = [
+    `路径=${fp.modeLabel}`,
+    `生效记忆=${fp.memoryCount}条${fp.memoryTags && fp.memoryTags.length ? `(${fp.memoryTags.join(', ')})` : ''}`,
+    `跨会话召回=${fp.recalledSessions && fp.recalledSessions.length ? fp.recalledSessions.join('、') : '无'}`,
+    `命中技能=${fp.matchedSkills && fp.matchedSkills.length ? fp.matchedSkills.join(', ') : '无'}`,
+    ...(fp.prunedSkills && fp.prunedSkills.length ? [`GC淘汰噪声技能=${fp.prunedSkills.join(', ')}`] : []),
+    `L5仲裁=${fp.arbitrationMode || '按需待命'}`,
+  ];
+  return `【天枢 THN · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
+}
+
+export function formatDecisionFootprintSummary(fp) {
+  if (!fp) return '';
+  const bits = [`天枢 ${fp.modeLabel}`];
+  if (fp.memoryCount > 0) bits.push(`记忆×${fp.memoryCount}`);
+  if (fp.recalledSessions && fp.recalledSessions.length) bits.push(`召回×${fp.recalledSessions.length}`);
+  if (fp.matchedSkills && fp.matchedSkills.length) bits.push(`技能:${fp.matchedSkills.join('/')}`);
+  if (fp.usedTools && fp.usedTools.length) bits.push(`工具×${fp.usedTools.length}`);
+  if (fp.prunedSkills && fp.prunedSkills.length) bits.push(`GC清理×${fp.prunedSkills.length}`);
+  return bits.join(' · ');
 }
 

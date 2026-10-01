@@ -87,8 +87,75 @@ export const BUNDLED_SKILLS = [
   },
 ];
 
+const SKILL_DEFAULT_TTL_MS = 14 * 24 * 3600 * 1000; // 14 天未命中自动衰减淘汰
+
+// 技能写入质量守门人（Skill Quality Gatekeeper）：
+// 拦截指代残片（如“这个呢”）、寒暄追问、过短无语义标题或未自愈的失败回合
+const NOISE_SKILL_TITLE_RE = /^(?:这个呢|那个呢|那这个|那那个|这个|那个|继续|接着|接着写|再来|再来一次|重试|为什么|怎么回事|不对|改一下|换一个|还有吗|然后呢|再看看|帮我看看|看下这个|看看这个|好的|谢谢|明白|行吗|可以吗|怎么办|是什么|what\s+about\s+this|and\s+this|continue|try\s+again|why|fix\s+it)$/i;
+const PURE_PARTICLE_RE = /^[这那哪它你我他她什怎吗呢吧啊哦嗯哈的了么呀\s]+$/;
+
+export function isValidSkillCandidate(rawTitle, { toolNames = [], iterations = 0, unrecoveredError = false } = {}) {
+  if (unrecoveredError) return false;
+  const tools = [...new Set((toolNames || []).filter(Boolean))];
+  const n = Number(iterations) || 0;
+  if (n < 3 && tools.length < 3) return false;
+  const title = String(rawTitle || '').replace(/^learned-/, '').replace(/\s+/g, ' ').trim();
+  const core = title.replace(/[\s\p{P}\p{S}]+/gu, '');
+  if (!core || core.length < 5) return false;
+  if (NOISE_SKILL_TITLE_RE.test(core) || NOISE_SKILL_TITLE_RE.test(title)) return false;
+  if (PURE_PARTICLE_RE.test(core)) return false;
+  return true;
+}
+
+export function computeSkillVitality(skill, now = Date.now()) {
+  if (!skill || !skill.id) return 0;
+  const baseConf = typeof skill.confidence === 'number' ? skill.confidence : 0.85;
+  const sr = typeof skill.successRate === 'number' ? skill.successRate : 1;
+  const lastTouch = Number(skill.lastHitAt || skill.ts || now);
+  const ageDays = Math.max(0, (now - lastTouch) / (24 * 3600 * 1000));
+  const decay = Math.pow(0.94, ageDays); // 每日自然衰减 6%，被命中后刷新 lastHitAt 恢复活力
+  const hitBoost = Math.min(0.18, (Number(skill.hits) || 0) * 0.03);
+  return Number((baseConf * sr * decay + hitBoost).toFixed(3));
+}
+
+export function pruneLearnedSkillsWithReport(list = [], { now = Date.now(), cap = 8 } = {}) {
+  if (!Array.isArray(list) || !list.length) return { kept: [], prunedIds: [] };
+  const kept = [];
+  const prunedIds = [];
+  const seen = new Set();
+
+  for (const s of list) {
+    if (!s || !s.id) continue;
+    const label = s.description || s.id.replace(/^learned-/, '');
+    const ttlMs = Number(s.ttlMs) || SKILL_DEFAULT_TTL_MS;
+    const lastTouch = Number(s.lastHitAt || s.ts || now);
+    const expired = (now - lastTouch > ttlMs) && ((Number(s.hits) || 0) === 0);
+    const lowSuccess = s.successRate != null && Number(s.successRate) < 0.45;
+    const validTitle = isValidSkillCandidate(label, { toolNames: ['a', 'b', 'c'], iterations: 3 });
+    const vitality = computeSkillVitality(s, now);
+
+    if (!validTitle || expired || lowSuccess || vitality < 0.36 || seen.has(s.id)) {
+      prunedIds.push(s.id);
+      continue;
+    }
+    seen.add(s.id);
+    kept.push({
+      ...s,
+      confidence: typeof s.confidence === 'number' ? s.confidence : 0.85,
+      ttlMs,
+      vitality,
+    });
+  }
+  kept.sort((a, b) => (b.vitality - a.vitality) || ((b.ts || 0) - (a.ts || 0)));
+  return { kept: kept.slice(0, cap), prunedIds };
+}
+
+export function pruneLearnedSkills(list = [], opts = {}) {
+  return pruneLearnedSkillsWithReport(list, opts).kept;
+}
+
 export function formatSkillsIndex(learned = []) {
-  const extra = (learned || []).filter((s) => s && s.id && s.description);
+  const extra = pruneLearnedSkills(learned).filter((s) => s && s.id && s.description);
   const lines = [
     '## Skills（目录）',
     '回复前扫描下列技能。与本轮任务匹配的技能正文会注入「本轮规程」层——按它执行，不要再发明工具表里没有的工具。',
@@ -105,7 +172,7 @@ export function formatSkillsIndex(learned = []) {
   }
   if (extra.length) {
     lines.push('  learned:');
-    for (const s of extra.slice(0, 8)) lines.push(`    - ${s.id}: ${s.description}`);
+    for (const s of extra.slice(0, 8)) lines.push(`    - ${s.id}: ${s.description} (vitality=${s.vitality ?? 0.85})`);
   }
   lines.push('</available_skills>');
   return lines.join('\n');
@@ -118,22 +185,27 @@ export function selectSkillBodies(plan, userText, learned = []) {
       if (s.match(plan, userText)) hits.push(s);
     } catch { /* 单条技能匹配失败不影响其它 */ }
   }
+  const cleanLearned = pruneLearnedSkills(learned);
   const q = String(userText || '').slice(0, 200);
   const qTokens = new Set(tokenizeForSearch(q, { expandSynonyms: true }));
-  for (const s of learned || []) {
+  for (const s of cleanLearned) {
     if (!s || !s.body) continue;
     const key = `${s.id} ${s.description || ''} ${s.body}`;
-    if (q && key.toLowerCase().includes(q.slice(0, 24).toLowerCase())) {
-      hits.push(s);
-      continue;
-    }
-    if (qTokens.size >= 2) {
+    let matched = false;
+    if (q && q.length >= 4 && key.toLowerCase().includes(q.slice(0, 24).toLowerCase())) {
+      matched = true;
+    } else if (qTokens.size >= 2) {
       const skillTokens = tokenizeForSearch(key, { expandSynonyms: true });
       let overlap = 0;
       for (const st of new Set(skillTokens)) {
         if (qTokens.has(st)) overlap++;
       }
-      if (overlap >= 2) hits.push(s);
+      if (overlap >= 2) matched = true;
+    }
+    if (matched) {
+      s.hits = (Number(s.hits) || 0) + 1;
+      s.lastHitAt = Date.now();
+      hits.push(s);
     }
   }
   const seen = new Set();
@@ -148,42 +220,54 @@ export function selectSkillBodies(plan, userText, learned = []) {
   return ['【本轮规程】已按任务匹配加载下列技能，请遵守：', ...uniq.map((s) => s.body)].join('\n\n');
 }
 
-export function distillSkill({ userText, toolNames, iterations } = {}) {
+export function distillSkill({ userText, toolNames, iterations, unrecoveredError = false } = {}) {
   const tools = [...new Set((toolNames || []).filter(Boolean))];
   const n = Number(iterations) || 0;
-  if (n < 3 && tools.length < 3) return null;
   const title = String(userText || '').replace(/\s+/g, ' ').trim().slice(0, 48);
-  if (!title) return null;
+  if (!isValidSkillCandidate(title, { toolNames: tools, iterations: n, unrecoveredError })) {
+    return null;
+  }
   const slug = title.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, '-').replace(/^-|-$/g, '').slice(0, 24) || 'task';
+  const now = Date.now();
   return {
     id: `learned-${slug}`,
     description: title,
+    confidence: 0.86,
+    ttlMs: SKILL_DEFAULT_TTL_MS,
+    hits: 0,
+    lastHitAt: now,
     body: [
       `## Learned skill: ${title}`,
       `- 当时用过的工具：${tools.join(', ') || '（无）'}`,
       `- 迭代 ${n} 次。类似请求可复用这条路径，不要无故加步骤。`,
     ].join('\n'),
-    ts: Date.now(),
+    ts: now,
   };
 }
 
 export function rememberSkill(list, skill, cap = 8) {
-  if (!skill || !skill.id) return Array.isArray(list) ? list.slice() : [];
-  const arr = Array.isArray(list) ? list : [];
-  const prev = arr.find((s) => s && s.id === skill.id);
+  const cleanList = pruneLearnedSkills(list, { cap });
+  if (!skill || !skill.id) return cleanList;
+  if (!isValidSkillCandidate(skill.description || skill.id, { toolNames: ['a', 'b', 'c'], iterations: 3 })) {
+    return cleanList;
+  }
+  const prev = cleanList.find((s) => s && s.id === skill.id);
   let merged = skill;
   if (prev) {
     const uses = (Number(prev.uses) || 1) + (Number(skill.uses) || 1);
     const successCount = (Number(prev.successCount) || 1) + (Number(skill.successCount) || 1);
+    const successRate = Number((successCount / Math.max(1, uses)).toFixed(2));
     merged = {
       ...prev,
       ...skill,
       uses,
       successCount,
-      successRate: Number((successCount / Math.max(1, uses)).toFixed(2)),
+      successRate,
+      confidence: Math.min(0.98, Number(((prev.confidence || 0.85) + 0.04).toFixed(2))),
+      lastHitAt: Date.now(),
     };
   }
-  const out = arr.filter((s) => s && s.id !== skill.id);
+  const out = cleanList.filter((s) => s && s.id !== skill.id);
   out.unshift(merged);
-  return out.slice(0, cap);
+  return pruneLearnedSkills(out, { cap });
 }
