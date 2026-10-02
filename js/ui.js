@@ -3247,6 +3247,7 @@ export function mountUI(store, agent) {
         '/key —— 查看 API Key 尾号（完整 Key 不回显）',
         '/export —— 导出全部会话记录（JSON 下载）',
         '/clear —— 清空通道草稿（真实会话不受影响）',
+        '/p2 [report|policy|fault|exp] —— P2（v2.5）：策略版本 / 统一指标 / 审计三层目标 / 故障注入 / 策略实验',
         '/guard observe|strict|strict-l2 —— 执行内核高风险确认档位（L3 / L2+L3 是否需人工确认）',
         '/resume —— 查看断点续跑计划（未完成步骤 / 需先核验的产物 / 是否需重新确认）',
         '提示：模型菜单搜索 /system 可回到本识别器',
@@ -3296,6 +3297,8 @@ export function mountUI(store, agent) {
             acceptance: store.state.lastExecutionAcceptance || null,
           },
           trajectoryTotals: store.state.trajectoryTotals || null,
+          // P2（v2.5）：策略 / 指标 / 审计三层目标 / 故障注入 / 实验 / 执行上下文
+          p2Lines: (() => { try { return agent && agent.getP2ReportLines ? agent.getP2ReportLines() : []; } catch { return []; } })(),
         }),
       ].join('\n');
     } else if (name === 'guard') {
@@ -3308,6 +3311,37 @@ export function mountUI(store, agent) {
         store.notify();
         out = `✓ 执行内核确认档位已切换：${v}（${modes[v]}）\n高风险操作会先给出「操作 / 原因 / 影响 / 可逆性 / 参数摘要」，再由你决定是否放行；超时或未应答一律按拒绝处理。`;
       }
+    } else if (name === 'p2') {
+      // P2 面板：一次看全「策略版本 / 指标 / 审计三层 / 故障 / 实验 / 上下文一致性」
+      const sub = String(arg || '').toLowerCase().trim();
+      const lines = [];
+      if (!sub || sub === 'report') {
+        try { lines.push(...(agent && agent.getP2ReportLines ? agent.getP2ReportLines() : ['（执行内核未就绪）'])); } catch (e) { lines.push(`（报告生成失败：${e.message}）`); }
+      }
+      if (!sub || sub === 'policy') {
+        try {
+          const r = agent && agent.verifyPolicies ? await agent.verifyPolicies() : null;
+          lines.push('', r ? (r.ok ? `✓ 策略注册表自检通过（${r.checked}/${r.total} 项）` : `⚠ 策略漂移：${r.mismatches.map((m) => `${m.key} 声明=${m.declared} 实际=${m.actual}`).join('；')}`) : '（策略自检不可用）');
+        } catch (e) { lines.push(`（策略自检失败：${e.message}）`); }
+      }
+      if (!sub || sub === 'fault') {
+        const kinds = ['tool-timeout', 'tool-empty-result', 'tool-bad-schema', 'artifact-modified-externally', 'duplicate-tool-call', 'audit-event-missing', 'capability-mask-mismatch', 'memory-instruction-conflict', 'authorization-revoked-midway'];
+        const want = String(arg || '').split(/\s+/).slice(1);
+        if (want.length && agent && agent.armFaultInjection) {
+          const r = agent.armFaultInjection(want);
+          lines.push('', r.cleared ? '✓ 已清除待注入故障' : `✓ 已装备故障注入：${r.kinds.join('、')}（下一轮生效一次）`);
+        } else {
+          lines.push('', '可用故障类型（下一轮生效一次）：', kinds.map((k) => `  · ${k}`).join('\n'), '用法：/p2 fault tool-timeout 或 /p2 fault tool-timeout,audit-event-missing');
+        }
+      }
+      if (!sub || sub === 'exp') {
+        const id = 'guard-default';
+        try {
+          const rep = agent && agent.getExperimentReport ? agent.getExperimentReport(id) : null;
+          lines.push('', rep && rep.ok ? `实验 ${id}：${rep.action}（${rep.reason}）｜对照 n=${rep.control.samples} 变体 n=${rep.treatment.samples}` : `实验 ${id}：尚无足够样本（灰度默认关闭，需在设置里显式开启 allocation）`);
+        } catch (e) { lines.push(`（实验汇总失败：${e.message}）`); }
+      }
+      out = lines.join('\n');
     } else if (name === 'resume') {
       let plan = null;
       try { plan = agent && agent.getResumePlan ? agent.getResumePlan() : null; } catch { plan = null; }
@@ -3667,6 +3701,9 @@ export function mountUI(store, agent) {
     } catch { /* fs 未就绪 */ }
     items.push({ group: '操作', id: 'p:panel', label: '打开 / 收起沙箱面板', kbd: '⌘B', run: () => setPanelCollapsed(!$('#sandbox-panel').classList.contains('collapsed')) });
     items.push({ group: '操作', id: 'p:new', label: '新建会话', run: () => $('#new-session').click() });
+    // P2 诊断入口（等价于输入 /p2）：命令通道是本地执行的，不受当前模型影响
+    items.push({ group: '诊断', id: 'd:p2', label: 'P2 报告（策略 / 指标 / 审计三层 / 故障 / 实验 / 上下文）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2'); } });
+    items.push({ group: '诊断', id: 'd:p2f', label: 'P2 故障注入（红队自测：列出可注入故障）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2 fault'); } });
     if (globalThis.__teamoDebugToggle) items.push({ group: '操作', id: 'p:debug', label: globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '关闭调试浮窗（系统日志）' : '打开调试浮窗（系统日志）', kbd: '⌃⌥D', run: () => globalThis.__teamoDebugToggle() });
     return items;
   }

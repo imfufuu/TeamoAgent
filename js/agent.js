@@ -59,12 +59,13 @@ import {
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.1.13';
+import { moderateUserTurn } from './moderation.js?v=2026.10.2.14';
 // ─── P0 执行内核（THN v2.3）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
   EXECUTION_STATES,
   EXECUTION_POLICY_VERSION,
+  AUDIT_SCHEMA_VERSION,
   DEFAULT_TURN_BUDGET,
   createExecutionStateMachine,
   resumeExecutionState,
@@ -90,7 +91,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.1.13';
+} from './execution.js?v=2026.10.2.14';
 // ─── P1（THN v2.4）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -100,24 +101,47 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.1.13';
+} from './recovery.js?v=2026.10.2.14';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.1.13';
+} from './idempotency.js?v=2026.10.2.14';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.1.13';
+} from './memorylife.js?v=2026.10.2.14';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.1.13';
+} from './trajectory.js?v=2026.10.2.14';
+
+// ─── P2（THN v2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.2.14';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.2.14';
+import {
+  resolveExperimentAssignment,
+  experimentPolicyOverrides,
+  appendExperimentSample,
+  summarizeExperiment,
+  formatExperimentReport,
+} from './experiments.js?v=2026.10.2.14';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.2.14';
+// P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
+import {
+  createTurnExecutionContext,
+  deriveToolWhitelist,
+  assertExecutionContextConsistency,
+  describeExecutionContext,
+  formatContextPanel,
+  contextAuditFields,
+  toolName,
+} from './executionContext.js?v=2026.10.2.14';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.2.14';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -627,7 +651,7 @@ export function createAgent(store, hooks = {}) {
 
       if (!pre.ok) {
         emit('onToolEvent', call, { status: 'error', note: pre.errors.map((e) => e.detail).join('；') });
-        const budgetBlocked = pre.errors.some((e) => e.id === 'budget-tool-calls-exhausted');
+        const budgetBlocked = pre.errors.some((e) => e.id === 'budget-tool-calls-exhausted' || e.id === 'budget-tokens-exhausted');
         recordBlocked(call, {
           reason: `调用前校验未通过：${pre.errors.map((e) => e.id).join(', ')}`,
           failure: {
@@ -693,9 +717,26 @@ export function createAgent(store, hooks = {}) {
         }
       }
 
-      // ③ 交互确认（P1）：L2/L3 按档位策略停下来等用户决定；无人应答或超时一律按拒绝（fail-closed）
-      const guardMode = GUARD_MODES.includes(String(store.state.settings.executionGuard)) ? String(store.state.settings.executionGuard) : 'observe';
-      if (guardRequiresConfirmation({ guard: guardMode, risk }) && !exec.confirmGate.isSessionAllowed(call.name)) {
+      // ②c 授权复核（P2）：每次调用都重新读一遍用户决定。
+      // 之前「允许本会话」只活在内存闸门里，用户在第二步撤销授权不会被任何人读到——
+      // 撤权和授权必须一样即时生效，否则「可停止」只是纸面属性。
+      const approvals = (store.state.settings.toolApprovals || {});
+      const approval = approvals[call.name];
+      if (approval === 'deny') {
+        exec.machine.audit.record('approval-denied', { name: call.name, source: 'settings.toolApprovals' });
+        recordBlocked(call, {
+          reason: '用户已撤销对该工具的授权',
+          failure: { kind: 'PERMISSION', label: '授权已撤销', handling: '不执行：授权被用户撤销后立即生效', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '不要重试；如需继续，请向用户说明目的并请其重新授权。' },
+          risk, idempotencyKey: pre.idempotencyKey, notes: ['approval-revoked'],
+        });
+        return `⛔ ${call.name} 的授权已被用户撤销，本次未执行。请说明目的并请用户重新授权后再试。`;
+      }
+
+      // ③ 交互确认（P1/P2）：L2/L3 按生效档位停下来等用户决定；无人应答或超时一律按拒绝（fail-closed）
+      // 生效档位可能来自策略实验变体（未开灰度时等于用户设置，行为不变）
+      const guardMode = exec.effectiveGuard || 'observe';
+      const sessionAllowedBySettings = approval === 'allow-session';
+      if (guardRequiresConfirmation({ guard: guardMode, risk }) && !sessionAllowedBySettings && !exec.confirmGate.isSessionAllowed(call.name)) {
         const request = formatConfirmationRequest({
           name: call.name, args: call.args,
           reason: risk.reasons[0] || '', impact: undefined,
@@ -720,6 +761,10 @@ export function createAgent(store, hooks = {}) {
         }
         risk.confirmed = true;
         risk.confirmationDecision = decisionRec.decision;
+        if (decisionRec.decision === 'allow-session') {
+          // 「本会话允许该工具」写进设置层：既能跨轮生效，也能被用户显式撤销（settings.toolApprovals）
+          store.state.settings.toolApprovals = { ...(store.state.settings.toolApprovals || {}), [call.name]: 'allow-session' };
+        }
         emit('onToolEvent', call, { status: 'running', note: `用户已放行（${decisionRec.decision}）` });
       }
 
@@ -739,12 +784,20 @@ export function createAgent(store, hooks = {}) {
       });
       if (risk.hasExternalSideEffect) {
         const spendExt = exec.budgetGov.spend('externalSideEffects', 1, { tool: call.name });
-        if (spendExt.ok) {
-          exec.machine.audit.record('budget-spend', {
-            channel: 'externalSideEffects', amount: 1, spent: spendExt.spent,
-            limit: exec.budgetGov.budget.maxExternalSideEffects, tool: call.name,
+        if (!spendExt.ok) {
+          // P2 修正：外部副作用预算耗尽之前只是「不记账、照发」——等于预算声明挂空。
+          // 跨边界调用一旦发出就无法收回，必须在扣减失败时当场拒绝，而不是事后才发现超支。
+          recordBlocked(call, {
+            reason: '外部副作用预算耗尽',
+            failure: { kind: 'ENVIRONMENT', label: '预算耗尽', handling: '不重试：本轮外部副作用额度已用尽', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '不要改参数重试该调用；给出阶段性结论并说明还有哪些外部动作未执行。' },
+            risk, idempotencyKey: pre.idempotencyKey, notes: ['budget-external-side-effects-exhausted'],
           });
+          return `⛔ 执行内核：${spendExt.reason}。该调用跨越外部边界，发出即不可撤回，已在本轮额度用尽时拦下。\n${formatBudgetLedger(exec.budgetGov)}`;
         }
+        exec.machine.audit.record('budget-spend', {
+          channel: 'externalSideEffects', amount: 1, spent: spendExt.spent,
+          limit: exec.budgetGov.budget.maxExternalSideEffects, tool: call.name,
+        });
       }
 
       // ⑤ 执行 + 调用后核验（含契约允许的退避重试，绝不盲目重试）
@@ -759,10 +812,20 @@ export function createAgent(store, hooks = {}) {
       // 快照必须在启动执行之前取（否则 await 之前的同步写入会让前后快照一致，diff 为空）
       let filesBefore = fs.export();
       let fsBefore = fsDigest(filesBefore);
+      // P2 故障注入（默认不装配）：只在显式开启时给这一次调用挂上故障
+      const injectedFault = exec.faultInjector ? exec.faultInjector.beforeToolCall({ name: call.name, args: call.args }) : null;
       let execError = null;
       const inflightPromise = (async () => {
-        try { return String(await executeTool(call.name, call.args, toolCtx)); }
-        catch (err) {
+        try {
+          const raw = String(await executeTool(call.name, call.args, toolCtx));
+          if (injectedFault && exec.faultInjector) {
+            const mutated = exec.faultInjector.afterToolResult({ fault: injectedFault, result: raw, name: call.name });
+            if (mutated.error) throw mutated.error;
+            exec.faultNote = [exec.faultNote, mutated.note].filter(Boolean).join('\n');
+            return mutated.result;
+          }
+          return raw;
+        } catch (err) {
           execError = err;
           return `工具执行失败: ${err && err.message ? err.message : String(err)}`;
         }
@@ -874,7 +937,14 @@ export function createAgent(store, hooks = {}) {
       exec.changedPaths.push(...delta.touched);
 
       // ⑥ 结果回喂模型：失败归类 + 恢复路径 + 副作用不确定的硬提示（禁止盲目重试）
-      let notes = '';
+      // 状态类故障（外部改文件 / 中途撤销授权）先落地：模拟真实世界里「工具说自己成功了，
+      // 但环境已经变了 / 用户改主意了」——这类变化必须出现在回喂内容里，而不是等下一轮才发现
+      if (exec.faultInjector) {
+        const applied = exec.faultInjector.afterToolCall({ store, index: closed.index, name: call.name, fs });
+        if (applied.length) exec.faultNote = [exec.faultNote, `[故障注入] ${applied.map((a) => a.kind).join('、')}`].filter(Boolean).join('\n');
+      }
+      let notes = exec.faultNote ? `${exec.faultNote}\n` : '';
+      exec.faultNote = '';
       if (failure && failure.verifyFirst) {
         notes += `\n\n⚠️ 执行内核：该调用可能已经产生了副作用但结果丢失（幂等键 ${pre.idempotencyKey}）。${failure.guidance}`;
       } else if (failure) {
@@ -990,12 +1060,15 @@ export function createAgent(store, hooks = {}) {
     });
     const lv = initTier.effectiveLevel;
     const canDispatch = initTier.canDispatch;
-    const tools = toolsFor(settings.sandboxEnabled)
+    // 旧路径工具表：保留它只为**交叉验证**——真正的工具表由统一执行上下文派生（见下方 P2 段落），
+    // 两条路径算出的表必须逐项一致；不一致说明有人只改了一处，当场报缺陷而不是让它悄悄生效。
+    const legacyTools = toolsFor(settings.sandboxEnabled)
       .filter((t) => {
         if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
         return relayOk || !RELAY_ONLY_TOOLS.has(t.name);
       })
       .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
+    let tools = legacyTools;
     const turn = {
       apiKey, model, signal,
       fastMode: !!settings.fastMode,
@@ -1076,7 +1149,111 @@ export function createAgent(store, hooks = {}) {
       artifacts: [],
       changedPaths: [],
       trajectory: null,
+      faultInjector: null,
+      faultArmedKinds: [],
+      auditReconcile: null,
+      metrics: null,
     };
+
+    // ── P2：策略版本快照（一次执行必须能回答「当时生效的是哪套策略」）──
+    // 不要等出问题再回头猜是模型、路由、提示词还是工具契约变了。
+    exec.policySnapshot = snapshotPolicies();
+    store.state.policySnapshot = exec.policySnapshot;
+
+    // ── P2：策略实验分配（默认不灰度；未开启时全部走对照，行为与开启前一致）──
+    const experimentSubject = sessionId;
+    const experimentOverrides = (settings.experiments && settings.experiments['guard-default']) || null;
+    exec.experiment = resolveExperimentAssignment({ experiment: 'guard-default', subjectId: experimentSubject, overrides: experimentOverrides });
+    exec.experimentSecond = resolveExperimentAssignment({ experiment: 'memory-candidate-hint', subjectId: experimentSubject, overrides: (settings.experiments && settings.experiments['memory-candidate-hint']) || null });
+    store.state.experimentAssignments = { ...(store.state.experimentAssignments || {}), 'guard-default': exec.experiment, 'memory-candidate-hint': exec.experimentSecond };
+    // 生效档位：**只有真正进入实验变体**时才用实验参数改写；
+    // 对照组（未开启灰度 / 未命中实验桶）必须原样保留用户设置——否则「对照组」会悄悄把
+    // 用户的 strict 覆盖成 observe，变成一次没有告知的行为变更。
+    const experimentGuard = exec.experiment.inExperiment ? experimentPolicyOverrides(exec.experiment).executionGuard : '';
+    exec.effectiveGuard = GUARD_MODES.includes(String(experimentGuard))
+      ? String(experimentGuard)
+      : (GUARD_MODES.includes(String(settings.executionGuard)) ? String(settings.executionGuard) : 'observe');
+
+    // ── P2：故障注入（离线/自测用；默认关闭，注入器只在显式开启时装配）──
+    const faultCfg = store.state.faultInjection;
+    if (faultCfg && (Array.isArray(faultCfg.kinds) || Array.isArray(faultCfg.plan))) {
+      exec.faultInjector = createFaultInjector({
+        kinds: Array.isArray(faultCfg.kinds) ? faultCfg.kinds.filter((k) => FAULT_KINDS[k]) : null,
+        plan: Array.isArray(faultCfg.plan) ? faultCfg.plan : null,
+        seed: Number(faultCfg.seed) || 20261001,
+      });
+      exec.faultArmedKinds = exec.faultInjector.beforeTurn(store);
+      store.state.faultInjection = null; // 一次性：注入配置不跨轮残留
+      machine.audit.record('fault-injection-armed', { kinds: exec.faultArmedKinds, planned: exec.faultInjector.planned });
+    }
+    // ── P2：统一执行上下文（单一真相源）───────────────────────────────────
+    // 从这里开始：能力（可用性+约束）、工具表、预算、风险上限、确认策略、策略版本、实验臂、
+    // 审计绑定字段全部收进一个冻结对象；工具表**由它派生**，构造上就不可能「声明有 Web 却没有 Web 工具」。
+    // claimedBits 只在对故障注入自测时被改写（模拟「对外宣称的能力与实际不符」），真机路径等于实际值。
+    const claimedBits = (settings.faultCapabilityClaim && typeof settings.faultCapabilityClaim === 'object')
+      ? settings.faultCapabilityClaim : null;
+    exec.turnContext = createTurnExecutionContext({
+      turnId: machine.turnId,
+      sessionId,
+      userIntent: userIntentText,
+      intentDigest: execCtx.userIntentDigest,
+      taskClass: execCtx.taskClass,
+      attachments: (lastUserInit && Array.isArray(lastUserInit.attachments)) ? lastUserInit.attachments.length : 0,
+      reasoningState: execCtx.reasoningState,
+      mode: (nexusState.profile && nexusState.profile.mode) || '',
+      capability: capabilities,
+      budget: budgetGov.budget,
+      risk: { ceiling: 'L3', policyVersion: exec.record ? exec.record.policyVersion : EXECUTION_POLICY_VERSION },
+      memory: { recalledIds: execCtx.memory.recalledIds, candidateWrite: false },
+      policy: exec.policySnapshot,
+      experiment: exec.experiment,
+      audit: {
+        schemaVersion: AUDIT_SCHEMA_VERSION,
+        policyVersion: EXECUTION_POLICY_VERSION,
+        prevDigest: (prevRecord && prevRecord.auditDigest) || GENESIS_TURN_DIGEST,
+        eventIndex: exec.machine.audit.events.length,
+      },
+      recovery: (() => {
+        const cp = exec.checkpoints.latest(sessionId);
+        return { checkpointId: (cp && cp.id) || '', resumable: !!(resumeInfo && resumeInfo.resumable), drift: (cp && cp.drift) || [] };
+      })(),
+      claimedBits,
+    });
+    // 派生输入是**完整工具表**（TOOL_DEFS）：能力裁剪（沙箱/联网/委派）从此只发生在一个地方，
+    // 旧路径结果只用来交叉验证——两条独立计算必须逐项一致，否则说明有人只改了一处。
+    const whitelist = deriveToolWhitelist(exec.turnContext, TOOL_DEFS);
+    tools = whitelist.allowed;
+    nexusState.turnTools = tools;
+    exec.toolList = tools;
+    exec.toolWhitelist = whitelist;
+    exec.contextConsistency = assertExecutionContextConsistency(exec.turnContext, tools, {
+      legacyToolNames: legacyTools.map(toolName),
+    });
+    machine.audit.record('context-consistency', {
+      capCode: exec.turnContext.capability.capCode,
+      claimed: exec.turnContext.capability.claimed,
+      effective: exec.turnContext.capability.bits,
+      dropped: whitelist.dropped,
+      consistent: exec.contextConsistency.consistent,
+      splits: exec.contextConsistency.splits,
+      contextVersion: exec.turnContext.version,
+    });
+    if (!exec.contextConsistency.consistent) {
+      // 状态分裂是缺陷，必须让用户看见——它意味着模型能力与提示词/界面口径不一致
+      exec.contextSplitNote = `[执行上下文] 检出状态分裂：${exec.contextConsistency.splits.map((x) => x.detail).join('；')}`;
+    }
+    store.state.lastExecutionContext = {
+      version: exec.turnContext.version,
+      capCode: exec.turnContext.capability.capCode,
+      claimed: exec.turnContext.capability.claimed,
+      effective: exec.turnContext.capability.bits,
+      dropped: whitelist.dropped,
+      consistent: exec.contextConsistency.consistent,
+      splits: exec.contextConsistency.splits,
+      line: describeExecutionContext(exec.turnContext),
+      at: Date.now(),
+    };
+
     turn.execution = execCtx;
     activeGate = exec.confirmGate;
     machine.audit.record('turn-received', {
@@ -1105,7 +1282,7 @@ export function createAgent(store, hooks = {}) {
       const plan = planResume(lastCheckpoint, { files: fs.export(), capabilities, userText: userIntentText });
       const driftDetected = plan.drift && plan.drift !== 'none';
       exec.resumePlan = plan;
-      if (!prevCommitted || (driftDetected && continuationRe.test(userIntentText))) {
+      if ((!prevCommitted || (driftDetected && continuationRe.test(userIntentText))) && plan.resumable) {
         lastCheckpoint.resumedConsumed = true;
         store.state.executionCheckpoints = exec.checkpoints.toJSON();
         machine.audit.record('resume-plan', {
@@ -1116,7 +1293,8 @@ export function createAgent(store, hooks = {}) {
         exec.resumeNote = `\n\n${formatResumePlan(plan)}`;
       } else {
         machine.audit.record('resume-plan-skipped', {
-          checkpointId: lastCheckpoint.checkpointId, drift: plan.drift, reason: '上一轮已干净收尾且本轮没有续跑意图',
+          checkpointId: lastCheckpoint.checkpointId, drift: plan.drift,
+          reason: plan.resumable ? '上一轮已干净收尾且本轮没有续跑意图' : '检查点没有可推进的内容（无可复用步骤 / 无待核验产物 / 无未完成步骤）',
         });
       }
     }
@@ -1299,6 +1477,12 @@ export function createAgent(store, hooks = {}) {
         const thinkingBlocks = turn.thinking ? tb.blocks() : [];
         const nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         telemetry.recordUsage({ input_tokens: usage.input, output_tokens: usage.output });
+        // 第七路预算：Token 实时扣减（输入 + 输出合计）——量化到轨迹里，耗尽时后续工具调用会被拦下
+        exec.budgetGov.spend('tokens', (Number(usage.input) || 0) + (Number(usage.output) || 0), { phase: 'model-usage' });
+        if (!exec.budgetGov.canSpend('tokens').ok && !exec.tokenBudgetNoted) {
+          exec.tokenBudgetNoted = true;
+          exec.faultNote = [exec.faultNote, '[执行内核] Token 预算已耗尽：不再发起新的工具调用，转为用已有信息作答并如实说明未完成步骤。'].filter(Boolean).join('\n');
+        }
         store.updateMessage(assistantMsg.id, {
           text,
           reasoning: turn.thinking && reasoning ? reasoning : undefined,
@@ -1512,6 +1696,19 @@ export function createAgent(store, hooks = {}) {
         auditEvents: exec.machine.audit.events,
         ledger: exec.ledger,
         totalMs: Date.now() - t0,
+        // P2：指标面板要按「任务类型 / 推理档位 / 工具类型 / In-Domain·OOD / 是否涉及记忆 /
+        // 是否发生失败恢复 / 是否产生外部副作用」切分，这些维度必须在轨迹条目里就落好
+        route: {
+          mode: (exec.execCtx && exec.execCtx.mode) || (nexusState && nexusState.profile ? nexusState.profile.mode : ''),
+          escalated: !!(nexusState && nexusState.profile && nexusState.profile.escalated),
+          fastPath: !!(nexusState && nexusState.profile && nexusState.profile.fastPath),
+          reasoningLevel: (exec.execCtx && exec.execCtx.reasoningState) || turn.reasoningLevel || 'medium',
+        },
+        toolNames: [...new Set((exec.record.toolRuns || []).map((r) => r.name).filter(Boolean))],
+        memoryInvolved: !!(store.state.memory && store.state.memory.length) || !!((turnMemoryPlan && turnMemoryPlan.dropped && turnMemoryPlan.dropped.length)),
+        externalSideEffect: !!(exec.record.toolRuns || []).some((r) => r.riskLevel === 'L3' || /network|cost|remote/.test(String(r.sideEffect || ''))),
+        budgetExhausted: !!(exec.budgetGov.snapshot().exhaustedChannels || []).length,
+        recoveredCount: ((exec.record.toolRuns || []).filter((r) => r.recovered)).length,
       });
       exec.machine.audit.record('trajectory-eval', {
         overRouting: exec.trajectory.metrics.overRouting.flagged,
@@ -1539,16 +1736,112 @@ export function createAgent(store, hooks = {}) {
       exec.record.ledger = exec.ledger.snapshot(8);
       store.state.executionIdempotency = exec.ledger.toJSON().slice(-48);
       exec.record.resumeHint = resumeExecutionState({ ...exec.record, machine: exec.machine.snapshot() });
+      store.state.memoryHealth = summarizeMemoryHealth({
+        memory: store.state.memory,
+        candidates: store.state.memoryCandidates || [],
+      });
+
+      // ── P2 收尾①：审计三层目标对账（完整性 / 完备性 / 真实性边界）──
+      // 站在外部 Store 的位置复核内核写下的足迹：链是否自洽、事件是否覆盖每一次调用与转移。
+      const auditSnapshotForReconcile = {
+        ...exec.machine.audit.snapshot(),   // 含链头 digest / eventCount：故障验收的「可审计」要核这个
+        events: exec.machine.audit.events,
+      };
+      const tampered = exec.faultInjector ? exec.faultInjector.tamperAudit(auditSnapshotForReconcile) : null;
+      exec.auditReconcile = reconcileAudit({
+        auditEvents: tampered || auditSnapshotForReconcile,
+        declared: { schemaVersion: auditSnapshotForReconcile.schemaVersion, policyVersion: auditSnapshotForReconcile.policyVersion, sessionId, turnId: machine.turnId },
+        record: exec.record,
+        ledgerEntries: exec.ledger.snapshot(48),
+        checkpoints: exec.checkpoints.list(sessionId),
+        policySnapshot: exec.policySnapshot,
+      });
+      store.state.auditReconcile = {
+        ok: exec.auditReconcile.ok,
+        integrity: exec.auditReconcile.integrity,
+        completeness: exec.auditReconcile.completeness,
+        authenticity: exec.auditReconcile.authenticity,
+        statement: exec.auditReconcile.statement,
+        at: exec.auditReconcile.checkedAt,
+      };
+      exec.record.auditReconcile = {
+        integrityOk: exec.auditReconcile.integrity.ok,
+        completenessOk: exec.auditReconcile.completeness.ok,
+        integrityMismatches: exec.auditReconcile.integrity.mismatches.length + exec.auditReconcile.integrity.crossVersion.length,
+        missingEvents: exec.auditReconcile.completeness.missing.length,
+        authenticityClaimed: false,
+      };
+
+      // ── P2 收尾②：故障注入验收（五性质：可检测 / 可解释 / 可停止 / 可恢复 / 可审计）──
+      if (exec.faultInjector) {
+        const faultResult = exec.faultInjector.verify({
+          record: exec.record,
+          auditSnapshot: tampered || auditSnapshotForReconcile,
+          trajectory: exec.trajectory,
+          resumePlan: exec.resumePlan || null,
+          memoryApplication: (nexusState && nexusState.memoryApplication) || null,
+          // 上下文自检报告的分裂也算「可检测」的证据：能在开工前判定为缺陷，比撞墙更强
+          contextConsistency: exec.contextConsistency || null,
+        });
+        exec.faultReport = faultResult;
+        store.state.lastFaultReport = {
+          policyVersion: faultResult.policyVersion,
+          summary: faultResult.summary,
+          ok: faultResult.ok,
+          cards: faultResult.cards,
+          at: Date.now(),
+        };
+        store.state.faultHistory = [...(Array.isArray(store.state.faultHistory) ? store.state.faultHistory : []), ...faultResult.cards].slice(-24);
+        // 注入是「一次性」的：验收完立刻清残留（假声明留在设置里会污染之后每一轮）
+        exec.faultInjector.cleanup(store);
+        exec.machine.audit.record('fault-verification', {
+          injected: [...new Set(exec.faultInjector.log
+            .filter((l) => l.phase !== 'arm')
+            .flatMap((l) => (Array.isArray(l.kinds) ? l.kinds : [l.kind]))
+            .filter(Boolean))],
+          ok: faultResult.ok,
+          summary: faultResult.summary,
+        });
+      }
+
+      // ── P2 收尾③：统一指标快照（12 项 + 七维切分，只看总体平均没有诊断价值）──
+      exec.metrics = buildMetricSnapshot({
+        entries: store.state.trajectoryLog,
+        memoryHealth: store.state.memoryHealth,
+        ledgerEntries: store.state.executionIdempotency,
+        checkpoints: store.state.executionCheckpoints,
+      });
+      store.state.metricsSnapshot = exec.metrics;
+      const metricGate = store.state.metricsBaseline ? evaluateMetricGate(exec.metrics, store.state.metricsBaseline) : null;
+      if (metricGate) store.state.metricsGate = { ok: metricGate.ok, regressions: metricGate.regressions, checkedAt: Date.now(), text: formatMetricGate(metricGate) };
+
+      // ── P2 收尾④：策略实验在线样本（对照 vs 变体；护栏违规会直接判回退）──
+      const confirmHistory = exec.confirmGate.history.filter((r) => r && r.turnId === machine.turnId || true);
+      const asked = confirmHistory.filter((r) => r.at >= t0).length;
+      const abandoned = confirmHistory.filter((r) => r.at >= t0 && (r.decision === 'timeout' || r.decision === 'deny' || r.decision === 'cancelled')).length;
+      for (const [expId, expAssignment] of [['guard-default', exec.experiment], ['memory-candidate-hint', exec.experimentSecond]]) {
+        if (!expAssignment || !expAssignment.inExperiment) continue;
+        store.state.experimentSamples = appendExperimentSample(store.state.experimentSamples, {
+          experimentId: expId,
+          variantId: expAssignment.variantId,
+          metrics: {
+            guardAskRate: asked > 0 ? 1 : 0,
+            confirmAbandonRate: asked ? abandoned / asked : 0,
+            memoryUtilityRate: (nexusState && nexusState.memoryApplication && nexusState.memoryApplication.injectedCount) ? 1 : 0,
+            turnLatencyMs: Date.now() - t0,
+            promptGrowthChars: 0,
+          },
+          ts: Date.now(),
+        });
+      }
+      // 执行记录落 Store 的时机放在 P2 收尾之后：审计对账 / 故障验收 / 指标 / 实验样本
+      // 都是这一轮的结论，先落盘再补写会让 /nexus 与面板读到「缺一半」的记录。
       store.state.lastExecutionRecord = {
         ...exec.record,
         transitions: (exec.record.transitions || []).slice(-24),
         toolRuns: (exec.record.toolRuns || []).slice(-12),
         resumeHintConsumed: false,
       };
-      store.state.memoryHealth = summarizeMemoryHealth({
-        memory: store.state.memory,
-        candidates: store.state.memoryCandidates || [],
-      });
       store.state.lastExecutionAcceptance = evaluateExecutionKernelAcceptance({ toolNames: exec.toolList.map((t) => t.name) });
       if (nexusState.lastFootprint) {
         // 足迹绑定执行内核摘要：工具名/顺序之外，还能核到状态轨迹与审计摘要
@@ -1585,6 +1878,22 @@ export function createAgent(store, hooks = {}) {
           } : null,
           ledgerSize: exec.ledger.size,
         },
+        // P2：策略版本 / 指标 / 审计三层目标 / 实验分配 / 故障验收——UI 面板与验收报告直接读这里
+        policy: exec.policySnapshot ? { registryVersion: exec.policySnapshot.registryVersion, versions: exec.policySnapshot.versions } : null,
+        metrics: exec.metrics ? { samples: exec.metrics.samples, overall: exec.metrics.overall, dimensions: Object.keys(exec.metrics.byDimension || {}) } : null,
+        auditGoals: exec.auditReconcile ? {
+          integrity: exec.auditReconcile.integrity.ok,
+          completeness: exec.auditReconcile.completeness.ok,
+          authenticity: null,
+          statement: exec.auditReconcile.statement,
+        } : null,
+        experiment: exec.experiment ? {
+          id: exec.experiment.experimentId,
+          variantId: exec.experiment.variantId,
+          inExperiment: exec.experiment.inExperiment,
+          reason: exec.experiment.reason,
+        } : null,
+        fault: exec.faultReport ? { ok: exec.faultReport.ok, summary: exec.faultReport.summary } : null,
       };
       recordRouteLatencySample({
         fastPath: !!(nexusState.profile && nexusState.profile.fastPath),
@@ -1690,6 +1999,89 @@ export function createAgent(store, hooks = {}) {
     getConfirmationState: () => (activeGate
       ? { pending: activeGate.pendingKeys(), allowlist: [...activeGate.allowlist] }
       : { pending: [], allowlist: [] }),
+    // ── P2 API：指标 / 审计对账 / 故障注入 / 策略版本 / 实验（UI 与测试共用）──
+    getMetrics: () => store.state.metricsSnapshot || null,
+    getMetricGate: () => store.state.metricsGate || null,
+    getAuditReconcile: () => store.state.auditReconcile || null,
+    getFaultReport: () => store.state.lastFaultReport || null,
+    getPolicySnapshot: () => store.state.policySnapshot || snapshotPolicies(),
+    setMetricsBaseline: (snapshot) => { store.state.metricsBaseline = snapshot || null; return store.state.metricsBaseline; },
+    /** 策略漂移自检：注册表声明 vs 各模块实际导出（异步，因为要动态 import 各模块）*/
+    verifyPolicies: async () => {
+      const result = await verifyPolicyRegistry();
+      store.state.policyDrift = { ok: result.ok, mismatches: result.mismatches, checked: result.checked, total: result.total, at: Date.now() };
+      return result;
+    },
+    /** 装备故障注入（下一轮生效一次）：kinds 为空 = 关闭 */
+    armFaultInjection: (kinds = [], options = {}) => {
+      const list = (Array.isArray(kinds) ? kinds : [kinds]).map(String).filter((k) => FAULT_KINDS[k]);
+      if (!list.length) {
+        store.state.faultInjection = null;
+        return { ok: true, cleared: true, kinds: [] };
+      }
+      store.state.faultInjection = { kinds: list, seed: options.seed || 20261001 };
+      return { ok: true, cleared: false, kinds: list, note: '下一轮生效；注入记录会写入审计与故障报告' };
+    },
+    getExperimentReport: (id = 'guard-default') => summarizeExperiment({ experiment: id, samples: (store.state.experimentSamples || []).filter((x) => x.experimentId === id) }),
+    /**
+     * P2 报告行（/stats 与 /nexus 里「五～九」节）：策略 / 指标 / 审计三层 / 故障 / 实验 / 执行上下文。
+     * 格式化一律用各模块自己的 formatter——报告口径只能有一个来源，避免「面板说一套、报告说一套」。
+     */
+    getP2ReportLines: () => {
+      const lines = [];
+      const snap = store.state.policySnapshot || snapshotPolicies();
+      lines.push('五、策略版本化（每项策略独立版本并写入审计，退化时能定位是哪一层变的）：');
+      lines.push(`  - ${formatPolicyLine(snap)}`);
+      const drift = store.state.policyDrift;
+      lines.push(drift
+        ? `  - 漂移自检：${drift.ok ? `通过（${drift.checked}/${drift.total} 项声明与模块实现一致）` : `⚠ ${drift.mismatches.length} 项不一致`}`
+        : '  - 漂移自检：尚未执行（打开面板或运行 /p2 时自动核一次）');
+
+      lines.push('六、策略实验与在线反馈闭环（灰度可回退，对照臂语义干净）：');
+      const assignments = store.state.experimentAssignments || {};
+      const expIds = Object.keys(assignments);
+      if (!expIds.length) lines.push('  - 本会话还没有实验分配记录（发起一轮对话后写入）');
+      for (const id of expIds) {
+        const a = assignments[id];
+        const summary = summarizeExperiment({ experiment: id, samples: (store.state.experimentSamples || []).filter((x) => x.experimentId === id) });
+        lines.push(`  - ${id}：本会话 ${a.inExperiment ? `在变体 ${a.variantId}` : '对照组'}（${a.reason || '未开启灰度'}）｜ ${summary.ok ? `决策 ${summary.action}：${summary.reason}` : summary.reason}`);
+      }
+
+      lines.push('七、统一指标面板（12 指标 × 7 维切分，只看总分会掩盖某一类退化）：');
+      const metrics = store.state.metricsSnapshot;
+      if (!metrics || !metrics.samples) lines.push('  - 尚无轨迹样本（完成一轮工具任务后开始统计）');
+      else {
+        for (const l of formatMetricsPanel(metrics).split('\n')) lines.push(`  ${l}`);
+        if (store.state.metricsGate) lines.push(`  - 指标门禁：${store.state.metricsGate.ok ? '通过' : '⚠ 相对基线退化'}`);
+      }
+
+      lines.push('八、审计三层目标（完整性靠链式哈希，完备性靠对账，真实性不声明）：');
+      const audit = store.state.auditReconcile;
+      if (!audit) lines.push('  - 尚无审计对账记录');
+      else for (const l of formatAuditGoalsReport(audit).split('\n')) lines.push(`  ${l}`);
+      lines.push(`  - 边界声明：${auditBoundaryStatement().split('\n').join('；')}`);
+
+      lines.push('九、故障注入与红队评测（九类故障 × 五性质，拿不出证据一律判未满足）：');
+      const fault = store.state.lastFaultReport;
+      if (!fault) lines.push('  - 本会话未运行故障注入（面板里可一键装备，下一轮生效一次）');
+      else {
+        lines.push(`  - 最近一次：${fault.summary}`);
+        for (const c of fault.cards || []) {
+          lines.push(`    ${c.ok ? '✓' : '✗'} ${c.label}：检测 ${c.properties.detectable ? '✓' : '✗'} · 解释 ${c.properties.explainable ? '✓' : '✗'} · 停止 ${c.properties.stoppable ? '✓' : '✗'} · 恢复 ${c.properties.recoverable ? '✓' : '✗'} · 审计 ${c.properties.auditable ? '✓' : '✗'}${(c.missing || []).length ? ` ← 缺 ${c.missing.join('/')}` : ''}`);
+        }
+      }
+
+      lines.push('十、统一执行上下文（工具表由上下文派生，状态分裂当场判缺陷）：');
+      const ctx = store.state.lastExecutionContext;
+      if (!ctx) lines.push('  - 尚无执行上下文快照');
+      else {
+        lines.push(`  - ${ctx.line}`);
+        lines.push(`  - 一致性：${ctx.consistent ? '通过（声明能力 = 实际能力 = 工具表）' : `⚠ 检出 ${ctx.splits.length} 项分裂：${ctx.splits.map((x) => x.detail).join('；')}`}`);
+        if ((ctx.dropped || []).length) lines.push(`  - 本次按能力裁剪：${ctx.dropped.map((d) => `${d.name}(${d.reason})`).join('、')}`);
+      }
+      return lines;
+    },
+    getExperimentAssignments: () => store.state.experimentAssignments || {},
     getResumePlan: () => {
       const cp = createCheckpointStore({ entries: Array.isArray(store.state.executionCheckpoints) ? store.state.executionCheckpoints : [] })
         .latest(store.state.activeSessionId);

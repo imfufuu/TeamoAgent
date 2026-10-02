@@ -23,6 +23,10 @@ jobs:
         run: node tests/execution-kernel-smoke.mjs
       - name: P1 可恢复执行独立验收（检查点/幂等账本/交互确认/记忆生命周期/轨迹级评测）
         run: node tests/recovery-kernel-smoke.mjs
+      - name: P2 内核独立验收（统一执行上下文 / 策略版本化 / 审计三层目标 / 指标门禁 / 故障注入 / 实验）
+        run: node tests/p2-kernel-smoke.mjs
+      - name: P2 分层评测集（10 类 × 12 条 = N=120；P/R/F1 + 95% Wilson CI + 基线 5pt 门禁）
+        run: node tests/p2-eval.mjs
       - name: 审核资产完整性（ORT 版本/模型分片/CSP 炸点/fail-closed 钉子）
         run: node tests/assets-integrity.mjs
       - name: 服务端语法检查

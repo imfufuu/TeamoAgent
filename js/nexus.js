@@ -15,6 +15,10 @@ export { computeWilsonConfidenceInterval };
 //   - Stage 1 · 路由与环境探针（合并原 L1 路由 + L2 提示词与降级诊断）：0ms 本地快路径预筛 + 按需中继重探针 + 固定前缀编译
 //   - Stage 2 · 记忆与技能库（合并原 L3 记忆 + L4 技能）：统一入口规则过滤（披露 Precision/Recall 折中与混淆矩阵）+ 软归档可恢复(forget/restore) 与 物理彻底抹除(purge) 双通道分流
 //   - Stage 3 · 执行核验与链式足迹（合并原 L5 编排仲裁 + L6 自省与足迹）：并发工具调度 + 披露深度差异的口径核验 + SHA-256 跨轮次哈希链与外部 Store 交叉审计
+// 路由 / 档位策略的版本号（P2 v2.5）：策略改了这里必须改，且会被 policy.js 的
+// verifyPolicyRegistry() 与模块实际导出比对——审计记录里的「当时生效的路由策略」指的就是它。
+export const THN_ROUTER_POLICY_VERSION = 'thn-router-policy-2.5.0';
+
 export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
   mergedFromLayers: 6,
   convergedStagesCount: 3,
@@ -2059,7 +2063,7 @@ export function formatNexusAcceptanceReport(opts = {}) {
   const mCi = m.memoryGateWilson95CI.accuracy;
   const cCi = m.combinedAccuracyCI;
   return [
-    '【天枢 THN v2.3 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
+    '【天枢 THN v2.5 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
     '一、架构正交性与能力-工具表一致性锁（不藏状态、不夸大绝对值）：',
     `  - 4 位正交能力向量验证（Relay·Web·Sandbox·Dispatch，共 16 种掩码）：工具子集严格不相交 = ${m.capabilityOrthogonalityVerified}`,
     '  - 档位-工具表一致性锁（resolveEffectiveReasoningState + verifyPromptToolAlignment）：根治思考开关 Off 时残留 ULTRA 预设导致的自相矛盾诊断',
@@ -2076,6 +2080,9 @@ export function formatNexusAcceptanceReport(opts = {}) {
     `  6. 决策足迹 SHA-256 哈希链校验率：${(m.footprintFaithfulnessRate * 100).toFixed(1)}%`,
     ...formatExecutionKernelSection(opts),
     ...formatTrajectorySection(opts),
+    // P2（v2.5）五～十节由 agent.getP2ReportLines() 提供：格式化归各模块，报告只负责拼装，
+    // 避免「面板一套口径、报告另一套口径」的经典分裂。
+    ...(Array.isArray(opts.p2Lines) ? opts.p2Lines : []),
   ].join('\n');
 }
 
@@ -2095,7 +2102,7 @@ function formatExecutionKernelSection(opts = {}) {
   const spent = budget.spent || {};
   const limits = budget.budget || {};
   const risk = exec.riskCounts || {};
-  const bStr = ['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects']
+  const bStr = ['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects', 'tokens']
     .map((ch) => {
       const key = `max${ch.charAt(0).toUpperCase()}${ch.slice(1)}`;
       const limit = limits[key];
@@ -2143,7 +2150,7 @@ function formatTrajectorySection(opts = {}) {
 }
 
 const EXECUTION_BUDGET_LABELS = Object.freeze({
-  toolCalls: '工具调用', retries: '重试', durationMs: '墙钟', parallelTasks: '并发峰值', memoryWrites: '记忆写', externalSideEffects: '外部副作用',
+  toolCalls: '工具调用', retries: '重试', durationMs: '墙钟', parallelTasks: '并发峰值', memoryWrites: '记忆写', externalSideEffects: '外部副作用', tokens: 'Token',
 });
 
 

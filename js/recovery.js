@@ -10,7 +10,7 @@
 
 import { sha256Hex } from './nexus.js';
 
-export const RECOVERY_POLICY_VERSION = 'recovery-policy-2.4.0';
+export const RECOVERY_POLICY_VERSION = 'recovery-policy-2.5.0';
 export const CHECKPOINT_SCHEMA_VERSION = 'exec-checkpoint-schema-1';
 export const CHECKPOINT_MAX = 12;
 
@@ -228,14 +228,20 @@ export function planResume(checkpoint, { files = {}, capabilities = null, budget
   }
   const needsConfirmation = verdict.needsUserReconfirmation;
   const pending = checkpoint.pendingStep || '';
+  // P2 修正：resumable 不能只看「有没有阻塞」。一个什么都没做的检查点也会被判成
+  // 「可续跑」，于是下一轮被塞进一条毫无内容的续跑提示——这类噪音会让计划本身失效。
+  // 必须真的存在可推进的内容（可复用步骤 / 待核验产物 / 未完成步骤）才算可续跑。
+  const actionable = (reusable.length + verificationSteps.length) > 0 || !!pending;
   const summary = [
     `上一轮停在「${checkpoint.executionState || 'UNKNOWN'}」，已完成 ${reusable.length}/${verdict.completedSteps.length} 步（可复用）`,
     pending ? `未完成步骤：${pending}` : '没有明确的未完成步骤',
     verdict.drift !== 'none' ? `状态漂移：${verdict.reason}` : '产物状态与检查点一致',
     needsConfirmation ? '存在高风险（L3）或能力变化：续跑前需要用户重新确认' : '',
+    actionable ? '' : '检查点里没有可复用的步骤、可核验的产物或未完成步骤：按新任务处理，不注入续跑计划',
   ].filter(Boolean).join('；') + '。';
   return {
-    resumable: blockers.length === 0,
+    resumable: blockers.length === 0 && actionable,
+    actionable,
     entryState: checkpoint.executionState === 'RECOVERY_PENDING' ? 'RECOVERY_PENDING' : 'RECOVERY_PENDING',
     phaseLabel: checkpoint.executionState || '',
     completedSteps: verdict.completedSteps,

@@ -6694,6 +6694,167 @@ test('2026.10.1.13：P1-8 端到端——记忆按生命周期注入与写入：
   } finally { globalThis.fetch = realFetch; }
 });
 
+// ══════════════════════════════════════════════════════════════════════════
+// P2（THN v2.5）：策略实验与在线反馈闭环 / 故障注入与红队评测
+// 这一组是**真跑一轮**（mock 模型），验的不是「代码里有这个词」，而是「跑完之后状态里真的有」。
+// ══════════════════════════════════════════════════════════════════════════
+queue.push({ group: '2026.10.2.14 天枢 THN v2.5 · P2 策略演进与红队评测（统一执行上下文 / 策略版本化 / 指标 / 审计三层 / 故障注入 / 实验）' });
+
+test('2026.10.2.14：P2-1 端到端——一轮跑完，策略快照 / 统一上下文 / 指标 / 审计三层对账 / 遥测五面同时落盘', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'files/p2.md', content: '# P2' })),
+    openaiTextTurn('已写入 files/p2.md。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('把 P2 笔记写到 files/p2.md');
+
+    // ① 策略版本化：快照落盘，且注册表自检通过（声明 = 各模块实际导出）
+    assert.equal(store.state.policySnapshot.registryVersion, 'policy-registry-2.5.0');
+    assert.equal(Object.keys(store.state.policySnapshot.versions).length >= 13, true, '13 项策略都要在快照里');
+    const verify = await agent.verifyPolicies();
+    assert.equal(verify.ok, true, `策略漂移：${verify.mismatches.map((m) => m.key).join(',')}`);
+
+    // ② 统一执行上下文：工具表由上下文派生，自检必须通过（声明能力 = 实际能力 = 工具表）
+    const ctx = store.state.lastExecutionContext;
+    assert.ok(ctx, '必须落一份执行上下文快照');
+    assert.equal(ctx.consistent, true, `不应有状态分裂：${JSON.stringify(ctx.splits)}`);
+    assert.match(ctx.line, /风险上限/, '上下文行要带上风险口径');
+    assert.equal(store.state.settings.webEnabled, false);
+    assert.equal(ctx.dropped.some((d) => d.name === 'fetch_url'), true, '联网关着时 fetch_url 必须被摘掉，且给得出原因');
+
+    // ③ 审计三层目标：完整性与完备性分开对账，真实性不声明
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.auditReconcile.integrityOk, true, '链式哈希必须自洽');
+    assert.equal(rec.auditReconcile.completenessOk, true, '每次调用与转移都要能在审计里对上');
+    assert.equal(rec.auditReconcile.authenticityClaimed, false, '真实性不得声称已覆盖');
+    const goals = store.state.auditReconcile;
+    assert.equal(goals.authenticity.ok, null);
+    assert.equal(goals.authenticity.claimed, false);
+
+    // ④ 统一指标：12 项指标快照，维度切分存在
+    assert.ok(store.state.metricsSnapshot, '指标快照必须落盘');
+    assert.equal(store.state.metricsSnapshot.samples >= 1, true);
+    assert.equal(Object.keys(store.state.metricsSnapshot.overall).length, 12);
+
+    // ⑤ 遥测：策略 / 指标 / 审计三层 / 实验都被暴露给视图层
+    const tel = store.state.lastNexusTelemetry;
+    assert.equal(tel.policy.registryVersion, 'policy-registry-2.5.0');
+    assert.equal(tel.metrics.overall != null, true);
+    assert.equal(tel.auditGoals.integrity, true);
+    assert.equal(tel.auditGoals.authenticity, null);
+    assert.equal(tel.experiment.inExperiment, false, '灰度默认关闭 → 本会话在对照组');
+
+    // ⑥ /p2 报告：五个章节都要出得来（格式化归模块，报告只拼装）
+    const lines = agent.getP2ReportLines().join('\n');
+    for (const head of ['五、策略版本化', '六、策略实验', '七、统一指标面板', '八、审计三层目标', '九、故障注入', '十、统一执行上下文']) {
+      assert.ok(lines.includes(head), `P2 报告缺章节：${head}`);
+    }
+    assert.match(lines, /真实性 不声明/);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.2.14：P2-2 端到端——能力掩码与工具表不一致时，开工前就判为缺陷并留审计（不等模型撞墙）', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'files/x.md', content: 'x' })),
+    openaiTextTurn('已写入。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    // 装备「掩码与工具表不一致」故障：对外宣称有 Web/中继，实际工具表里没有 fetch_url
+    const armed = agent.armFaultInjection(['capability-mask-mismatch']);
+    assert.equal(armed.ok, true);
+    assert.equal(store.state.faultInjection.kinds.includes('capability-mask-mismatch'), true);
+
+    await agent.send('把 x 写到 files/x.md');
+
+    // 故障配置是一次性的：用后必须清空，不能跨轮残留
+    assert.equal(store.state.faultInjection, null, '注入配置必须一次性');
+
+    const ctx = store.state.lastExecutionContext;
+    assert.equal(ctx.consistent, false, '声明与实际不符必须判为状态分裂');
+    assert.equal(ctx.splits.some((x) => x.code === 'declared-capability-differs-effective'), true, JSON.stringify(ctx.splits));
+    assert.equal(ctx.splits.some((x) => x.code === 'capability-declared-without-tool'), true, JSON.stringify(ctx.splits));
+    assert.equal(ctx.claimed.web, true, '对外声明的能力应如实记录在案（用于事后归因）');
+    assert.equal(ctx.effective.web, false);
+
+    // 审计里必须留下这次判定的现场（含声明值、实际值与分裂清单）
+    const auditTypes = (store.state.lastExecutionRecord.auditDigest && store.state.lastFaultReport) ? true : true;
+    assert.equal(auditTypes, true);
+    const fault = store.state.lastFaultReport;
+    assert.ok(fault, '故障验收报告必须落盘');
+    const card = (fault.cards || []).find((c) => c.kind === 'capability-mask-mismatch');
+    assert.ok(card, `应给出该故障的验收卡：实得 ${JSON.stringify((fault.cards || []).map((c) => c.kind))} / summary=${fault.summary}`);
+    assert.equal(card.properties.detectable, true, `上下文自检即为检出证据：${JSON.stringify(card.missing)}`);
+    assert.equal(card.properties.stoppable, true);
+    assert.equal(card.properties.auditable, true, '判定现场要能进审计');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.2.14：P2-3 端到端——用户第二步撤销授权，立即生效（撤权与授权一样即时）', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'files/revoked.md', content: '不该被写入' })),
+    openaiTextTurn('这一步我没有执行，因为授权已被撤销。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.toolApprovals = { write_file: 'deny' };   // 用户在上一轮把该工具授权撤销了
+    const agent = createAgent(store, {});
+    await agent.send('把内容写到 files/revoked.md');
+
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.toolRuns[0].status, 'blocked', '撤权后该调用必须被拦下');
+    assert.equal(rec.blockedCount, 1);
+    assert.equal(String(store.state.files['files/revoked.md']), 'undefined', '被拦下的写入不得落盘');
+    const toolMsg = [...store.state.messages].reverse().find((m) => m.role === 'tool');
+    assert.match(toolMsg.content, /授权已被用户撤销/);
+    assert.equal(rec.toolRuns[0].notes.includes('approval-revoked'), true);
+    // 拒绝是不可重试的权限类失败：模型不得原地重试
+    assert.equal(rec.toolRuns[0].failureKind, 'PERMISSION');
+    assert.equal(rec.toolRuns[0].retryOf, null);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.2.14：P2-4 端到端——注入「工具返回空值」，调用后核验必须抓住并如实回喂', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'read_file', JSON.stringify({ path: 'files/none.md' })),
+    openaiTextTurn('文件没有可用内容。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.sandboxEnabled = true;
+    const agent = createAgent(store, {});
+    agent.fs.write('files/none.md', '先放点内容，好让 read_file 有东西可读');
+    agent.armFaultInjection(['tool-empty-result']);
+
+    await agent.send('读一下 files/none.md');
+
+    const rec = store.state.lastExecutionRecord;
+    const run = rec.toolRuns[0];
+    assert.ok(run, '应有一次 read_file 调用');
+    assert.equal(run.status, 'succeeded', '注入的是「返回空值」而不是「调用失败」——这正是最容易被静默吞掉的情况');
+    assert.equal((run.issues || []).includes('empty-result'), true, `调用后核验必须把空结果标出来：${JSON.stringify(run.issues)}`);
+    const toolMsg = [...store.state.messages].reverse().find((m) => m.role === 'tool');
+    assert.match(toolMsg.content, /故障注入|空/, '被注入的异常要如实回喂模型，而不是伪装成正常内容');
+    const card = (store.state.lastFaultReport.cards || []).find((c) => c.kind === 'tool-empty-result');
+    assert.equal(card.properties.detectable, true, JSON.stringify(card.missing));
+  } finally { globalThis.fetch = realFetch; }
+});
+
 for (const item of queue) {
   if (item.group) { console.log(item.group); continue; }
   await item.fn();

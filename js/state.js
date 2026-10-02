@@ -186,6 +186,20 @@ export function createStore(onChange) {
     trajectoryTotals: null,     // 轨迹累计计数（健康回合 / 恢复成功率 / P95 等）
     memoryCandidates: [],       // 记忆候选区（最多 8）：未通过长期库门槛的条目先在这里等确认
     memoryHealth: null,         // 记忆健康度快照（来源分级 / 敏感条目数 / 冲突数）
+    // P2（THN v2.5）：策略演进 / 故障注入 / 统一指标 / 审计对账的根级状态。
+    // 同样刻意不 import 各 P2 模块——state.js 必须是最先可用的那一层，混版缓存时不炸。
+    policySnapshot: null,       // 策略版本快照（会话首轮写入；用于漂移对比「同一会话里策略换过没有」）
+    policyDrift: null,          // 策略漂移自检结果（注册表声明 vs 模块实际导出）
+    experimentAssignments: {},  // 实验分配（实验 id → { variantId, inExperiment, reason }），分桶稳定不重摇
+    experimentSamples: [],      // 在线实验样本（环形，最多 200）：每轮对照/变体各一条
+    faultInjection: null,       // 待注入的故障清单（一次性，装配后立即置空）
+    lastFaultReport: null,      // 最近一次故障验收报告（五性质：可检测/可解释/可停止/可恢复/可审计）
+    faultHistory: [],           // 故障卡片历史（环形，最多 24）
+    metricsSnapshot: null,      // 统一指标快照（12 指标 × 7 维切分）
+    metricsBaseline: null,      // 指标基线（用户/CI 显式设定，用于门禁对比，不自动改）
+    metricsGate: null,          // 最近一次指标门禁结论（是否退化、退化在哪些维度）
+    auditReconcile: null,       // 审计三层目标对账（完整性 / 完备性 / 真实性边界声明）
+    lastExecutionContext: null, // 最近一轮的统一执行上下文（能力/约束/工具表裁剪/一致性自检结论）
   };
   state.activeSessionId = state.sessions[0].id;
 
@@ -199,6 +213,19 @@ export function createStore(onChange) {
     if (!state.memoryHealth || typeof state.memoryHealth !== 'object') state.memoryHealth = null;
   };
   normalizeP1State();
+
+  // P2 状态键：同样的形状兜底——坏数据只能让面板显示「暂无数据」，不能让执行内核崩
+  const P2_STATE_CAPS = { experimentSamples: 200, faultHistory: 24 };
+  const normalizeP2State = () => {
+    for (const [key, cap] of Object.entries(P2_STATE_CAPS)) {
+      state[key] = Array.isArray(state[key]) ? state[key].slice(-cap) : [];
+    }
+    for (const key of ['policySnapshot', 'policyDrift', 'faultInjection', 'lastFaultReport', 'metricsSnapshot', 'metricsBaseline', 'metricsGate', 'auditReconcile', 'lastExecutionContext']) {
+      if (state[key] && typeof state[key] !== 'object') state[key] = null;
+    }
+    if (!state.experimentAssignments || typeof state.experimentAssignments !== 'object' || Array.isArray(state.experimentAssignments)) state.experimentAssignments = {};
+  };
+  normalizeP2State();
 
   const sess = () => state.sessions.find((s) => s.id === state.activeSessionId) || state.sessions[0];
   const hydrate = () => {
@@ -301,7 +328,13 @@ export function createStore(onChange) {
       cands: state.memoryCandidates || [],
       totals: state.trajectoryTotals || null,
       health: state.memoryHealth || null,
-    }).length + 512;
+      // P2 根级状态（策略快照 / 实验样本 / 故障卡片 / 指标快照 / 审计对账）同样是落盘内容
+      policies: state.policySnapshot || null,
+      exp: state.experimentSamples || [],
+      faults: state.faultHistory || [],
+      metrics: state.metricsSnapshot || null,
+      audit: state.auditReconcile || null,
+    }).length + 768;
     return c;
   };
   const writeNow = () => {

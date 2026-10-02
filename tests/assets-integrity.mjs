@@ -275,6 +275,99 @@ await test('轨迹级评测：三个负向指标进 /nexus 报告，遥测暴露
   assert.match(agent, /auditCompleteness|recoverySuccessRate/, '轨迹汇总应含恢复率与审计完整度');
 });
 
+group('P2 策略演进与红队评测接线（策略版本化 / 统一上下文 / 指标 / 审计三层 / 故障注入 / 实验）');
+await test('P2 六个新模块随项目存在，且都以 ?v= 版本化方式被引用', () => {
+  for (const rel of ['../js/policy.js', '../js/experiments.js', '../js/metrics.js', '../js/faults.js', '../js/audit.js', '../js/executionContext.js']) {
+    assert.ok(exists(rel), `${rel} 应随项目存在`);
+  }
+  const agent = read('../js/agent.js');
+  for (const mod of ['policy.js', 'experiments.js', 'metrics.js', 'faults.js', 'audit.js', 'executionContext.js']) {
+    assert.match(agent, new RegExp(`\\./${mod.replace('.', '\\.')}\\?v=\\d`), `agent.js 应以 ?v= 导入 ${mod}`);
+  }
+});
+await test('版本号全场一致：所有 ?v= 静态引用与 APP_VERSION 相同（漏升一个就等于混版）', () => {
+  const cfg = read('../js/config.js');
+  const m = /APP_VERSION\s*=\s*'([0-9.]+)'/.exec(cfg);
+  assert.ok(m, 'config.js 应导出 APP_VERSION');
+  const ver = m[1];
+  const files = ['../js/agent.js', '../js/main.js', '../js/ui.js', '../js/nexus.js', '../js/tools.js', '../app.html', '../index.html', '../docs.html'];
+  for (const f of files) {
+    const text = read(f);
+    for (const hit of text.matchAll(/\?v=(\d[\d.]*)/g)) {
+      assert.equal(hit[1], ver, `${f} 里的 ?v=${hit[1]} 与 APP_VERSION ${ver} 不一致`);
+    }
+  }
+});
+await test('统一执行上下文：工具表由上下文派生，状态分裂有稳定错误码', () => {
+  const ctx = read('../js/executionContext.js');
+  for (const fn of ['createTurnExecutionContext', 'deriveToolWhitelist', 'assertExecutionContextConsistency', 'contextAuditFields']) {
+    assert.ok(ctx.includes(`export function ${fn}`), `executionContext.js 应导出 ${fn}`);
+  }
+  assert.match(ctx, /capability-declared-without-tool/, '必须有「声明能力但工具表没有」的分裂码（P2 第 1 条）');
+  const agent = read('../js/agent.js');
+  assert.match(agent, /deriveToolWhitelist/, 'agent 应以派生工具表为准，而不是自己再算一份');
+  assert.match(agent, /assertExecutionContextConsistency/, 'agent 应在开工前做上下文一致性自检');
+  assert.match(agent, /context-consistency/, '自检结论要进审计');
+});
+await test('策略版本化：注册表覆盖 router/tool/memory/risk/prompt/audit/experiment，且可自检漂移', () => {
+  const pol = read('../js/policy.js');
+  for (const key of ['routerPolicyVersion', 'toolPolicyVersion', 'riskPolicyVersion', 'promptContractVersion', 'auditSchemaVersion', 'memoryPolicyVersion', 'experimentPolicyVersion']) {
+    assert.ok(pol.includes(key), `策略注册表应含 ${key}`);
+  }
+  assert.match(pol, /export async function verifyPolicyRegistry/, '必须有漂移自检（声明 vs 模块实际导出）');
+  assert.match(read('../js/agent.js'), /snapshotPolicies|policySnapshot/, '策略快照要随执行记录落盘');
+});
+await test('审计三层目标：完整性与完备性分开报告，真实性明确不声明', () => {
+  const aud = read('../js/audit.js');
+  assert.match(aud, /AUDIT_GOALS/, '应集中定义三个审计目标');
+  assert.match(aud, /authenticity[\s\S]{0,200}covered: false/, '真实性必须如实标记为不覆盖（需硬件远程证明）');
+  assert.match(aud, /reconcileAudit/, '完备性必须靠对账，而不是只验链');
+  const agent = read('../js/agent.js');
+  assert.match(agent, /reconcileAudit/, 'agent 收尾应做审计对账');
+});
+await test('统一指标面板：12 指标 × 7 维切分 + 基线门禁接进 agent', () => {
+  const met = read('../js/metrics.js');
+  assert.match(met, /METRIC_DEFS/, '指标定义应集中');
+  assert.match(met, /METRIC_DIMENSIONS/, '必须有维度切分（只看总分会掩盖某一类退化）');
+  assert.match(met, /export function evaluateMetricGate/, '必须有基线门禁');
+  const agent = read('../js/agent.js');
+  assert.match(agent, /buildMetricSnapshot/, 'agent 每轮应产出指标快照');
+  assert.match(agent, /evaluateMetricGate/, 'agent 应跑指标门禁');
+});
+await test('故障注入：九类清单 + 五性质验收，且能一键装备（下一轮生效一次）', () => {
+  const f = read('../js/faults.js');
+  assert.match(f, /FAULT_KINDS/, '九类故障清单应集中定义');
+  assert.match(f, /FAULT_PROPERTIES/, '五性质应集中定义');
+  for (const k of ['tool-timeout', 'tool-empty-result', 'tool-bad-schema', 'artifact-modified-externally', 'duplicate-tool-call', 'audit-event-missing', 'capability-mask-mismatch', 'memory-instruction-conflict', 'authorization-revoked-midway']) {
+    assert.ok(f.includes(k), `故障清单缺 ${k}`);
+  }
+  assert.match(read('../js/agent.js'), /armFaultInjection/, 'agent 应暴露装备入口');
+  assert.match(read('../js/ui.js'), /\/p2 fault|fault/, 'UI 应能列出/装备故障');
+});
+await test('策略实验：默认关闭灰度、对照语义干净，样本只进实验组', () => {
+  const ex = read('../js/experiments.js');
+  assert.match(ex, /EXPERIMENT_REGISTRY/, '实验应集中注册');
+  assert.match(ex, /enabled: false/, '灰度必须默认关闭（未开启时行为与之前完全一致）');
+  const agent = read('../js/agent.js');
+  assert.match(agent, /inExperiment/, '只有真正进入变体才可用实验参数改写行为');
+  assert.match(agent, /appendExperimentSample/, '在线样本要落盘');
+});
+await test('/p2 面板进 /system 帮助与命令分支（策略 / 指标 / 审计 / 故障 / 实验 / 上下文）', () => {
+  const ui = read('../js/ui.js');
+  assert.match(ui, /name === 'p2'/, '应有 /p2 命令分支');
+  assert.match(ui, /\/p2 \[report\|policy\|fault\|exp\]/, '帮助里应列出 /p2 用法');
+  assert.match(ui, /getP2ReportLines/, '报告行应由 agent 统一生成（口径单一来源）');
+  assert.match(read('../js/nexus.js'), /p2Lines/, '/nexus 报告应拼装 P2 章节');
+});
+await test('P2 状态键齐备并做形状兜底（坏数据不能让面板与内核崩）', () => {
+  const st = read('../js/state.js');
+  for (const key of ['policySnapshot', 'experimentAssignments', 'faultInjection', 'metricsSnapshot', 'auditReconcile', 'lastExecutionContext', 'lastFaultReport']) {
+    assert.ok(st.includes(key), `state.js 应声明 ${key}`);
+  }
+  assert.match(st, /normalizeP2State/, '应有 P2 状态兜底');
+  assert.match(st, /P2 根级状态/, '体积估算应把 P2 状态算进去');
+});
+
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);

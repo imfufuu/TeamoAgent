@@ -1,0 +1,225 @@
+{
+ "version": "2026.10.2.14",
+ "generatedAt": "2026-10-02T05:53:25.865Z",
+ "overall": {
+  "n": 120,
+  "evaluated": 120,
+  "correct": 120,
+  "accuracy": 1,
+  "wilson": {
+   "p": 1,
+   "proportion": 1,
+   "pointEstimate": 1,
+   "lower": 0.969,
+   "upper": 1,
+   "span": 0.031,
+   "halfWidth": 0.0155,
+   "n": 120
+  },
+  "macroF1": 1,
+  "macroAccuracy": 1
+ },
+ "classes": [
+  {
+   "id": "normal",
+   "label": "正常任务",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "ambiguous",
+   "label": "模糊任务",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "tool-unavailable",
+   "label": "工具不可用",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "tool-anomaly",
+   "label": "工具返回异常",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "prompt-injection",
+   "label": "提示词注入",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "memory-conflict",
+   "label": "记忆冲突",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "intent-change",
+   "label": "中途改意图",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "high-risk",
+   "label": "高风险副作用",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "long-chain",
+   "label": "长链路",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  },
+  {
+   "id": "budget-exhaustion",
+   "label": "预算即将耗尽",
+   "n": 12,
+   "accuracy": 1,
+   "precision": 1,
+   "recall": 1,
+   "f1": 1,
+   "wilson": {
+    "p": 1,
+    "proportion": 1,
+    "pointEstimate": 1,
+    "lower": 0.7575,
+    "upper": 1,
+    "span": 0.2425,
+    "halfWidth": 0.1212,
+    "n": 12
+   },
+   "failures": 0
+  }
+ ],
+ "failureIds": []
+}

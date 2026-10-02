@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.1.13" />
+<meta name="app-version" content="2026.10.2.14" />
 <meta name="app-release" content="V1.4" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.4</title>
@@ -167,7 +167,7 @@
 
 <main>
   <section class="hero">
-    <p class="kicker">Documentation · V1.4 + THN v2.3 执行内核</p>
+    <p class="kicker">Documentation · V1.4 + THN v2.5 策略演进与红队评测</p>
     <h1>更新日志与协议。</h1>
     <p class="lede">从远古构建到 V1.4 的主要更新——修了什么、加了什么；以及使用本应用前应当了解的协议与隐私约定。完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
   </section>
@@ -180,7 +180,22 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.4 可恢复执行</span><span class="ver-build">2026.10.1.13</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-01</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5 策略演进与红队评测（P2）</span><span class="ver-build">2026.10.2.14</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-02</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag add">ADD</span><span><strong>统一执行上下文（<code>js/executionContext.js</code>）</strong>：一轮执行的能力（可用性）、约束（沙箱是否禁网 / 允许路径 / 并发上限 / 用户原件可否覆盖）、预算、风险上限、确认策略、策略版本、实验臂、审计绑定字段收进<strong>一个冻结对象</strong>，并且<strong>工具表由它派生</strong>——「声明允许 Web 但工具表里没有 Web」这类状态分裂在构造上不可能发生；开工前还会主动自检四类经典分裂（声明≠实际、能力缺工具、约束遮蔽能力、预算撑不起声明的并发），命中即判缺陷并写进审计。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>策略版本化（<code>js/policy.js</code>）</strong>：router / tool / risk / budget / prompt / audit / execution / confirmation / recovery / idempotency / memory / trajectory / experiment 共 <strong>13 项策略各自独立版本号</strong>，每次执行落一份策略快照随审计与执行记录保存；<code>/p2 policy</code> 可做漂移自检（注册表声明 vs 各模块实际导出），任何模块升版而注册表没跟就当场红灯，而不是悄悄给出错误的审计口径。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>策略实验与在线反馈闭环（<code>js/experiments.js</code>）</strong>：实验注册表 + FNV-1a 稳定分桶（同一会话不会每轮重摇），默认<strong>不灰度</strong>；对照组语义干净——只有真正进入变体才允许实验参数改写行为，未开启灰度时行为与之前完全一致。在线样本按变体累计，护栏（确认放弃率 / 端到端延迟 / 提示词增长）被触碰或明显退化时直接给出<code>回退</code>结论，样本不足则维持现状继续采样，只有「95% 区间不重叠且超过提升门槛」才建议提升。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>故障注入与红队评测平台（<code>js/faults.js</code>）</strong>：九类故障可注入——工具超时 / 返回空值 / 返回错误结构 / 产物被外部修改 / 重复调用 / 审计缺事件 / 能力掩码与工具表不一致 / 记忆与指令冲突 / 第二步撤销授权；每类按<strong>五性质</strong>验收：可检测、可解释、可停止、可恢复、可审计，<strong>拿不出证据一律判未满足（fail-closed）</strong>，并给出「期望检测点 / 恢复路径」对照，避免用一句「已处理」过关。注入为一次性：验收后立即清除残留标记，不会污染后续轮次。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>审计三层目标（<code>js/audit.js</code>）</strong>：把「足迹已上链」拆成三个能分别回答的问题——<strong>完整性</strong>（记录有没有被改：逐事件重算哈希 + 前序衔接）、<strong>完备性</strong>（有没有漏事件：执行记录 / 幂等账本 / 检查点 ↔ 审计事件双向对账）、<strong>真实性</strong>（事件是否真由指定环境产生：链式哈希<em>不能</em>覆盖，需硬件远程证明，本架构<strong>如实不声明</strong>）。文档与界面统一使用该口径，不把完整性当成安全证明。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>统一指标面板（<code>js/metrics.js</code>）</strong>：12 项指标（含静默失败率 / 过度路由率 / 漏路由率 / 恢复成功率 / 审计完整度 / 副作用安全 / 多余调用率 / P95 等）× 7 个维度切分（任务类型、推理档位、工具类型、In-Domain / OOD、是否涉及记忆、是否发生失败恢复、是否产生外部副作用），并提供相对基线的<strong>门禁</strong>——只看总分会掩盖某一类退化。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>预算口径统一（P0 遗留缺陷修复）</strong>：代码里的默认预算（24 次调用 / 2 次外部副作用 / 300s）与文档、CHANGELOG 一直声明的「32 · 2 · 600s · 3 · 4 · 6」不一致，旧值会让同一轮的第 3 个子智能体委派被外部副作用预算拦下。以文档口径为准统一为 <strong>32 · 2 · 600s · 3 · 4 · 6</strong>，并按 P2 清单补上<strong>第七路 Token 预算</strong>（默认 20 万，实时记账，耗尽后新的工具调用被拦下并转带限制作答）：预算太紧和预算没生效一样糟，被忽略的那一路（Token）恰恰是最容易无声膨胀的。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>风险分级补漏</strong>：远端 Git（clone / push / pull）此前被归为 L2，现已升为 L3 并要求确认；破坏性 DDL（DROP / TRUNCATE / ALTER）补上「需确认」标记，避免出现「显示最高风险却没人被要求确认」的空挂声明。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>P2 验收</strong>：新增 <code>tests/p2-kernel-smoke.mjs</code>（38 项内核级验收：统一上下文 / 策略漂移 / 审计三层 / 指标门禁 / 故障五性质 / 实验护栏 / 收尾闭环）与 <code>tests/p2-eval.mjs</code>（10 类 × 12 条 = <strong>N=120</strong> 分层评测集，每类分别出 P / R / F1 + 95% Wilson 置信区间 + 失败样本 + 是否系统可恢复，含 4 项原评测集没有的负向指标），两者都接入 CI 与 <code>npm run test:all</code>；<code>/p2</code> 面板与 <code>/nexus</code> 报告新增五～十节（策略 / 实验 / 指标 / 审计三层 / 故障 / 上下文），单测 317 项、<code>assets-integrity</code> 26 项全部通过。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.4 可恢复执行</span><span class="ver-build">2026.10.1.13</span><span class="ver-date">2026-10-01</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>轨迹级评测（<code>js/trajectory.js</code>）</strong>：评测从静态准确率扩展到<strong>轨迹质量</strong>——识别「答对但过程危险」。三个负向指标 Over-routing（简单任务走重链路）/ Under-routing（该检索计算却没动手）/ Silent-failure（工具失败未披露），配套恢复成功率、审计完整度、多余调用率、副作用安全、P95 耗时与健康回合，并按任务类型切分汇总；<code>/nexus</code> 报告新增「四、轨迹级评测」一节。</span></li>
           <li><span class="tag add">ADD</span><span><strong>可恢复的检查点与幂等机制（<code>js/recovery.js</code> + <code>js/idempotency.js</code>）</strong>：每波工具调用后落检查点（已完成步骤 / 未完成步骤 / 产物摘要 / 状态摘要 / 预算与风险等级，环形 12 条）；恢复计划回答「能不能续、哪些步骤可直接复用、哪些必须先核验、要不要重新确认」，<code>/resume</code> 随时可查，上一轮未干净收尾时自动注入续跑计划。幂等账本把幂等键升级为<strong>跨轮操作身份</strong>，四类裁决 复用 / 先核验 / 拦截重复副作用 / 放行，同轮并发同键调用复用同一次执行，绝不重复落副作用。</span></li>
@@ -191,7 +206,7 @@
       </div>
 
       <div class="ver-block reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.3 执行内核（P0）</span><span class="ver-build">2026.10.1.13</span><span class="ver-date">2026-10-01</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.3 执行内核（P0）</span><span class="ver-build">2026.10.1.12</span><span class="ver-date">2026-10-01</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>P0 执行内核（<code>js/execution.js</code>）</strong>：统一显式执行状态机（14 态 / 38 条合法边，转移必带理由与策略版本、可逐条重放，<code>COMMITTED</code> 只能从 <code>VERIFIED</code> 进入——工具失败不会隐式收尾）；工具运行记录可回答「为什么调用、调用前状态、调用后发生了什么」；刷新或中断后能判断任务处于哪个阶段并给出核验优先的续跑入口。</span></li>
           <li><span class="tag add">ADD</span><span><strong>预算与风险治理</strong>：六路资源预算（工具调用 / 重试 / 墙钟 / 并发 / 记忆写 / 外部副作用）实时扣减，耗尽即调用前拦截并转入带限制作答；工具风险分 L0–L3，L3 生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求。<code>settings.executionGuard = 'strict'</code> 时高风险操作执行前需确认。</span></li>
@@ -421,7 +436,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.10.1.13</span>
+  <span>TeamoAgent V1.4 · 构建 2026.10.2.14</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

@@ -23,10 +23,10 @@ import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js';
 
 // ── 0. 策略版本（一次执行的审计记录必须记录这些版本，否则无法归因退化来源）──
 export const EXECUTION_KERNEL_VERSION = '2.3.0';
-export const EXECUTION_POLICY_VERSION = 'policy-2.3.0';
+export const EXECUTION_POLICY_VERSION = 'policy-2.5.0';
 export const TOOL_CONTRACT_VERSION = 'tool-contract-2.3.0';
 export const BUDGET_POLICY_VERSION = 'budget-policy-2.3.0';
-export const RISK_POLICY_VERSION = 'risk-policy-2.3.0';
+export const RISK_POLICY_VERSION = 'risk-policy-2.5.0';
 export const PROMISE_POLICY_VERSION = 'prompt-contract-2.3.0';
 export const AUDIT_SCHEMA_VERSION = 'exec-audit-schema-1';
 export const STATE_SCHEMA_VERSION = 'exec-state-schema-1';
@@ -970,8 +970,19 @@ export function validateToolCallPre({
   if (capabilityCheck.decision === 'deny') errors.push({ id: capabilityCheck.constraintId, detail: capabilityCheck.reason, recovery: capabilityCheck.recovery });
 
   let budgetVerdict = { ok: true };
-  if (budget && typeof budget.canSpend === 'function') budgetVerdict = budget.canSpend('toolCalls');
-  if (!budgetVerdict.ok) errors.push({ id: 'budget-tool-calls-exhausted', detail: budgetVerdict.reason, recovery: '等待下一轮，或让用户放宽工具调用预算' });
+  if (budget && typeof budget.canSpend === 'function') {
+    budgetVerdict = budget.canSpend('toolCalls');
+    if (!budgetVerdict.ok) {
+      errors.push({ id: 'budget-tool-calls-exhausted', detail: budgetVerdict.reason, recovery: '等待下一轮，或让用户放宽工具调用预算' });
+    } else {
+      // Token 预算（第七路）：不是「不让你算」，而是「别再扩大上下文与调用面」——
+      // 继续调工具只会让上下文更长，所以在这里就转带限制作答。
+      const tokenVerdict = budget.canSpend('tokens');
+      if (!tokenVerdict.ok) {
+        errors.push({ id: 'budget-tokens-exhausted', detail: tokenVerdict.reason, recovery: '不再发起新的工具调用，直接用已有信息作答并说明未完成的步骤。' });
+      }
+    }
+  }
 
   const priors = seenIdempotency && typeof seenIdempotency.get === 'function' ? seenIdempotency.get(idemKey) : null;
   if (priors && priors.status === 'uncertain') {
@@ -1119,17 +1130,25 @@ export function classifyToolFailure({ name = '', args = null, result = '', error
 }
 
 // ── 10. 预算与资源治理（Token 之外的资源同样要计量）─────────────────────
+// P2 修正（P0 遗留的口径分裂）：文档与 CHANGELOG 一直声明「32 · 2 · 600s · 3 · 4 · 6」，
+// 而代码是 24 · 2 · 300s · 3 · 4 · 2。两者必须只有一个真相，否则「预算治理」在文档里与运行时不同。
+// 以文档口径为准（它同时更符合真实用法：一轮里并发 3 个子智能体是受支持的常态，
+// 旧值 2 会让第 3 个委派被外部副作用预算拦下——预算太紧和预算没生效一样糟）。
 export const DEFAULT_TURN_BUDGET = Object.freeze({
-  maxToolCalls: 24,
+  maxToolCalls: 32,
   maxRetries: 2,
-  maxDurationMs: 300000,
+  maxDurationMs: 600000,
   maxParallelTasks: 3,
   maxMemoryWrites: 4,
-  maxExternalSideEffects: 2,
+  maxExternalSideEffects: 6,
+  // 第七路：Token（输入 + 输出合计）。Token 是最容易被忽略的一路——它不像工具调用那样
+  // 有明确边界，一轮里「多说几句」就能翻倍；限额设宽（20 万）默认几乎不触发，
+  // 但一旦逼近上限必须能拦下后续工具调用，而不是让成本无声膨胀。
+  maxTokens: 200000,
   maxOutputTokens: null,
 });
 
-export const BUDGET_CHANNELS = Object.freeze(['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects']);
+export const BUDGET_CHANNELS = Object.freeze(['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects', 'tokens']);
 
 export function createBudgetGovernor(budget = {}, { now = () => Date.now(), startedAt = null } = {}) {
   const limits = { ...DEFAULT_TURN_BUDGET, ...(budget || {}) };
@@ -1139,7 +1158,7 @@ export function createBudgetGovernor(budget = {}, { now = () => Date.now(), star
     return limits[key] == null ? null : Number(limits[key]);
   };
   const started = startedAt != null ? startedAt : now();
-  const spent = { toolCalls: 0, retries: 0, durationMs: 0, parallelTasks: 0, memoryWrites: 0, externalSideEffects: 0 };
+  const spent = { toolCalls: 0, retries: 0, durationMs: 0, parallelTasks: 0, memoryWrites: 0, externalSideEffects: 0, tokens: 0 };
   const events = [];
   const exhausted = new Set();
 
@@ -1202,7 +1221,8 @@ export function createBudgetGovernor(budget = {}, { now = () => Date.now(), star
 }
 
 const BUDGET_LABEL = Object.freeze({
-  toolCalls: '工具调用', retries: '重试次数', durationMs: '墙钟时长', parallelTasks: '并发任务', memoryWrites: '记忆写入', externalSideEffects: '外部副作用',
+  toolCalls: '工具调用', retries: '重试次数', durationMs: '墙钟时长', parallelTasks: '并发任务',
+  memoryWrites: '记忆写入', externalSideEffects: '外部副作用', tokens: 'Token 消耗',
 });
 
 export function formatBudgetLedger(gov) {
@@ -1279,7 +1299,10 @@ export function classifyToolRisk({ name = '', args = null, contract: contractDef
     if (SQL_DESTRUCTIVE_RE.test(sql)) {
       level = 'L3';
       irreversible = true;
-      reasons.push('DDL 破坏性语句（DROP / TRUNCATE / ALTER）');
+      // P2 修正：L3 必须与「需要确认」一致——破坏性 DDL 之前只升了等级却没置确认位，
+      // 结果是默认档位下「显示为最高风险但没人被要求确认」，等于把风险声明挂空。
+      requiresConfirmation = true;
+      reasons.push('DDL 破坏性语句（DROP / TRUNCATE / ALTER），不可自动恢复');
     } else if (SQL_WRITE_RE.test(sql)) {
       level = maxRisk(level, 'L2');
       reasons.push('数据写入语句（INSERT / UPDATE / DELETE）');
@@ -1307,6 +1330,11 @@ export function classifyToolRisk({ name = '', args = null, contract: contractDef
 
   const hasExternalSideEffect = !!(c.external || c.sideEffect === 'network' || c.sideEffect === 'cost' || c.sideEffect === 'remote');
   if (hasExternalSideEffect) reasons.push(`跨外部边界：${SIDE_EFFECT_LABELS[c.sideEffect] || c.sideEffect}`);
+
+  // 一致性不变量（P2 修正）：等级为 L3 就必须走确认流程。
+  // 之前 delete_file / 覆盖 uploads / purge / 内网抓取各自置确认位，而远端 Git 与破坏性 DDL 只升了等级，
+  // 结果是「显示最高风险、默认档位下却没人被要求确认」——声明与行为不一致比漏标更危险。
+  if (level === 'L3') requiresConfirmation = true;
 
   const authorizedByIntent = EXPLICIT_AUTHORIZATION_RE.test(String(userText || ''));
   if (requiresConfirmation && authorizedByIntent) {
@@ -1350,7 +1378,7 @@ export function formatConfirmationRequest({
 // ── 11b. P1 交互确认（风险分级 → 用户决定，fail-closed）──────────────────
 // P0 只做到「记录 + 严格模式拦截」；P1 把确认接成一次真实的等待：
 // 请求 → 用户决定（允许一次 / 本会话允许该工具 / 拒绝）→ 决定写进审计；超时或无人应答一律拒绝。
-export const CONFIRMATION_POLICY_VERSION = 'confirm-policy-2.4.0';
+export const CONFIRMATION_POLICY_VERSION = 'confirm-policy-2.5.0';
 export const CONFIRMATION_DECISIONS = Object.freeze({
   ALLOW_ONCE: 'allow-once',
   ALLOW_SESSION: 'allow-session',

@@ -43,7 +43,9 @@ const filesWith = (obj) => ({ ...obj });
 
 // ── ① 检查点：可复用步骤 / 产物漂移可检出 / 恢复计划给出核验顺序 ──
 await check('检查点：状态摘要稳定、产物漂移可检出、恢复计划给出「哪些能复用、哪些先核验」', () => {
-  assert.equal(RECOVERY_POLICY_VERSION, 'recovery-policy-2.4.0');
+  // 断言「版本号可被核到」而不是钉死某一版：P2 升到 recovery-policy-2.5.0 时不应再改这里，
+  // 真正要钉的是「版本号存在且与 policy.js 注册表一致」（见 policy 漂移自检）。
+  assert.match(RECOVERY_POLICY_VERSION, /^recovery-policy-\d+\.\d+\.\d+$/);
   const files = { 'files/a.txt': 'A', 'files/b.txt': 'B' };
   const base = {
     turnId: 'turn-x', sessionId: 's1', executionState: 'TOOL_RUNNING',
@@ -127,7 +129,7 @@ await check('幂等账本：复用 / 先核验 / 拦截重复副作用 / 放行 
 
 // ── ③ 记忆生命周期：写入门槛 / 来源分级 / 召回状态机 / 冲突取代 ──
 await check('记忆生命周期：写入门槛四问、来源分级、召回状态机（含本轮不采用）与冲突取代', () => {
-  assert.equal(MEMORY_POLICY_VERSION, 'memory-policy-2.4.0');
+  assert.match(MEMORY_POLICY_VERSION, /^memory-policy-\d+\.\d+\.\d+$/);
   assert.equal(MEMORY_SOURCES['user-explicit'].longTermEligible, true);
   assert.equal(MEMORY_SOURCES['model-guess'].longTermEligible, false, '模型推测不得进长期库');
   assert.ok(MEMORY_SOURCES['user-explicit'].rank > MEMORY_SOURCES['user-stable'].rank, '用户明确要求 > 用户长期稳定行为');
