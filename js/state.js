@@ -169,7 +169,10 @@ export function createStore(onChange) {
     models: [],
     // webEnabled：联网开关。开着时按当前模型 API 自带的网页搜索请求格式发请求
     // （见 js/websearch.js）—— 没有第三方搜索接口，所以模型没有原生格式就等于不联网。
-    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true },
+    // cleanupPolicy（P3 v2.5.1）：任务完成后如何处理 Agent 自己产生的临时文件。
+    // strip=自动清理（默认，用户明确要求「养成习惯」）｜report=只报告不删｜off=不检查。
+    // 注意：无论哪个档位，都只对「本 Agent 创建 + 命中临时规则 + 未被引用」的文件生效。
+    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true, cleanupPolicy: 'strip' },
     sessions: [newSession()],
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
@@ -200,6 +203,12 @@ export function createStore(onChange) {
     metricsGate: null,          // 最近一次指标门禁结论（是否退化、退化在哪些维度）
     auditReconcile: null,       // 审计三层目标对账（完整性 / 完备性 / 真实性边界声明）
     lastExecutionContext: null, // 最近一轮的统一执行上下文（能力/约束/工具表裁剪/一致性自检结论）
+    // P3（THN v2.5.1）：文件自清理（任务完成后删掉自己留下的临时产物）的根级状态。
+    // 与 P2 同样的取舍：state.js 不 import cleanup.js，容错在 normalizeP3State 里做。
+    cleanupArtifacts: [],    // 创建台账（环形，最多 200）：只有台账里的文件才有资格被自清理
+    lastCleanupReport: null, // 最近一次清理（计划 + 执行 + 保留理由）
+    cleanupHistory: [],      // 清理历史（环形，最多 24）：删了多少 / 为什么删
+    cleanupTotals: null,     // 累计：清理轮次 / 删除文件数 / 释放字符数
   };
   state.activeSessionId = state.sessions[0].id;
 
@@ -226,6 +235,20 @@ export function createStore(onChange) {
     if (!state.experimentAssignments || typeof state.experimentAssignments !== 'object' || Array.isArray(state.experimentAssignments)) state.experimentAssignments = {};
   };
   normalizeP2State();
+
+  // P3 状态键：兜底形状 + 档位取值收敛（坏档位回落到默认 strip，而不是让内核拿到一个不认识的值）
+  const P3_STATE_CAPS = { cleanupArtifacts: 200, cleanupHistory: 24 };
+  const CLEANUP_POLICIES = ['strip', 'report', 'off'];
+  const normalizeP3State = () => {
+    for (const [key, cap] of Object.entries(P3_STATE_CAPS)) {
+      state[key] = Array.isArray(state[key]) ? state[key].slice(-cap) : [];
+    }
+    for (const key of ['lastCleanupReport', 'cleanupTotals']) {
+      if (state[key] && typeof state[key] !== 'object') state[key] = null;
+    }
+    if (!CLEANUP_POLICIES.includes(state.settings.cleanupPolicy)) state.settings.cleanupPolicy = 'strip';
+  };
+  normalizeP3State();
 
   const sess = () => state.sessions.find((s) => s.id === state.activeSessionId) || state.sessions[0];
   const hydrate = () => {
@@ -409,7 +432,7 @@ export function createStore(onChange) {
       const parsed = JSON.parse(raw);
       Object.assign(state, parsed);
       // 旧快照里没有的开关要补上默认值（整块 settings 被 parsed 覆盖时不能留下 undefined）
-      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true }, state.settings || {});
+      state.settings = Object.assign({ sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true, cleanupPolicy: 'strip' }, state.settings || {});
       state.memory = pruneMemoryFacts(Array.isArray(state.memory) ? state.memory : []);
       state.learnedSkills = pruneLearnedSkills(Array.isArray(state.learnedSkills) ? state.learnedSkills : []);
       normalizeP1State(); // 旧快照没有这些键 → 补默认；坏形状 → 丢弃而不是带着跑

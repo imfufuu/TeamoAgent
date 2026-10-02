@@ -18,6 +18,13 @@ import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
+// P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
+// 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.2.15';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.2.15';
+
+// 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
+const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -59,6 +66,26 @@ const headingSlug = (text) => {
     .replace(/^-|-$/g, '')
     .slice(0, 80);
   return s || 'section';
+};
+// P3：预览窗 HTML（最近 N 行 + 行号 + 模式/行数/字符数）。只在节流命中时重建。
+const editPreviewHtml = (preview, live) => {
+  if (!preview) return '';
+  const rows = (preview.lines || []).map((l) => `<div class="ep-line"><span class="ep-no">${esc(String(l.no))}</span><span class="ep-tx">${esc(l.text) || '&nbsp;'}</span></div>`).join('');
+  const meta = [
+    preview.modeLabel,
+    preview.lineCount ? `${preview.lineCount} 行` : '',
+    preview.chars ? `${preview.chars} ${preview.unit || '字符'}` : '',
+    preview.clipped ? '仅显示尾部' : '',
+    preview.fromDisk ? '来自已落盘文件' : '',
+  ].filter(Boolean).join(' · ');
+  const foot = preview.writes > 1
+    ? `<div class="ep-foot mono">本轮对该路径写入 ${preview.samePathWrites} 次${preview.paths.length > 1 ? `，共涉及 ${preview.paths.length} 个文件` : ''}</div>`
+    : '';
+  return `<div class="edit-preview" data-policy="${esc(preview.policyVersion || '')}" data-status="${esc(preview.status || '')}">`
+    + `<div class="ep-head mono">${esc(preview.path || '(路径未定)')}${meta ? `<span class="ep-meta">${esc(meta)}</span>` : ''}</div>`
+    + `<div class="ep-body">${rows || '<div class="ep-line"><span class="ep-tx ep-empty">（还没有内容）</span></div>'}${live && !preview.complete ? '<span class="ep-caret" aria-hidden="true"></span>' : ''}</div>`
+    + foot
+    + '</div>';
 };
 const parseChoiceOpts = (body) => {
   const listed = [];
@@ -1478,6 +1505,43 @@ export function mountUI(store, agent) {
   window.addEventListener('resize', closeThinkMenu);
   syncThinking();
 
+  // P3：文件自清理档位（strip 自动清理 / report 只报告 / off 关闭）。
+  // 顶部 pill 只做「开-关」，细粒度档位交给 /cleanup（避免再塞一个下拉把顶栏挤爆）。
+  const cleanupToggle = $('#cleanup-toggle');
+  const cleanupPolicyLabelOf = () => {
+    const id = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
+    return (CLEANUP_MODES[id] || CLEANUP_MODES.strip).label;
+  };
+  const syncCleanup = () => {
+    if (!cleanupToggle) return;
+    const mode = CLEANUP_MODES[normalizeCleanupPolicy(store.state.settings.cleanupPolicy)] || CLEANUP_MODES.strip;
+    cleanupToggle.classList.toggle('on', mode.id !== 'off');
+    cleanupToggle.classList.toggle('watch', mode.id === 'report');
+    cleanupToggle.title = `文件自清理：${mode.label} —— ${mode.hint}（输入 /cleanup 看报告，/cleanup report|strip|off 切换档位）`;
+    syncCapLine();
+  };
+  if (cleanupToggle) {
+    cleanupToggle.addEventListener('click', () => {
+      const cur = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
+      const next = cur === 'off' ? 'strip' : 'off';
+      store.state.settings.cleanupPolicy = next;
+      syncCleanup(); store.notify();
+      toast(next === 'strip'
+        ? '文件自清理已开启：任务完成后自动删除 Agent 自建的临时文件（受保护路径与交付物不动）'
+        : '文件自清理已关闭：不再检查、不再删除（已经清理掉的不会恢复）');
+    });
+    cleanupToggle.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const cur = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
+      const order = ['strip', 'report', 'off'];
+      const next = order[(order.indexOf(cur) + 1) % order.length];
+      store.state.settings.cleanupPolicy = next;
+      syncCleanup(); store.notify();
+      toast(`文件自清理档位：${cleanupPolicyLabelOf()}（${(CLEANUP_MODES[next] || {}).hint || ''}）`);
+    });
+    syncCleanup();
+  }
+
   const fastToggle = $('#fast-toggle');
   const syncFast = () => {
     fastToggle.classList.toggle('on', store.state.settings.fastMode);
@@ -2521,12 +2585,22 @@ export function mountUI(store, agent) {
     const msgsAll = store.state.messages;
     const idxA = msgsAll.findIndex((x) => x.id === m.id);
     const pathsOf = (msg, name) => [...new Set((msg.toolCalls || []).filter((c) => c.name === name && c.args && c.args.path).map((c) => String(c.args.path)))];
-    const mergedPaths = (name) => {
+    // P3：写文件类的路径要走 editpreview —— 流式期间 args 是半截 JSON（{__raw}），
+    // 只有它能从「还没写完的文本」里把 path 扫出来，否则直播行会一直空着直到整段写完。
+    const pathsOfEdit = (msg) => {
+      const calls = (msg && msg.toolCalls) || [];
+      if (!calls.length) return [];
+      try {
+        if (agent && typeof agent.getEditPaths === 'function') return agent.getEditPaths(calls);
+      } catch { /* 旧内核没有该 API → 用界面自己加载的纯函数兜底 */ }
+      return pathsOfEdits(calls);
+    };
+    const mergedPaths = (name, extractor = (msg) => pathsOf(msg, name)) => {
       let later = false;
       if (idxA >= 0) {
         for (let i = idxA + 1; i < msgsAll.length; i++) {
           if (msgsAll[i].role === 'user') break;
-          if (msgsAll[i].role === 'assistant' && pathsOf(msgsAll[i], name).length) { later = true; break; }
+          if (msgsAll[i].role === 'assistant' && extractor(msgsAll[i]).length) { later = true; break; }
         }
       }
       const out = [];
@@ -2536,7 +2610,7 @@ export function mountUI(store, agent) {
           const x = msgsAll[i];
           if (x.role === 'user') break;
           if (x.role !== 'assistant') continue;
-          const ps = pathsOf(x, name);
+          const ps = extractor(x);
           if (!ps.length) break;
           for (let j = ps.length - 1; j >= 0; j--) {
             const p = ps[j];
@@ -2544,9 +2618,25 @@ export function mountUI(store, agent) {
           }
         }
       } else if (!later) {
-        out.push(...pathsOf(m, name));
+        out.push(...extractor(m));
       }
       return out;
+    };
+    // 同一轮里同名折叠只留最后一条消息上的那一块（重复节点会让「合并后的清单」看起来被分成两块）
+    const dropEarlierFold = (cls, extractor) => {
+      if (idxA < 0) return;
+      for (let i = idxA - 1; i >= 0; i--) {
+        const x = msgsAll[i];
+        if (x.role === 'user') break;
+        if (x.role !== 'assistant') continue;
+        if (!extractor(x).length) break;
+        const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
+        const old = w && $(`.${cls}`, w);
+        if (old) {
+          old.remove();
+          syncAssistantShell(w);
+        }
+      }
     };
     const paintPathFold = (cls, name, icon, one, many, afterEl) => {
       const paths = mergedPaths(name);
@@ -2567,25 +2657,91 @@ export function mountUI(store, agent) {
         node.innerHTML = `<span class="chip-ico think-ico">${icon || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
         // 与思考/工具芯片同构：流式期间展开，回合完成后自动折叠（用户手动展开过则尊重）
         if (node._userToggle == null) node.classList.toggle('expanded', !!live);
-        if (idxA >= 0) {
-          for (let i = idxA - 1; i >= 0; i--) {
-            const x = msgsAll[i];
-            if (x.role === 'user') break;
-            if (x.role !== 'assistant') continue;
-            if (!pathsOf(x, name).length) break;
-            const w = msgList.querySelector(`.msg-assistant[data-id="${CSS.escape(x.id)}"]`);
-            const old = w && $(`.${cls}`, w);
-            if (old) {
-              old.remove();
-              syncAssistantShell(w);
-            }
-          }
-        }
+        dropEarlierFold(cls, (msg) => pathsOf(msg, name));
       } else if (node) node.remove();
       return $(`.${cls}`, wrap) || afterEl;
     };
+    // P3：写文件的折叠行 = 直播「Editing File(s)」+ 下方预览窗（最近 ~10 行，节流刷新）。
+    // 完成后自动变回「Edited File(s) N」并折叠——展开时仍能看到最后写入的内容。
+    const paintEditFold = (afterEl, liveNow) => {
+      const paths = mergedPaths('write_file', pathsOfEdit);
+      const calls = (m && m.toolCalls) || [];
+      let node = $('.edited-files', wrap);
+      if (paths.length) {
+        const previewOf = () => {
+          if (!calls.length) return null;
+          try {
+            if (agent && typeof agent.getEditPreview === 'function') return agent.getEditPreview(calls);
+          } catch { /* 旧内核 → 本地纯函数 */ }
+          return buildEditPreview(calls);
+        };
+        const preview = previewOf();
+        // 预览窗按「文件 + 行数 + 字符数 + 状态」做签名：内容没变就不重排（长文件逐帧重建是卡顿主因）
+        const sig = [liveNow ? 'live' : 'done', paths.join('\u0001'), preview ? `${preview.lineCount}/${preview.chars}/${preview.status}` : 'none'].join('\u0002');
+        const now = Date.now();
+        if (!node) {
+          node = el('div', 'edited-files');
+          node.addEventListener('click', (e) => {
+            if (e.target.closest('a, button, .chip-copy')) return;
+            node.classList.toggle('expanded');
+            node._userToggle = node.classList.contains('expanded');
+          });
+          afterEl.after(node);
+          node._sig = '';
+        } else if (node._prev !== afterEl) {
+          afterEl.after(node);
+        }
+        node._prev = afterEl;
+        const label = editFoldLabel(paths.length, { live: !!liveNow });
+        // 节流：直播期间预览窗每 EDIT_PREVIEW_REFRESH_MS 刷一次；换文件或收尾时立刻刷（不然窗口会落后几秒）
+        const pathChanged = node._previewPath !== (preview && preview.path || '');
+        const throttleOk = !liveNow || node._previewAt == null || (now - node._previewAt) >= EDIT_PREVIEW_REFRESH_MS;
+        if (node._sig !== sig && (pathChanged || throttleOk)) {
+          node._sig = sig;
+          node._previewAt = now;
+          node._previewPath = (preview && preview.path) || '';
+          const head = `<span class="chip-ico think-ico">${ICON.edited || ''}</span><span class="mono chip-name">${esc(label)}</span>` +
+            (preview && liveNow ? `<span class="chip-state ep-state">${esc(preview.complete ? '写入完成' : '写入中…')}</span>` : '');
+          const list = `<ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+          const win = preview ? editPreviewHtml(preview, liveNow) : '';
+          node.innerHTML = `${head}<div class="chip-detail"><div class="fold-inner">${list}${win}</div></div>`;
+        }
+        if (node._userToggle == null) node.classList.toggle('expanded', !!liveNow);
+        dropEarlierFold('edited-files', pathsOfEdit);
+      } else if (node) node.remove();
+      return $('.edited-files', wrap) || afterEl;
+    };
+    // P3：任务后自清理的痕迹（「🧹 已清理 N 个临时文件」）。展开能看到完整理由清单。
+    const paintCleanupFold = (afterEl, msg) => {
+      const c = msg && msg.cleanup;
+      let node = $('.cleanup-fold', wrap);
+      if (c && c.brief) {
+        if (!node) {
+          node = el('div', 'cleanup-fold');
+          node.addEventListener('click', (e) => {
+            if (e.target.closest('a, button, .chip-copy')) return;
+            node.classList.toggle('expanded');
+            node._userToggle = node.classList.contains('expanded');
+          });
+          afterEl.after(node);
+        } else if (node.previousElementSibling !== afterEl) {
+          afterEl.after(node);
+        }
+        const sig = `${c.count}:${c.chars}:${c.at}`;
+        if (node.dataset.sig !== sig) {
+          node.dataset.sig = sig;
+          let detail = '';
+          try { detail = (agent && typeof agent.formatCleanupDetail === 'function') ? agent.formatCleanupDetail() : ''; } catch { detail = ''; }
+          node.innerHTML = `<span class="chip-ico think-ico">${ICON.trash || ''}</span><span class="mono chip-name">${esc(String(c.brief).replace(/^\u{1F9F9}\s*/u, ''))}</span>`
+            + `<div class="chip-detail"><div class="fold-inner">${detail ? `<pre class="cleanup-report">${esc(detail)}</pre>` : '<div class="ep-meta">（详细报告：输入 /cleanup）</div>'}</div></div>`;
+        }
+        if (node._userToggle == null) node.classList.toggle('expanded', false);
+      } else if (node) node.remove();
+      return $('.cleanup-fold', wrap) || afterEl;
+    };
     const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips);
-    paintPathFold('edited-files', 'write_file', ICON.edited, 'Edited File', 'Edited Files', afterRead);
+    const afterEdit = paintEditFold(afterRead, live);
+    paintCleanupFold(afterEdit, m);
     // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
     paintTurnMeta(wrap, m);
     paintFoot(wrap, m);
@@ -3249,6 +3405,7 @@ export function mountUI(store, agent) {
         '/clear —— 清空通道草稿（真实会话不受影响）',
         '/p2 [report|policy|fault|exp] —— P2（v2.5）：策略版本 / 统一指标 / 审计三层目标 / 故障注入 / 策略实验',
         '/guard observe|strict|strict-l2 —— 执行内核高风险确认档位（L3 / L2+L3 是否需人工确认）',
+        '/cleanup [report|strip|off] —— 文件自清理：任务完成后删掉 Agent 自建的临时文件（默认自动；report 只报告）',
         '/resume —— 查看断点续跑计划（未完成步骤 / 需先核验的产物 / 是否需重新确认）',
         '提示：模型菜单搜索 /system 可回到本识别器',
       ].join('\n');
@@ -3301,6 +3458,37 @@ export function mountUI(store, agent) {
           p2Lines: (() => { try { return agent && agent.getP2ReportLines ? agent.getP2ReportLines() : []; } catch { return []; } })(),
         }),
       ].join('\n');
+    } else if (name === 'cleanup') {
+      const v = String(arg || '').toLowerCase().trim();
+      const modes = Object.keys(CLEANUP_MODES);
+      if (modes.includes(v)) {
+        store.state.settings.cleanupPolicy = v;
+        try { syncCleanup(); } catch { /* 旧缓存组合：同步失败不影响档位已写入 */ }
+        store.notify();
+        const m = CLEANUP_MODES[v];
+        out = `✓ 文件自清理档位：${m.label}（${v}）\n${m.hint}\n边界不变：只删本 Agent 创建且命中临时规则的文件；uploads/ 等受保护路径、被回答引用的交付物永不删除。`;
+      } else if (!v || v === 'report' || v === 'now') {
+        // 立即检查一次（不动档位）：strip 会真删、report/off 只列清单
+        const r = (() => { try { return agent && agent.runCleanupNow ? agent.runCleanupNow({ dryRun: v === 'report' }) : null; } catch (e) { return { error: e.message }; } })();
+        if (!r) out = '执行内核未就绪（旧版缓存？强刷页面后重试）';
+        else if (r.error) out = `清理失败：${r.error}`;
+        else {
+          const lines = [];
+          lines.push(`【文件清理】档位 ${r.policyLabel}（${r.policy}）${r.dryRun ? '· 预览模式（未删除）' : ''}`);
+          lines.push(`  - 扫描 ${r.scanned} 个文件（创建台账 ${r.ledgerSize} 条）`);
+          if (r.deletedCount) lines.push(`  - 已删除 ${r.deletedCount} 个 / ${r.deletedChars} 字符${r.verified ? '，删除后已核验' : '，⚠ 有文件未被真正删除'}`);
+          else if (r.wouldDelete) lines.push(`  - 可清理 ${r.wouldDelete} 个（当前档位未删除；/cleanup strip 可开启自动清理）`);
+          else lines.push('  - 没有需要清理的临时文件');
+          if (r.deferred) lines.push(`  - 超出单轮上限、留待下一轮：${r.deferred} 个`);
+          if (r.keptProtected.length) lines.push(`  - 明确保留：${r.keptProtected.map((k) => `${k.path}（${k.reason}）`).join('、')}`);
+          lines.push('  详细理由：/cleanup report');
+          out = lines.join('\n');
+        }
+      } else if (v === 'detail' || v === 'why') {
+        out = (agent && agent.formatCleanupDetail) ? agent.formatCleanupDetail() : '（执行内核未就绪）';
+      } else {
+        out = `用法：/cleanup [report|strip|off]\n  · /cleanup —— 立即检查一次（按当前档位）\n  · /cleanup report —— 只列清单不删（预览模式）\n  · /cleanup strip —— 开启自动清理\n  · /cleanup off —— 关闭\n  · /cleanup why —— 最近一次的完整理由清单`;
+      }
     } else if (name === 'guard') {
       const v = String(arg || '').toLowerCase().trim();
       const modes = { observe: '观察（记录并披露，不打断）', strict: '严格（L3 必须人工确认）', 'strict-l2': '严格+（L2 与 L3 都需确认）' };
@@ -3606,6 +3794,8 @@ export function mountUI(store, agent) {
     if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
     if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
+    const cln = CLEANUP_MODES[normalizeCleanupPolicy(store.state.settings.cleanupPolicy)] || CLEANUP_MODES.strip;
+    if (cln.id !== 'off') bits.push(cln.id === 'strip' ? '自清理' : '自清理·只报告');
     bits.push(getTransport() === 'proxy' ? '中继' : '直连');
     const panelOpen = $('#sandbox-panel') && !$('#sandbox-panel').classList.contains('collapsed');
     if (panelOpen) bits.push('面板');
@@ -3703,6 +3893,8 @@ export function mountUI(store, agent) {
     items.push({ group: '操作', id: 'p:new', label: '新建会话', run: () => $('#new-session').click() });
     // P2 诊断入口（等价于输入 /p2）：命令通道是本地执行的，不受当前模型影响
     items.push({ group: '诊断', id: 'd:p2', label: 'P2 报告（策略 / 指标 / 审计三层 / 故障 / 实验 / 上下文）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2'); } });
+    items.push({ group: '操作', id: 'p:cleanup', label: '文件清理报告（删了什么 / 留了什么）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/cleanup'); } });
+    items.push({ group: '操作', id: 'p:cleanup-run', label: '立即检查一次可清理的临时文件（预览，不删除）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/cleanup report'); } });
     items.push({ group: '诊断', id: 'd:p2f', label: 'P2 故障注入（红队自测：列出可注入故障）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2 fault'); } });
     if (globalThis.__teamoDebugToggle) items.push({ group: '操作', id: 'p:debug', label: globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '关闭调试浮窗（系统日志）' : '打开调试浮窗（系统日志）', kbd: '⌃⌥D', run: () => globalThis.__teamoDebugToggle() });
     return items;
@@ -3980,6 +4172,18 @@ export function mountUI(store, agent) {
     onFsChange(paths) {
       renderFiles();
       if (paths && paths.length) toast(`附件已复制到沙箱：${paths.join('、')}`, 'ok', 4200);
+    },
+    // P3：任务后自清理 —— 立即刷新文件树 + 把结论挂在最后一条回复上（可展开看理由）
+    onCleanup(result) {
+      renderFiles();
+      if (result && result.brief) {
+        toast(result.brief, 'ok', 5200);
+        const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.done);
+        if (last) {
+          const wrap = msgNodes.get(last.id);
+          if (wrap) paintAssistant(wrap, last);
+        }
+      }
     },
     scrollToBottom: () => scrollToBottom(true),
     syncWeb,

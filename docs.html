@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.2.14" />
+<meta name="app-version" content="2026.10.2.15" />
 <meta name="app-release" content="V1.4" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.4</title>
@@ -180,7 +180,18 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5 策略演进与红队评测（P2）</span><span class="ver-build">2026.10.2.14</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-02</span></div>
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5.1 编辑直播与文件自清理（P3）</span><span class="ver-build">2026.10.2.15</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-02</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag add">ADD</span><span><strong>编辑直播预览（<code>js/editpreview.js</code>）</strong>：写文件时折叠行从静态的「Edited Files N」升级为直播语义——写入期间显示 <strong>Editing File(s)</strong>，下方预览窗显示最近写入的 <strong>~10 行</strong>（真实行号 + 写入模式 + 总行数 + 字符数），流式期间每 <strong>2.5 秒</strong>节流刷新、换文件与收尾立即刷新，写入中的行末带游标。流式参数是<strong>半截 JSON</strong>（<code>JSON.parse</code> 必然失败），预览用 <code>scanJSONString</code> 按转义规则逐字符扫键值——没写完也能看到内容在长；预览只取尾部（4000 字符 / 单行 240 字符），长文件不拖卡渲染；完成后优先从<strong>已落盘文件</strong>读回，折叠回「Edited File(s) N」后展开仍可回看。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>任务后文件自清理（<code>js/cleanup.js</code>）</strong>：回合<strong>正常结束</strong>后内核主动过一遍文件系统，删掉<strong>自己创建</strong>的临时产物（临时目录 / 临时后缀 / 临时命名 / 空文件），默认开启。三条硬约束：① 只删有创建台账（<code>cleanupArtifacts</code>）的文件——用户上传的原件永远不台账，因此永远不在可删集合里；② <code>uploads/</code> 等受保护路径与被<strong>回答或提问引用</strong>的交付物一律保留；③ 每次删除与保留都要给出理由（no silent decision）。删除后用 <code>list()</code> 反查核验（<code>createFS</code> 没有 <code>exists()</code>）——说删了却还在会如实报「未真正删除」。中止 / 出错<strong>不删</strong>：半成品可能是用户要接着跑的东西。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>三档策略与随手可查</strong>：<code>strip</code> 自动清理（默认）/ <code>report</code> 只报告不删 / <code>off</code> 关闭；顶栏新增「清理」开关（右键循环档位，只报告档用虚线边框区分，避免「看着开着其实不删」的误解）；<code>/cleanup</code> 立即检查一次、<code>/cleanup why</code> 看完整理由清单、命令面板两个入口；每次清理写 <code>files-cleanup</code> 审计事件（删了哪些 / 数量 / 字符数 / 保留了多少受保护文件 / 是否核验通过），结论同时挂在当轮回复下方（🧹 已清理 N 个临时文件，展开看理由）。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>习惯的后半段写进提示词</strong>：系统提示词新增「收尾自检」规则——交付物（报告 / 图表 / 代码 / 结果表）必须保留并在回复里说明路径，调试产物用 <code>delete_file</code> 顺手清掉；内核负责兜底再清一遍，但不让模型把清理全甩给内核。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>P3 验收</strong>：新增 <code>tests/p3-kernel-smoke.mjs</code>（纯函数级：半截 JSON 扫描 / 预览窗字段 / 三档策略 / 台账去重与瘦身 / 受保护路径与引用判定 / 删除核验 / 报告格式化），接入 <code>npm run test:p3</code> 与 CI；<code>assets-integrity</code> 补 P3 接线钉子（新模块存在 + <code>?v=</code> 引用 + 直播折叠与清理钩子接线）。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5 策略演进与红队评测（P2）</span><span class="ver-build">2026.10.2.14</span><span class="ver-date">2026-10-02</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>统一执行上下文（<code>js/executionContext.js</code>）</strong>：一轮执行的能力（可用性）、约束（沙箱是否禁网 / 允许路径 / 并发上限 / 用户原件可否覆盖）、预算、风险上限、确认策略、策略版本、实验臂、审计绑定字段收进<strong>一个冻结对象</strong>，并且<strong>工具表由它派生</strong>——「声明允许 Web 但工具表里没有 Web」这类状态分裂在构造上不可能发生；开工前还会主动自检四类经典分裂（声明≠实际、能力缺工具、约束遮蔽能力、预算撑不起声明的并发），命中即判缺陷并写进审计。</span></li>
           <li><span class="tag add">ADD</span><span><strong>策略版本化（<code>js/policy.js</code>）</strong>：router / tool / risk / budget / prompt / audit / execution / confirmation / recovery / idempotency / memory / trajectory / experiment 共 <strong>13 项策略各自独立版本号</strong>，每次执行落一份策略快照随审计与执行记录保存；<code>/p2 policy</code> 可做漂移自检（注册表声明 vs 各模块实际导出），任何模块升版而注册表没跟就当场红灯，而不是悄悄给出错误的审计口径。</span></li>
@@ -436,7 +447,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.10.2.14</span>
+  <span>TeamoAgent V1.4 · 构建 2026.10.2.15</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

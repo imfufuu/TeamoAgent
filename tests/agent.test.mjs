@@ -3725,10 +3725,13 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
-  assert.match(ui, /Edited File/);
-  assert.match(ui, /Edited Files/);
   assert.match(ui, /Explored File/);
   assert.match(ui, /Explored Files/);
+  // P3（v2.5.1）：写文件折叠行的文案移到 editpreview.js —— 直播「Editing File(s)」/ 完成「Edited File(s) N」
+  const ep = fsp.readFileSync(new URL('../js/editpreview.js', import.meta.url), 'utf8');
+  assert.match(ui, /editFoldLabel/, '写文件折叠行文案应由 editpreview 统一给出（直播/完成两态）');
+  assert.match(ep, /Editing File\(s\)/, '写入期间显示 Editing File(s)');
+  assert.match(ep, /Edited File\(s\)/i, '完成后显示 Edited File(s) N');
   assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
   assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
   assert.match(ui, /t\.name === 'write_file'\) continue/, 'write_file 不单独出芯片');
@@ -6852,6 +6855,134 @@ test('2026.10.2.14：P2-4 端到端——注入「工具返回空值」，调用
     assert.match(toolMsg.content, /故障注入|空/, '被注入的异常要如实回喂模型，而不是伪装成正常内容');
     const card = (store.state.lastFaultReport.cards || []).find((c) => c.kind === 'tool-empty-result');
     assert.equal(card.properties.detectable, true, JSON.stringify(card.missing));
+  } finally { globalThis.fetch = realFetch; }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// P3（THN v2.5.1）：编辑直播预览 / 任务后文件自清理
+// 同样是**真跑一轮**：mock 模型写完文件后，断言磁盘上真的少了一个临时文件、
+// 交付物还在、台账与审计都留了痕。
+// ══════════════════════════════════════════════════════════════════════════
+queue.push({ group: '2026.10.2.15 天枢 THN v2.5.1 · P3 编辑直播预览与文件自清理（写入台账 / 三档策略 / 删除核验）' });
+
+test('2026.10.2.15：P3-1 端到端——交付物保留、临时文件被清掉，且台账 / 审计 / 回复痕迹三处对得上', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'tmp/debug.json', content: '{"step":1}' })),
+    openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'outputs/report.md', content: '# 结论\n- 数据没问题' })),
+    openaiTextTurn('报告已生成：outputs/report.md（结论如上）。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('帮我看下数据，生成一份报告');
+
+    // ① 结果：临时文件被删、交付物还在（回答里点名的文件是交付物，不是垃圾）
+    assert.equal('tmp/debug.json' in store.state.files, false, '自己写的临时文件应在回合结束后被清掉');
+    assert.equal('outputs/report.md' in store.state.files, true, '被回答引用的交付物必须保留');
+    assert.match(store.state.files['outputs/report.md'], /结论/);
+
+    // ② 清理报告：删除数量 / 字符数 / 核验通过 / 保留理由都在（no silent decision）
+    const rep = store.state.lastCleanupReport;
+    assert.ok(rep, '必须落一份清理报告');
+    assert.equal(rep.deletedCount, 1, JSON.stringify(rep.deletedPaths));
+    assert.deepEqual(rep.deletedPaths, ['tmp/debug.json']);
+    assert.equal(rep.verified, true, '删除后必须核验（createFS 没有 exists，用 list() 反查）');
+    assert.equal(rep.policy, 'strip');
+    assert.equal(rep.keptProtected.some((k) => k.path === 'outputs/report.md'), true, '保留也要有理由');
+    assert.ok(store.state.cleanupTotals.runs >= 1 && store.state.cleanupTotals.deleted >= 1);
+
+    // ③ 台账瘦身：删掉的离开台账，交付物留着（下轮不再重复扫描已消失的路径）
+    const ledgerPaths = (store.state.cleanupArtifacts || []).map((a) => a.path);
+    assert.equal(ledgerPaths.includes('tmp/debug.json'), false);
+    assert.equal(ledgerPaths.includes('outputs/report.md'), true);
+
+    // ④ 审计：新增的 files-cleanup 事件不得破坏对账（完备性仍要通过）
+    const rec = store.state.lastExecutionRecord;
+    assert.equal(rec.auditReconcile.integrityOk, true, '链式哈希必须自洽');
+    assert.equal(rec.auditReconcile.completenessOk, true, '清理事件也要能被对账覆盖，不能凭空多一个事件');
+    assert.equal(store.state.lastNexusTelemetry.cleanup.deleted, 1, '遥测要暴露清理结论');
+
+    // ⑤ 回复痕迹 + 清理报告行（/cleanup 的数据源）
+    const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.done && m.cleanup);
+    assert.ok(last, '清理结论要挂在当轮回复上（用户看得到，不是只在控制台）');
+    assert.equal(last.cleanup.count, 1);
+    const lines = agent.getCleanupReportLines().join('\n');
+    assert.match(lines, /文件自清理/);
+    assert.match(lines, /uploads\//, '报告必须说清边界');
+    assert.match(agent.formatCleanupDetail(), /tmp\/debug\.json/, '详细报告要点名删了什么');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.2.15：P3-2 端到端——只报告档不删任何文件；关闭档连检查都不做', async () => {
+  const runTurn = async (policy) => {
+    const calls = [];
+    mockFetch([
+      openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'tmp/keep.json', content: '{}' })),
+      openaiTextTurn('已写入临时文件。'),
+    ], calls);
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.cleanupPolicy = policy;
+    const agent = createAgent(store, {});
+    await agent.send('写个临时文件');
+    return { store, agent };
+  };
+  try {
+    // report：扫描照做、清单照给，但一个文件都不动
+    const report = await runTurn('report');
+    assert.equal('tmp/keep.json' in report.store.state.files, true, '只报告档不得删除任何文件');
+    assert.equal(report.store.state.lastCleanupReport.deletedCount, 0);
+    assert.equal(report.store.state.lastCleanupReport.wouldDelete, 1, '不删也要让用户看到「本来会删什么」');
+    assert.equal(report.store.state.lastCleanupReport.enabled, false);
+    assert.match(report.agent.formatCleanupDetail(), /只报告不删|自动清理已关闭/);
+
+    // off：不检查、不清理，也不留清理痕迹（用户明确说了别动）
+    const off = await runTurn('off');
+    assert.equal('tmp/keep.json' in off.store.state.files, true);
+    assert.equal(off.store.state.lastCleanupReport, null, '关闭档不该产生清理报告');
+    assert.equal(off.store.state.cleanupTotals, null);
+
+    // 手动触发（/cleanup report）：旧档位为 off 时也要能按需检查，dryRun 明示「未删除」
+    const manual = off.agent.runCleanupNow({ dryRun: true });
+    assert.equal(manual.dryRun, true);
+    assert.equal(manual.deletedCount, 0);
+    assert.equal(manual.wouldDelete, 1);
+    assert.equal('tmp/keep.json' in off.store.state.files, true);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('2026.10.2.15：P3-3 端到端——uploads/ 原件与「未被引用的交付物」都不动；中止的回合不删半成品', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'uploads/agent-note.csv', content: 'a,b\n1,2' })),
+    openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'tmp/half-done.txt', content: '半成品' })),
+    openaiTextTurn('已处理完毕，没有额外说明。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('处理一下数据');
+
+    // 受保护路径：即使是 Agent 自己创建的，也不在可删集合里
+    assert.equal('uploads/agent-note.csv' in store.state.files, true, 'uploads/ 下的文件永不自动删除');
+    assert.equal('tmp/half-done.txt' in store.state.files, false, '普通临时文件照常清理');
+    const rep = store.state.lastCleanupReport;
+    assert.equal(rep.keptProtected.some((k) => k.path === 'uploads/agent-note.csv' && k.rule === 'protectedPath'), true, JSON.stringify(rep.keptProtected));
+
+    // 编辑预览：界面拿到的是**已落盘**的内容，不是模型当时想写的（避免预览与文件不一致）
+    const live = agent.getEditPreview([{ id: 'l1', name: 'write_file', args: { __raw: '{"path":"outputs/x.md","content":"第一行\\n第' } }]);
+    assert.equal(live.status, 'streaming', '半截 JSON 也要能给出直播预览（路径通常先到）');
+    assert.equal(live.path, 'outputs/x.md');
+    const disk = agent.getEditPreview([{ id: 'd1', name: 'write_file', args: { path: 'uploads/agent-note.csv', content: '模型当时想写的内容' } }]);
+    assert.equal(disk.fromDisk, true, '文件已落盘 → 预览从磁盘读回');
+    assert.match(disk.lines.map((l) => l.text).join('\n'), /a,b/, '预览窗显示的必须是文件现在的样子');
+    assert.equal(agent.getEditPreview([]), null, '没有写入就不该有预览窗');
   } finally { globalThis.fetch = realFetch; }
 });
 

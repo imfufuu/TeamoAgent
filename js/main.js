@@ -1,11 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.2.14';
-import { createAgent } from './agent.js?v=2026.10.2.14';
-import { mountUI, toast } from './ui.js?v=2026.10.2.14';
+import { createStore } from './state.js?v=2026.10.2.15';
+import { createAgent } from './agent.js?v=2026.10.2.15';
+import { mountUI, toast } from './ui.js?v=2026.10.2.15';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.2.14';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.2.15';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -18,6 +18,8 @@ const hooks = {
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
+  // P3：任务后自清理的结论（旧 ui.js 没有 onCleanup → 静默降级，不影响对话）
+  onCleanup: (result) => ui && ui.onCleanup && ui.onCleanup(result),
   onModerationFailOpen: (reason) => {
     globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-open', reason || '超时');
     toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000);

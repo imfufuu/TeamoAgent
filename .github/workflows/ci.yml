@@ -27,6 +27,8 @@ jobs:
         run: node tests/p2-kernel-smoke.mjs
       - name: P2 分层评测集（10 类 × 12 条 = N=120；P/R/F1 + 95% Wilson CI + 基线 5pt 门禁）
         run: node tests/p2-eval.mjs
+      - name: P3 增量独立验收（编辑直播预览半截 JSON / 自清理三档策略与删除核验）
+        run: node tests/p3-kernel-smoke.mjs
       - name: 审核资产完整性（ORT 版本/模型分片/CSP 炸点/fail-closed 钉子）
         run: node tests/assets-integrity.mjs
       - name: 服务端语法检查

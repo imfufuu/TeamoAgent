@@ -1370,6 +1370,62 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .edited-files li, .explored-files li { font-family: var(--mono); font-size: 11.5px; color: var(--fg-2); line-height: 1.65; }
 .chip-time { color: var(--fg-3); font-family: var(--mono); font-size: 10.5px; }
 
+/* ── P3：编辑直播预览（Editing File(s) + 最近写入的几行）────────────────── */
+.edited-files .ep-state { font-family: var(--font); color: var(--fg-3); }
+.edited-files.live .chip-ico { animation: spin 1.2s linear infinite; }  /* 写入中才转，写完停下 */
+.edit-preview {
+  margin: 6px 0 2px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg-soft); overflow: hidden; max-width: 100%;
+}
+.edit-preview .ep-head {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 9px; border-bottom: 1px solid var(--line);
+  font-size: 11px; color: var(--fg-2); background: transparent;
+}
+.edit-preview .ep-meta { color: var(--fg-3); }
+.edit-preview .ep-body {
+  margin: 0; padding: 5px 0 6px; max-height: 168px; overflow: auto;
+  font-family: var(--mono); font-size: 11px; line-height: 1.55; text-align: left; white-space: pre;
+}
+.edit-preview .ep-line { display: flex; gap: 8px; padding: 0 9px; }
+.edit-preview .ep-no {
+  flex: 0 0 auto; min-width: 2.4em; text-align: right; color: var(--fg-3); opacity: .65;
+  user-select: none;
+}
+.edit-preview .ep-tx { white-space: pre; overflow-wrap: normal; }
+.edit-preview .ep-empty { color: var(--fg-3); }
+.edit-preview .ep-caret {
+  display: inline-block; width: 7px; height: 12px; margin-left: 10px;
+  background: var(--fg-2); vertical-align: text-bottom; animation: blink 1s steps(1) infinite;
+}
+.edit-preview .ep-foot { padding: 4px 9px 6px; font-size: 10.5px; color: var(--fg-3); }
+[data-theme="dark"] .edit-preview { background: var(--bg-soft); }
+
+/* ── P3：清理痕迹（🧹 已清理 N 个临时文件）────────────────────────────── */
+.cleanup-fold {
+  border: none; background: transparent; padding: 3px 0; margin: 0;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
+  font-size: 12px; color: var(--fg-3); line-height: 1.6; width: 100%;
+  transition: color .2s var(--ease); outline: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.cleanup-fold:hover { color: var(--fg-2); }
+.cleanup-fold .chip-name { color: var(--fg-3); font-weight: 500; }
+.cleanup-fold .chip-detail {
+  display: grid; grid-template-rows: 0fr; opacity: 0;
+  width: 100%; flex-basis: 100%; font-size: 11.5px; color: var(--fg-2);
+  padding-left: 21px; line-height: 1.65; box-sizing: border-box; overflow: hidden;
+  transition: grid-template-rows .28s var(--ease), opacity .2s var(--ease);
+}
+.cleanup-fold.expanded > .chip-detail { grid-template-rows: 1fr; opacity: 1; }
+.cleanup-fold .cleanup-report {
+  margin: 4px 0 2px; padding: 8px 10px; background: var(--bg-soft); border-radius: 8px;
+  font-family: var(--mono); font-size: 11px; line-height: 1.6; white-space: pre-wrap;
+  max-height: min(50vh, 380px); overflow: auto;
+}
+/* 顶栏 pill：只报告档位用虚线边框区分（避免「看着开着其实不删」的误解） */
+.pill.watch { border: 1px dashed currentColor; }
+
 /* ── 危险操作（清空）─────────────────────────────────────────────────── */
 .mini-btn.danger { color: #b42318; }
 .mini-btn.danger:hover { color: #8a150f; border-color: #b42318; background: #fef2f2; }

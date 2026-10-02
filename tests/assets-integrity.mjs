@@ -368,6 +368,61 @@ await test('P2 状态键齐备并做形状兜底（坏数据不能让面板与�
   assert.match(st, /P2 根级状态/, '体积估算应把 P2 状态算进去');
 });
 
+group('P3 编辑直播与文件自清理接线（预览窗 / 三档策略 / 顶栏开关 / 审计）');
+await test('P3 两个新模块随项目存在，且都以 ?v= 版本化方式被引用', () => {
+  for (const rel of ['../js/editpreview.js', '../js/cleanup.js']) assert.ok(exists(rel), `${rel} 应随项目存在`);
+  const agent = read('../js/agent.js');
+  for (const mod of ['editpreview.js', 'cleanup.js']) {
+    assert.match(agent, new RegExp(`\\./${mod.replace('.', '\\.')}\\?v=\\d`), `agent.js 应以 ?v= 导入 ${mod}`);
+  }
+  const ui = read('../js/ui.js');
+  assert.match(ui, /editpreview\.js\?v=\d/, 'ui.js 应以 ?v= 导入 editpreview.js（旧 agent 时兜底解析）');
+  assert.match(ui, /cleanup\.js\?v=\d/, 'ui.js 应以 ?v= 导入 cleanup.js（档位文案单一来源）');
+});
+await test('编辑直播：折叠行直播语义 + 预览窗 + 节流刷新 + 完成后回落到 Edited File(s)', () => {
+  const ui = read('../js/ui.js');
+  assert.match(ui, /editFoldLabel/, '折叠行文案应由 editpreview 生成');
+  assert.match(ui, /paintEditFold/, '应有写入折叠的绘制函数');
+  assert.match(ui, /editPreviewHtml/, '应渲染预览窗');
+  assert.match(ui, /EDIT_PREVIEW_REFRESH_MS/, '预览窗必须节流刷新');
+  assert.match(ui, /getEditPreview/, '预览优先走 agent（已落盘文件），旧内核回落纯函数');
+  assert.match(ui, /pathsOfEdits/, '流式期间路径解析要走 pathsOfEdits（半截 JSON）');
+  const css = read('../css/styles.css');
+  for (const cls of ['.edit-preview', '.ep-line', '.ep-no', '.ep-caret']) assert.ok(css.includes(cls), `缺少预览窗样式 ${cls}`);
+});
+await test('自清理：三档策略 + 顶栏开关 + /cleanup 命令 + 清理报告渲染', () => {
+  const ui = read('../js/ui.js');
+  assert.match(ui, /CLEANUP_MODES/, '档位应来自 cleanup.js（单一来源）');
+  assert.match(ui, /cleanup-toggle/, '顶栏应有清理开关');
+  assert.match(ui, /name === 'cleanup'/, '应有 /cleanup 命令分支');
+  assert.match(ui, /\/cleanup \[report\|strip\|off\]/, '帮助里应列出 /cleanup 用法');
+  assert.match(ui, /paintCleanupFold/, '回复下方应渲染清理结论');
+  assert.match(ui, /onCleanup/, 'UI 应接收清理钩子');
+  assert.match(read('../js/main.js'), /onCleanup/, 'main.js 应桥接 onCleanup（旧 ui.js 静默降级）');
+  const app = read('../app.html');
+  assert.match(app, /id="cleanup-toggle"/, 'app.html 应有清理 pill');
+  const css = read('../css/styles.css');
+  for (const cls of ['.cleanup-fold', '.cleanup-report']) assert.ok(css.includes(cls), `缺少清理样式 ${cls}`);
+});
+await test('自清理内核侧：台账 / 审计事件 / 未完成回合不删 / 提示词收尾自检', () => {
+  const agent = read('../js/agent.js');
+  assert.match(agent, /runAutoCleanup/, '内核应有自清理例程');
+  assert.match(agent, /cleanupArtifacts/, '创建台账必须落 state（权限边界）');
+  assert.match(agent, /createdPaths/, '只把「新增」文件记进台账（改动过的原件不入台账）');
+  assert.match(agent, /files-cleanup/, '清理必须写审计事件');
+  assert.match(agent, /runCleanupNow/, '应暴露按需清理（/cleanup）');
+  assert.match(agent, /getEditPreview/, '应暴露编辑预览（界面不自己解析半截 JSON）');
+  const cfg = read('../js/config.js');
+  assert.match(cfg, /收尾自检/, '系统提示词应要求模型自己收尾清理');
+  assert.match(cfg, /delete_file/, '提示词里要给出正确的清理工具名（delete_file）');
+  const st = read('../js/state.js');
+  for (const key of ['cleanupPolicy', 'cleanupArtifacts', 'lastCleanupReport', 'cleanupHistory', 'cleanupTotals']) {
+    assert.ok(st.includes(key), `state.js 应声明 ${key}`);
+  }
+  assert.match(st, /normalizeP3State/, '应有 P3 状态兜底');
+  assert.match(st, /cleanupPolicy: 'strip'/, '默认档位为 strip（自动清理）');
+});
+
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);
