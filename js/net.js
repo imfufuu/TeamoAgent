@@ -17,9 +17,11 @@ let activeRelay = null; // { base, label, endpoints }
 let relayOk = null;
 let relayProbe = null;
 
-// 内置公共 Cloudflare Worker 中继候选。默认留空（官方公共 relay 部署后再填入）；
-// 用户可以自己部署 relay/worker.js 到 Cloudflare Workers，通过 localStorage 覆盖。
-const PUBLIC_RELAY_CANDIDATES = [];
+// 内置公共 Cloudflare Worker 中继候选。按顺序探测，第一个 200/ok 的生效。
+// 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'teamo-relay' 覆盖。
+const PUBLIC_RELAY_CANDIDATES = [
+  'https://teamo-relay.lks-tan-cn.workers.dev',
+];
 
 function userRelayOverride() {
   try {

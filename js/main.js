@@ -1,11 +1,11 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.3.17';
-import { createAgent } from './agent.js?v=2026.10.3.17';
-import { mountUI, toast } from './ui.js?v=2026.10.3.17';
+import { createStore } from './state.js?v=2026.10.3.18';
+import { createAgent } from './agent.js?v=2026.10.3.18';
+import { mountUI, toast } from './ui.js?v=2026.10.3.18';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.3.17';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.3.18';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
