@@ -45,9 +45,14 @@ const safeHref = (href) => {
   } catch { /* 非法 URL */ }
   return '';
 };
+// 支持的图像 data URL MIME：PNG / JPEG / GIF / WEBP / BMP / ICO / TIFF / AVIF / APNG / HEIC / HEIF / SVG
+// 覆盖主要模型供应商（DeepSeek/OpenAI/Claude/Gemini 共通接受 JPEG/PNG/GIF/WEBP；额外 BMP/ICO/TIFF/AVIF/HEIC/SVG 在
+// 客户端 UI 上可预览；发给视觉模型时会统一转成 PNG/JPEG，避免供应商不支持的格式导致 400。
+const IMG_DATA_URL_RE = /^data:image\/(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\+xml);base64,[A-Za-z0-9+/=\s]+$/i;
+const IMG_MIME_RE = /^image\/(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\+xml)$/i;
 const safeImgSrc = (src) => {
   const s = String(src || '').trim();
-  if (/^data:image\/(png|jpe?g|gif|webp);base64,[A-Za-z0-9+/=\s]+$/i.test(s)) return s.replace(/\s+/g, '');
+  if (IMG_DATA_URL_RE.test(s)) return s.replace(/\s+/g, '');
   if (/^blob:/i.test(s)) return s;
   return safeHref(s);
 };
@@ -1234,7 +1239,8 @@ export function mountUI(store, agent) {
     ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
     for (const p of order) {
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', `${p === SMART_ROUTER_PROVIDER ? `<span class="router-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(p)}</span>`));
+      const isRouterGroup = p === SMART_ROUTER_PROVIDER;
+      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(p)}</span>`));
       for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -1244,10 +1250,9 @@ export function mountUI(store, agent) {
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
         const isRouter = isSmartRouter(m.id);
         item.innerHTML = isRouter
-          ? `<span class="dd-item-id mono router-name">${ROUTER_ICON_SVG}<span>Smart Router</span></span>
+          ? `<span class="dd-item-id mono router-name">smart-router</span>
             <span class="dd-item-badges">
-              <span class="badge hot">智能路由</span>
-              <span class="badge cheap" title="根据任务类型/难度自动选择最合适的模型">自动选模</span>
+              <span class="badge hot">热门</span>
             </span>`
           : `<span class="dd-item-id mono">${esc(m.id)}</span>
             <span class="dd-item-badges">
@@ -1344,7 +1349,7 @@ export function mountUI(store, agent) {
       prov = 'Teamo';
     } else if (router) {
       icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
-      name = 'Smart Router';
+      name = 'smart-router';
       prov = '智能路由器';
     } else {
       icon = providerIcon(providerOf(store.state.model));
@@ -2443,28 +2448,33 @@ export function mountUI(store, agent) {
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
-  // ── 流式渐显核心：按字符位置切分，只包裹新到达的 token ─────────────
-  // 入参 body 是刚通过 innerHTML 重建后的 .md-body；我们在此基础上把新增字符包成
-  // <span class="stream-reveal">。返回值无；副作用：
-  //   - 修改 DOM（文本节点切分 + 插入 span）；
-  //   - 在 wrap 上记 _streamSteadyChars 为这次 paint 后已稳定字符总数。
-  // 跳过的节点：
-  //   - 光标/连接行/取消标签/截断提示/折叠控件（非正文）；
-  //   - <pre>、<code>、<table> 内（结构化内容整体出现更自然）；
-  //   - SVG / 图片 / 链接属性里的文本不可见、不应计数。
+  // ── 流式渐显核心：只包裹新增 token 的"尾部窗口"，动画明显、不闪烁 ─────
+  // 设计（类 Gemini 观感）：
+  //   1) innerHTML 每次重绘 → DOM 全重建 → 不能在父块挂动画（会每次从 0 重放）。
+  //   2) 策略：维护每条消息 _streamRevealAt = 本次 paint 之前的「总可见字符数」。
+  //      innerHTML 设完后用 TreeWalker 枚举正文 text node，把末尾 WINDOW 个
+  //      **新字符**（即 revealAt 之后的部分，不超过 MAX_CHUNK）切出来包成
+  //      <span class="stream-reveal">，CSS 给它 220ms 的 opacity+blur+translateY 动画。
+  //   3) 这个 span 是本次 paint 新创建的，CSS animation 只跑一次 → 不闪。
+  //      下一帧 paint 时 innerHTML 重建，旧 span 展开为普通文本（无包裹/无动画），
+  //      新的 delta 又被包成新 span → 只有"末尾 WINDOW 个字符"在做淡入，
+  //      旧字 0 动画，稳定显示。
+  //   4) 跳过 PRE/CODE/TABLE/SVG 和控件元素（代码/表格整块出现更自然）。
+  //   5) 首次 paint（新消息首字到达）时 WINDOW 较小避免一整坨；WINDOW 随 token 流速
+  //      自适应：快流时大 WINDOW（词组一次性到位），慢流时小 WINDOW（逐字感）。
+  //   6) 结束 (!live) 时 unwrap 所有残留 span 并重置计数。
+  const STREAM_WINDOW = 14;       // 末尾参与淡入的字符窗口大小
+  const STREAM_MAX_ONE_SHOT = 60; // 突发大段（>60 字新字符）只淡入末尾，其余瞬间出现
   function applyStreamReveal(body, m) {
     const wrap = body.closest('.msg');
-    let steady = (wrap && typeof wrap._streamSteadyChars === 'number') ? wrap._streamSteadyChars : 0;
+    const prevRevealAt = (wrap && typeof wrap._streamRevealAt === 'number') ? wrap._streamRevealAt : 0;
 
-    // 收集"应该被计数并参与渐显"的 text node 列表（文档顺序）
-    const SKIP_TAGS = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE', 'TABLE', 'SVG', 'CANVAS']);
-    const SKIP_CLASSES = new Set(['cursor', 'connect-line', 'cancelled-tag', 'trunc-note', 'reasoning', 'chip-detail', 'fold-inner', 'choice-box']);
+    const SKIP_TAGS = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE', 'TABLE', 'SVG', 'CANVAS', 'TEXTAREA']);
+    const SKIP_CLASSES = new Set(['cursor', 'connect-line', 'cancelled-tag', 'trunc-note', 'reasoning', 'chip-detail', 'fold-inner', 'choice-box', 'web-note']);
     const textNodes = [];
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
-        // 空文本跳过
-        if (!node.nodeValue || !node.nodeValue.length) return NodeFilter.FILTER_REJECT;
-        // 沿父链检查是否在需要跳过的容器里
+        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
         let p = node.parentNode;
         while (p && p !== body) {
           if (p.nodeType !== 1) { p = p.parentNode; continue; }
@@ -2480,41 +2490,33 @@ export function mountUI(store, agent) {
     let n;
     while ((n = walker.nextNode())) textNodes.push(n);
 
-    // 计算总可见字符数
+    // 总可见字符
     let total = 0;
     for (const tn of textNodes) total += tn.nodeValue.length;
 
-    // 防御：markdown 重排可能让"可见字符数"变少（例如列表/粗体切换），
-    // 此时把 steady 夹紧到 total，避免位置错位导致整段重播。
-    if (steady > total) steady = total;
+    // markdown 偶发重排让 total 变小（列表/粗体切换）→ 夹紧避免错位
+    let revealAt = Math.min(prevRevealAt, total);
 
-    // 现在遍历文本节点，把 [steady, total) 范围对应的字符替换为 stream-reveal span
-    let cursor = 0; // 当前 text node 起点的全局偏移
-    let newChars = total - steady;
-    if (newChars <= 0) {
-      // 没有新字符（可能是工具芯片等非文本更新）——什么都不做
-      wrap._streamSteadyChars = total;
-      return;
+    // 突发大量新字（首屏/工具结果/模型一次性返回大段）：只对末尾 WINDOW 做渐显
+    const newChars = total - revealAt;
+    let chunkStart = revealAt;
+    if (newChars > STREAM_MAX_ONE_SHOT) {
+      chunkStart = total - STREAM_WINDOW;
     }
-    // 限制单次动画最大字符数：如果突然涌入很多字（首屏/历史/工具返回后整段注入），
-    // 不要让一大坨都做淡入——只对末尾一小段做渐显，其余立即显示（更像 Gemini）。
-    const MAX_CHUNK = 90;
-    const revealStart = Math.max(steady, total - MAX_CHUNK);
+
+    // 切分 text node，把 [chunkStart, total) 包成 span
+    let cursor = 0;
+    let wrapped = 0;
     for (const tn of textNodes) {
       const len = tn.nodeValue.length;
-      const nodeStart = cursor;
-      const nodeEnd = cursor + len;
-      // 与 [revealStart, total) 的交集
-      const lo = Math.max(nodeStart, revealStart);
-      const hi = Math.min(nodeEnd, total);
+      const ns = cursor, ne = cursor + len;
+      const lo = Math.max(ns, chunkStart);
+      const hi = Math.min(ne, total);
       if (hi > lo) {
-        const loInNode = lo - nodeStart;
-        const hiInNode = hi - nodeStart;
-        // tn 被切成：[0, loInNode) 普通文本；[loInNode, hiInNode) 是 reveal；[hiInNode, len) 普通文本（一般为空）
         const parent = tn.parentNode;
-        const before = tn.nodeValue.slice(0, loInNode);
-        const mid = tn.nodeValue.slice(loInNode, hiInNode);
-        const after = tn.nodeValue.slice(hiInNode);
+        const before = tn.nodeValue.slice(0, lo - ns);
+        const mid = tn.nodeValue.slice(lo - ns, hi - ns);
+        const after = tn.nodeValue.slice(hi - ns);
         const frag = document.createDocumentFragment();
         if (before) frag.appendChild(document.createTextNode(before));
         if (mid) {
@@ -2522,13 +2524,15 @@ export function mountUI(store, agent) {
           span.className = 'stream-reveal';
           span.textContent = mid;
           frag.appendChild(span);
+          wrapped += mid.length;
         }
         if (after) frag.appendChild(document.createTextNode(after));
         parent.replaceChild(frag, tn);
       }
-      cursor = nodeEnd;
+      cursor = ne;
     }
-    wrap._streamSteadyChars = total;
+    wrap._streamRevealAt = total;
+    return wrapped;
   }
 
   function paintAssistant(wrap, m) {
@@ -2556,34 +2560,18 @@ export function mountUI(store, agent) {
     body.innerHTML = html;
     body.classList.toggle('empty', !String(html || '').trim());
 
-    // ── 流式渐显（类 Gemini，逐字符级无闪烁）─────────────────────────
-    // 设计要点：
-    //   1) innerHTML 每次重绘必然销毁/重建 DOM → 不能在父块上挂 animation（会每次从 0 重播）。
-    //   2) 改为：维护每条消息的"已稳定渲染字符数"_streamSteadyChars。
-    //      - 设置 innerHTML 后用 TreeWalker 按文档顺序遍历全部 text node，
-    //        累计可见字符；
-    //      - 前 steady 个字符保持裸文本（无任何包裹，永不闪烁）；
-    //      - 超出部分（新到的 token）切出来包成 <span class="stream-reveal">，
-    //        这个 span 是这次 paint 刚创建的，它的 CSS animation 从 0 开始跑一次 → 自然淡入；
-    //      - 下一帧 paint 时，这个 span 连同它里面的文本在新的 innerHTML 里会变成
-    //        "稳定部分"（被展开回普通 text node），不再被包，也不会有动画 → 不闪。
-    //   3) 跳过不应动的元素（光标/连接提示/已完成标签/折叠等），也跳过 code block/
-    //      pre/table 里的字符——它们是结构化文本，逐字渐显会让代码/表格看起来像打字机，
-    //      反而不符合 Gemini 的"自然到位"观感；代码块改为出现即完整显示。
-    //   4) 流式结束（!live）时，steady 计数清零；body.streaming 类也被移除（CSS 已兜底：
-    //      non-streaming 模式下 reveal 无动画、透明度 1）。
     body.classList.toggle('streaming', !!live);
     if (live) {
       applyStreamReveal(body, m);
     } else {
-      // 完成态：清掉可能残留的 reveal 包裹 & 重置计数器
+      // 完成态：清掉残留的 reveal 包裹 & 重置计数器
       $$('.stream-reveal', body).forEach((n) => {
         const parent = n.parentNode;
         if (!parent) return;
         while (n.firstChild) parent.insertBefore(n.firstChild, n);
         parent.removeChild(n);
       });
-      wrap._streamSteadyChars = 0;
+      wrap._streamRevealAt = 0;
     }
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
@@ -3107,8 +3095,8 @@ export function mountUI(store, agent) {
     msgNodes.set(m.id, wrap);
     wrap._msg = m;
     if (m.role === 'assistant') {
-      // 新 assistant 消息重置流式计数，避免跨消息泄漏导致整段不动
-      wrap._streamSteadyChars = 0;
+      // 新 assistant 消息重置流式计数，避免跨消息泄漏
+      wrap._streamRevealAt = 0;
       paintAssistant(wrap, m);
     }
     msgList.appendChild(wrap);
@@ -3413,8 +3401,11 @@ export function mountUI(store, agent) {
   });
 
   // ── 附件（按钮 / 拖拽 / 粘贴）────────────────────────────────────────
-  const IMG_RE = /^image\/(png|jpeg|jpg|gif|webp)$/;
-  const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|py|json|jsonl|csv|tsv|log|html?|css|scss|xml|ya?ml|sh|bash|zsh|sql|ini|toml|env|conf|cfg|c|h|cpp|hpp|java|go|rs|rb|php|swift|kt|vue|svelte)$/i;
+  // 图片 MIME 白名单：覆盖主流浏览器可直接显示的全部光栅/矢量格式（PNG/JPEG/GIF/WEBP/BMP/ICO/TIFF/AVIF/APNG/HEIC/HEIF/SVG）
+  // DeepSeek 视觉接口只接受 JPEG/PNG/GIF/WEBP；其它格式发图前在 analyze_image 里统一转成 PNG/JPEG。
+  const IMG_RE = /^image\/(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\+xml)$/i;
+  const IMG_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg)$/i;
+  const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|tsx|jsx|py|pyi|java|c|cc|cpp|cxx|h|hpp|cs|go|rs|rb|php|swift|kt|scala|dart|m|r|jl|sh|bash|zsh|ps1|bat|cmd|json|jsonc|jsonl|csv|tsv|log|html?|css|scss|less|xml|ya?ml|toml|ini|env|conf|cfg|sql|vue|svelte|tex|latex|lua|hs|erl|exs?|clj|cljs|fsx?|ml|mli|asm|diff|patch)$/i;
   const PDF_RE = /\.pdf$/i;
   const ZIP_RE = /\.zip$/i;
   const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 12 * 1024 * 1024, MAX_ZIP = 12 * 1024 * 1024, MAX_FILES = 8;
@@ -3435,10 +3426,23 @@ export function mountUI(store, agent) {
     for (const f of files) {
       if (pending.length >= MAX_FILES) { toast(`单次最多 ${MAX_FILES} 个附件`, 'warn'); break; }
       try {
-        if (IMG_RE.test(f.type)) {
+        const isImageByMime = IMG_RE.test(f.type);
+        const isImageByExt = IMG_EXT_RE.test(f.name);
+        if (isImageByMime || isImageByExt) {
           if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
           if (globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('attachment');
-          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: f.type, size: f.size, dataUrl: await readAs('dataURL', f) });
+          let dataUrl = await readAs('dataURL', f);
+          // 浏览器 FileReader 对某些扩展名/未知 MIME 会给 application/octet-stream 或空 MIME，
+          // 这里按扩展名兜底修正 data: URL 的 MIME 头，保证后续预览/识图正确识别。
+          if (dataUrl) {
+            const extMatch = /\.([a-z0-9]+)$/i.exec(f.name);
+            const ext = extMatch ? extMatch[1].toLowerCase() : '';
+            const extToMime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', ico:'image/x-icon', tif:'image/tiff', tiff:'image/tiff', avif:'image/avif', apng:'image/apng', heic:'image/heic', heif:'image/heif', svg:'image/svg+xml' };
+            const wantMime = (f.type && IMG_RE.test(f.type)) ? f.type : (extToMime[ext] || f.type || 'image/png');
+            dataUrl = dataUrl.replace(/^data:[^;]*;base64,/, `data:${wantMime};base64,`);
+          }
+          const finalMime = (dataUrl.match(/^data:([^;]+);base64,/) || [])[1] || f.type || 'image/png';
+          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: finalMime, size: f.size, dataUrl });
         } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
           if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
           toast(`${f.name}：正在把每一页转成图片…`, 'ok', 2400);

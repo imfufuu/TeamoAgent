@@ -64,7 +64,7 @@ const NUDENET_MODEL_URL = '../assets/moderation/nudenet-320n/model.onnx';
 // NudeNet 320n 官方推理分辨率即 320；曾降到 224 导致召回大幅下降（明显裸露漏检），禁止再降。
 const NUDENET_INPUT_SIZE = 320;
 const MAX_REMOTE_IMAGE_BYTES = 6 * 1024 * 1024;
-const IMAGE_URL_EXT_RE = /\.(?:png|jpe?g|webp|gif)(?:[?#]|$)/i;
+const IMAGE_URL_EXT_RE = /\.(?:png|jpe?g|webp|gif|bmp|ico|tiff?|avif|apng|heic|heif|svg)(?:[?#]|$)/i;
 
 
 let tfReady;
@@ -252,10 +252,11 @@ function isBlockedHost(hostname) {
   return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
 }
 
+const DATA_IMAGE_RE = /^data:image\/(?:png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\+xml);base64,/i;
 function normalizeImageUrl(raw) {
   const s = String(raw || '').trim().replace(/^<|>$/g, '').replace(/[，。；、]+$/g, '');
   if (!s) return '';
-  if (/^data:image\/(?:png|jpe?g|webp|gif);base64,/i.test(s)) return s;
+  if (DATA_IMAGE_RE.test(s)) return s;
   try {
     const u = new URL(s);
     if (!/^https?:$/.test(u.protocol)) return '';
@@ -275,7 +276,8 @@ function textImageCandidates(text = '') {
   };
   body.replace(/!\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^)]*["'])?\s*\)/gi, (_, a, b) => { add(a || b, true); return _; });
   body.replace(/https?:\/\/[^\s<>"'`\])]+/gi, (m) => { add(m, false); return m; });
-  body.replace(/data:image\/(?:png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=\s]+/gi, (m) => { add(m, true); return m; });
+  const re = new RegExp('data:image/(?:png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\\+xml);base64,[A-Za-z0-9+/=\\s]+', 'gi');
+  body.replace(re, (m) => { add(m, true); return m; });
   return out.slice(0, 4);
 }
 

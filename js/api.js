@@ -2,7 +2,7 @@
 // 协议路由 + SSE 流式解析 + 传输层（浏览器直连 / 服务端代理兜底）
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
-import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor } from './config.js';
+import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor, resolveModelAlias } from './config.js';
 import { claudeThinkingBudget, normalizeReasoningLevel, reasoningEffortFor } from './reasoning.js';
 import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
@@ -412,6 +412,8 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
 // onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
 export async function streamChat({ model, apiKey, messages, tools, fastMode = false, thinking = false, reasoningLevel = 'medium', temperature, plan = null, iteration = 1, phase = '', subagentId = '', signal, onEvent, onThinkingFallback, webEnabled = false, onWebFallback }) {
+  // 废弃/改名模型别名解析（agent 层已做，但子智能体直传时再保底一次）
+  model = resolveModelAlias(model);
   const protocol = protocolOf(model);
   const level = normalizeReasoningLevel(reasoningLevel);
   const wantThinking = thinking && !thinkingUnsupported.has(model);
@@ -711,6 +713,44 @@ export function sniffImage(bytes) {
       };
     }
     return { mime: 'image/webp', ext: 'webp' };
+  }
+  // BMP: BM 头
+  if (u[0] === 0x42 && u[1] === 0x4d) {
+    const w = dv.getUint32(18, true), h = dv.getUint32(22, true);
+    return { mime: 'image/bmp', ext: 'bmp', width: w, height: h >>> 0 > 0x7fffffff ? h >>> 0 : h };
+  }
+  // ICO: 00 00 01 00 （仅取第一张尺寸）
+  if (u[0] === 0x00 && u[1] === 0x00 && u[2] === 0x01 && u[3] === 0x00) {
+    return { mime: 'image/x-icon', ext: 'ico', width: u[6] || 256, height: u[7] || 256 };
+  }
+  // TIFF: 小端 II (49 49 2A 00) 或大端 MM (4D 4D 00 2A)
+  const isTiffLE = u[0] === 0x49 && u[1] === 0x49 && u[2] === 0x2a && u[3] === 0x00;
+  const isTiffBE = u[0] === 0x4d && u[1] === 0x4d && u[2] === 0x00 && u[3] === 0x2a;
+  if (isTiffLE || isTiffBE) {
+    const le = isTiffLE;
+    const u32 = (o) => le ? dv.getUint32(o, true) : dv.getUint32(o, false);
+    const u16 = (o) => le ? dv.getUint16(o, true) : dv.getUint16(o, false);
+    const ifd0 = u32(4);
+    let w = 0, h = 0;
+    if (ifd0 > 0 && ifd0 < u.length - 2) {
+      const cnt = u16(ifd0);
+      for (let i = 0; i < cnt; i++) {
+        const e = ifd0 + 2 + i * 12;
+        if (e + 12 > u.length) break;
+        const tag = u16(e);
+        if (tag === 256) w = u16(e + 8) || u32(e + 8);
+        else if (tag === 257) h = u16(e + 8) || u32(e + 8);
+      }
+    }
+    return { mime: 'image/tiff', ext: 'tiff', width: w, height: h };
+  }
+  // AVIF / HEIC / HEIF: ftyp box，compatible brands 在 offset 8 后
+  if (u.length >= 32 && (fourcc(4) === 'ftyp')) {
+    const brand = fourcc(8);
+    if (/^(avif|avis|mif1|msf1|heic|heix|hevc|hevm|heis|miaf)/i.test(brand)) {
+      const isAvif = /^avif/i.test(brand);
+      return { mime: isAvif ? 'image/avif' : 'image/heic', ext: isAvif ? 'avif' : 'heic' };
+    }
   }
   return {};
 }

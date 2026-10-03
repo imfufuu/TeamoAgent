@@ -73,15 +73,59 @@ async function oneShot(body, apiKey, signal) {
   return { text, finishReason, usage: u };
 }
 
+// 视觉接口兼容 MIME 白名单（DeepSeek/OpenAI/Claude/Gemini 共通支持的格式）：
+//   image/jpeg, image/png, image/gif, image/webp
+// 其它格式（bmp/ico/tiff/avif/heic/apng/svg）在此函数里先转成 image/png，避免 400。
+const VISION_COMPAT_MIME = /^image\/(jpe?g|png|gif|webp)$/i;
+async function normalizeForVision(u) {
+  if (!/^data:image\//i.test(String(u || ''))) return u; // http(s) URL 原样传
+  const mm = /^data:([^;]+);base64,/.exec(u);
+  const mime = mm ? mm[1].toLowerCase() : '';
+  if (VISION_COMPAT_MIME.test(mime)) return u;
+  // 不在白名单里 → 画到 <img> 再导出成 PNG；SVG 也走这一条（SVG 里可以含外链，直接给模型风险）
+  try {
+    const dataURL = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          // 限制最大边 2048，省 token 又避免 OOM
+          const maxSide = 2048;
+          let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+          if (w > maxSide || h > maxSide) {
+            const r = Math.min(maxSide / w, maxSide / h);
+            w = Math.round(w * r); h = Math.round(h * r);
+          }
+          canvas.width = Math.max(1, w); canvas.height = Math.max(1, h);
+          const ctx = canvas.getContext('2d');
+          if (mime === 'image/svg+xml') ctx.fillStyle = '#fff'; // SVG 透明底填白，避免黑底
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (e) { reject(e); }
+      };
+      img.onerror = () => reject(new Error('图片无法解码为 PNG（可能是不支持的容器）'));
+      img.src = u;
+    });
+    return dataURL;
+  } catch (err) {
+    // 兜底：解码失败就原样传（可能 400，但至少不拦流程）
+    console.warn('[vision] normalize image failed, fall through:', err);
+    return u;
+  }
+}
+
 /** 用识图模型看一张或多张图（data URL 或 http URL），返回模型文字。长度上限会自动续写。 */
 export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal, onUsage }) {
   if (!apiKey) throw new Error('未配置 API Key');
-  const urls = [];
+  const rawUrls = [];
   for (const u of (Array.isArray(dataUrls) ? dataUrls : [])) {
-    if (u) urls.push(u);
+    if (u) rawUrls.push(u);
   }
-  if (dataUrl && !urls.includes(dataUrl)) urls.unshift(dataUrl);
-  if (!urls.length) throw new Error('没有可分析的图片');
+  if (dataUrl && !rawUrls.includes(dataUrl)) rawUrls.unshift(dataUrl);
+  if (!rawUrls.length) throw new Error('没有可分析的图片');
+  // 把不被模型支持的格式先转成 PNG（SVG/BMP/ICO/TIFF/AVIF/HEIC/APNG 等）
+  const urls = await Promise.all(rawUrls.map(normalizeForVision));
   const text = String(prompt || DEFAULT_VISION_PROMPT).trim() || DEFAULT_VISION_PROMPT;
   const content = [{
     type: 'text',

@@ -21,7 +21,7 @@ import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS } from './config.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js';
 import { routeModel, isSmartRouter } from './smartrouter.js';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
@@ -1072,7 +1072,8 @@ export function createAgent(store, hooks = {}) {
       routerDecision = routeModel((lastUserMsgRaw && lastUserMsgRaw.text) || '', availableIds);
       resolvedModel = routerDecision.chosenModel;
     }
-    const model = resolvedModel;
+    // 废弃/改名模型自动别名到可用版本（例如 gemini-3.5-flash → gemini-3.8-flash）
+    const model = resolveModelAlias(resolvedModel);
 
     const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
     abortController = new AbortController();

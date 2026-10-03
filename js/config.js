@@ -254,6 +254,22 @@ export function protocolOf(modelId) {
   return providerOf(modelId) === 'Anthropic' ? 'anthropic' : 'openai';
 }
 
+// 模型别名：已废弃/关闭/改名的模型自动转到仍可用的接替模型。
+// 用户选择了旧名字也能继续工作，UI 无需强制切换（避免破坏历史会话）。
+// 2026-10-03：Google GitHub Copilot 等网关在 10-02 起将 gemini-3.5-flash / 3.6-flash
+// 从可用名单里下掉，新请求 404；统一转发到 3.8-flash（官方建议的替代）。
+const MODEL_ALIASES = {
+  'gemini-3.5-flash':      'gemini-3.8-flash',
+  'gemini-3.6-flash':      'gemini-3.8-flash',
+  'gemini-3.7-flash':      'gemini-3.8-flash', // 3.7 也已被 3.8 取代
+  'gemini-3-flash-preview':'gemini-3.8-flash',
+  'gemini-3.5-flash-lite': 'gemini-3.8-flash', // 3.5-lite 也指向最新
+};
+export function resolveModelAlias(modelId) {
+  const id = String(modelId || '');
+  return MODEL_ALIASES[id] || id;
+}
+
 export function isFreeModel(modelId) {
   const hit = FALLBACK_MODELS.find((m) => m.id === modelId);
   return !!(hit && hit.free) || /-free$/.test(modelId || '');

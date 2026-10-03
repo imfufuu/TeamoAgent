@@ -260,8 +260,12 @@ a { color: var(--fg); }
 .dd-item.active { background: var(--fg); color: var(--bg); }
 .dd-item.active .badge { border-color: var(--bg); color: var(--bg); }
 .dd-item-id { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dd-item-id.router-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
-.dd-item-id.router-name svg { width: 14px; height: 14px; flex-shrink: 0; }
+/* Smart Router 条目：与其他模型条目同字体、同字号、细字重（不是粗体品牌字），
+ * 不再带行内图标（避免与分组图标重复）；只保留红色「热门」badge。 */
+.dd-item-id.router-name { font-weight: 400; font-style: normal; letter-spacing: 0; }
+/* TeamoRouter 分组标题里的图标：与其他 provider 的 .p-icon 完全一致对齐（12px 高） */
+.router-group-ico { display: inline-flex; align-items: center; justify-content: center; }
+.router-group-ico svg { width: 14px; height: 14px; flex-shrink: 0; }
 .dd-item-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: .06em; border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; color: var(--fg-2); }
 .badge.hot { color: #c2410c; border-color: #fdba74; }
@@ -588,24 +592,24 @@ a { color: var(--fg); }
 .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--fg); vertical-align: text-bottom; margin-left: 2px; animation: blink .9s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* ── 流式文本渐显（类 Gemini）─────────────────────────────────────
- * 核心思想：稳定内容永远不动，只有**新到达的 token**被包进 .stream-reveal，
- * 一次性 120ms fade-in。动画结束后类名可以被移除但 DOM 不变，所以绝不会重闪。
- * 注意：不要在父块上加 animation 动画——每次 innerHTML 会重建父块导致闪烁，
- * 要把动画加在"新增的最细粒度文本包裹"上，且只在包裹创建的那一帧触发一次。 */
+/* ── 流式文本渐显（类 Gemini 客户端）────────────────────────────────────
+ * 新到达的末尾字符被包成 <span class="stream-reveal">，一次性跑 220ms 动画。
+ * 关键：动画只挂在新创建的 span 上，旧 span 在下一次 innerHTML 中变为普通文本——
+ * 永不重新触发动画，绝无闪烁。 */
 .md-body.streaming .stream-reveal {
   display: inline;
-  animation: streamReveal 140ms ease-out both;
+  animation: streamReveal 220ms cubic-bezier(.2,.7,.2,1) both;
 }
 @keyframes streamReveal {
-  from { opacity: 0; filter: blur(0.8px); }
-  to   { opacity: 1; filter: none; }
+  0%   { opacity: 0; filter: blur(4px); transform: translateY(3px); }
+  60%  { opacity: 1; filter: blur(1px); transform: translateY(0); }
+  100% { opacity: 1; filter: none; transform: translateY(0); }
 }
-/* 流式结束后把所有已淡入的 reveal 标记清掉，避免在复制/重排时带上样式 */
 .md-body:not(.streaming) .stream-reveal {
   animation: none;
   opacity: 1;
   filter: none;
+  transform: none;
 }
 
 .cancelled-tag { font-size: 11px; color: var(--fg-3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; margin-left: 8px; }
@@ -838,8 +842,9 @@ a { color: var(--fg); }
 .composer-hint a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
 .sys-gear { display: inline-flex; align-items: center; font-size: 13px; }
 .sys-gear svg { width: 13px; height: 13px; }
-.router-ico { display: inline-flex; align-items: center; color: var(--fg); }
-.router-ico svg { width: 16px; height: 16px; }
+/* 顶栏模型按钮里的路由器图标：与其他 provider 的 .p-icon(16px) 完全同尺寸，保证对齐 */
+.router-ico { display: inline-flex; align-items: center; justify-content: center; color: var(--fg); }
+.router-ico svg { width: 16px; height: 16px; flex-shrink: 0; }
 .router-chip { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; background: var(--bg-soft); border: 1px solid var(--line); border-radius: 99px; font-size: 11px; color: var(--fg-2); cursor: pointer; transition: all .18s var(--ease); }
 .router-chip:hover { color: var(--fg); border-color: var(--fg-2); }
 .router-chip svg { width: 12px; height: 12px; }
