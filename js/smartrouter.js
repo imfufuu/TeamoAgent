@@ -102,7 +102,9 @@ function pickRealModel(category, difficulty, availableModels) {
 
     case TASK_CATEGORY.CHAT:
     default:
-      return pick(['deepseek-v4-flash-free', 'deepseek-flash-free', 'deepseek-v4-flash', 'gemini-3.8-flash', 'glm-5.3-flash', 'gpt-6-luna']);
+      // 简单闲聊优先选支持 thinking/reasoning 的中档模型，避免免费档把思考链路砍掉
+      // （deepseek-v4-flash-free 不返回可见思考正文 → 导致「思考过程」一直显示「已思考」而没有内容）
+      return pick(['claude-sonnet-5', 'deepseek-v4-flash', 'gemini-3.8-flash', 'gpt-6-luna', 'glm-5.3-flash', 'deepseek-v4-flash-free']);
   }
 }
 
@@ -156,4 +158,4 @@ export function isSmartRouter(modelId) {
 // 路由器徽章的图标 & 显示名
 // 路由器图标：复用 Teamo 产品 LOGO 的原子圆环 + 三点图案（与顶栏 logo 同源，保持品牌视觉一致性）
 // 描边色使用 currentColor，随主题深浅切换；viewBox 与内部尺寸完全对齐 APP_LOGO（32x32）。
-export const ROUTER_ICON_SVG = '<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>';
+export const ROUTER_ICON_SVG = '<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13" stroke="currentColor" stroke-opacity="0.28" stroke-width="1.4"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" stroke="currentColor" stroke-opacity="0.82" stroke-width="2.3" stroke-linecap="round" fill="none"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" stroke="currentColor" stroke-opacity="0.82" stroke-width="2.3" stroke-linecap="round" fill="none"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" stroke="currentColor" stroke-opacity="0.82" stroke-width="2.3" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg>';

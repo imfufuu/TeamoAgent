@@ -592,25 +592,23 @@ a { color: var(--fg); }
 .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--fg); vertical-align: text-bottom; margin-left: 2px; animation: blink .9s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* ── 流式文本渐显（类 Gemini 客户端）────────────────────────────────────
- * 新到达的末尾字符被包成 <span class="stream-reveal">，一次性跑 220ms 动画。
- * 关键：动画只挂在新创建的 span 上，旧 span 在下一次 innerHTML 中变为普通文本——
- * 永不重新触发动画，绝无闪烁。 */
-.md-body.streaming .stream-reveal {
+/* ── 流式打字机渐显（Gemini 风格，DOM 增量追加）──────────────────────
+ * 新字符作为 <span class="fade-token"> insertBefore(cursor) 插入，
+ * 每个 span 是创建时新建元素 → CSS animation 只跑一次，永不重放、绝无闪烁。 */
+.md-body.streaming .fade-token {
   display: inline;
-  animation: streamReveal 220ms cubic-bezier(.2,.7,.2,1) both;
+  animation: fadeInToken 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-@keyframes streamReveal {
-  0%   { opacity: 0; filter: blur(4px); transform: translateY(3px); }
-  60%  { opacity: 1; filter: blur(1px); transform: translateY(0); }
-  100% { opacity: 1; filter: none; transform: translateY(0); }
+@keyframes fadeInToken {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
-.md-body:not(.streaming) .stream-reveal {
-  animation: none;
-  opacity: 1;
-  filter: none;
-  transform: none;
-}
+.md-body .stream-tail { white-space: pre-wrap; word-break: break-word; }
+.md-body .stream-tail:empty { display: none; }
+/* 流式时稳定段落不需要额外 margin，保证视觉连贯 */
+.md-body.streaming p { margin-bottom: 0; }
+.md-body.streaming .stream-tail + .cursor { margin-left: 2px; }
+.md-body:not(.streaming) .fade-token { animation: none; opacity: 1; transform: none; }
 
 .cancelled-tag { font-size: 11px; color: var(--fg-3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; margin-left: 8px; }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }

@@ -1240,7 +1240,7 @@ export function mountUI(store, agent) {
     for (const p of order) {
       const g = el('div', 'dd-group');
       const isRouterGroup = p === SMART_ROUTER_PROVIDER;
-      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(p)}</span>`));
+      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(isRouterGroup ? 'TEAMOROUTER' : p)}</span>`));
       for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -1350,7 +1350,7 @@ export function mountUI(store, agent) {
     } else if (router) {
       icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
       name = 'smart-router';
-      prov = '智能路由器';
+      prov = 'TEAMOROUTER';
     } else {
       icon = providerIcon(providerOf(store.state.model));
       name = store.state.model;
@@ -2378,9 +2378,23 @@ export function mountUI(store, agent) {
       // 旧逻辑 showHead 会判 false 导致「无图标无审核员」，这里强制显示
       const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
+      // 智能路由器：消息头显示路由图标 + smart-router（不暴露真实模型）
+      const headIsRouter = isSmartRouter(m.userModel);
       const headModel = m.model || store.state.model;
-      const headName = headModel === '__system__' ? 'system-commands' : headModel === 'Moderator' ? 'Moderator · 审核员' : headModel;
-      const headIcon = headModel === '__system__' ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(headModel));
+      let headName, headIcon;
+      if (headModel === '__system__') {
+        headName = 'system-commands';
+        headIcon = `<span class="sys-gear">${ICON.system || '⚙'}</span>`;
+      } else if (headModel === 'Moderator') {
+        headName = 'Moderator · 审核员';
+        headIcon = providerIcon(providerOf(headModel));
+      } else if (headIsRouter) {
+        headName = 'smart-router';
+        headIcon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
+      } else {
+        headName = headModel;
+        headIcon = providerIcon(providerOf(headModel));
+      }
       wrap.innerHTML = `
         ${showHead ? `<div class="msg-head"><span class="avatar">${headIcon}</span><span class="msg-model mono">${esc(headName)}</span><span class="msg-meta"></span></div>` : ''}
         <div class="md-body"></div>
@@ -2448,91 +2462,103 @@ export function mountUI(store, agent) {
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
-  // ── 流式渐显核心：只包裹新增 token 的"尾部窗口"，动画明显、不闪烁 ─────
-  // 设计（类 Gemini 观感）：
-  //   1) innerHTML 每次重绘 → DOM 全重建 → 不能在父块挂动画（会每次从 0 重放）。
-  //   2) 策略：维护每条消息 _streamRevealAt = 本次 paint 之前的「总可见字符数」。
-  //      innerHTML 设完后用 TreeWalker 枚举正文 text node，把末尾 WINDOW 个
-  //      **新字符**（即 revealAt 之后的部分，不超过 MAX_CHUNK）切出来包成
-  //      <span class="stream-reveal">，CSS 给它 220ms 的 opacity+blur+translateY 动画。
-  //   3) 这个 span 是本次 paint 新创建的，CSS animation 只跑一次 → 不闪。
-  //      下一帧 paint 时 innerHTML 重建，旧 span 展开为普通文本（无包裹/无动画），
-  //      新的 delta 又被包成新 span → 只有"末尾 WINDOW 个字符"在做淡入，
-  //      旧字 0 动画，稳定显示。
-  //   4) 跳过 PRE/CODE/TABLE/SVG 和控件元素（代码/表格整块出现更自然）。
-  //   5) 首次 paint（新消息首字到达）时 WINDOW 较小避免一整坨；WINDOW 随 token 流速
-  //      自适应：快流时大 WINDOW（词组一次性到位），慢流时小 WINDOW（逐字感）。
-  //   6) 结束 (!live) 时 unwrap 所有残留 span 并重置计数。
-  const STREAM_WINDOW = 14;       // 末尾参与淡入的字符窗口大小
-  const STREAM_MAX_ONE_SHOT = 60; // 突发大段（>60 字新字符）只淡入末尾，其余瞬间出现
-  function applyStreamReveal(body, m) {
-    const wrap = body.closest('.msg');
-    const prevRevealAt = (wrap && typeof wrap._streamRevealAt === 'number') ? wrap._streamRevealAt : 0;
-
-    const SKIP_TAGS = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE', 'TABLE', 'SVG', 'CANVAS', 'TEXTAREA']);
-    const SKIP_CLASSES = new Set(['cursor', 'connect-line', 'cancelled-tag', 'trunc-note', 'reasoning', 'chip-detail', 'fold-inner', 'choice-box', 'web-note']);
-    const textNodes = [];
-    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
-      acceptNode(node) {
-        if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
-        let p = node.parentNode;
-        while (p && p !== body) {
-          if (p.nodeType !== 1) { p = p.parentNode; continue; }
-          if (SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
-          if (p.classList) {
-            for (const cls of SKIP_CLASSES) if (p.classList.contains(cls)) return NodeFilter.FILTER_REJECT;
-          }
-          p = p.parentNode;
-        }
-        return NodeFilter.FILTER_ACCEPT;
-      },
-    });
-    let n;
-    while ((n = walker.nextNode())) textNodes.push(n);
-
-    // 总可见字符
-    let total = 0;
-    for (const tn of textNodes) total += tn.nodeValue.length;
-
-    // markdown 偶发重排让 total 变小（列表/粗体切换）→ 夹紧避免错位
-    let revealAt = Math.min(prevRevealAt, total);
-
-    // 突发大量新字（首屏/工具结果/模型一次性返回大段）：只对末尾 WINDOW 做渐显
-    const newChars = total - revealAt;
-    let chunkStart = revealAt;
-    if (newChars > STREAM_MAX_ONE_SHOT) {
-      chunkStart = total - STREAM_WINDOW;
+  // ── 流式渐显（Gemini 风格：DOM 增量追加而非 innerHTML 重建）────────────
+  // 核心原则（按用户提供的参考材料落地）：
+  //   • 流式过程中不要整段重写 innerHTML——这是之前每版都闪烁/看不见的根本原因。
+  //   • 改为：已经稳定的 Markdown 块（遇到段落结束/标题/列表/代码/空行等）一次性
+  //     renderMarkdown 到 .md-body；正在输出的**最后一段**作为纯文本容器 .stream-tail
+  //     保留，新到达的字符切成 <span class="fade-token"> 插到光标之前，CSS 做
+  //     opacity:0→1 + translateY(4px)→0 的 200ms 缓动。
+  //   • 每帧最多批量插入一批新字符（rAF 合并），不要一字符一 reflow；每个 token span
+  //     是新建元素，animation 只跑一次，不存在重放。
+  //   • 流结束（m.done）时，把 .stream-tail 也喂给 renderMarkdown 一次性替换，得到
+  //     最终完整的 Markdown 渲染（含链接/列表/加粗），和普通渲染视觉一致。
+  function splitStreamableChunk(text) {
+    // 在最后一个"硬段落边界"处切分：把已闭合的段落/标题/列表项/代码/引用/表格走 markdown 渲染，
+    // 只有末尾未闭合的尾巴走纯文本打字。
+    // 边界：连续 2 个换行（段落分隔）、# 标题、```、-/* 列表、> 引用、表格 |---|。
+    const blocks = [];
+    let rest = text;
+    // 匹配"块级结束边界"：
+    //   1) ``` ... ``` 完整 fenced code
+    //   2) 连续 2 个及以上换行（段落/块分隔），但只在它不是一个正在输入的列表项中间时切
+    // 简化：找到最后一个 '\n\n'，前面归稳定块、后面归 tail。
+    // 为了避免"最后一段还在写列表"这种情况被误切，额外判断末尾如果以 list/quote/heading 起始，
+    // 我们就回退到上一个 \n\n，保证 .stream-tail 只包含"当前正在写的这一段纯文本"。
+    // 具体做法：倒序找到最近的 \n\n，然后在该位置切分。
+    let cut = -1;
+    // 先处理 ``` 代码块：如果最后一个 ``` 已经闭合（出现偶数次），则把闭合点作为切点。
+    const fenceMatches = [...rest.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)];
+    if (fenceMatches.length) {
+      const last = fenceMatches[fenceMatches.length - 1];
+      const endIdx = last.index + last[0].length;
+      if (endIdx > cut && endIdx <= rest.length) cut = endIdx;
     }
-
-    // 切分 text node，把 [chunkStart, total) 包成 span
-    let cursor = 0;
-    let wrapped = 0;
-    for (const tn of textNodes) {
-      const len = tn.nodeValue.length;
-      const ns = cursor, ne = cursor + len;
-      const lo = Math.max(ns, chunkStart);
-      const hi = Math.min(ne, total);
-      if (hi > lo) {
-        const parent = tn.parentNode;
-        const before = tn.nodeValue.slice(0, lo - ns);
-        const mid = tn.nodeValue.slice(lo - ns, hi - ns);
-        const after = tn.nodeValue.slice(hi - ns);
-        const frag = document.createDocumentFragment();
-        if (before) frag.appendChild(document.createTextNode(before));
-        if (mid) {
-          const span = document.createElement('span');
-          span.className = 'stream-reveal';
-          span.textContent = mid;
-          frag.appendChild(span);
-          wrapped += mid.length;
-        }
-        if (after) frag.appendChild(document.createTextNode(after));
-        parent.replaceChild(frag, tn);
+    // 再找最后一个 "\n\n"（如果 fence 没匹配到或更靠后就用它）
+    const doubleNl = rest.lastIndexOf('\n\n');
+    if (doubleNl > cut) cut = doubleNl + 2;
+    // 若尾部正在开一个 fenced code（``` 没闭合），不切（让 tail 包含 ``` 开头和其中内容）
+    const tailFromCut = cut < 0 ? rest : rest.slice(cut);
+    const headsFromCut = cut < 0 ? '' : rest.slice(0, cut);
+    // 统计 tail 中 ``` 的数量：奇数 → 正在写 code block，需要回退到 ``` 起点
+    const fenceCount = (tailFromCut.match(/```/g) || []).length;
+    let stable = headsFromCut;
+    let tail = tailFromCut;
+    if (fenceCount % 2 === 1) {
+      const openIdx = tailFromCut.lastIndexOf('```');
+      if (openIdx >= 0) {
+        stable = headsFromCut + tailFromCut.slice(0, openIdx);
+        tail = tailFromCut.slice(openIdx);
       }
-      cursor = ne;
     }
-    wrap._streamRevealAt = total;
-    return wrapped;
+    return { stable, tail };
+  }
+  function applyStreamAppend(body, text) {
+    const wrap = body.closest('.msg');
+    if (!wrap) return;
+    // 定位或创建 .stream-tail 容器和光标
+    let tail = body.querySelector('.stream-tail');
+    let cursor = body.querySelector('.cursor');
+    if (!tail) {
+      tail = document.createElement('div');
+      tail.className = 'stream-tail';
+      if (cursor) body.insertBefore(tail, cursor);
+      else body.appendChild(tail);
+    }
+    // 已在 tail 里渲染的字符数（不包含 fade-token 内部，我们用 data-len 维护）
+    const prevLen = Number(tail.dataset.len || 0);
+    const delta = text.slice(prevLen);
+    tail.dataset.len = String(text.length);
+    if (!delta) return;
+    // 批量把新字符包成 fade-token span（按字符切，每个 span 是新建元素，animation 只跑一次）。
+    // 注：一字符一 span 在长文本下 DOM 节点会多，但 .stream-tail 只是一个段落，长度一般 300–800 字，
+    // 远低于性能警戒；流结束时整段被替换为 renderMarkdown HTML（合并掉所有 span）。
+    const frag = document.createDocumentFragment();
+    for (const ch of delta) {
+      // 换行/空格单独处理：保留为文本节点，避免 span 包裹破坏排版；
+      // 实际空格/换行不需要淡入（不可见或只是空白），但为动画连贯统一包裹。
+      const span = document.createElement('span');
+      span.className = 'fade-token';
+      span.textContent = ch;
+      frag.appendChild(span);
+    }
+    tail.appendChild(frag);
+    // 限制 .stream-tail 内总 span 数不超过 1500，防止极长输出 DOM 爆炸——超过后
+    // 合并最早的 fade-token 为裸文本。
+    const tokens = tail.querySelectorAll('.fade-token');
+    if (tokens.length > 1500) {
+      const collapseTo = tokens.length - 600;
+      for (let i = 0; i < collapseTo; i++) {
+        const t = tokens[i];
+        const tn = document.createTextNode(t.textContent);
+        t.parentNode.replaceChild(tn, t);
+      }
+      // 相邻文本节点自动合并是浏览器行为；这里不做额外 normalize（避免打断正在进行的动画）
+    }
+  }
+  function clearStreamTail(body) {
+    const tail = body.querySelector('.stream-tail');
+    if (tail) tail.remove();
   }
 
   function paintAssistant(wrap, m) {
@@ -2547,32 +2573,64 @@ export function mountUI(store, agent) {
     const thinkOn = m.reasoningLevel !== 'off';
     const showThink = thinkOn && m.reasoning;
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
+    let connectHtml = '';
+    let cursorHtml = '';
+    let cancelledHtml = '';
+    let truncHtml = '';
     if (live && noOutputYet && !thinkOn) {
-      // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
-      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
+      connectHtml = `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
-    html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
-    if (live && !noOutputYet) html += '<span class="cursor"></span>';
-    if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
+    if (live && !noOutputYet) cursorHtml = '<span class="cursor"></span>';
+    if (m.cancelled) cancelledHtml = '<span class="cancelled-tag">已停止</span>';
     if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
-      html += '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
+      truncHtml = '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
     }
-    body.innerHTML = html;
-    body.classList.toggle('empty', !String(html || '').trim());
+    html += connectHtml;
+    html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
+    html += cancelledHtml + truncHtml;
+    // 完成态才把 cursor 拼进 html（因为完成态直接 innerHTML）；流式态单独 append 避免位置错误
+    if (!live) html += cursorHtml;
 
     body.classList.toggle('streaming', !!live);
     if (live) {
-      applyStreamReveal(body, m);
+      // 流式模式：稳定块走 renderMarkdown，正在写的最后一段保存在 .stream-tail 中追加 fade-token。
+      const rawText = m.text || '';
+      const { stable, tail } = splitStreamableChunk(rawText);
+      const stableHtml = connectHtml + (m.model === '__system__' ? sysReplyHtml(stable) : renderMarkdown(stable)) + cancelledHtml + truncHtml;
+      // 摘下非正文节点（光标/thinking/web-note 等），避免被 innerHTML 覆盖
+      const detached = [];
+      for (const sel of ['.reasoning', '.web-note', '.choice-box', '.stream-tail', '.connect-line', '.cancelled-tag', '.trunc-note', '.cursor']) {
+        for (const el of $$(sel, body)) detached.push(body.removeChild(el));
+      }
+      body.innerHTML = stableHtml;
+      // 如果还有 tail（正在输入的段落），追加 .stream-tail 并把已存在 tail 文本作为普通文本放入
+      let tailDiv = null;
+      if (tail) {
+        tailDiv = document.createElement('span');
+        tailDiv.className = 'stream-tail';
+        tailDiv.appendChild(document.createTextNode(tail));
+        tailDiv.dataset.len = String(tail.length);
+        body.appendChild(tailDiv);
+      }
+      // 恢复光标（放在 tail 末尾，保证在流式块结尾闪烁）
+      if (cursorHtml) {
+        const cur = document.createElement('span');
+        cur.className = 'cursor';
+        if (tailDiv) tailDiv.appendChild(cur);
+        else body.appendChild(cur);
+      }
+      // 恢复其他附属节点
+      for (const el of detached) {
+        if (el.classList && (el.classList.contains('stream-tail') || el.classList.contains('cursor') || el.classList.contains('connect-line') || el.classList.contains('cancelled-tag') || el.classList.contains('trunc-note'))) continue;
+        body.appendChild(el);
+      }
+      if (tail) applyStreamAppend(body, rawText);
     } else {
-      // 完成态：清掉残留的 reveal 包裹 & 重置计数器
-      $$('.stream-reveal', body).forEach((n) => {
-        const parent = n.parentNode;
-        if (!parent) return;
-        while (n.firstChild) parent.insertBefore(n.firstChild, n);
-        parent.removeChild(n);
-      });
+      // 完成态：整段用 renderMarkdown 渲染，清除流式标记
+      body.innerHTML = html;
       wrap._streamRevealAt = 0;
     }
+    body.classList.toggle('empty', !String(html || '').trim());
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
     const msgs = store.state.messages;
