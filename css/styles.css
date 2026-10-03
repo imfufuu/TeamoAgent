@@ -1645,6 +1645,9 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .boot-spinner span:nth-child(2) { animation-delay: .15s; }
 .boot-spinner span:nth-child(3) { animation-delay: .3s; }
 .boot-hint { font-size: 12px; color: var(--fg-3); margin-top: 4px; }
+.boot-progress { width: 180px; height: 3px; background: var(--line, rgba(0,0,0,.08)); border-radius: 2px; overflow: hidden; margin-top: 4px; }
+.boot-progress-bar { height: 100%; width: 8%; background: var(--fg); border-radius: 2px; transition: width .4s ease, background .3s; }
+.boot-err { font-size: 12px; color: #d44; margin-top: 8px; max-width: 320px; text-align: center; line-height: 1.5; }
 @keyframes boot-spin { to { transform: rotate(360deg); } }
 @keyframes boot-dot {
   0%, 80%, 100% { transform: scale(.6); opacity: .4; }
