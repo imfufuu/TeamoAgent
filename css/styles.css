@@ -1061,20 +1061,51 @@ a { color: var(--fg); }
 .fv-code { flex: 1; overflow: auto; padding: 0; }
 .fv-code pre { margin: 0; padding: 12px 14px; white-space: pre; word-break: normal; overflow-x: auto; }
 .fv-code code { font-family: var(--mono); font-size: 11.5px; white-space: pre; }
+.fv-size { color: var(--fg-3); font-weight: 500; margin-left: 8px; }
+.fv-too-big { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 48px 24px; color: var(--fg-2); text-align: center; }
+.fv-too-big-ico { font-size: 42px; }
+.fv-too-big-text strong { color: var(--fg); font-weight: 650; }
+.fv-too-big-sub { margin-top: 6px; font-size: 12px; color: var(--fg-3); }
 #tab-files { position: relative; display: flex; flex-direction: column; min-height: 0; gap: 12px; }
 .mem-card { flex: 0 1 auto; max-height: 42%; }
 .mem-card .mem-list { max-height: 240px; padding: 8px 12px 12px; }
 .img-lightbox {
   position: fixed; inset: 0; z-index: 120;
-  background: rgba(8, 8, 8, .78);
-  display: flex; align-items: center; justify-content: center;
-  padding: 28px;
+  background: rgba(8, 8, 8, .85);
+  display: flex; flex-direction: column; align-items: stretch; justify-content: stretch;
 }
 .img-lightbox[hidden] { display: none !important; }
-.img-lightbox img { max-width: min(96vw, 1400px); max-height: 92vh; object-fit: contain; border-radius: 10px; box-shadow: var(--shadow-lg); }
+.img-lightbox-stage {
+  flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center;
+  cursor: grab; position: relative;
+  touch-action: none;
+}
+.img-lightbox-stage:active { cursor: grabbing; }
+.lb-transform {
+  transform-origin: 0 0; transition: transform .08s ease-out;
+  will-change: transform;
+  display: flex; align-items: center; justify-content: center;
+}
+.lb-transform img { max-width: min(92vw, 1400px); max-height: 88vh; object-fit: contain; border-radius: 10px; box-shadow: var(--shadow-lg); display: block; user-select: none; -webkit-user-drag: none; }
+.lb-transform svg { max-width: min(92vw, 1600px); max-height: 88vh; height: auto; display: block; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow-lg); }
+.lb-transform .md-chart, .lb-transform .md-diagram { margin: 0; }
+.lb-transform .md-chart-svg, .lb-transform .md-diagram-svg { width: auto; max-width: none; background: var(--bg); }
+.img-lightbox-toolbar {
+  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(20,20,20,.7); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 4px;
+  color: #fff;
+}
+.lb-btn {
+  background: transparent; color: #fff; border: 0; min-width: 30px; height: 28px;
+  border-radius: 6px; font-size: 15px; cursor: pointer; padding: 0 8px;
+}
+.lb-btn:hover { background: rgba(255,255,255,.12); }
+.lb-zoom-label { font-size: 12px; color: rgba(255,255,255,.7); padding: 0 6px; min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
 .img-lightbox-x {
   position: absolute; top: 14px; right: 16px; font-size: 22px; line-height: 1;
-  color: #fff; padding: 6px 10px; border-radius: 8px; background: transparent;
+  color: #fff; padding: 6px 10px; border-radius: 8px; background: transparent; border: 0; cursor: pointer; z-index: 2;
 }
 .img-lightbox-x:hover { background: rgba(255,255,255,.12); }
 

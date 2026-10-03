@@ -82,7 +82,10 @@
         <button id="export-btn" class="mini-btn" type="button" title="导出会话 JSON">导出</button>
         <button id="import-btn" class="mini-btn" type="button" title="从 JSON 导入会话">导入</button>
         <input id="import-input" type="file" accept="application/json,.json" hidden />
-        <button id="theme-toggle" class="mini-btn icon-only" type="button" title="切换明暗主题" aria-label="切换明暗主题"><svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg></button>
+        <button id="theme-toggle" class="mini-btn icon-only" type="button" title="切换明暗主题" aria-label="切换明暗主题">
+          <svg class="pill-ico ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
+          <svg class="pill-ico ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.93 19.07 1.41-1.41"/><path d="m17.66 6.34 1.41-1.41"/></svg>
+        </button>
       </div>
     </div>
   </aside>
@@ -184,7 +187,15 @@
 
 <div id="img-lightbox" class="img-lightbox" hidden>
   <button type="button" class="img-lightbox-x" aria-label="关闭预览">×</button>
-  <img id="img-lightbox-pic" alt="">
+  <div class="img-lightbox-toolbar">
+    <button type="button" class="lb-btn lb-zoom-in" title="放大 (+)">+</button>
+    <button type="button" class="lb-btn lb-zoom-out" title="缩小 (−)">−</button>
+    <button type="button" class="lb-btn lb-reset" title="重置 (0)">1:1</button>
+    <span class="lb-zoom-label"></span>
+  </div>
+  <div class="img-lightbox-stage">
+    <div class="lb-transform" id="img-lightbox-pic"></div>
+  </div>
 </div>
 
 <div id="cmd-palette" class="cmd-palette" hidden>

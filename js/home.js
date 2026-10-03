@@ -562,10 +562,18 @@ function openGate() {
   pinTop();
 }
 
+function syncThemeBtn() {
+  if (!themeBtn) return;
+  const dark = root.dataset.theme === 'dark';
+  themeBtn.textContent = dark ? '浅色' : '深色';
+  themeBtn.title = dark ? '切换到浅色主题' : '切换到深色主题';
+}
 function flipTheme() {
   root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
   localStorage.setItem('teamo-home-theme', root.dataset.theme);
+  syncThemeBtn();
 }
+syncThemeBtn();
 
 function prepareReveal() {
   if (reduce) return;

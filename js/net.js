@@ -142,7 +142,7 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
   if (!text.trim()) return { ok: false, error: `抓到了内容但是空的（可能是纯 JS 渲染页面）。换个直链的静态页面试试，或用 mode="raw" 拿原始 HTML 自己解析。` };
   let savedTo = '';
   if (fs && text.length > 2000) {
-    savedTo = savePath || `web/${slugFromUrl(finalUrl)}.md`;
+    savedTo = savePath || `internal/web/${slugFromUrl(finalUrl)}.md`;
     try { fs.write(savedTo, text); } catch { savedTo = ''; }
   }
   const PREVIEW = 6000;
@@ -172,7 +172,7 @@ function cleanRepo(repo) {
   return String(repo || '').trim().replace(/^\/+|\/+$/g, '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/');
 }
 function joinRepo(base, rel) { return base ? `${base}/${rel}` : rel; }
-function metaPath(base) { return joinRepo(base, '.git/teamo.json'); }
+function metaPath(base) { return joinRepo(base, '.git/teamo.json'); } // .git/ 目录天然不展示给用户（点前缀），作为内部元数据位置
 function relPath(base, path) {
   const p = String(path || '');
   if (!base) return p;

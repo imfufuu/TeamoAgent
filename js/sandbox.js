@@ -5,6 +5,9 @@
 import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js';
 
 // ── 虚拟文件系统（会话级，随 state 持久化）─────────────────────────────
+// 内部文件前缀：长久保存但用户不直接查看（识图 OCR/联网缓存/元数据等）；
+// 工作区（uploads/、outputs/ 及用户主动写入的路径）对用户可见。
+const WS_INTERNAL_PREFIXES = ['internal/', '.git/'];
 export function createFS(initial = {}) {
   const files = { ...initial };
   return {
@@ -33,6 +36,18 @@ export function createFS(initial = {}) {
     export() { return { ...files }; },
     import(obj) { for (const [k, v] of Object.entries(obj || {})) files[k] = String(v); },
     clear() { for (const k of Object.keys(files)) delete files[k]; },
+    // 清空工作区（保留内部文件 internal/ 与元数据 .git/）
+    clearWorkspace() {
+      for (const k of Object.keys(files)) {
+        if (WS_INTERNAL_PREFIXES.some((pref) => k.startsWith(pref))) continue;
+        delete files[k];
+      }
+    },
+    // 只列出工作区文件（过滤 internal/ 与 .git/）
+    listWorkspace() {
+      return this.list().filter(({ path }) => !WS_INTERNAL_PREFIXES.some((pref) => path.startsWith(pref)));
+    },
+    isInternalPath(p) { return WS_INTERNAL_PREFIXES.some((pref) => String(p).startsWith(pref)); },
     has(path) { return Object.prototype.hasOwnProperty.call(files, String(path)); },
     keys() { return Object.keys(files); },
   };

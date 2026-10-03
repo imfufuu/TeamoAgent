@@ -1161,8 +1161,9 @@ function collectAnalyzePaths(fs, args, listImgs) {
 function ocrOutPath(paths) {
   const first = paths[0] || 'image.png';
   const m = /^(.*)-p\d+(\.[^.]+)$/i.exec(first);
-  const base = m ? m[1] : first.replace(/\.[^.]+$/, '');
-  return `${base}.ocr.md`;
+  const base = (m ? m[1] : first.replace(/\.[^.]+$/, '')).replace(/^internal\//, '');
+  // 识图结果是内部文件（长久保存但默认不出现在用户工作区），统一写入 internal/ocr/
+  return `internal/ocr/${base.replace(/^uploads\//, '').replace(/^outputs\//, '')}.ocr.md`;
 }
 
 function imageMeta(fs, path) {

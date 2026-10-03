@@ -1217,7 +1217,32 @@ export function mountUI(store, agent) {
   };
 
   // ── 主题 ──
-  const applyTheme = () => document.documentElement.dataset.theme = store.state.settings.theme;
+  const SUN_SVG = '<svg class="pill-ico ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.93 19.07 1.41-1.41"/><path d="m17.66 6.34 1.41-1.41"/></svg>';
+  const MOON_SVG = '<svg class="pill-ico ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>';
+  function syncThemeToggle() {
+    const t = store.state.settings.theme;
+    const btn = $('#theme-toggle');
+    if (!btn) return;
+    // app.html 版：双图标，只显示当前状态对应的一个
+    const sun = btn.querySelector('.ico-sun');
+    const moon = btn.querySelector('.ico-moon');
+    if (sun && moon) {
+      sun.style.display = t === 'dark' ? '' : 'none';
+      moon.style.display = t === 'light' ? '' : 'none';
+      btn.title = t === 'dark' ? '切换到浅色' : '切换到深色';
+      btn.setAttribute('aria-label', btn.title);
+    } else {
+      // index.html（落地页）：文字按钮 → 同步文字标签
+      if (!btn.querySelector('.pill-ico')) {
+        btn.textContent = t === 'dark' ? '浅色' : '深色';
+        btn.title = t === 'dark' ? '切换到浅色主题' : '切换到深色主题';
+      }
+    }
+  }
+  const applyTheme = () => {
+    document.documentElement.dataset.theme = store.state.settings.theme;
+    syncThemeToggle();
+  };
   applyTheme();
   $('#theme-toggle').addEventListener('click', () => {
     store.state.settings.theme = store.state.settings.theme === 'light' ? 'dark' : 'light';
@@ -2201,15 +2226,24 @@ export function mountUI(store, agent) {
     filesZippedOnce = true;
     toast(`已打包 ${entries.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
   }
-  $('#download-zip').addEventListener('click', () => saveZip(zipEntriesOf(Object.keys(agent.fs.export())), 'teamo-sandbox'));
+  $('#download-zip').addEventListener('click', () => {
+    const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
+    saveZip(zipEntriesOf(wsKeys), 'teamo-workspace');
+  });
   $('#clear-files').addEventListener('click', () => {
-    const n = Object.keys(agent.fs.export()).length;
-    if (!n) return toast('沙箱里没有文件');
+    const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
+    const n = wsKeys.length;
+    if (!n) return toast('工作区没有文件（内部缓存/OCR 会自动长期保留）');
     if (!filesZippedOnce) {
-      if (!confirm('尚未打包 ZIP。清空后文件无法恢复，仍要清空沙箱？')) return;
-    } else if (!confirm('清空虚拟文件系统里的全部文件？此操作不可恢复。')) return;
-    if (!confirm('再次确认：确定清空沙箱文件？')) return;
-    agent.fs.clear(); store.clearFiles(); renderFiles(); toast('虚拟文件系统已清空');
+      if (!confirm('尚未打包 ZIP。清空后工作区文件无法恢复，仍要清空？（内部缓存/OCR 等不受影响）')) return;
+    } else if (!confirm('清空工作区里的全部文件？内部缓存/OCR 会保留。此操作不可恢复。')) return;
+    if (!confirm('再次确认：确定清空工作区文件？')) return;
+    if (typeof agent.fs.clearWorkspace === 'function') {
+      agent.fs.clearWorkspace();
+    } else {
+      agent.fs.clear();
+    }
+    store.clearFiles(); renderFiles(); toast('工作区已清空（内部文件保留）');
   });
 
   // 目录折叠状态：本次页面会话内记住（沙箱是路径即结构，没有真实目录节点）
@@ -2239,30 +2273,38 @@ export function mountUI(store, agent) {
 
   function renderFiles() {
     const box = $('#file-list'); box.innerHTML = '';
-    const files = agent.fs.list().map((f) => {
+    const allList = agent.fs.list();
+    const allFiles = allList.map((f) => {
       let raw = '';
       try { raw = agent.fs.read(f.path); } catch { /**/ }
       const str = String(raw);
       const isSvg = /\.svg$/i.test(f.path) || (/^data:image\/svg/i.test(str)) || (/<svg[\s>]/i.test(str.slice(0, 2000)));
       return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(str), isSvg };
     });
-    const tree = buildFileTree(files);
+    const isInternal = (p) => typeof agent.fs.isInternalPath === 'function' && agent.fs.isInternalPath(p);
+    const wsFiles = allFiles.filter((f) => !isInternal(f.path));
+    const intFiles = allFiles.filter((f) => isInternal(f.path));
+    const tree = buildFileTree(wsFiles);
     const stat = treeStats(tree);
     const quotaEl = $('#files-count');
     if (quotaEl) {
-      quotaEl.textContent = sandboxQuotaLabel(stat.size, storageQuota);
-      quotaEl.title = `沙箱已用 ${sandboxQuotaLabel(stat.size, storageQuota)}（上限 120MB）`;
+      const wsSize = stat.size;
+      const intSize = intFiles.reduce((a, f) => a + (Number(f.size) || 0), 0);
+      quotaEl.textContent = sandboxQuotaLabel(wsSize + intSize, storageQuota);
+      quotaEl.title = `工作区 ${fmtSize(wsSize)} + 内部 ${fmtSize(intSize)} · 上限 120MB`;
     }
     const nEl = $('#files-n');
     if (nEl) {
       const n = Number(stat.files) || 0;
-      nEl.textContent = `${n} 个文件`;
+      const ni = intFiles.length;
+      nEl.textContent = ni ? `${n} 个文件 · 内部 ${ni}` : `${n} 个文件`;
+      nEl.title = ni ? `工作区显示 ${n} 个用户可见文件，另有 ${ni} 个内部长期文件（OCR/缓存等，不可见）` : '';
     }
     const zipEl = $('#files-zip');
     if (zipEl) {
-      const z = zipEstimateBytes(files);
+      const z = zipEstimateBytes(wsFiles);
       zipEl.textContent = `ZIP ≈ ${fmtSize(z)}`;
-      zipEl.title = `ZIP 打包后估算体积：${fmtSize(z)}（STORE 容器；未实际下载前仅估算）`;
+      zipEl.title = `工作区文件打包后估算体积：${fmtSize(z)}（内部文件不打包）`;
     }
     if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件')); return; }
     const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
@@ -2313,39 +2355,59 @@ export function mountUI(store, agent) {
     }
   }
 
+  const FV_TEXT_MAX = 1 * 1024 * 1024; // 沙箱预览：文本类文件上限 1MB（超出请下载后在本地编辑器查看）
   function openFileViewer(path) {
     const viewer = $('#file-viewer');
     let raw = '';
     try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
+    const rawStr = String(raw);
+    const byteLen = approxBytes(rawStr);
     const lower = path.toLowerCase();
-    const imgSrc = /^data:image\//.test(raw) ? safeImgSrc(raw) : '';
+    const imgSrc = /^data:image\//.test(rawStr) ? safeImgSrc(rawStr) : '';
     // SVG 文件：如果内容是 SVG XML（不管有没有 data: 头），渲染为内联 SVG
     let svgContent = '';
     if (!imgSrc) {
-      const rawStr = String(raw);
       if (/\.svg$/i.test(lower) || /<svg[\s>]/i.test(rawStr.slice(0, 2000))) {
         svgContent = sanitizeSvgRaw(rawStr);
       }
     }
-    // 代码/文本文件：用 hljs 做语法高亮
-    const isCode = /\.(js|mjs|cjs|ts|jsx|tsx|py|java|c|cpp|h|hpp|cc|cxx|cs|go|rs|rb|php|swift|kt|scala|dart|m|matlab|sh|bash|zsh|ps1|bat|cmd|sql|json|jsonc|yml|yaml|toml|ini|conf|xml|html|htm|css|scss|less|md|markdown|r|jl|pyi|vue|svelte|tex|latex|lua|hs|erl|ex|exs|clj|cljs|fs|fsx|ml|mli|asm|s|vhd|v|sv|cu|sol|graphql|gql|hbs|jinja|j2|dockerfile|mk|nginx|diff|patch|log)$/i.test(lower);
-    let codeHtml = '';
-    if (!imgSrc && !svgContent) {
-      const lang = (lower.split('.').pop() || 'text');
-      if (isCode) {
-        codeHtml = `<div class="fv-code"><pre><code class="hljs">${highlightCode(String(raw), lang, esc)}</code></pre></div>`;
+    // 代码/文本文件扩展名白名单
+    const isCode = /\.(js|mjs|cjs|ts|jsx|tsx|py|java|c|cpp|h|hpp|cc|cxx|cs|go|rs|rb|php|swift|kt|scala|dart|m|matlab|sh|bash|zsh|ps1|bat|cmd|sql|json|jsonc|yml|yaml|toml|ini|conf|xml|html|htm|css|scss|less|md|markdown|r|jl|pyi|vue|svelte|tex|latex|lua|hs|erl|ex|exs|clj|cljs|fs|fsx|ml|mli|asm|s|vhd|v|sv|cu|sol|graphql|gql|hbs|jinja|j2|dockerfile|mk|nginx|diff|patch|log|csv|tsv|txt|text)$/i.test(lower);
+    const isTextual = isCode || /^text\//.test(lower);
+    let bodyHtml = '';
+    if (imgSrc) {
+      bodyHtml = `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>`;
+    } else if (svgContent) {
+      bodyHtml = `<div class="fv-svg">${svgContent}</div>`;
+    } else if (isTextual) {
+      if (byteLen > FV_TEXT_MAX) {
+        // 超过 1MB：不直接渲染（hljs 处理超大文本会卡主线程），只显示提示 + 下载按钮
+        bodyHtml = `<div class="fv-too-big">
+          <div class="fv-too-big-ico">⚠️</div>
+          <div class="fv-too-big-text">
+            <div>此文本文件大小为 <strong>${fmtSize(byteLen)}</strong>，超过预览上限 1MB。</div>
+            <div class="fv-too-big-sub">为避免界面卡顿，已禁用内联预览，请点击下方按钮下载后用本地编辑器查看。</div>
+          </div>
+        </div>`;
       } else {
-        codeHtml = `<pre>${esc(raw)}</pre>`;
+        const lang = (lower.split('.').pop() || 'text');
+        bodyHtml = isCode
+          ? `<div class="fv-code"><pre><code class="hljs">${highlightCode(rawStr, lang, esc)}</code></pre></div>`
+          : `<div class="fv-code"><pre>${esc(rawStr)}</pre></div>`;
       }
+    } else {
+      bodyHtml = `<div class="fv-too-big">
+        <div class="fv-too-big-ico">📦</div>
+        <div class="fv-too-big-text">
+          <div>二进制文件 · <strong>${fmtSize(byteLen)}</strong></div>
+          <div class="fv-too-big-sub">该文件无法在浏览器内预览，请下载后用对应程序打开。</div>
+        </div>
+      </div>`;
     }
-    viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-actions">`
+    viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-size">${fmtSize(byteLen)}</span><span class="fv-actions">`
       + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
-      + (imgSrc
-        ? `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>`
-        : (svgContent
-          ? `<div class="fv-svg">${svgContent}</div>`
-          : codeHtml));
+      + bodyHtml;
     viewer.classList.add('open');
     $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
@@ -3449,6 +3511,38 @@ export function mountUI(store, agent) {
     mode === 'text' ? r.readAsText(file) : r.readAsDataURL(file);
   });
 
+  // 等比缩放图片：最长边不超过 maxLongEdge 像素，输出 JPEG（或原格式为 PNG 时 PNG）。
+  // 用于用户上传的大图（>5MB）自动压缩到合理体积，避免消耗上下文 token / 撑爆 IndexedDB。
+  // SVG（矢量）不缩放——它是文本，尺寸无意义。
+  async function downscaleImage(file, maxLongEdge = 2048, quality = 0.85) {
+    const isSvg = /svg/i.test(file.type) || /\.svg$/i.test(file.name);
+    if (isSvg) return { dataUrl: await readAs('dataURL', file), mime: 'image/svg+xml', scaled: false };
+    const bitmap = await createImageBitmap(file).catch(() => null);
+    if (!bitmap) {
+      // 兜底：浏览器不能解码就退回原文件
+      return { dataUrl: await readAs('dataURL', file), mime: file.type || 'image/png', scaled: false };
+    }
+    const origW = bitmap.width, origH = bitmap.height;
+    let { width, height } = bitmap;
+    const long = Math.max(width, height);
+    if (long <= maxLongEdge) {
+      bitmap.close?.();
+      return { dataUrl: await readAs('dataURL', file), mime: file.type || 'image/png', scaled: false };
+    }
+    const scale = maxLongEdge / long;
+    width = Math.max(1, Math.round(width * scale));
+    height = Math.max(1, Math.round(height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width; canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(bitmap, 0, 0, width, height);
+    bitmap.close?.();
+    // 原图是 PNG 且有透明通道 → PNG；其它一律 JPEG
+    const outMime = (file.type === 'image/png' || /\.png$/i.test(file.name)) ? 'image/png' : 'image/jpeg';
+    const dataUrl = canvas.toDataURL(outMime, quality);
+    return { dataUrl, mime: outMime, scaled: true, origW, origH, newW: width, newH: height };
+  }
+
   async function addFiles(fileList) {
     const files = [...(fileList || [])];
     if (!files.length) return;
@@ -3458,20 +3552,37 @@ export function mountUI(store, agent) {
         const isImageByMime = IMG_RE.test(f.type);
         const isImageByExt = IMG_EXT_RE.test(f.name);
         if (isImageByMime || isImageByExt) {
-          if (f.size > MAX_IMG) { toast(`${f.name}：图片超过 5MB`, 'err'); continue; }
           if (globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('attachment');
-          let dataUrl = await readAs('dataURL', f);
+          let dataUrl, finalMime, originalSize = f.size, didScale = false;
+          if (f.size > MAX_IMG) {
+            // 自动等比缩放到最长边 2048px 再上传
+            try {
+              const r = await downscaleImage(f, 2048, 0.85);
+              dataUrl = r.dataUrl; finalMime = r.mime; didScale = r.scaled;
+              if (didScale) toast(`${f.name}：已从 ${fmtSize(originalSize)} 等比缩放到 ${r.newW}×${r.newH}`, 'ok', 2400);
+            } catch (err) {
+              toast(`${f.name}：图片缩放失败（${err.message}），已跳过`, 'err'); continue;
+            }
+          } else {
+            dataUrl = await readAs('dataURL', f);
+          }
           // 浏览器 FileReader 对某些扩展名/未知 MIME 会给 application/octet-stream 或空 MIME，
           // 这里按扩展名兜底修正 data: URL 的 MIME 头，保证后续预览/识图正确识别。
-          if (dataUrl) {
+          if (dataUrl && !didScale) {
             const extMatch = /\.([a-z0-9]+)$/i.exec(f.name);
             const ext = extMatch ? extMatch[1].toLowerCase() : '';
             const extToMime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', ico:'image/x-icon', tif:'image/tiff', tiff:'image/tiff', avif:'image/avif', apng:'image/apng', heic:'image/heic', heif:'image/heif', svg:'image/svg+xml' };
             const wantMime = (f.type && IMG_RE.test(f.type)) ? f.type : (extToMime[ext] || f.type || 'image/png');
             dataUrl = dataUrl.replace(/^data:[^;]*;base64,/, `data:${wantMime};base64,`);
+            finalMime = wantMime;
           }
-          const finalMime = (dataUrl.match(/^data:([^;]+);base64,/) || [])[1] || f.type || 'image/png';
-          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: finalMime, size: f.size, dataUrl });
+          finalMime = finalMime || (dataUrl.match(/^data:([^;]+);base64,/) || [])[1] || f.type || 'image/png';
+          // 估算缩放后的字节数（base64 → binary ≈ * 0.75）
+          const comma = dataUrl.indexOf(',');
+          const finalSize = comma > 0 && /;base64/i.test(dataUrl.slice(0, comma))
+            ? Math.round((dataUrl.length - comma - 1) * 0.75)
+            : originalSize;
+          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: finalMime, size: finalSize, dataUrl, scaled: didScale ? true : undefined });
         } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
           if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
           toast(`${f.name}：正在把每一页转成图片…`, 'ok', 2400);
@@ -3839,6 +3950,12 @@ export function mountUI(store, agent) {
   }
   // 复制代码块按钮（事件委托）
   msgList.addEventListener('click', (e) => {
+    // 图表选中态：点击空白处（不在任何 datum、tooltip、按钮内）→ 清空所有图表的激活态
+    const inDatum = e.target.closest('[data-chart-label], .md-chart-tooltip, button, a');
+    if (!inDatum) {
+      $$('.md-chart [data-chart-label].is-active, .md-diagram [data-chart-label].is-active', msgList).forEach((n) => n.classList.remove('is-active'));
+      $$('.md-chart .md-chart-tooltip.show', msgList).forEach((t) => t.classList.remove('show'));
+    }
     const btn = e.target.closest('.copy-code');
     if (btn) {
       const block = btn.closest('.code-block') || btn.parentElement;
@@ -4056,34 +4173,140 @@ export function mountUI(store, agent) {
   syncComposerPh();
   if (mqPanel.addEventListener) mqPanel.addEventListener('change', () => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
 
-  function openLightbox(src, alt) {
+  // ── 全屏预览：支持光栅图片 / SVG / 语法渲染的图表（Mermaid/Flow/Mind），缩放与拖动 ──
+  let lbState = { scale: 1, tx: 0, ty: 0, dragging: false, sx: 0, sy: 0, sTx: 0, sTy: 0 };
+  function lbApplyTransform() {
+    const stage = $('#img-lightbox-pic');
+    if (!stage) return;
+    stage.style.transform = `translate(${lbState.tx}px, ${lbState.ty}px) scale(${lbState.scale})`;
+    const lbl = $('.lb-zoom-label', $('#img-lightbox'));
+    if (lbl) lbl.textContent = `${Math.round(lbState.scale * 100)}%`;
+  }
+  function lbReset() {
+    lbState.scale = 1; lbState.tx = 0; lbState.ty = 0;
+    lbApplyTransform();
+  }
+  function lbZoomAt(factor, cx, cy) {
+    const stage = $('#img-lightbox-pic');
+    if (!stage) return;
+    const rect = stage.getBoundingClientRect();
+    const px = cx != null ? cx - rect.left : rect.width / 2;
+    const py = cy != null ? cy - rect.top : rect.height / 2;
+    const newScale = Math.min(10, Math.max(0.2, lbState.scale * factor));
+    const k = newScale / lbState.scale;
+    lbState.tx -= (px - lbState.tx) * (k - 1);
+    lbState.ty -= (py - lbState.ty) * (k - 1);
+    lbState.scale = newScale;
+    lbApplyTransform();
+  }
+  function openLightbox(content, opts = {}) {
     const box = $('#img-lightbox');
-    const pic = $('#img-lightbox-pic');
-    if (!box || !pic || !src) return;
-    pic.src = src;
-    pic.alt = alt || '';
+    const stage = $('#img-lightbox-pic');
+    if (!box || !stage || !content) return;
+    stage.innerHTML = '';
+    if (typeof content === 'string') {
+      // 光栅图片 URL
+      const im = document.createElement('img');
+      im.src = content;
+      im.alt = opts.alt || '';
+      im.draggable = false;
+      stage.appendChild(im);
+    } else if (content instanceof Node) {
+      // 传入的 DOM（SVG / 图表容器）→ 深克隆后放入（避免移动原节点）
+      const clone = content.cloneNode(true);
+      clone.removeAttribute('id');
+      stage.appendChild(clone);
+    }
+    lbReset();
     box.hidden = false;
   }
   function closeLightbox() {
     const box = $('#img-lightbox');
     if (!box) return;
     box.hidden = true;
-    const pic = $('#img-lightbox-pic');
-    if (pic) pic.removeAttribute('src');
+    const stage = $('#img-lightbox-pic');
+    if (stage) stage.innerHTML = '';
   }
   const lightbox = $('#img-lightbox');
-  if (lightbox) lightbox.addEventListener('click', (e) => {
-    if (e.target === lightbox || e.target.closest('.img-lightbox-x')) closeLightbox();
+  if (lightbox) {
+    lightbox.addEventListener('click', (e) => {
+      if (e.target.closest('.img-lightbox-x')) { closeLightbox(); return; }
+      if (e.target === lightbox || e.target.classList.contains('img-lightbox-stage')) closeLightbox();
+    });
+    // 工具栏
+    const btnIn = lightbox.querySelector('.lb-zoom-in');
+    const btnOut = lightbox.querySelector('.lb-zoom-out');
+    const btnReset = lightbox.querySelector('.lb-reset');
+    if (btnIn) btnIn.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(1.25); });
+    if (btnOut) btnOut.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(0.8); });
+    if (btnReset) btnReset.addEventListener('click', (e) => { e.stopPropagation(); lbReset(); });
+    // 拖动
+    const stageWrap = lightbox.querySelector('.img-lightbox-stage');
+    if (stageWrap) {
+      stageWrap.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('.lb-btn')) return;
+        lbState.dragging = true;
+        lbState.sx = e.clientX; lbState.sy = e.clientY;
+        lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
+        stageWrap.setPointerCapture(e.pointerId);
+      });
+      stageWrap.addEventListener('pointermove', (e) => {
+        if (!lbState.dragging) return;
+        lbState.tx = lbState.sTx + (e.clientX - lbState.sx);
+        lbState.ty = lbState.sTy + (e.clientY - lbState.sy);
+        lbApplyTransform();
+      });
+      stageWrap.addEventListener('pointerup', () => { lbState.dragging = false; });
+      stageWrap.addEventListener('pointercancel', () => { lbState.dragging = false; });
+      // 滚轮缩放
+      stageWrap.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        lbZoomAt(factor, e.clientX, e.clientY);
+      }, { passive: false });
+      // 双击重置
+      stageWrap.addEventListener('dblclick', (e) => { e.preventDefault(); lbReset(); });
+    }
+  }
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && $('#img-lightbox') && !$('#img-lightbox').hidden) closeLightbox();
+    if (!$('#img-lightbox') || $('#img-lightbox').hidden) return;
+    if (e.key === '+' || e.key === '=') lbZoomAt(1.2);
+    if (e.key === '-' || e.key === '_') lbZoomAt(1 / 1.2);
+    if (e.key === '0') lbReset();
   });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#img-lightbox') && !$('#img-lightbox').hidden) closeLightbox(); });
+  // 点击委派：图片 / SVG / 图表 → 全屏
   document.addEventListener('click', (e) => {
+    if (e.target.closest('.img-lightbox')) return;
+    // 1) 普通 <img>（消息正文 / 附件 / 文件预览）
     const img = e.target.closest('img');
-    if (!img || img.id === 'img-lightbox-pic') return;
-    if (!img.closest('.md-body, .att-img, .fv-img, .file-viewer')) return;
-    const src = img.currentSrc || img.src;
-    if (!src) return;
-    e.preventDefault();
-    openLightbox(src, img.alt);
+    if (img && img.id !== 'img-lightbox-pic') {
+      if (img.closest('.md-body, .att-img, .fv-img, .file-viewer')) {
+        const src = img.currentSrc || img.src;
+        if (!src) return;
+        e.preventDefault();
+        openLightbox(src, { alt: img.alt });
+        return;
+      }
+    }
+    // 2) 内嵌 SVG（fv-svg 文件预览里的 SVG、消息正文中的内联 SVG）
+    const svg = e.target.closest('svg');
+    if (svg) {
+      if (svg.closest('.fv-svg, .katex-display-block, .fv-img')) {
+        // KaTeX 不要全屏（公式点击全屏意义不大且会干扰选择文本）
+        if (svg.closest('.katex *')) return;
+        e.preventDefault();
+        openLightbox(svg, {});
+        return;
+      }
+      // 3) 语法渲染的图表（Mermaid 流程图 / 思维导图）：md-chart-svg / md-diagram-svg
+      const chartSvg = svg.closest('.md-chart-svg, .md-diagram-svg');
+      if (chartSvg) {
+        e.preventDefault();
+        openLightbox(chartSvg, {});
+        return;
+      }
+    }
   });
 
   // 复制工具入参/出参 JSON（不触发展开）
