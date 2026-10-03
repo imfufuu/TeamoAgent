@@ -29,6 +29,14 @@ const hooks = {
     toast('图片审核超时，本轮已阻止（图片未进沙箱）。模型在后台继续预热，稍后重发即可', 'warn', 9000);
   },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
+  onRetry: (_m, info) => {
+    const n = info && info.attempt || 1;
+    const total = 3;
+    const why = info && info.reason === 'first-token-timeout'
+      ? `${Math.round(15)} 秒未收到模型输出`
+      : '连接瞬断';
+    toast(`连接异常（${why}），正在第 ${n}/${total} 次重试…`, 'warn', 3000);
+  },
   onDelta: (m, text) => ui && ui.onDelta(m, text),
   onReasoning: (m, text) => ui && ui.onReasoning(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),

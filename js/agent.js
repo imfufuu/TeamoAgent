@@ -1476,19 +1476,32 @@ export function createAgent(store, hooks = {}) {
               },
             });
         let attempt = 0;
+        const MAX_FT_ATTEMPTS = 3; // 首 token 超时最多重试 3 次（包含首次）
         while (true) {
           try {
             await pull();
             break; // 流正常结束
           } catch (err) {
-            const transient = err.status === undefined || err.status >= 500 || err.status === 429;
-            if (attempt === 0 && !text && !sawToolDelta && transient && !signal.aborted && err.name !== 'AbortError') {
+            const firstTokenTimeout = err && err.name === 'FirstTokenTimeout';
+            const transient = err.status === undefined || err.status >= 500 || err.status === 429 || firstTokenTimeout;
+            const hasOutput = !!text || !!reasoning || sawToolDelta;
+            // ① 首 token 超时（15s 无输出）：只要还没拿到任何内容，最多重试 3 次
+            // ② 其他 5xx/429/网络瞬断：零输出时重试 1 次（保留旧行为）
+            const maxAttempts = firstTokenTimeout ? MAX_FT_ATTEMPTS : 1;
+            if (attempt < maxAttempts && !hasOutput && transient && !signal.aborted && err.name !== 'AbortError') {
               attempt++;
-              tb = createThinkingTracker(); // 重放前清空可能收到的半个思考块
-              reasoning = ''; // 思考流先于正文到达，重放时同样不能叠加
-              store.updateMessage(assistantMsg.id, { reasoning: undefined });
-              await sleep(1200);
-              continue; // 尚未收到任何内容 → 安全重放整次调用
+              tb = createThinkingTracker();
+              reasoning = '';
+              text = '';
+              sawToolDelta = false;
+              acc = createToolCallAccumulator();
+              web = null;
+              store.updateMessage(assistantMsg.id, { reasoning: undefined, text: '', toolCalls: [], webSearch: undefined });
+              emit('onRetry', assistantMsg, { attempt, reason: firstTokenTimeout ? 'first-token-timeout' : 'transient', message: err.message });
+              const waitMs = firstTokenTimeout ? 1000 * attempt : 1200; // 超时重试：1s/2s/3s 退避
+              await sleep(waitMs);
+              if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+              continue;
             }
             throw err;
           }
@@ -2338,16 +2351,36 @@ export function createAgent(store, hooks = {}) {
 
     async send(userText, attachments = []) {
       clearTransientModeration();
-      // 先把发送气泡画出来，再进入本地审核状态；审核通过前它是 transient，
-      // 不进模型上下文，也不会把图片写入沙箱。
+      // 若上一条 user 消息发出后用户立即停止（assistant 还没输出/被取消），
+      // 本次新发送直接替换它，而不是再追加一条 user，避免留下一个"问了但没回答"的悬空气泡。
+      // 判定：最后一条消息是 user，且非 transient（说明已经过了审核、发出过），且其后没有 assistant 收尾。
+      let userMsg;
+      const msgs = store.state.messages;
+      const last = msgs[msgs.length - 1];
+      const replacePrev = last && last.role === 'user'
+        && !last.transientModeration && !last.moderationPending
+        && !(last.moderation && last.moderation.blocked);
       const checkpoint = store.createCheckpoint(userText || (attachments[0] ? `[附件] ${attachments[0].name}` : ''));
-      const userMsg = store.pushMessage({
-        role: 'user', text: userText,
-        attachments: attachments.length ? attachments : undefined,
-        transientModeration: true,
-        moderationPending: true,
-      });
-      emit('onUserMessage', userText, userMsg);
+      if (replacePrev) {
+        store.updateMessage(last.id, {
+          text: userText,
+          attachments: attachments.length ? attachments : undefined,
+          transientModeration: true,
+          moderationPending: true,
+          // 清掉之前的 error（如果有）
+          error: undefined,
+        });
+        userMsg = store.state.messages.find((m) => m.id === last.id);
+        emit('onUserMessage', userText, userMsg);
+      } else {
+        userMsg = store.pushMessage({
+          role: 'user', text: userText,
+          attachments: attachments.length ? attachments : undefined,
+          transientModeration: true,
+          moderationPending: true,
+        });
+        emit('onUserMessage', userText, userMsg);
+      }
       try {
         const moderation = await runContentModeration(userText, attachments);
         if (moderation && moderation.blocked) { removePreviewTurn(userMsg, checkpoint); blockByModeration(moderation); return; }

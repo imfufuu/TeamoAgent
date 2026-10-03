@@ -108,8 +108,10 @@ const peelChoices = (src) => {
   // 从文末向前剥离完整 :::choice 块。旧版正则会把连续多个 choice
   // 贪成「第一个问题 + 所有选项」，导致第二个问题不渲染。
   const openRe = /(?:^|\n):::choice(?:[ \t]+([^\n]*))?[ \t]*\n/g;
-  while (/\n:::[ \t]*$/.test(rest)) {
-    const close = rest.match(/\n:::[ \t]*$/);
+  // 结束符可能是 `:::` 或 `:::>`（模型把引用块 > 紧贴结束符），接受两种
+  const closeRe = /\n:::(?:>[^\n]*)?[ \t]*$/;
+  while (closeRe.test(rest)) {
+    const close = rest.match(closeRe);
     if (!close || close.index == null) break;
     const beforeClose = rest.slice(0, close.index);
     let last = null;
@@ -965,6 +967,9 @@ export function renderMarkdown(src) {
 
   const peeled = peelChoices(t);
   t = peeled.rest;
+  // 模型有时会把块结束符写成 `:::>`（紧接着引用块的 > 警告标记连在同一行），
+  // 把这一行拆成 `:::` 单独一行 + 后面的引用块内容（防止所有 `:::xxx` 块匹配失败 → 不渲染）。
+  t = t.replace(/^:::(>[^\n]*)$/gm, (_, tail) => `:::\n${tail.startsWith('>') ? tail : `>${tail.replace(/^>/, '')}`}`);
   const folds = [];
   t = t.replace(/^:::fold[ \t]+(.+)\n([\s\S]*?)^:::[ \t]*$/gm, (_, title, body) => {
     folds.push({ title: String(title || '').trim(), body });
@@ -4229,9 +4234,12 @@ export function mountUI(store, agent) {
   }
   const lightbox = $('#img-lightbox');
   if (lightbox) {
+    // 点击关闭逻辑：只在直接点到遮罩背景（img-lightbox 本体空白区域）或 × 按钮时关闭。
+    // 工具栏/stage/图片/按钮内的点击都不关闭（之前点 +/− 会冒泡到 .img-lightbox 被误判成"点空白"）。
     lightbox.addEventListener('click', (e) => {
       if (e.target.closest('.img-lightbox-x')) { closeLightbox(); return; }
-      if (e.target === lightbox || e.target.classList.contains('img-lightbox-stage')) closeLightbox();
+      // 只有点击到 lightbox 自身（而不是它的子元素：toolbar/stage/transform/img/button）才视为空白点击
+      if (e.target === lightbox) closeLightbox();
     });
     // 工具栏
     const btnIn = lightbox.querySelector('.lb-zoom-in');
@@ -4240,24 +4248,52 @@ export function mountUI(store, agent) {
     if (btnIn) btnIn.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(1.25); });
     if (btnOut) btnOut.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(0.8); });
     if (btnReset) btnReset.addEventListener('click', (e) => { e.stopPropagation(); lbReset(); });
-    // 拖动
+    // 拖动 + 双指缩放（Pointer Events 原生支持多点）
     const stageWrap = lightbox.querySelector('.img-lightbox-stage');
+    const pointers = new Map(); // pointerId → {x,y}
+    let lastPinchDist = 0;
     if (stageWrap) {
       stageWrap.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('.lb-btn')) return;
-        lbState.dragging = true;
-        lbState.sx = e.clientX; lbState.sy = e.clientY;
-        lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
+        if (e.target.closest('.lb-btn') || e.target.closest('button')) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         stageWrap.setPointerCapture(e.pointerId);
+        lastPinchDist = 0;
+        if (pointers.size === 1) {
+          lbState.dragging = true;
+          lbState.sx = e.clientX; lbState.sy = e.clientY;
+          lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
+        }
       });
       stageWrap.addEventListener('pointermove', (e) => {
-        if (!lbState.dragging) return;
-        lbState.tx = lbState.sTx + (e.clientX - lbState.sx);
-        lbState.ty = lbState.sTy + (e.clientY - lbState.sy);
-        lbApplyTransform();
+        if (!pointers.has(e.pointerId)) return;
+        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pointers.size >= 2) {
+          // 双指缩放
+          const pts = [...pointers.values()];
+          const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+          const dist = Math.hypot(dx, dy);
+          if (lastPinchDist > 0) {
+            const factor = dist / lastPinchDist;
+            const cx = (pts[0].x + pts[1].x) / 2;
+            const cy = (pts[0].y + pts[1].y) / 2;
+            lbZoomAt(factor, cx, cy);
+          }
+          lastPinchDist = dist;
+          lbState.dragging = false;
+        } else if (pointers.size === 1 && lbState.dragging) {
+          lbState.tx = lbState.sTx + (e.clientX - lbState.sx);
+          lbState.ty = lbState.sTy + (e.clientY - lbState.sy);
+          lbApplyTransform();
+        }
       });
-      stageWrap.addEventListener('pointerup', () => { lbState.dragging = false; });
-      stageWrap.addEventListener('pointercancel', () => { lbState.dragging = false; });
+      const endPtr = (e) => {
+        pointers.delete(e.pointerId);
+        if (pointers.size < 2) lastPinchDist = 0;
+        if (pointers.size === 0) lbState.dragging = false;
+      };
+      stageWrap.addEventListener('pointerup', endPtr);
+      stageWrap.addEventListener('pointercancel', endPtr);
+      stageWrap.addEventListener('pointerleave', endPtr);
       // 滚轮缩放
       stageWrap.addEventListener('wheel', (e) => {
         e.preventDefault();
@@ -4643,4 +4679,11 @@ export function mountUI(store, agent) {
     scrollToBottom: () => scrollToBottom(true),
     syncWeb,
   };
+  // UI 挂载完成：淡出启动加载屏（避免白屏停留）
+  requestAnimationFrame(() => {
+    const boot = document.getElementById('boot-screen');
+    if (!boot) return;
+    boot.classList.add('fade-out');
+    setTimeout(() => { boot.remove(); }, 500);
+  });
 }
