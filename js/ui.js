@@ -1,8 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, ENCRYPTED_THINKING_RE } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, ENCRYPTED_THINKING_RE, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js';
+import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
-import { createZip, fileBytesFromValue, withExtension } from './zip.js';
+import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
 import { fetchModels, getTransport } from './api.js';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
@@ -882,10 +883,31 @@ export function renderMarkdown(src) {
     return `\uE000IC${inlineCodes.length - 1}\uE000`;
   });
   // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在渲染前提取，占位保护。
-  // 数学段守卫（.18）：像正则/代码/自然语言的内容不当数学渲染，原文保留可读；
+  // 数学段守卫：像正则/代码/自然语言的内容不当数学渲染，原文保留可读；
   // \(..\) / \[..\] 是显式定界不受守卫影响。
-  const MATH_REJECT = /(\(\?|\\p\{|\\P\{|\\x[0-9A-Fa-f]{2}|\\u[0-9A-Fa-f{]|\\[bBdDwWsSnrt]|\*\/|\^\$|\.\*|\$\{|=>|https?:\/\/|[\u4e00-\u9fff]|[A-Za-z]{3,}\s+[A-Za-z]{3,})/;
-  const mathOk = (x) => !MATH_REJECT.test(x);
+  // 修复：\text{中文}、\color{red}{\text{中文}} 这类含 LaTeX 命令（反斜杠+字母）的公式
+  // 不应被中文守卫误拒——先剥离 \text/\mbox/\textrm/\mathrm/\color/\textbf 等命令的花括号内容，
+  // 若剩余部分仍有明显数学命令（\alpha/\frac/^/_/等），判定为数学；否则再看是否像纯文本中的 $...$。
+  const MATH_CMD = /\\(?:text|mbox|textrm|mathrm|textbf|textit|mathbf|mathit|mathsf|mathtt|mathcal|color|operatorname|tag|label|ref|eqref|cite|frac|dfrac|tfrac|sqrt|sum|int|prod|lim|alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|partial|infty|nabla|forall|exists|neg|land|lor|implies|iff|to|mapsto|leftarrow|rightarrow|leftarrow|rightarrow|Leftarrow|Rightarrow|approx|sim|simeq|cong|equiv|ne|neq|leq|geq|lt|gt|le|ge|cdot|times|div|pm|mp|oplus|otimes|circ|bullet|dots|ldots|cdots|vdots|ddots|hat|bar|vec|dot|ddot|tilde|widehat|widetilde|overline|underline|overbrace|underbrace|left|right|big|Big|bigg|Bigg|bigl|Bigr|biggl|Biggr|newcommand|renewcommand|def|DeclareMathOperator|begin|end|array|pmatrix|bmatrix|cases|align|aligned|gather| gathered)/;
+  const _stripBraced = (s) => {
+    // 粗略剥离 \xxx{...} 一层（不计嵌套，够用来判断中文是否仅在 \text 内）
+    return String(s).replace(/\\[a-zA-Z]+\s*\{[^{}]*\}/g, '');
+  };
+  const MATH_REJECT = /(\(\?|\\p\{|\\P\{|\\x[0-9A-Fa-f]{2}|\\u[0-9A-Fa-f{]|\*\/|\^\$|\.\*|\$\{|=>|https?:\/\/)/;
+  const PLAIN_TEXT_RE = /[A-Za-z]{3,}\s+[A-Za-z]{3,}/;
+  const mathOk = (x) => {
+    if (MATH_REJECT.test(x)) return false;
+    // 有 LaTeX 命令（\frac、\text、\color、\alpha 等）→ 大概率是真公式，放行（中文可在 \text{} 里）
+    if (MATH_CMD.test(x)) return true;
+    // 含数学运算符（^ _ / 等）→ 真公式
+    if (/[\^_]/.test(x)) return true;
+    // 含独立中文且没有明显数学命令 → 可能是自然语言里的 $5 之类，拒
+    const stripped = _stripBraced(x);
+    if (/[\u4e00-\u9fff]/.test(stripped)) return false;
+    // 三个以上英文单词连写（自然语言）→ 拒
+    if (PLAIN_TEXT_RE.test(x)) return false;
+    return true;
+  };
   const maths = [];
   const hasKatex = typeof katex !== 'undefined';
   const pushMath = (tex, display) => {
@@ -1181,7 +1203,7 @@ export function mountUI(store, agent) {
     return [...map.values()];
   }
   if (HIDDEN_MODELS.has(store.state.model)) {
-    store.state.model = 'claude-sonnet-5';
+    store.state.model = SMART_ROUTER_ID;
     store.notify();
   }
   function renderModelMenu() {
@@ -1212,7 +1234,7 @@ export function mountUI(store, agent) {
     ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
     for (const p of order) {
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', `${providerIcon(p)}<span>${esc(p)}</span>`));
+      g.appendChild(el('div', 'dd-group-title', `${p === SMART_ROUTER_PROVIDER ? `<span class="router-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(p)}</span>`));
       for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -1220,14 +1242,19 @@ export function mountUI(store, agent) {
         const free = isFreeModel(m.id);
         const hot = !!hit.hot;
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
-        const encThink = ENCRYPTED_THINKING_RE.test(m.id) || !!(store.state.observedHiddenThink && store.state.observedHiddenThink[m.id]);
-        item.innerHTML = `<span class="dd-item-id mono">${esc(m.id)}</span>
-          <span class="dd-item-badges">
-            ${hot ? '<span class="badge hot">热门</span>' : ''}
-            ${free ? '<span class="badge">FREE</span>' : (cheap ? '<span class="badge cheap">低价</span>' : '')}
-            ${encThink ? '<span class="badge enc" title="该模型的思考链已加密（不返回可见思考正文）">思考链已加密</span>' : ''}
-            ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
-          </span>`;
+        const isRouter = isSmartRouter(m.id);
+        item.innerHTML = isRouter
+          ? `<span class="dd-item-id mono router-name">${ROUTER_ICON_SVG}<span>Smart Router</span></span>
+            <span class="dd-item-badges">
+              <span class="badge hot">智能路由</span>
+              <span class="badge cheap" title="根据任务类型/难度自动选择最合适的模型">自动选模</span>
+            </span>`
+          : `<span class="dd-item-id mono">${esc(m.id)}</span>
+            <span class="dd-item-badges">
+              ${hot ? '<span class="badge hot">热门</span>' : ''}
+              ${free ? '<span class="badge">FREE</span>' : (cheap ? '<span class="badge cheap">低价</span>' : '')}
+              ${supportsVision(m.id) ? '<span class="badge vision" title="支持图片输入（多模态）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span>' : ''}
+            </span>`;
         item.addEventListener('click', () => selectModel(m.id));
         g.appendChild(item);
       }
@@ -1309,9 +1336,24 @@ export function mountUI(store, agent) {
   }
   function updateModelBtn() {
     const sys = store.state.model === '__system__';
-    $('#model-btn-icon').innerHTML = sys ? `<span class="sys-gear">${ICON.system || '⚙'}</span>` : providerIcon(providerOf(store.state.model));
-    $('#model-btn-name').textContent = sys ? 'system-commands' : store.state.model;
-    $('#model-btn-provider').textContent = sys ? 'Teamo' : providerOf(store.state.model);
+    const router = !sys && isSmartRouter(store.state.model);
+    let icon, name, prov;
+    if (sys) {
+      icon = `<span class="sys-gear">${ICON.system || '⚙'}</span>`;
+      name = 'system-commands';
+      prov = 'Teamo';
+    } else if (router) {
+      icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
+      name = 'Smart Router';
+      prov = '智能路由器';
+    } else {
+      icon = providerIcon(providerOf(store.state.model));
+      name = store.state.model;
+      prov = providerOf(store.state.model);
+    }
+    $('#model-btn-icon').innerHTML = icon;
+    $('#model-btn-name').textContent = name;
+    $('#model-btn-provider').textContent = prov;
     syncImageModelSelect();
   }
   // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定，切会话时同步显示
@@ -1505,42 +1547,11 @@ export function mountUI(store, agent) {
   window.addEventListener('resize', closeThinkMenu);
   syncThinking();
 
-  // P3：文件自清理档位（strip 自动清理 / report 只报告 / off 关闭）。
-  // 顶部 pill 只做「开-关」，细粒度档位交给 /cleanup（避免再塞一个下拉把顶栏挤爆）。
-  const cleanupToggle = $('#cleanup-toggle');
-  const cleanupPolicyLabelOf = () => {
-    const id = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
-    return (CLEANUP_MODES[id] || CLEANUP_MODES.strip).label;
-  };
-  const syncCleanup = () => {
-    if (!cleanupToggle) return;
-    const mode = CLEANUP_MODES[normalizeCleanupPolicy(store.state.settings.cleanupPolicy)] || CLEANUP_MODES.strip;
-    cleanupToggle.classList.toggle('on', mode.id !== 'off');
-    cleanupToggle.classList.toggle('watch', mode.id === 'report');
-    cleanupToggle.title = `文件自清理：${mode.label} —— ${mode.hint}（输入 /cleanup 看报告，/cleanup report|strip|off 切换档位）`;
-    syncCapLine();
-  };
-  if (cleanupToggle) {
-    cleanupToggle.addEventListener('click', () => {
-      const cur = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
-      const next = cur === 'off' ? 'strip' : 'off';
-      store.state.settings.cleanupPolicy = next;
-      syncCleanup(); store.notify();
-      toast(next === 'strip'
-        ? '文件自清理已开启：任务完成后自动删除 Agent 自建的临时文件（受保护路径与交付物不动）'
-        : '文件自清理已关闭：不再检查、不再删除（已经清理掉的不会恢复）');
-    });
-    cleanupToggle.addEventListener('contextmenu', (e) => {
-      e.preventDefault();
-      const cur = normalizeCleanupPolicy(store.state.settings.cleanupPolicy);
-      const order = ['strip', 'report', 'off'];
-      const next = order[(order.indexOf(cur) + 1) % order.length];
-      store.state.settings.cleanupPolicy = next;
-      syncCleanup(); store.notify();
-      toast(`文件自清理档位：${cleanupPolicyLabelOf()}（${(CLEANUP_MODES[next] || {}).hint || ''}）`);
-    });
-    syncCleanup();
-  }
+  // P3：文件自清理永久开启（strip 模式）——用户要求此项永久生效，不再提供开关按钮。
+  // 档位固定为 strip；/cleanup report 仍可看报告，/cleanup now 立即检查一次。
+  store.state.settings.cleanupPolicy = 'strip';
+  const syncCleanup = () => { syncCapLine(); };
+  syncCleanup();
 
   const fastToggle = $('#fast-toggle');
   const syncFast = () => {
@@ -2123,8 +2134,11 @@ export function mountUI(store, agent) {
   function downloadFile(path) {
     let raw;
     try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
-    const { bytes, mime } = fileBytesFromValue(raw);
-    const name = zipName(path, mime);
+    const { bytes, mime: detectedMime } = fileBytesFromValue(raw);
+    // 优先用文件路径扩展名推断的 MIME，避免浏览器因 text/plain 把文件另存为 .txt
+    const pathMime = mimeFromPath(path);
+    const mime = (detectedMime && !detectedMime.startsWith('text/plain')) ? detectedMime : (pathMime || detectedMime || 'application/octet-stream');
+    const name = withExtension(path.split('/').pop() || 'file', detectedMime && detectedMime.startsWith('image/') ? detectedMime : '');
     saveBlob(name, new Blob([bytes], { type: mime }));
     toast(`已下载 ${name}（${fmtSize(bytes.length)}）`, 'ok');
   }
@@ -2184,7 +2198,9 @@ export function mountUI(store, agent) {
     const files = agent.fs.list().map((f) => {
       let raw = '';
       try { raw = agent.fs.read(f.path); } catch { /**/ }
-      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(raw) };
+      const str = String(raw);
+      const isSvg = /\.svg$/i.test(f.path) || (/^data:image\/svg/i.test(str)) || (/<svg[\s>]/i.test(str.slice(0, 2000)));
+      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(str), isSvg };
     });
     const tree = buildFileTree(files);
     const stat = treeStats(tree);
@@ -2236,8 +2252,10 @@ export function mountUI(store, agent) {
           saveZip(zipEntriesOf(collectPaths(r)), `teamo-${r.name || 'folder'}`);
         });
       } else {
+        const fr = files.find((ff) => ff.path === r.path);
+        const isSvgFile = !!(fr && fr.isSvg);
         row.innerHTML = `<span class="ft-sp"></span>`
-          + `<span class="ft-ico">${imageSet.has(r.path) ? ICON.image : ICON.file}</span>`
+          + `<span class="ft-ico">${imageSet.has(r.path) || isSvgFile ? ICON.image : ICON.file}</span>`
           + `<span class="ft-name file-path">${esc(r.name)}</span>`
           + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
         $('.ft-copy', row).addEventListener('click', (e) => {
@@ -2255,11 +2273,35 @@ export function mountUI(store, agent) {
     const viewer = $('#file-viewer');
     let raw = '';
     try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
+    const lower = path.toLowerCase();
     const imgSrc = /^data:image\//.test(raw) ? safeImgSrc(raw) : '';
+    // SVG 文件：如果内容是 SVG XML（不管有没有 data: 头），渲染为内联 SVG
+    let svgContent = '';
+    if (!imgSrc) {
+      const rawStr = String(raw);
+      if (/\.svg$/i.test(lower) || /<svg[\s>]/i.test(rawStr.slice(0, 2000))) {
+        svgContent = sanitizeSvgRaw(rawStr);
+      }
+    }
+    // 代码/文本文件：用 hljs 做语法高亮
+    const isCode = /\.(js|mjs|cjs|ts|jsx|tsx|py|java|c|cpp|h|hpp|cc|cxx|cs|go|rs|rb|php|swift|kt|scala|dart|m|matlab|sh|bash|zsh|ps1|bat|cmd|sql|json|jsonc|yml|yaml|toml|ini|conf|xml|html|htm|css|scss|less|md|markdown|r|jl|pyi|vue|svelte|tex|latex|lua|hs|erl|ex|exs|clj|cljs|fs|fsx|ml|mli|asm|s|vhd|v|sv|cu|sol|graphql|gql|hbs|jinja|j2|dockerfile|mk|nginx|diff|patch|log)$/i.test(lower);
+    let codeHtml = '';
+    if (!imgSrc && !svgContent) {
+      const lang = (lower.split('.').pop() || 'text');
+      if (isCode) {
+        codeHtml = `<div class="fv-code"><pre><code class="hljs">${highlightCode(String(raw), lang, esc)}</code></pre></div>`;
+      } else {
+        codeHtml = `<pre>${esc(raw)}</pre>`;
+      }
+    }
     viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-actions">`
       + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
-      + (imgSrc ? `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>` : `<pre>${esc(raw)}</pre>`);
+      + (imgSrc
+        ? `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>`
+        : (svgContent
+          ? `<div class="fv-svg">${svgContent}</div>`
+          : codeHtml));
     viewer.classList.add('open');
     $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
@@ -2425,6 +2467,22 @@ export function mountUI(store, agent) {
     }
     body.innerHTML = html;
     body.classList.toggle('empty', !String(html || '').trim());
+    // ── 流式淡入效果：流进行中给最后一个块级元素加 fade-in 类，逐块出现 ──
+    body.classList.toggle('streaming', live);
+    if (live && m.text) {
+      // 给末尾元素加淡入动画（模拟 Gemini 的流式 reveal）
+      const kids = body.children;
+      for (let i = kids.length - 1; i >= Math.max(0, kids.length - 2); i--) {
+        const k = kids[i];
+        if (k.classList && !k.classList.contains('cursor') && !k.classList.contains('connect-line') && !k.classList.contains('cancelled-tag') && !k.classList.contains('trunc-note') && !k.classList.contains('reasoning')) {
+          k.classList.add('stream-reveal');
+          break;
+        }
+      }
+    } else {
+      // 结束后移除所有 fade 标记，避免 hover/重渲染残留
+      $$('.stream-reveal', body).forEach((n) => n.classList.remove('stream-reveal'));
+    }
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
     const msgs = store.state.messages;
@@ -2844,6 +2902,11 @@ export function mountUI(store, agent) {
       return;
     }
     const parts = [];
+    // 智能路由器：任务完成后显示芯片，点击显示服务商（不暴露具体模型）
+    const routerInfo = info.headMsg && info.headMsg.router ? info.headMsg.router : (m.router || null);
+    if (routerInfo) {
+      parts.push(`<button type="button" class="router-chip" data-router-info="1" title="智能路由器选择的服务提供商（不显示具体模型）">${ROUTER_ICON_SVG}<span>${esc(routerInfo.chosenProvider)}</span></button>`);
+    }
     if (info.hasUsage) {
       const s = info.summary;
       const costReady = info.turnDone;
@@ -2940,6 +3003,7 @@ export function mountUI(store, agent) {
     clearEmpty();
     const wrap = messageNode(m);
     msgNodes.set(m.id, wrap);
+    wrap._msg = m;
     if (m.role === 'assistant') paintAssistant(wrap, m);
     msgList.appendChild(wrap);
     if (m.role === 'assistant') refreshActionVisibility();
@@ -3714,6 +3778,33 @@ export function mountUI(store, agent) {
       }
       return;
     }
+    const routerChip = e.target.closest('[data-router-info]');
+    if (routerChip) {
+      e.preventDefault(); e.stopPropagation();
+      // 找到对应的 assistant 消息以拿到路由详情
+      const wrap = routerChip.closest('.msg');
+      let ri = null;
+      if (wrap && wrap._msg && wrap._msg.router) {
+        ri = wrap._msg.router;
+      } else {
+        const mid = wrap && wrap.dataset && wrap.dataset.id;
+        for (const mm of store.state.messages) {
+          if (mm.role === 'assistant' && mm.router && mid === mm.id) { ri = mm.router; break; }
+        }
+        if (!ri) {
+          // 退而求其次：从最近一条带 router 的消息取
+          for (let i = store.state.messages.length - 1; i >= 0; i--) {
+            if (store.state.messages[i].role === 'assistant' && store.state.messages[i].router) { ri = store.state.messages[i].router; break; }
+          }
+        }
+      }
+      if (ri) {
+        toast(`智能路由器：任务类型「${ri.categoryLabel}」· 难度「${ri.difficultyLabel}」· 路由至 ${ri.chosenProvider}`, 'ok', 4000);
+      } else {
+        toast('智能路由器已为本轮选择了合适的模型', 'ok');
+      }
+      return;
+    }
     const dl = e.target.closest('[data-sb-dl]');
     if (dl) {
       e.preventDefault();
@@ -3721,11 +3812,13 @@ export function mountUI(store, agent) {
       let raw = '';
       try { raw = agent.fs.read(path); } catch { raw = ''; }
       if (!raw) return;
-      const { bytes } = fileBytesFromValue(raw);
-      const blob = new Blob([bytes]);
+      const { bytes, mime: detectedMime } = fileBytesFromValue(raw);
+      const mime = (detectedMime && !detectedMime.startsWith('text/plain')) ? detectedMime : mimeFromPath(path);
+      const blob = new Blob([bytes], { type: mime });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = path.split('/').pop() || 'file';
+      const rawName = path.split('/').pop() || 'file';
+      a.download = withExtension(rawName, detectedMime && detectedMime.startsWith('image/') ? detectedMime : '');
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     }

@@ -17,11 +17,12 @@
 
 import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
 import { TOOL_DEFS, executeTool } from './tools.js';
-import { createFS } from './sandbox.js';
+import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
 import { findSubagent, subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL } from './config.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS } from './config.js';
+import { routeModel, isSmartRouter } from './smartrouter.js';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
@@ -300,7 +301,10 @@ export function batchToolCalls(calls) {
 }
 
 export function createAgent(store, hooks = {}) {
-  const fs = createFS(store.state.files);
+  // 永久沙箱（持久化到 store.state.files）。每轮对话开始时会套一层临时 overlay（见 runLoop 开头），
+  // Agent 的写操作落临时层；回合结束只提交「最终回答里明确引用」的文件，其余中间产物丢弃。
+  const baseFS = createFS(store.state.files);
+  let fs = baseFS; // 当前生效的 fs（回合内 = temp overlay；回合间 = baseFS）
   let abortController = null;
   let status = 'idle'; // idle | moderating | thinking | streaming | executing | done | error | cancelled
 
@@ -320,7 +324,7 @@ export function createAgent(store, hooks = {}) {
   };
 
   const setStatus = (s) => { status = s; emit('onStatus', s); };
-  const syncFS = () => { store.state.files = fs.export(); };
+  const syncFS = () => { store.state.files = baseFS.export(); };
 
   // lockModel：本轮锁定的模型（runLoop 开头取的快照），保证预算与提示词不会因
   // 用户中途切换模型而和本轮上下文错位
@@ -1052,10 +1056,23 @@ export function createAgent(store, hooks = {}) {
     // 整轮锁定 apiKey/model/settings：中途用户换模型不会让后续迭代与子智能体错位
     //（旧写法一处读 store.state、一处读快照，等于两个来源）
     // 管理员别名（admin-…）在这里换成真密钥：密钥只在内存里，且不进本轮日志/导出
-    const { model, settings } = store.state;
+    const { model: userModel, settings } = store.state;
     const apiKey = effectiveApiKey(store.state.apiKey);
     if (!apiKey) { emit('onNeedKey'); return; }
     if (status === 'connecting' || status === 'streaming' || status === 'thinking' || status === 'executing') return;
+
+    // ── 智能路由器：根据用户最近一条消息判断任务类型/难度，选实际模型 ──
+    const lastUserMsgRaw = [...store.state.messages].reverse().find((m) => m.role === 'user');
+    let resolvedModel = userModel;
+    let routerDecision = null;
+    if (isSmartRouter(userModel)) {
+      const availableIds = Array.isArray(store.state.models) && store.state.models.length
+        ? store.state.models
+        : FALLBACK_MODELS.map((m) => m.id);
+      routerDecision = routeModel((lastUserMsgRaw && lastUserMsgRaw.text) || '', availableIds);
+      resolvedModel = routerDecision.chosenModel;
+    }
+    const model = resolvedModel;
 
     const t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
     abortController = new AbortController();
@@ -1082,6 +1099,8 @@ export function createAgent(store, hooks = {}) {
     let tools = legacyTools;
     const turn = {
       apiKey, model, signal,
+      userModel, // 用户在 UI 选择的模型（可能是 __smart_router__），UI 显示用
+      routerDecision, // 智能路由结果：含 provider/类别/难度，不含具体模型 ID
       fastMode: !!settings.fastMode,
       thinking: settings.thinking !== false,
       reasoningLevel: lv,
@@ -1092,6 +1111,11 @@ export function createAgent(store, hooks = {}) {
       subagentReports: [],
     };
     let iterations = 0;
+    // ── P3 临时沙箱（ephemeral overlay）：Agent 写文件全部落在临时层 ──
+    // 回合正常结束后只把最终回答里明确引用到的交付物提交到 baseFS，其余临时产物丢弃。
+    const tempFS = createTempFS(baseFS);
+    fs = tempFS;
+    let finalAnswerText = ''; // 累积最终回答文本，用于 commit 判断
     cachedPrefix = null;
     turnMemoryPlan = null;
     // Jev 只在本轮开头跑一次（工具循环里不再打），失败则 jevNote 为空、对话照常。
@@ -1362,6 +1386,8 @@ export function createAgent(store, hooks = {}) {
           role: 'assistant', text: '', model, usage: null,
           fastMode: !!settings.fastMode,
           reasoningLevel: turn.thinking ? (turn.reasoningLevel || 'medium') : 'off',
+          router: turn.routerDecision || null, // 智能路由器结果（含 provider，不含模型 ID）
+          userModel: turn.userModel || model,  // 用户选择的原始模型（__smart_router__ 等）
         });
         emit('onAssistantStart', assistantMsg);
         setStatus('connecting'); // 已发出请求、尚未收到首个 token：UI 显示连接动画
@@ -1687,6 +1713,24 @@ export function createAgent(store, hooks = {}) {
         }
       }
       telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
+
+      // ── 临时沙箱提交：正常结束 → 只把最终回答引用到的文件提交到 baseFS；
+      //    取消/错误 → 丢弃全部临时写入（用户不希望半截产物污染沙箱）。
+      try {
+        const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.transientModeration);
+        const finalText = (lastAssistant && lastAssistant.text) || '';
+        if (status === 'done') {
+          exec.tempCommit = tempFS.commitAnswer(finalText);
+        } else {
+          exec.tempCommit = tempFS.discard();
+        }
+      } catch (err) {
+        tempFS.discard();
+        exec.tempCommit = { error: String((err && err.message) || err).slice(0, 160), committed: [], discarded: [] };
+      } finally {
+        fs = baseFS; // 归还 fs 指针
+        syncFS();
+      }
 
       // ── P3 收尾：任务完成后自清理（习惯 = 内核行为，不是提示词里的希望）──
       // 时机：所有工具波次都跑完、记忆写入也处理完之后，**早于**检查点/审计对账写入——

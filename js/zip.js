@@ -37,10 +37,35 @@ export function fileBytesFromValue(value) {
 }
 
 // data URL 里的 mime → 建议扩展名（写回文件名，解压后可直接打开）
-const MIME_EXT = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif' };
+// 扩展：补齐常见文本/代码/二进制 MIME 的扩展名映射，避免下载时变成 .txt 或 .plain
+const MIME_EXT = {
+  'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/svg+xml': 'svg',
+  'text/plain': 'txt', 'text/html': 'html', 'text/css': 'css', 'text/csv': 'csv', 'text/markdown': 'md',
+  'application/json': 'json', 'application/pdf': 'pdf', 'application/zip': 'zip',
+  'application/javascript': 'js', 'application/xml': 'xml',
+};
+// 由路径扩展名反推一个合理的 MIME（用于 Blob type，避免浏览器默认 text/plain 把文件标成 .txt）
+const EXT_MIME = {
+  txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', html: 'text/html', htm: 'text/html',
+  css: 'text/css', csv: 'text/csv', json: 'application/json', jsonc: 'application/json',
+  js: 'application/javascript', mjs: 'application/javascript', cjs: 'application/javascript',
+  ts: 'application/javascript', jsx: 'application/javascript', tsx: 'application/javascript',
+  py: 'text/x-python', java: 'text/x-java', c: 'text/x-c', cpp: 'text/x-c++', h: 'text/x-c', hpp: 'text/x-c++',
+  go: 'text/x-go', rs: 'text/x-rust', rb: 'text/x-ruby', php: 'text/x-php', sh: 'text/x-shellscript',
+  bash: 'text/x-shellscript', sql: 'text/x-sql', yml: 'text/yaml', yaml: 'text/yaml',
+  toml: 'text/x-toml', ini: 'text/plain', xml: 'application/xml', svg: 'image/svg+xml',
+  pdf: 'application/pdf', zip: 'application/zip', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+  gif: 'image/gif', webp: 'image/webp',
+};
+export function mimeFromPath(path) {
+  const m = /\.([A-Za-z0-9]{1,8})$/.exec(String(path || ''));
+  if (!m) return 'application/octet-stream';
+  return EXT_MIME[m[1].toLowerCase()] || 'application/octet-stream';
+}
 export function withExtension(path, mime) {
-  if (!mime || /\.[A-Za-z0-9]{1,5}$/.test(path)) return path;
+  if (!mime || /\.[A-Za-z0-9]{1,8}$/.test(path)) return path;
   const ext = MIME_EXT[mime] || (String(mime).split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+  if (ext === 'plain') return `${path}.txt`;  // text/plain → .txt 而非 .plain
   return `${path}.${ext}`;
 }
 

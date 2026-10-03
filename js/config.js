@@ -33,8 +33,15 @@ export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
 export const STORAGE_KEY = 'teamo-agent-state-v1';
 
+// 智能路由器 ID（客户端内置元模型）：根据任务类型/难度自动选择合适的模型。
+// 用户完成任务后可以点击路由器图表查看服务提供商，但不能看到具体模型。
+export const SMART_ROUTER_ID = '__smart_router__';
+export const SMART_ROUTER_PROVIDER = 'TeamoRouter';
+
 // 兜底模型列表（GET /v1/models 失败时使用，来源：官方文档 2026-09-30 复核调研）
 export const FALLBACK_MODELS = [
+  // 智能路由器：虚拟元模型，永远置顶（客户端根据任务类型自行路由）
+  { id: SMART_ROUTER_ID, provider: SMART_ROUTER_PROVIDER, hot: true },
   // Anthropic —— 走 /v1/messages 原生协议
   // 标签（2026-09-30 复核调研）：热门 = 当季常用/榜单常客/官方头图主推；低价 = 约 ≤$1/M 输入或网关免费档。
   // 排序规则：组内按「热度（hot 优先）→ 版本号降序（5.5 > 5.1 > 5.0 > 4.8 > 4.7 > 4.6 > 4.5）→ 档位权重（Opus > Sonnet > Fable > Haiku）」排列。
@@ -165,7 +172,7 @@ export const IMAGE_MODELS = [
   { id: 'gpt-image-2',            label: 'GPT Image 2',            note: '均衡·默认' },
 ];
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
-export const DEFAULT_CHAT_MODEL = 'claude-sonnet-5';
+export const DEFAULT_CHAT_MODEL = SMART_ROUTER_ID;
 // GPT Image：宽x高像素。Nano Banana 另认 16:9 / 1K / 2K 等（见 api.js nanoImageConfig）
 export const IMAGE_SIZES = ['auto', '1024x1024', '1536x1024', '1024x1536', '2048x2048', '16:9', '9:16', '4:3', '3:4', '1K', '2K', '4K'];
 export const IMAGE_QUALITIES = ['auto', 'low', 'medium', 'high'];
@@ -231,6 +238,7 @@ export const IMAGE_MODEL_IDS = IMAGE_MODELS.map((m) => m.id);
 export function providerOf(modelId) {
   const m = (modelId || '').toLowerCase();
   if (m === 'moderator' || m === 'content-moderation') return 'Moderator';
+  if (m === SMART_ROUTER_ID) return SMART_ROUTER_PROVIDER;
   if (m.startsWith('claude')) return 'Anthropic';
   if (m.startsWith('gpt') || m.startsWith('o1') || m.startsWith('o3') || m.startsWith('chatgpt')) return 'OpenAI';
   if (m.startsWith('gemini')) return 'Google';

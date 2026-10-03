@@ -33,7 +33,126 @@ export function createFS(initial = {}) {
     export() { return { ...files }; },
     import(obj) { for (const [k, v] of Object.entries(obj || {})) files[k] = String(v); },
     clear() { for (const k of Object.keys(files)) delete files[k]; },
+    has(path) { return Object.prototype.hasOwnProperty.call(files, String(path)); },
+    keys() { return Object.keys(files); },
   };
+}
+
+// ── 临时沙箱（ephemeral overlay）：任务期间 Agent 写的文件先落在临时层，
+//    回合结束时只把「最终回答里提到/展示/引用」的交付物提交到真实沙箱，
+//    其余临时文件（调试输出、中间数据、缓存等）随 overlay 一起丢弃。
+//    修复 #3：Agent 不再在用户沙箱里留下一堆中间产物。
+export function createTempFS(baseFS) {
+  const ephemeral = {}; // 本轮临时写的文件
+  const deletedInEphemeral = new Set(); // 本轮主动删除的基文件
+  const fs = {
+    read(path) {
+      const p = String(path);
+      if (deletedInEphemeral.has(p)) throw new Error(`文件不存在: ${p}`);
+      if (Object.prototype.hasOwnProperty.call(ephemeral, p)) return ephemeral[p];
+      return baseFS.read(p);
+    },
+    write(path, content) {
+      const p = String(path || '');
+      const parts = p.split('/');
+      if (!p || p.startsWith('/') || p.includes('\\') || p.includes('\0')
+          || parts.some((seg) => !seg || seg === '.' || seg === '..')) {
+        throw new Error(`非法路径: ${p}`);
+      }
+      ephemeral[p] = String(content);
+      deletedInEphemeral.delete(p);
+    },
+    remove(path) {
+      const p = String(path || '');
+      if (p.startsWith('/') || p.includes('\0')) return;
+      // 临时层删
+      delete ephemeral[p];
+      // 如果基文件里也有，标记删除
+      try { if (baseFS.has(p)) deletedInEphemeral.add(p); } catch { /* noop */ }
+    },
+    list() {
+      const seen = new Set();
+      const out = [];
+      // 先列临时层
+      for (const [path, c] of Object.entries(ephemeral)) {
+        seen.add(path);
+        out.push({ path, size: String(c).length });
+      }
+      // 再列基文件（剔除被删/被临时覆盖的）
+      for (const e of baseFS.list()) {
+        if (seen.has(e.path) || deletedInEphemeral.has(e.path)) continue;
+        out.push(e);
+      }
+      return out;
+    },
+    export() {
+      const all = {};
+      try { Object.assign(all, baseFS.export()); } catch { /* noop */ }
+      for (const k of deletedInEphemeral) delete all[k];
+      Object.assign(all, ephemeral);
+      return all;
+    },
+    import(/* obj */) { /* 不允许批量导入临时层 */ },
+    clear() {
+      for (const k of Object.keys(ephemeral)) delete ephemeral[k];
+      deletedInEphemeral.clear();
+    },
+    has(path) {
+      const p = String(path);
+      if (deletedInEphemeral.has(p)) return false;
+      if (Object.prototype.hasOwnProperty.call(ephemeral, p)) return true;
+      return !!baseFS.has && baseFS.has(p);
+    },
+    keys() {
+      const s = new Set();
+      for (const k of Object.keys(ephemeral)) s.add(k);
+      try { for (const k of baseFS.keys()) if (!deletedInEphemeral.has(k)) s.add(k); } catch { /* noop */ }
+      return [...s];
+    },
+    // 提交：扫描回答文本，把回答里明确引用到的临时文件落到真实沙箱；其余丢弃
+    commitAnswer(answerText) {
+      const text = String(answerText || '');
+      const committed = [];
+      const discarded = [];
+      // 1) 把被标记删除的基文件真正从 baseFS 删除
+      for (const p of deletedInEphemeral) {
+        try { baseFS.remove(p); } catch { /* noop */ }
+      }
+      // 2) 判断临时文件是否在回答里被引用/展示
+      const looksReferenced = (path) => {
+        // 直接路径字符串出现
+        if (text.includes(path)) return true;
+        // data-sb-open / data-sb-dl 属性在 HTML 里 → 以 `path` 或 `"path"` 出现
+        // （renderMarkdown 后的 HTML 中路径会被包进属性值）
+        const esc1 = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        // 如果生成了 HTML 预览，路径会在 data-sb-open="${path}" 中
+        if (new RegExp(`data-sb-(?:open|dl)="${esc1}"`).test(text)) return true;
+        // 文件名（basename）在回答中出现且路径本身不晦涩：视为交付物
+        const base = path.split('/').pop();
+        if (base && /\.(png|jpg|jpeg|gif|svg|webp|pdf|docx|xlsx|pptx|zip|html|md|csv|json|txt)$/i.test(base)
+            && text.includes(base)) return true;
+        return false;
+      };
+      for (const [p, c] of Object.entries(ephemeral)) {
+        if (looksReferenced(p)) {
+          try { baseFS.write(p, c); committed.push(p); } catch { /* noop */ }
+        } else {
+          discarded.push(p);
+        }
+      }
+      // 清理临时层
+      this.clear();
+      return { committed, discarded };
+    },
+    // 丢弃整个临时层（任务中止/失败时调用）
+    discard() {
+      const discarded = Object.keys(ephemeral);
+      this.clear();
+      return { committed: [], discarded };
+    },
+    _isTemp: true,
+  };
+  return fs;
 }
 
 let pyodideBroken = false; // CDN 加载失败后不再尝试
