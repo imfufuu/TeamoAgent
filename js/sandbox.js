@@ -112,6 +112,23 @@ export function createTempFS(baseFS) {
       for (const k of Object.keys(ephemeral)) delete ephemeral[k];
       deletedInEphemeral.clear();
     },
+    clearWorkspace() {
+      // 临时层：非内部的删除，内部保留
+      for (const k of Object.keys(ephemeral)) {
+        if (!WS_INTERNAL_PREFIXES.some((pref) => k.startsWith(pref))) delete ephemeral[k];
+      }
+      // 基文件：委托基 fs
+      try {
+        if (baseFS.clearWorkspace) baseFS.clearWorkspace();
+        else for (const k of (baseFS.keys ? baseFS.keys() : [])) {
+          if (!WS_INTERNAL_PREFIXES.some((pref) => k.startsWith(pref))) { baseFS.remove(k); deletedInEphemeral.delete(k); }
+        }
+      } catch { /* noop */ }
+    },
+    listWorkspace() {
+      return this.list().filter(({ path }) => !WS_INTERNAL_PREFIXES.some((pref) => path.startsWith(pref)));
+    },
+    isInternalPath(p) { return WS_INTERNAL_PREFIXES.some((pref) => String(p).startsWith(pref)); },
     has(path) {
       const p = String(path);
       if (deletedInEphemeral.has(p)) return false;
