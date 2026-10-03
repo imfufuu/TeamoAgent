@@ -97,7 +97,7 @@ export const FALLBACK_MODELS = [
   { id: 'grok-4.6',                   provider: 'Grok', hot: true },
 ];
 
-export const PROVIDER_ORDER = ['Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Kimi', 'Grok', '其他'];
+export const PROVIDER_ORDER = [SMART_ROUTER_PROVIDER, 'Anthropic', 'OpenAI', 'Google', 'DeepSeek', 'GLM', 'Kimi', 'Grok', '其他'];
 
 // ── 厂商组内模型排序：热度优先级 + 版本号降序 + 旗舰档位权重 ──────────────
 const PINNED_FAMILY_RANK = new Map(FALLBACK_MODELS.map((m, idx) => [m.id, idx]));
