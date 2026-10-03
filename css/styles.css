@@ -495,6 +495,30 @@ a { color: var(--fg); }
 
 /* 消息区（min-height:0 保证 flex 子项可收缩，滚动被限制在本区域） */
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
+/* 长会话「展开更早对话」按钮 */
+.lazy-load-more {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin: 0 auto 16px; padding: 6px 14px;
+  background: var(--bg-soft); color: var(--fg-2);
+  border: 1px solid var(--line); border-radius: 99px;
+  font-size: 12px; cursor: pointer;
+  transition: all .18s var(--ease);
+  position: relative;
+}
+.lazy-load-more:hover { color: var(--fg); border-color: var(--fg-2); background: var(--bg-hover); }
+.lazy-load-more .ico, .lazy-load-more svg { width: 12px; height: 12px; transform: rotate(-90deg); }
+.lazy-load-more .lazy-load-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; margin-left: 2px;
+  background: var(--accent, #5f8a86); color: #fff;
+  border-radius: 9px; font-size: 10px; font-weight: 600;
+}
+/* 未闭合的代码块（流式中）：标题弱化，无边框底 */
+.code-block-open { opacity: 0.95; }
+.code-block-open .code-head-open { color: var(--fg-3); }
+.code-block-open pre { border-style: dashed; }
+/* 流式中的数学块：弱化阴影 */
+.katex-display-block[data-state="streaming"] { opacity: 0.95; filter: saturate(0.9); }
 .msg { max-width: 760px; margin: 0 auto 16px; padding: 0 28px; overflow-x: hidden; max-width: min(760px, 100%); }
 .msg-assistant:has(+ .msg-assistant) { margin-bottom: 4px; }
 .msg-assistant + .msg-assistant { margin-top: 0; }
@@ -591,24 +615,6 @@ a { color: var(--fg); }
 
 .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--fg); vertical-align: text-bottom; margin-left: 2px; animation: blink .9s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-
-/* ── 流式打字机渐显（Gemini 风格，DOM 增量追加）──────────────────────
- * 新字符作为 <span class="fade-token"> insertBefore(cursor) 插入，
- * 每个 span 是创建时新建元素 → CSS animation 只跑一次，永不重放、绝无闪烁。 */
-.md-body.streaming .fade-token {
-  display: inline;
-  animation: fadeInToken 200ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-@keyframes fadeInToken {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.md-body .stream-tail { white-space: pre-wrap; word-break: break-word; }
-.md-body .stream-tail:empty { display: none; }
-/* 流式时稳定段落不需要额外 margin，保证视觉连贯 */
-.md-body.streaming p { margin-bottom: 0; }
-.md-body.streaming .stream-tail + .cursor { margin-left: 2px; }
-.md-body:not(.streaming) .fade-token { animation: none; opacity: 1; transform: none; }
 
 .cancelled-tag { font-size: 11px; color: var(--fg-3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; margin-left: 8px; }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }

@@ -771,10 +771,23 @@ function highlightCode(code, lang, escapeFn) {
   }
   return escapeFn(raw);
 }
-function fenceHtml(lang, code, escapeFn) {
+// 代码块 HTML：open=true 表示未闭合（流式中 ``` 还没配对），不显示复制按钮；
+// 闭合后渲染完整 code-head（语言标签 + 复制按钮）。
+function fenceHtml(lang, code, escapeFn, open = false) {
   const L = (lang || 'text').trim() || 'text';
   const body = highlightCode(code, L, escapeFn);
-  return `<div class="code-block"><div class="code-head"><span class="code-lang">${escapeFn(L)}</span><button class="copy-code" type="button">复制</button></div><pre data-lang="${escapeFn(L)}"><code class="hljs">${body}</code></pre></div>`;
+  const head = open
+    ? `<div class="code-head code-head-open"><span class="code-lang">${escapeFn(L)}</span></div>`
+    : `<div class="code-head"><span class="code-lang">${escapeFn(L)}</span><button class="copy-code" type="button">复制</button></div>`;
+  return `<div class="code-block${open ? ' code-block-open' : ''}">${head}<pre data-lang="${escapeFn(L)}"><code class="hljs">${body}</code></pre></div>`;
+}
+// 数学公式 HTML：display=true 块级；open=true 表示流式中未闭合（不复制按钮，但 KaTeX 仍渲染）
+// 数学公式本就不可编辑，复制按钮对公式没意义——这里的"完成后显示复制按钮"仅对代码块生效
+// （用户对公式的诉求主要是立即看到渲染效果而非复制）。
+function mathHtml(html, display, open = false) {
+  const cls = display ? 'katex-display-block' : 'katex-inline';
+  const state = open ? ' data-state="streaming"' : '';
+  return `<span class="${cls}"${state}>${html}</span>`;
 }
 
 // ── Markdown 渲染：markdown-it（本地打包 assets/md/，完整 CommonMark + GFM 表格）
@@ -876,8 +889,15 @@ function sysReplyHtml(text) {
 
 export function renderMarkdown(src) {
   const codeBlocks = [];
-  let t = String(src || '').replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    codeBlocks.push({ lang, code });
+  let t = String(src || '');
+  // 1) 先替换完整闭合的 ```...```
+  t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
+    codeBlocks.push({ lang, code, open: false });
+    return `\uE000CB${codeBlocks.length - 1}\uE000`;
+  });
+  // 2) 再替换未闭合的 ```（最后一个，正在流式输入中）——也要渲染（但没有复制按钮）
+  t = t.replace(/```(\w*)\n?([\s\S]*)$/g, (_, lang, code) => {
+    codeBlocks.push({ lang, code, open: true });
     return `\uE000CB${codeBlocks.length - 1}\uE000`;
   });
   // 行内代码先剥离（.18）：`code` 里的 $…$ 不能被当数学定界符——正则/命令含 $ 锚点时
@@ -915,20 +935,33 @@ export function renderMarkdown(src) {
   };
   const maths = [];
   const hasKatex = typeof katex !== 'undefined';
-  const pushMath = (tex, display) => {
+  const pushMath = (tex, display, open) => {
     if (hasKatex) {
       try {
-        maths.push(katex.renderToString(tex, { displayMode: display, throwOnError: false }));
+        const html = katex.renderToString(tex, { displayMode: display, throwOnError: false });
+        maths.push({ html, display, open });
         return `\uE000M${maths.length - 1}\uE000`;
       } catch { /* 渲染失败按原文处理 */ }
     }
-    return display ? `\n\`\`\`tex\n${tex}\n\`\`\`\n` : `\`${tex}\``; // 降级：代码形式展示
+    // KaTeX 不可用时降级为代码（代码块显示时未闭合状态没有复制按钮）
+    if (open) {
+      codeBlocks.push({ lang: 'tex', code: tex, open: true });
+      return `\uE000CB${codeBlocks.length - 1}\uE000`;
+    }
+    return display ? `\n\`\`\`tex\n${tex}\n\`\`\`\n` : `\`${tex}\``;
   };
+  // 先替换闭合的数学定界符，再替换未闭合的（末尾正在输入）
   t = t
-    .replace(/\$\$([\s\S]+?)\$\$/g, (_, x) => mathOk(x) ? pushMath(x, true) : _)
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => pushMath(x, true))
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false))
-    .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => mathOk(x) ? pushMath(x, false) : _);
+    // 块级：$$...$$
+    .replace(/\$\$([\s\S]+?)\$\$/g, (_, x) => mathOk(x) ? pushMath(x, true, false) : _)
+    // 未闭合 $$（开头有 $$ 但没第二个 $$，且在文末）
+    .replace(/\$\$([\s\S]*)$/g, (_, x) => mathOk(x + ' ') ? pushMath(x, true, true) : _)
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, x) => pushMath(x, true, false))
+    .replace(/\\\[([\s\S]*)$/g, (_, x) => pushMath(x, true, true))
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, x) => pushMath(x, false, false))
+    .replace(/\\\(([\s\S]*)$/g, (_, x) => pushMath(x, false, true))
+    .replace(/\$([^\s$](?:[^$\n]*?[^\s$])?)\$/g, (_, x) => mathOk(x) ? pushMath(x, false, false) : _)
+    // 行内未闭合 $ 不处理（$ 单独出现太容易误判）——只处理 $$ 和 \[ 开头的块级
 
   const peeled = peelChoices(t);
   t = peeled.rest;
@@ -1002,10 +1035,14 @@ export function renderMarkdown(src) {
   });
 
   const restoreCb = (html) => html.replace(/\uE000CB(\d+)\uE000/g, (_, i) => {
-    const { lang, code } = codeBlocks[+i];
-    return fenceHtml(lang, code, esc);
+    const { lang, code, open } = codeBlocks[+i] || {};
+    return fenceHtml(lang, code, esc, !!open);
   });
-  const restoreMath = (html) => html.replace(/\uE000M(\d+)\uE000/g, (_, i) => maths[+i]); // KaTeX 输出已是安全 HTML
+  const restoreMath = (html) => html.replace(/\uE000M(\d+)\uE000/g, (_, i) => {
+    const m = maths[+i];
+    if (!m) return '';
+    return mathHtml(m.html, m.display, !!m.open);
+  });
   const restoreWidgets = (html) => {
     const foldAt = (_, i) => {
       const f = folds[+i];
@@ -1250,7 +1287,7 @@ export function mountUI(store, agent) {
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
         const isRouter = isSmartRouter(m.id);
         item.innerHTML = isRouter
-          ? `<span class="dd-item-id mono router-name">smart-router</span>
+          ? `<span class="dd-item-id mono router-name">智能</span>
             <span class="dd-item-badges">
               <span class="badge hot">热门</span>
             </span>`
@@ -1349,7 +1386,7 @@ export function mountUI(store, agent) {
       prov = 'Teamo';
     } else if (router) {
       icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
-      name = 'smart-router';
+      name = '智能';
       prov = 'TEAMOROUTER';
     } else {
       icon = providerIcon(providerOf(store.state.model));
@@ -1818,6 +1855,8 @@ export function mountUI(store, agent) {
     if (getBusy()) return toast('请等待当前回合结束再切换会话', 'warn');
     store.switchSession(id);
     agent.loadFiles(store.state.files);
+    // 切换会话时重置懒加载窗口
+    wrapLazyInit = false; lazyLoadedFrom = 0;
     // 模型随会话恢复：切回来后模型按钮显示该会话自己的模型，而不是上一次的全局选择
     rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
     syncThinking(); syncCapLine();
@@ -2365,7 +2404,11 @@ export function mountUI(store, agent) {
       bindFoldRows($('.md-body', wrap) || wrap);
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         if (b.dataset.act === 'copy') {
-          navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+          // 优先从已渲染的 DOM 取纯文本（浏览器自动解码 HTML 实体 / URI 编码，避免 %20/&amp; 等直接进入剪贴板）；
+          // 如果 body 尚未渲染再回落到原始 m.text。
+          const body = $('.md-body', wrap);
+          const plain = body ? body.innerText : (m.text || '');
+          navigator.clipboard.writeText(plain).then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
         }
       }));
     } else {
@@ -2389,7 +2432,7 @@ export function mountUI(store, agent) {
         headName = 'Moderator · 审核员';
         headIcon = providerIcon(providerOf(headModel));
       } else if (headIsRouter) {
-        headName = 'smart-router';
+        headName = '智能';
         headIcon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
       } else {
         headName = headModel;
@@ -2410,8 +2453,11 @@ export function mountUI(store, agent) {
       $$('.act', wrap).forEach((b) => b.addEventListener('click', () => {
         const act = b.dataset.act;
         if (act === 'copy') {
-        navigator.clipboard.writeText(m.text || '').then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
-      }
+          // 取渲染后纯文本，自动解码 HTML 实体/URI 编码，避免 %20/&amp; 等进入剪贴板
+          const body = $('.md-body', wrap);
+          const plain = body ? body.innerText : (m.text || '');
+          navigator.clipboard.writeText(plain).then(() => toast('已复制', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
+        }
         if (act === 'rollback') doRollback(m);
         if (act === 'regen') {
           if (getBusy()) return;
@@ -2462,105 +2508,6 @@ export function mountUI(store, agent) {
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
-  // ── 流式渐显（Gemini 风格：DOM 增量追加而非 innerHTML 重建）────────────
-  // 核心原则（按用户提供的参考材料落地）：
-  //   • 流式过程中不要整段重写 innerHTML——这是之前每版都闪烁/看不见的根本原因。
-  //   • 改为：已经稳定的 Markdown 块（遇到段落结束/标题/列表/代码/空行等）一次性
-  //     renderMarkdown 到 .md-body；正在输出的**最后一段**作为纯文本容器 .stream-tail
-  //     保留，新到达的字符切成 <span class="fade-token"> 插到光标之前，CSS 做
-  //     opacity:0→1 + translateY(4px)→0 的 200ms 缓动。
-  //   • 每帧最多批量插入一批新字符（rAF 合并），不要一字符一 reflow；每个 token span
-  //     是新建元素，animation 只跑一次，不存在重放。
-  //   • 流结束（m.done）时，把 .stream-tail 也喂给 renderMarkdown 一次性替换，得到
-  //     最终完整的 Markdown 渲染（含链接/列表/加粗），和普通渲染视觉一致。
-  function splitStreamableChunk(text) {
-    // 在最后一个"硬段落边界"处切分：把已闭合的段落/标题/列表项/代码/引用/表格走 markdown 渲染，
-    // 只有末尾未闭合的尾巴走纯文本打字。
-    // 边界：连续 2 个换行（段落分隔）、# 标题、```、-/* 列表、> 引用、表格 |---|。
-    const blocks = [];
-    let rest = text;
-    // 匹配"块级结束边界"：
-    //   1) ``` ... ``` 完整 fenced code
-    //   2) 连续 2 个及以上换行（段落/块分隔），但只在它不是一个正在输入的列表项中间时切
-    // 简化：找到最后一个 '\n\n'，前面归稳定块、后面归 tail。
-    // 为了避免"最后一段还在写列表"这种情况被误切，额外判断末尾如果以 list/quote/heading 起始，
-    // 我们就回退到上一个 \n\n，保证 .stream-tail 只包含"当前正在写的这一段纯文本"。
-    // 具体做法：倒序找到最近的 \n\n，然后在该位置切分。
-    let cut = -1;
-    // 先处理 ``` 代码块：如果最后一个 ``` 已经闭合（出现偶数次），则把闭合点作为切点。
-    const fenceMatches = [...rest.matchAll(/^```[^\n]*\n([\s\S]*?)^```/gm)];
-    if (fenceMatches.length) {
-      const last = fenceMatches[fenceMatches.length - 1];
-      const endIdx = last.index + last[0].length;
-      if (endIdx > cut && endIdx <= rest.length) cut = endIdx;
-    }
-    // 再找最后一个 "\n\n"（如果 fence 没匹配到或更靠后就用它）
-    const doubleNl = rest.lastIndexOf('\n\n');
-    if (doubleNl > cut) cut = doubleNl + 2;
-    // 若尾部正在开一个 fenced code（``` 没闭合），不切（让 tail 包含 ``` 开头和其中内容）
-    const tailFromCut = cut < 0 ? rest : rest.slice(cut);
-    const headsFromCut = cut < 0 ? '' : rest.slice(0, cut);
-    // 统计 tail 中 ``` 的数量：奇数 → 正在写 code block，需要回退到 ``` 起点
-    const fenceCount = (tailFromCut.match(/```/g) || []).length;
-    let stable = headsFromCut;
-    let tail = tailFromCut;
-    if (fenceCount % 2 === 1) {
-      const openIdx = tailFromCut.lastIndexOf('```');
-      if (openIdx >= 0) {
-        stable = headsFromCut + tailFromCut.slice(0, openIdx);
-        tail = tailFromCut.slice(openIdx);
-      }
-    }
-    return { stable, tail };
-  }
-  function applyStreamAppend(body, text) {
-    const wrap = body.closest('.msg');
-    if (!wrap) return;
-    // 定位或创建 .stream-tail 容器和光标
-    let tail = body.querySelector('.stream-tail');
-    let cursor = body.querySelector('.cursor');
-    if (!tail) {
-      tail = document.createElement('div');
-      tail.className = 'stream-tail';
-      if (cursor) body.insertBefore(tail, cursor);
-      else body.appendChild(tail);
-    }
-    // 已在 tail 里渲染的字符数（不包含 fade-token 内部，我们用 data-len 维护）
-    const prevLen = Number(tail.dataset.len || 0);
-    const delta = text.slice(prevLen);
-    tail.dataset.len = String(text.length);
-    if (!delta) return;
-    // 批量把新字符包成 fade-token span（按字符切，每个 span 是新建元素，animation 只跑一次）。
-    // 注：一字符一 span 在长文本下 DOM 节点会多，但 .stream-tail 只是一个段落，长度一般 300–800 字，
-    // 远低于性能警戒；流结束时整段被替换为 renderMarkdown HTML（合并掉所有 span）。
-    const frag = document.createDocumentFragment();
-    for (const ch of delta) {
-      // 换行/空格单独处理：保留为文本节点，避免 span 包裹破坏排版；
-      // 实际空格/换行不需要淡入（不可见或只是空白），但为动画连贯统一包裹。
-      const span = document.createElement('span');
-      span.className = 'fade-token';
-      span.textContent = ch;
-      frag.appendChild(span);
-    }
-    tail.appendChild(frag);
-    // 限制 .stream-tail 内总 span 数不超过 1500，防止极长输出 DOM 爆炸——超过后
-    // 合并最早的 fade-token 为裸文本。
-    const tokens = tail.querySelectorAll('.fade-token');
-    if (tokens.length > 1500) {
-      const collapseTo = tokens.length - 600;
-      for (let i = 0; i < collapseTo; i++) {
-        const t = tokens[i];
-        const tn = document.createTextNode(t.textContent);
-        t.parentNode.replaceChild(tn, t);
-      }
-      // 相邻文本节点自动合并是浏览器行为；这里不做额外 normalize（避免打断正在进行的动画）
-    }
-  }
-  function clearStreamTail(body) {
-    const tail = body.querySelector('.stream-tail');
-    if (tail) tail.remove();
-  }
-
   function paintAssistant(wrap, m) {
     wrap.classList.toggle('cancelled', !!m.cancelled);
     const body = $('.md-body', wrap);
@@ -2573,63 +2520,17 @@ export function mountUI(store, agent) {
     const thinkOn = m.reasoningLevel !== 'off';
     const showThink = thinkOn && m.reasoning;
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
-    let connectHtml = '';
-    let cursorHtml = '';
-    let cancelledHtml = '';
-    let truncHtml = '';
     if (live && noOutputYet && !thinkOn) {
-      connectHtml = `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
+      // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
+      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
-    if (live && !noOutputYet) cursorHtml = '<span class="cursor"></span>';
-    if (m.cancelled) cancelledHtml = '<span class="cancelled-tag">已停止</span>';
-    if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
-      truncHtml = '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
-    }
-    html += connectHtml;
     html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
-    html += cancelledHtml + truncHtml;
-    // 完成态才把 cursor 拼进 html（因为完成态直接 innerHTML）；流式态单独 append 避免位置错误
-    if (!live) html += cursorHtml;
-
-    body.classList.toggle('streaming', !!live);
-    if (live) {
-      // 流式模式：稳定块走 renderMarkdown，正在写的最后一段保存在 .stream-tail 中追加 fade-token。
-      const rawText = m.text || '';
-      const { stable, tail } = splitStreamableChunk(rawText);
-      const stableHtml = connectHtml + (m.model === '__system__' ? sysReplyHtml(stable) : renderMarkdown(stable)) + cancelledHtml + truncHtml;
-      // 摘下非正文节点（光标/thinking/web-note 等），避免被 innerHTML 覆盖
-      const detached = [];
-      for (const sel of ['.reasoning', '.web-note', '.choice-box', '.stream-tail', '.connect-line', '.cancelled-tag', '.trunc-note', '.cursor']) {
-        for (const el of $$(sel, body)) detached.push(body.removeChild(el));
-      }
-      body.innerHTML = stableHtml;
-      // 如果还有 tail（正在输入的段落），追加 .stream-tail 并把已存在 tail 文本作为普通文本放入
-      let tailDiv = null;
-      if (tail) {
-        tailDiv = document.createElement('span');
-        tailDiv.className = 'stream-tail';
-        tailDiv.appendChild(document.createTextNode(tail));
-        tailDiv.dataset.len = String(tail.length);
-        body.appendChild(tailDiv);
-      }
-      // 恢复光标（放在 tail 末尾，保证在流式块结尾闪烁）
-      if (cursorHtml) {
-        const cur = document.createElement('span');
-        cur.className = 'cursor';
-        if (tailDiv) tailDiv.appendChild(cur);
-        else body.appendChild(cur);
-      }
-      // 恢复其他附属节点
-      for (const el of detached) {
-        if (el.classList && (el.classList.contains('stream-tail') || el.classList.contains('cursor') || el.classList.contains('connect-line') || el.classList.contains('cancelled-tag') || el.classList.contains('trunc-note'))) continue;
-        body.appendChild(el);
-      }
-      if (tail) applyStreamAppend(body, rawText);
-    } else {
-      // 完成态：整段用 renderMarkdown 渲染，清除流式标记
-      body.innerHTML = html;
-      wrap._streamRevealAt = 0;
+    if (live && !noOutputYet) html += '<span class="cursor"></span>';
+    if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
+    if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
+      html += '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
     }
+    body.innerHTML = html;
     body.classList.toggle('empty', !String(html || '').trim());
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
@@ -3162,19 +3063,89 @@ export function mountUI(store, agent) {
     scrollToBottom();
   }
 
+  function renderLazyLoadMoreBtn() {
+    const btn = el('button', 'lazy-load-more', `${ICON.chevRight || ''}<span>展开更早对话</span>`);
+    btn.type = 'button';
+    btn.title = `向前加载 ${LAZY_STEP} 条历史消息`;
+    btn.addEventListener('click', () => {
+      // 记住当前滚动位置的锚点消息，展开后保持视觉位置不跳
+      const firstMsg = msgList.querySelector('.msg-user, .msg-assistant');
+      const anchorId = firstMsg ? firstMsg.dataset.id : null;
+      const anchorOffset = firstMsg ? firstMsg.getBoundingClientRect().top : 0;
+      lazyLoadedFrom = Math.max(0, lazyLoadedFrom - LAZY_STEP);
+      rebuildMessages();
+      // 锚点回位
+      requestAnimationFrame(() => {
+        if (anchorId) {
+          const anchor = msgList.querySelector(`[data-id="${CSS.escape(anchorId)}"]`);
+          if (anchor) {
+            const newTop = anchor.getBoundingClientRect().top;
+            msgList.scrollTop += newTop - anchorOffset;
+          }
+        }
+        // 如果已加载全部，移除按钮
+        if (lazyLoadedFrom <= 0) {
+          const b = $('.lazy-load-more', msgList);
+          if (b) b.remove();
+        }
+      });
+    });
+    return btn;
+  }
+
+  // ── 长会话分段加载 ─────────────────────────────────────────────
+  const LAZY_WINDOW = 60;   // 首屏/每次渲染的消息窗口（按可见 user+assistant 消息计）
+  const LAZY_STEP = 40;     // 每次「展开更早对话」向前加载的条数
+  let lazyLoadedFrom = 0;   // 已加载的消息数组起始下标
+  let wrapLazyInit = false; // 标记 rebuildMessages 是否已做过首次窗口计算
+
   function rebuildMessages() {
     cancelRollbackAnim();
     clearConfirmCards();
     msgNodes.clear(); msgList.innerHTML = '';
     renderEmpty();
-    // 入场动画只给最后一条：旧写法每追加一条就重扫整个列表（n 条消息 → n 次全量
-    // querySelectorAll，长会话首屏明显卡顿），而且语义也只是「别给历史消息加动画」
-    for (const m of store.state.messages) {
+    // 收集可见消息（跳过 tool/silent）
+    const visible = store.state.messages.filter((m) => m.role !== 'tool' && !m.silent);
+    const totalVisible = visible.length;
+    // 首次渲染（wrapLazyInit=false）：自动根据阈值从末尾取窗口
+    if (!wrapLazyInit) {
+      if (totalVisible > LAZY_WINDOW) {
+        // 找到从后往前数第 LAZY_WINDOW 条可见消息在 store.state.messages 里的位置
+        let count = 0, startIdx = store.state.messages.length;
+        for (let i = store.state.messages.length - 1; i >= 0; i--) {
+          const mm = store.state.messages[i];
+          if (mm.role === 'tool' || mm.silent) continue;
+          count++;
+          if (count >= LAZY_WINDOW) { startIdx = i; break; }
+        }
+        lazyLoadedFrom = startIdx;
+      } else {
+        lazyLoadedFrom = 0;
+      }
+      wrapLazyInit = true;
+    }
+    // 如果还有更早的消息没渲染，顶部放"展开更早对话"按钮
+    if (lazyLoadedFrom > 0) {
+      // 统计 skipped 里有多少可见消息
+      let skipped = 0;
+      for (let i = 0; i < lazyLoadedFrom; i++) {
+        const mm = store.state.messages[i];
+        if (mm.role !== 'tool' && !mm.silent) skipped++;
+      }
+      const btn = renderLazyLoadMoreBtn();
+      const badge = document.createElement('span');
+      badge.className = 'lazy-load-count';
+      badge.textContent = skipped > 99 ? '99+' : String(skipped);
+      btn.appendChild(badge);
+      msgList.appendChild(btn);
+    }
+    for (let i = lazyLoadedFrom; i < store.state.messages.length; i++) {
+      const m = store.state.messages[i];
       if (m.role === 'tool' || m.silent) continue;
       appendMessage(m);
     }
     for (const n of $$('.msg', msgList)) n.classList.remove('enter');
-    // 把 tool 结果回填到芯片
+    // 把 tool 结果回填到芯片（需要在可见范围内查找）
     for (const m of store.state.messages) if (m.role === 'tool') attachToolResult(m);
     refreshActionVisibility();
     scrollToBottom(true);
@@ -4051,7 +4022,7 @@ export function mountUI(store, agent) {
   function syncCapLine() {
     const eln = $('#cap-line');
     if (!eln) return;
-    const bits = [store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? 'smart-router' : store.state.model)]; // 通道态与模型钮同一叫法（.18）
+    const bits = [store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? '智能' : store.state.model)]; // 通道态与模型钮同一叫法（.18）
     if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
     if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
