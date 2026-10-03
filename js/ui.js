@@ -4051,7 +4051,7 @@ export function mountUI(store, agent) {
   function syncCapLine() {
     const eln = $('#cap-line');
     if (!eln) return;
-    const bits = [store.state.model === '__system__' ? 'system-commands' : store.state.model]; // 通道态与模型钮同一叫法（.18）
+    const bits = [store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? 'smart-router' : store.state.model)]; // 通道态与模型钮同一叫法（.18）
     if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
     if (store.state.settings.sandboxEnabled) bits.push('沙箱');
     if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
