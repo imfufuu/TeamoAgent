@@ -1,46 +1,93 @@
-// ─── 网络能力：网页抓取 / git（git 内置轻量引擎；联网 git 仍走中继）
+// ─── 网络能力：网页抓取 / git（git 内置轻量引擎；联网 git 仍走中继）────────
 //
-// 分层：
-//   ① 本地中继 server.py 的 /api/fetch、/api/git —— 同源、无 CORS 与 CSP 限制、可抓任意页面
-//   ② 直连目标 URL（仅在页面 CSP 与站点 CORS 都放行时可用，例如用户自己改过 connect-src）
-//   全部不可用时返回「怎么修」的可执行说明，而不是给一堆假结果。
+// 中继探测顺序（relay 自动）：
+//   ① 同源中继（本地 python3 server.py，或 Pages/Functions 把 /api/* 绑到 Worker）
+//   ② 用户在 localStorage 手动设置的公共中继（key: teamo-relay，值如 https://xxx.workers.dev）
+//   ③ 内置公共 Cloudflare Worker 中继候选（留空可由用户或社区自行部署）
+//   全部不可用时给出可操作的错误提示，而不是返回假结果。
 //
 // 「联网搜索」不在这里：按用户要求，联网只使用模型 API 自带的网页搜索请求格式
 //（见 js/websearch.js 与 api.js 的注入逻辑），本项目不再调用任何第三方搜索 API。
 //
-// 注意：本模块被 tools.js 与测试引用；tools.js 里只 import 已有形状的函数，
-// 避免「新增具名导出 + 混版缓存」的 link 期白屏（见 js/agent.js 同类注释）。
+// 注意：本模块被 tools.js 与测试引用；具名导出形状需保持稳定避免 ESM 混版缓存白屏。
 
-const RELAY = { fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
-
-let relayOk = null; // null=未探测 true/false
+// 当前选中的 relay endpoints 包；初始指向同源，探测成功后替换为公共 relay 地址
+let RELAY = { base: '', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
+let activeRelay = null; // { base, label, endpoints }
+let relayOk = null;
 let relayProbe = null;
 
-/** 探测本地中继是否在跑（结果缓存；并发调用共享同一个探测） */
+// 内置公共 Cloudflare Worker 中继候选。默认留空（官方公共 relay 部署后再填入）；
+// 用户可以自己部署 relay/worker.js 到 Cloudflare Workers，通过 localStorage 覆盖。
+const PUBLIC_RELAY_CANDIDATES = [];
+
+function userRelayOverride() {
+  try {
+    const v = typeof localStorage !== 'undefined' ? localStorage.getItem('teamo-relay') : null;
+    if (!v) return '';
+    const u = new URL(v);
+    return u.origin;
+  } catch { return ''; }
+}
+function relayEndpoints(base) {
+  const b = String(base || '').replace(/\/+$/, '');
+  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health` };
+}
+async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
+  // AbortSignal.any/timeout 老浏览器可能没有，手动派生一个 ctrl
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
+  const onAbort = () => ctrl.abort();
+  if (signal) {
+    if (signal.aborted) ctrl.abort();
+    else signal.addEventListener('abort', onAbort, { once: true });
+  }
+  try {
+    const res = await fetch(endpoints.health, { signal: ctrl.signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) return false;
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('json')) return false;
+    const j = await res.json().catch(() => ({}));
+    return !!(j && j.ok);
+  } catch { return false; }
+  finally {
+    clearTimeout(t);
+    if (signal) signal.removeEventListener && signal.removeEventListener('abort', onAbort);
+  }
+}
+
+/** 探测可用中继（结果缓存；并发调用共享同一个探测） */
 export async function relayAvailable(signal) {
   if (relayOk === true) return true;
   if (relayProbe) return relayProbe;
   relayProbe = (async () => {
-    try {
-      const res = await fetch(RELAY.health, { signal, headers: { Accept: 'application/json' } });
-      if (!res.ok) return false;
-      const ct = res.headers.get('content-type') || '';
-      relayOk = ct.includes('json'); // Pages 会把未知路径回成 404 HTML —— 不能当健康
-      return relayOk;
-    } catch {
-      relayOk = false;
-      return false;
-    } finally {
-      relayProbe = null;
+    const candidates = [{ base: '', label: 'origin', endpoints: relayEndpoints('') }];
+    const override = userRelayOverride();
+    if (override) candidates.push({ base: override, label: 'user', endpoints: relayEndpoints(override) });
+    for (const url of PUBLIC_RELAY_CANDIDATES) candidates.push({ base: url, label: 'public', endpoints: relayEndpoints(url) });
+    for (const c of candidates) {
+      const ok = await probeRelayEndpoint(c.endpoints, signal);
+      if (ok) { activeRelay = c; RELAY = { base: c.base, ...c.endpoints }; relayOk = true; return true; }
     }
+    activeRelay = null;
+    // 回落到同源默认值
+    RELAY = { base: '', ...relayEndpoints('') };
+    relayOk = false;
+    return false;
   })();
-  return relayProbe;
+  try { return await relayProbe; } finally { relayProbe = null; }
 }
 
-/** 测试/页面切换部署环境时重置探测缓存 */
-export function resetRelayProbe() { relayOk = null; relayProbe = null; }
+/** 当前生效 relay 信息，无则 null */
+export function currentRelay() { return relayOk && activeRelay ? { base: activeRelay.base, label: activeRelay.label } : null; }
 
-export const RELAY_HINT = '需要本地中继：在项目目录执行 python3 server.py 后打开 http://localhost:8787（Pages 静态托管没有服务端，网页抓取和远端 git 网络操作需要中继）';
+/** 重置探测缓存（测试 / 切换环境时用） */
+export function resetRelayProbe() {
+  relayOk = null; relayProbe = null; activeRelay = null;
+  RELAY = { base: '', ...relayEndpoints('') };
+}
+
+export const RELAY_HINT = '需要中继：请执行 python3 server.py 启动本地中继，或在控制台设置 localStorage.setItem("teamo-relay","https://<你的-worker>.workers.dev") 指定已部署的 Cloudflare Worker 中继（见仓库 relay/worker.js）。';
 
 // ── HTML → 纯文本（纯函数，可在 node 里单测）─────────────────────────
 export function htmlToText(html) {
