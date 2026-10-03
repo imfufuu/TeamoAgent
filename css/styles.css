@@ -264,8 +264,13 @@ a { color: var(--fg); }
  * 不再带行内图标（避免与分组图标重复）；只保留红色「热门」badge。 */
 .dd-item-id.router-name { font-weight: 400; font-style: normal; letter-spacing: 0; }
 /* TeamoRouter 分组标题里的图标：与其他 provider 的 .p-icon 完全一致对齐（12px 高） */
-.router-group-ico { display: inline-flex; align-items: center; justify-content: center; }
-.router-group-ico svg { width: 14px; height: 14px; flex-shrink: 0; }
+.router-group-ico { display: inline-flex; align-items: center; justify-content: center; color: var(--accent, #5f8a86); }
+.router-group-ico svg { width: 14px; height: 14px; flex-shrink: 0; opacity: 1; }
+.badge.router-badge { color: var(--accent, #5f8a86); border-color: var(--accent, #5f8a86); }
+[data-theme="dark"] .badge.router-badge { color: var(--accent, #7fb0ac); border-color: var(--accent, #7fb0ac); }
+/* 为 TEAMOROUTER 分组标题单独加类，文字色也用品牌色（避免 :has 兼容问题） */
+.dd-group-title.router-group-title { color: var(--accent, #5f8a86); }
+[data-theme="dark"] .dd-group-title.router-group-title { color: var(--accent, #7fb0ac); }
 .dd-item-badges { display: flex; gap: 4px; flex-shrink: 0; }
 .badge { font-size: 9px; font-weight: 700; letter-spacing: .06em; border: 1px solid var(--line-2); border-radius: 4px; padding: 1px 5px; color: var(--fg-2); }
 .badge.hot { color: #c2410c; border-color: #fdba74; }

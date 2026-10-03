@@ -1277,7 +1277,7 @@ export function mountUI(store, agent) {
     for (const p of order) {
       const g = el('div', 'dd-group');
       const isRouterGroup = p === SMART_ROUTER_PROVIDER;
-      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(isRouterGroup ? 'TEAMOROUTER' : p)}</span>`));
+      g.appendChild(el('div', 'dd-group-title' + (isRouterGroup ? ' router-group-title' : ''), `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(isRouterGroup ? 'TEAMOROUTER' : p)}</span>`));
       for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -1287,9 +1287,9 @@ export function mountUI(store, agent) {
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
         const isRouter = isSmartRouter(m.id);
         item.innerHTML = isRouter
-          ? `<span class="dd-item-id mono router-name">智能</span>
+          ? `<span class="dd-item-id mono router-name">smart-router</span>
             <span class="dd-item-badges">
-              <span class="badge hot">热门</span>
+              <span class="badge router-badge">智能</span>
             </span>`
           : `<span class="dd-item-id mono">${esc(m.id)}</span>
             <span class="dd-item-badges">
