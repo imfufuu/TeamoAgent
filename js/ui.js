@@ -2443,6 +2443,94 @@ export function mountUI(store, agent) {
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
+  // ── 流式渐显核心：按字符位置切分，只包裹新到达的 token ─────────────
+  // 入参 body 是刚通过 innerHTML 重建后的 .md-body；我们在此基础上把新增字符包成
+  // <span class="stream-reveal">。返回值无；副作用：
+  //   - 修改 DOM（文本节点切分 + 插入 span）；
+  //   - 在 wrap 上记 _streamSteadyChars 为这次 paint 后已稳定字符总数。
+  // 跳过的节点：
+  //   - 光标/连接行/取消标签/截断提示/折叠控件（非正文）；
+  //   - <pre>、<code>、<table> 内（结构化内容整体出现更自然）；
+  //   - SVG / 图片 / 链接属性里的文本不可见、不应计数。
+  function applyStreamReveal(body, m) {
+    const wrap = body.closest('.msg');
+    let steady = (wrap && typeof wrap._streamSteadyChars === 'number') ? wrap._streamSteadyChars : 0;
+
+    // 收集"应该被计数并参与渐显"的 text node 列表（文档顺序）
+    const SKIP_TAGS = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE', 'TABLE', 'SVG', 'CANVAS']);
+    const SKIP_CLASSES = new Set(['cursor', 'connect-line', 'cancelled-tag', 'trunc-note', 'reasoning', 'chip-detail', 'fold-inner', 'choice-box']);
+    const textNodes = [];
+    const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        // 空文本跳过
+        if (!node.nodeValue || !node.nodeValue.length) return NodeFilter.FILTER_REJECT;
+        // 沿父链检查是否在需要跳过的容器里
+        let p = node.parentNode;
+        while (p && p !== body) {
+          if (p.nodeType !== 1) { p = p.parentNode; continue; }
+          if (SKIP_TAGS.has(p.tagName)) return NodeFilter.FILTER_REJECT;
+          if (p.classList) {
+            for (const cls of SKIP_CLASSES) if (p.classList.contains(cls)) return NodeFilter.FILTER_REJECT;
+          }
+          p = p.parentNode;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let n;
+    while ((n = walker.nextNode())) textNodes.push(n);
+
+    // 计算总可见字符数
+    let total = 0;
+    for (const tn of textNodes) total += tn.nodeValue.length;
+
+    // 防御：markdown 重排可能让"可见字符数"变少（例如列表/粗体切换），
+    // 此时把 steady 夹紧到 total，避免位置错位导致整段重播。
+    if (steady > total) steady = total;
+
+    // 现在遍历文本节点，把 [steady, total) 范围对应的字符替换为 stream-reveal span
+    let cursor = 0; // 当前 text node 起点的全局偏移
+    let newChars = total - steady;
+    if (newChars <= 0) {
+      // 没有新字符（可能是工具芯片等非文本更新）——什么都不做
+      wrap._streamSteadyChars = total;
+      return;
+    }
+    // 限制单次动画最大字符数：如果突然涌入很多字（首屏/历史/工具返回后整段注入），
+    // 不要让一大坨都做淡入——只对末尾一小段做渐显，其余立即显示（更像 Gemini）。
+    const MAX_CHUNK = 90;
+    const revealStart = Math.max(steady, total - MAX_CHUNK);
+    for (const tn of textNodes) {
+      const len = tn.nodeValue.length;
+      const nodeStart = cursor;
+      const nodeEnd = cursor + len;
+      // 与 [revealStart, total) 的交集
+      const lo = Math.max(nodeStart, revealStart);
+      const hi = Math.min(nodeEnd, total);
+      if (hi > lo) {
+        const loInNode = lo - nodeStart;
+        const hiInNode = hi - nodeStart;
+        // tn 被切成：[0, loInNode) 普通文本；[loInNode, hiInNode) 是 reveal；[hiInNode, len) 普通文本（一般为空）
+        const parent = tn.parentNode;
+        const before = tn.nodeValue.slice(0, loInNode);
+        const mid = tn.nodeValue.slice(loInNode, hiInNode);
+        const after = tn.nodeValue.slice(hiInNode);
+        const frag = document.createDocumentFragment();
+        if (before) frag.appendChild(document.createTextNode(before));
+        if (mid) {
+          const span = document.createElement('span');
+          span.className = 'stream-reveal';
+          span.textContent = mid;
+          frag.appendChild(span);
+        }
+        if (after) frag.appendChild(document.createTextNode(after));
+        parent.replaceChild(frag, tn);
+      }
+      cursor = nodeEnd;
+    }
+    wrap._streamSteadyChars = total;
+  }
+
   function paintAssistant(wrap, m) {
     wrap.classList.toggle('cancelled', !!m.cancelled);
     const body = $('.md-body', wrap);
@@ -2467,21 +2555,35 @@ export function mountUI(store, agent) {
     }
     body.innerHTML = html;
     body.classList.toggle('empty', !String(html || '').trim());
-    // ── 流式淡入效果：流进行中给最后一个块级元素加 fade-in 类，逐块出现 ──
-    body.classList.toggle('streaming', live);
-    if (live && m.text) {
-      // 给末尾元素加淡入动画（模拟 Gemini 的流式 reveal）
-      const kids = body.children;
-      for (let i = kids.length - 1; i >= Math.max(0, kids.length - 2); i--) {
-        const k = kids[i];
-        if (k.classList && !k.classList.contains('cursor') && !k.classList.contains('connect-line') && !k.classList.contains('cancelled-tag') && !k.classList.contains('trunc-note') && !k.classList.contains('reasoning')) {
-          k.classList.add('stream-reveal');
-          break;
-        }
-      }
+
+    // ── 流式渐显（类 Gemini，逐字符级无闪烁）─────────────────────────
+    // 设计要点：
+    //   1) innerHTML 每次重绘必然销毁/重建 DOM → 不能在父块上挂 animation（会每次从 0 重播）。
+    //   2) 改为：维护每条消息的"已稳定渲染字符数"_streamSteadyChars。
+    //      - 设置 innerHTML 后用 TreeWalker 按文档顺序遍历全部 text node，
+    //        累计可见字符；
+    //      - 前 steady 个字符保持裸文本（无任何包裹，永不闪烁）；
+    //      - 超出部分（新到的 token）切出来包成 <span class="stream-reveal">，
+    //        这个 span 是这次 paint 刚创建的，它的 CSS animation 从 0 开始跑一次 → 自然淡入；
+    //      - 下一帧 paint 时，这个 span 连同它里面的文本在新的 innerHTML 里会变成
+    //        "稳定部分"（被展开回普通 text node），不再被包，也不会有动画 → 不闪。
+    //   3) 跳过不应动的元素（光标/连接提示/已完成标签/折叠等），也跳过 code block/
+    //      pre/table 里的字符——它们是结构化文本，逐字渐显会让代码/表格看起来像打字机，
+    //      反而不符合 Gemini 的"自然到位"观感；代码块改为出现即完整显示。
+    //   4) 流式结束（!live）时，steady 计数清零；body.streaming 类也被移除（CSS 已兜底：
+    //      non-streaming 模式下 reveal 无动画、透明度 1）。
+    body.classList.toggle('streaming', !!live);
+    if (live) {
+      applyStreamReveal(body, m);
     } else {
-      // 结束后移除所有 fade 标记，避免 hover/重渲染残留
-      $$('.stream-reveal', body).forEach((n) => n.classList.remove('stream-reveal'));
+      // 完成态：清掉可能残留的 reveal 包裹 & 重置计数器
+      $$('.stream-reveal', body).forEach((n) => {
+        const parent = n.parentNode;
+        if (!parent) return;
+        while (n.firstChild) parent.insertBefore(n.firstChild, n);
+        parent.removeChild(n);
+      });
+      wrap._streamSteadyChars = 0;
     }
     hydrateSandboxMedia(body, agent.fs);
     bindFoldRows(body);
@@ -3004,7 +3106,11 @@ export function mountUI(store, agent) {
     const wrap = messageNode(m);
     msgNodes.set(m.id, wrap);
     wrap._msg = m;
-    if (m.role === 'assistant') paintAssistant(wrap, m);
+    if (m.role === 'assistant') {
+      // 新 assistant 消息重置流式计数，避免跨消息泄漏导致整段不动
+      wrap._streamSteadyChars = 0;
+      paintAssistant(wrap, m);
+    }
     msgList.appendChild(wrap);
     if (m.role === 'assistant') refreshActionVisibility();
     scrollToBottom();

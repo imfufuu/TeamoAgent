@@ -588,14 +588,25 @@ a { color: var(--fg); }
 .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--fg); vertical-align: text-bottom; margin-left: 2px; animation: blink .9s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
 
-/* 流式文本渐显（类 Gemini 客户端效果：每段/每句淡入，避免整段瞬闪） */
-.md-body .stream-reveal { animation: streamFadeIn .32s ease-out both; }
-.md-body .stream-reveal > * { animation: streamNodeFade .32s ease-out both; }
-@keyframes streamFadeIn { from { opacity: 0; filter: blur(2px); transform: translateY(2px); } to { opacity: 1; filter: none; transform: none; } }
-@keyframes streamNodeFade { from { opacity: 0; } to { opacity: 1; } }
-/* 正在流式时最后一块的光标后追加柔化渐变感：新字逐渐到位 */
-.msg-assistant:not(.msg-done) .md-body > .stream-chunk:last-child { animation: streamChunkIn .25s ease-out both; }
-@keyframes streamChunkIn { from { opacity: 0.4; } to { opacity: 1; } }
+/* ── 流式文本渐显（类 Gemini）─────────────────────────────────────
+ * 核心思想：稳定内容永远不动，只有**新到达的 token**被包进 .stream-reveal，
+ * 一次性 120ms fade-in。动画结束后类名可以被移除但 DOM 不变，所以绝不会重闪。
+ * 注意：不要在父块上加 animation 动画——每次 innerHTML 会重建父块导致闪烁，
+ * 要把动画加在"新增的最细粒度文本包裹"上，且只在包裹创建的那一帧触发一次。 */
+.md-body.streaming .stream-reveal {
+  display: inline;
+  animation: streamReveal 140ms ease-out both;
+}
+@keyframes streamReveal {
+  from { opacity: 0; filter: blur(0.8px); }
+  to   { opacity: 1; filter: none; }
+}
+/* 流式结束后把所有已淡入的 reveal 标记清掉，避免在复制/重排时带上样式 */
+.md-body:not(.streaming) .stream-reveal {
+  animation: none;
+  opacity: 1;
+  filter: none;
+}
 
 .cancelled-tag { font-size: 11px; color: var(--fg-3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; margin-left: 8px; }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: 12.5px; color: var(--fg-2); font-family: var(--mono); word-break: break-all; }
