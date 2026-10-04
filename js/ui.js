@@ -21,8 +21,8 @@ import { relayAvailable } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
 // 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.3.19';
-import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.3.19';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.3.20';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.3.20';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -629,10 +629,32 @@ function renderQuickDiagram(kind, body, title = '') {
 }
 
 function sanitizeSvgRaw(raw) {
-  return String(raw || '')
+  let s = String(raw || '')
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<foreignObject[\s\S]*?<\/foreignObject>/gi, '')
     .replace(/\son[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+  // 确保有 xmlns（否则 <img src="data:image/svg+xml"> 不认，渲染为 0×0）
+  if (/<svg[\s>]/i.test(s) && !/xmlns\s*=\s*["']http:\/\/www\.w3\.org\/2000\/svg["']/i.test(s)) {
+    s = s.replace(/<svg/i, '<svg xmlns="http://www.w3.org/2000/svg"');
+  }
+  // 若只有 viewBox 没有 width/height，补 width/height 避免 intrinsic size 塌陷成 0
+  if (/<svg[\s>][\s\S]*viewBox/i.test(s)) {
+    const hasW = /<svg[^>]*\swidth\s*=\s*["']?[\d.]+/i.test(s);
+    const hasH = /<svg[^>]*\sheight\s*=\s*["']?[\d.]+/i.test(s);
+    if (!hasW || !hasH) {
+      const vm = /viewBox\s*=\s*["']?\s*([\-\d.]+)[\s,]+([\-\d.]+)[\s,]+([\-\d.]+)[\s,]+([\-\d.]+)/i.exec(s);
+      if (vm) {
+        const w = parseFloat(vm[3]), h = parseFloat(vm[4]);
+        s = s.replace(/<svg/i, (m) => {
+          let tag = m;
+          if (!hasW) tag += ` width="${w}"`;
+          if (!hasH) tag += ` height="${h}"`;
+          return tag;
+        });
+      }
+    }
+  }
+  return s;
 }
 
 function hydrateSandboxMedia(root, fs) {

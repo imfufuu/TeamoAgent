@@ -1,11 +1,12 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.3.19';
-import { createAgent } from './agent.js?v=2026.10.3.19';
-import { mountUI, toast } from './ui.js?v=2026.10.3.19';
+import { createStore } from './state.js?v=2026.10.3.20';
+import { createAgent } from './agent.js?v=2026.10.3.20';
+import { mountUI, toast } from './ui.js?v=2026.10.3.20';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.3.19';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.3.20';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.3.20';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -80,7 +81,12 @@ const hooks = {
 };
 
 const agent = createAgent(store, hooks);
+applyFontSize();
 ui = mountUI(store, agent);
+mountSettings(store, {
+  onRelayChanged: () => { relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {}); },
+  onKeySaved: () => { if (ui && ui.updateStats) ui.updateStats(); },
+});
 // β 调试浮窗：?debug=1 / Ctrl+Alt+D / ⌘K「打开调试浮窗」三种入口，挂载失败不影响主应用
 try {
   const dbgParams = new URLSearchParams(location.search);
