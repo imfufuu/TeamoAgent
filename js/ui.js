@@ -17,12 +17,12 @@ import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
-import { relayAvailable } from './net.js';
+import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
 // 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.3.20';
-import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.3.20';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.1';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.1';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -1271,7 +1271,8 @@ export function mountUI(store, agent) {
     syncThemeToggle();
   };
   applyTheme();
-  $('#theme-toggle').addEventListener('click', () => {
+  const themeBtn = $('#theme-toggle');
+  if (themeBtn) themeBtn.addEventListener('click', () => {
     store.state.settings.theme = store.state.settings.theme === 'light' ? 'dark' : 'light';
     applyTheme(); store.notify();
   });
@@ -1536,8 +1537,8 @@ export function mountUI(store, agent) {
       webToggle.disabled = false;
       webToggle.classList.remove('on');
       webToggle.classList.add('degraded-off');
-      webToggle.setAttribute('aria-disabled', 'true');
-      webToggle.title = '【降级说明】当前为纯静态网页环境，未检测到本地 127.0.0.1:8787 的 server.py 中继，已自动裁剪 fetch_url。在项目目录执行 python3 server.py 后刷新页面即可开启联网抓取。';
+      webToggle.removeAttribute('aria-disabled');
+      webToggle.title = '点此重新探测中继（公共 Cloudflare Worker 或本地 server.py）';
       syncCapLine();
       return;
     }
@@ -1546,24 +1547,28 @@ export function mountUI(store, agent) {
     webToggle.removeAttribute('aria-disabled');
     const on = store.state.settings.webEnabled !== false;
     webToggle.classList.toggle('on', on);
+    const rel = currentRelay();
+    const relName = rel ? (rel.label === 'origin' ? '同源' : rel.base) : '中继';
     webToggle.title = on
-      ? '联网已开：经本地中继用 fetch_url 抓取网页。再点关闭。'
-      : '联网已关。点此开启（经本地中继抓取网页）。';
+      ? `联网已开：经${relName}抓取网页。再点关闭。`
+      : `联网已关。点此开启（经${relName}抓取网页）。`;
     syncCapLine();
   };
   if (webToggle) {
     webToggle.addEventListener('click', async () => {
       if (!hasRelay()) {
+        resetRelayProbe();
         const liveOk = await relayAvailable();
         if (liveOk) {
           store.state.relayOk = true;
           store.state.settings.webEnabled = true;
           store.notify();
           syncWeb();
-          toast('✓ 已实时探测到本地 server.py 中继上线，联网抓取能力已自动恢复', 'ok', 3600);
+          const rel = currentRelay();
+          toast(`✓ 已探测到可用中继（${rel && rel.base || '同源'}），联网抓取已开启`, 'ok', 3600);
           return;
         }
-        toast('未检测到本地中继（server.py），fetch_url 已降级隐藏。请在项目目录运行 python3 server.py 后再点此按钮实时恢复', 'warn', 4200);
+        toast('未检测到可用中继（公共 Cloudflare Worker 或本地 server.py 都不可达），联网抓取暂不可用', 'warn', 4200);
         return;
       }
       store.state.settings.webEnabled = store.state.settings.webEnabled === false;
@@ -1693,8 +1698,26 @@ export function mountUI(store, agent) {
       else if (!e.shiftKey && idx === focusables.length - 1) { e.preventDefault(); focusables[0].focus(); }
     }
   });
+/** API Key 格式校验：
+ *  - 空值允许（清除 key）
+ *  - admin- 开头的管理员别名直接放行（isAdminAlias 另作口令校验）
+ *  - 普通 key 必须以 sk-teamo- 开头，后面只允许字母数字 _-，总长度 ≥ 25
+ */
+function validateApiKey(s) {
+  const v = String(s || '').trim();
+  if (!v) return { ok: true };
+  if (isAdminAlias(v)) return { ok: true };
+  if (!/^sk-teamo-[A-Za-z0-9_-]+$/.test(v)) {
+    return { ok: false, reason: 'Key 应以 sk-teamo- 开头，后面只能包含字母/数字/_/-' };
+  }
+  if (v.length < 25) return { ok: false, reason: 'Key 长度过短，请检查是否复制完整' };
+  if (v.length > 200) return { ok: false, reason: 'Key 过长，请检查是否粘贴了多余字符' };
+  return { ok: true };
+}
   $('#key-save').addEventListener('click', async () => {
     const typed = keyInput.value.trim();
+    const chk = validateApiKey(typed);
+    if (!chk.ok) { toast('Key 格式错误：' + chk.reason, 'err', 5000); keyInput.focus(); keyInput.select(); return; }
     // 管理员别名：先用口令解封（解不开就拒绝保存，避免存进去一把用不了的 key）
     if (isAdminAlias(typed)) {
       const r = await unlockAdminKey(typed);

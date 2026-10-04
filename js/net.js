@@ -20,7 +20,7 @@ let relayProbe = null;
 // 内置公共 Cloudflare Worker 中继候选。按顺序探测，第一个 200/ok 的生效。
 // 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'teamo-relay' 覆盖。
 const PUBLIC_RELAY_CANDIDATES = [
-  'https://teamo-relay.lks-tan-cn.workers.dev',
+  'https://relay.teamo.workers.dev',
 ];
 
 function userRelayOverride() {

@@ -9,18 +9,18 @@
      · worker 放行 self 与 blob:（sandbox.js 的 blob Worker 兜底通道）
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-BxpkhUzTCsnYi42sjO2a0RMpjJk2CKlKuAZP/8GcE6k=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.3.20" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-th9GJPqqm1Pdnpj+Tn5suvvMXCKl+LxWQDtPvEDLyUk=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
+<meta name="app-version" content="2026.10.4.1" />
 <meta name="app-release" content="V1.5" />
 <title>TeamoAgent V1.5 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.10.3.20" />
-<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.10.3.20" />
+<link rel="stylesheet" href="css/styles.css?v=2026.10.4.1" />
+<link rel="stylesheet" href="assets/hljs/teamo.css?v=2026.10.4.1" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cactus+Classical+Serif&family=Klee+One&family=LXGW+WenKai+TC&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&display=swap" />
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@free-fonts/zhuque-fangsong@1.0.0/zhuque-fangsong.min.css" />
-<link rel="stylesheet" href="fonts/literary.css?v=2026.10.3.20" />
+<link rel="stylesheet" href="fonts/literary.css?v=2026.10.4.1" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -47,8 +47,8 @@
   <div class="boot-hint" id="boot-hint">正在初始化…</div>
   <div class="boot-err" id="boot-err" hidden></div>
 </div>
-<!-- 启动兜底：如果 12s 后 boot-screen 还在，说明模块链加载/初始化出错，强制显示错误而不是永远转圈。
-     注意：脚本在 boot-screen 之后，这样能立即拿到 boot 元素。 -->
+<!-- 启动兜底：脚本在 boot-screen 之后，这样能立即拿到 boot 元素。
+     只在 ① 实际未捕获异常 ② 25 秒仍未挂载 时触发，避免 ESM 模块还在执行就误报 -->
 <script>(function(){
   var boot=document.getElementById('boot-screen'), bar=document.getElementById('boot-bar'), hint=document.getElementById('boot-hint'), errBox=document.getElementById('boot-err');
   var stages=['正在初始化…','加载模块…','启动沙箱…','挂载界面…','准备就绪'];
@@ -70,18 +70,26 @@
       setTimeout(function(){ try{boot.remove();}catch(e){} },500);
     },400);
   }
-  var t=setTimeout(function(){ forceReveal('加载超时（网络可能较慢，请强制刷新重试）'); },15000);
+  var t=setTimeout(function(){ forceReveal('加载超时（网络可能较慢，请强制刷新重试）'); },25000);
+  // 仅当错误来自我们的 js/ 目录或 app.html 自身才触发（浏览器扩展/注入脚本的错误忽略）
   window.addEventListener('error',function(e){
+    try{
+      var src=(e.filename||'');
+      // 忽略非同源、非 js/ 目录、非内联的错误（浏览器扩展、Greasemonkey 等会注入假错误）
+      if(src && !/\/js\//.test(src) && !/\/app\.html/.test(src) && !/\/index\.html/.test(src)) return;
+      // 还在 DOMContentLoaded 阶段的脚本加载错误直接忽略，因为模块可能正在并行加载
+      if(document.readyState==='loading') return;
+    }catch(_){}
     var msg='未知错误';
     try{ msg=((e.error&&e.error.message)||e.message||String(e)).slice(0,200); }catch(_){}
     clearTimeout(t);
-    setTimeout(function(){ forceReveal('错误：'+msg); },800);
+    setTimeout(function(){ forceReveal('错误：'+msg); },1200);
   },{once:false});
-  // 监控 main.js 是否 404/network fail
-  document.addEventListener('readystatechange',function(){
-    // DOMContentLoaded 之后 3 秒若 boot 还在，说明模块链失败
-    if(document.readyState==='interactive'){
-      setTimeout(function(){ if(document.getElementById('boot-screen')) forceReveal('主脚本未能完成加载'); },3000);
+  window.addEventListener('unhandledrejection',function(e){
+    var reason=e.reason; var msg=(reason&&reason.message)||String(reason||'');
+    // 网络错误或资源加载失败不在这里触发（有自己的 UI）
+    if(/Loading chunk|Loading CSS chunk|Importing a module script failed|Failed to fetch dynamically imported module/i.test(msg)){
+      clearTimeout(t); setTimeout(function(){ forceReveal('模块加载失败，请检查网络后刷新：'+msg.slice(0,120)); },800);
     }
   });
   var mo=new MutationObserver(function(){ if(!document.getElementById('boot-screen')){ clearTimeout(t);clearInterval(si);mo.disconnect(); } });
@@ -142,10 +150,6 @@
         <button id="export-btn" class="mini-btn" type="button" title="导出会话 JSON">导出</button>
         <button id="import-btn" class="mini-btn" type="button" title="从 JSON 导入会话">导入</button>
         <input id="import-input" type="file" accept="application/json,.json" hidden />
-        <button id="theme-toggle" class="mini-btn icon-only" type="button" title="切换明暗主题" aria-label="切换明暗主题">
-          <svg class="pill-ico ico-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>
-          <svg class="pill-ico ico-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.93 19.07 1.41-1.41"/><path d="m17.66 6.34 1.41-1.41"/></svg>
-        </button>
       </div>
     </div>
   </aside>
@@ -310,8 +314,8 @@
         <div class="set-row"><div class="set-lbl"><div class="set-title">联网抓取（fetch_url）</div><div class="set-sub">需中继可用</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-web"/><span></span></label></div></div>
         <div class="set-row"><div class="set-lbl"><div class="set-title">快速模式（Fast）</div><div class="set-sub">GPT 系列，2× 计费</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-fast"/><span></span></label></div></div>
         <div class="set-row"><div class="set-lbl"><div class="set-title">深度思考</div><div class="set-sub">为支持模型开启 extended thinking</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-thinking"/><span></span></label></div></div>
-        <div class="set-row">
-          <div class="set-lbl"><div class="set-title">思考强度</div><div class="set-sub">Mini 最快，Ultra 最长</div></div>
+        <div class="set-row" id="set-reason-row" hidden>
+          <div class="set-lbl"><div class="set-title">思考强度</div><div class="set-sub">Mini 最快，Ultra 最长（关闭深度思考时此项失效）</div></div>
           <div class="set-ctl"><div class="seg" id="set-reason"><button type="button" data-v="mini">Mini</button><button type="button" data-v="low">Low</button><button type="button" data-v="medium">Mid</button><button type="button" data-v="high">High</button><button type="button" data-v="max">Max</button><button type="button" data-v="ultra">Ultra</button></div></div>
         </div>
       </section>
@@ -337,6 +341,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.10.3.20"></script>
+<script type="module" src="js/main.js?v=2026.10.4.1"></script>
 </body>
 </html>

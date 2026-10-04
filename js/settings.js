@@ -4,6 +4,31 @@ import { currentRelay, resetRelayProbe } from './net.js';
 
 const $ = (sel) => document.querySelector(sel);
 
+const ADMIN_PREFIX = 'admin-';
+const isAdmin = (s) => String(s || '').startsWith(ADMIN_PREFIX);
+function validateApiKey(s) {
+  const v = String(s || '').trim();
+  if (!v) return { ok: true };
+  if (isAdmin(v)) return { ok: true };
+  if (!/^sk-teamo-[A-Za-z0-9_-]+$/.test(v)) return { ok: false, reason: 'Key 应以 sk-teamo- 开头，只能包含字母/数字/_/-' };
+  if (v.length < 25) return { ok: false, reason: 'Key 长度过短，请检查是否复制完整' };
+  if (v.length > 200) return { ok: false, reason: 'Key 过长，请检查是否粘贴了多余字符' };
+  return { ok: true };
+}
+function toast(msg, type = 'info', ms = 2600) {
+  try {
+    import('./ui.js').then(({ toast: t }) => t && t(msg, type, ms)).catch(() => {
+      const wrap = document.getElementById('toasts');
+      if (!wrap) return;
+      const d = document.createElement('div');
+      d.className = `toast ${type} in`;
+      d.textContent = msg;
+      wrap.appendChild(d);
+      setTimeout(() => { d.classList.remove('in'); d.classList.add('leaving'); setTimeout(() => d.remove(), 400); }, ms);
+    });
+  } catch {}
+}
+
 function syncSeg(sel, v) {
   const host = document.querySelector(sel);
   if (!host) return;
@@ -81,11 +106,17 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
     if (e.key === 'Escape') closeSettingsModal();
   });
 
-  $('#set-key').addEventListener('change', () => {
-    store.state.apiKey = $('#set-key').value.trim();
+  function saveKey() {
+    const v = $('#set-key').value.trim();
+    const chk = validateApiKey(v);
+    if (!chk.ok) { toast('Key 格式错误：' + chk.reason, 'err', 5000); $('#set-key').focus(); $('#set-key').select(); return false; }
+    store.state.apiKey = v;
     store.notify();
     onKeySaved && onKeySaved();
-  });
+    return true;
+  }
+  $('#set-key').addEventListener('change', saveKey);
+  $('#set-key').addEventListener('blur', saveKey);
   $('#set-relay').addEventListener('change', async () => {
     const v = $('#set-relay').value.trim();
     try { if (v) localStorage.setItem('teamo-relay', v); else localStorage.removeItem('teamo-relay'); } catch {}
@@ -118,7 +149,10 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   bindSw('#set-sandbox', 'sandboxEnabled');
   bindSw('#set-web', 'webEnabled');
   bindSw('#set-fast', 'fastMode');
-  bindSw('#set-thinking', 'thinking');
+  const reasonRow = document.getElementById('set-reason-row');
+  const syncReasonRow = () => { if (reasonRow) reasonRow.hidden = !$('#set-thinking').checked; };
+  bindSw('#set-thinking', 'thinking', syncReasonRow);
+  syncReasonRow();
 
   bindSeg('#set-reason', (v) => {
     store.state.settings.reasoningLevel = v;
