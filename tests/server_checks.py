@@ -124,7 +124,7 @@ def main():
     check("代理拒绝非 v1", m.validate_proxy_path("/api/git") is False)
     check("代理拒绝协议相对", m.validate_proxy_path("//evil.example") is False)
 
-    print("\n搜索端点已移除（联网只用模型 API 自带格式）")
+    print("\n本地搜索端点已移除（搜索与站点爬取由可选 Cloudflare Worker 提供）")
     src = (ROOT / "server.py").read_text(encoding="utf8")
     check("源码里没有 /api/search 路由与 handler",
           'route == "/api/search"' not in src and "def _search" not in src and "self._search" not in src)

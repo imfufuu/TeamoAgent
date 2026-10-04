@@ -8,7 +8,7 @@
 
 - 最快路径：打开线上介绍页进入对话，或本仓库 `python3 server.py` 后打开本地页
 - Key 只存在本机 localStorage，请求直发网关
-- 没有模型原生网页搜索；「联网」必须本地中继起来才会亮，灰着就点不了
+- 网页检索走显式工具：本地 `server.py` 提供单页 `fetch_url`，新版 Cloudflare Worker 另提供 `search_web` 与同源 `crawl_site`；不向模型请求注入原生网页搜索字段，Worker 能力由 `/api/health` 探测
 - 下面先「快速开始」。协议表和架构图是排错用的，日常对话不必先读完
 
 ## 快速开始
@@ -53,7 +53,7 @@ P0 让执行过程可解释，P1 让过程质量可度量、中断能接着干�
 - 读改文件、哈希 / 正则 / ZIP、生图与识图（识图走专用工具，不塞进对话多模态）
 - 本地静态模型内容审核：文本 Toxicity + USE 语义/策略层、图片 NudeNet + NSFWJS 均从 `assets/moderation/` 加载，不调用网关；成人色情、NSFW 图片与高风险/公序良俗类内容会在主模型前拦截
 - 多会话、回滚、只覆盖「最近一条」的重新生成；思考从 Off 到 Ultra
-- 有本地中继时才能抓网页、跑 git；无中继时顶栏「联网」保持灰色
+- 网页抓取与搜索/爬虫走中继（本地 relay 或 Cloudflare Worker）；Git 远端操作需本地中继，沙箱内基础 Git 始终可用。Worker 不可达时相应工具不出现在工具表里
 - 执行过程可解释、可恢复：每次工具调用都能回答「为什么调用、调用前后状态如何」，高风险操作在 `strict` 档会停下来等你确认
 - 中断 / 刷新后能接着干：已完成且产物未变的步骤会被复用，产物被外部改动则先核验再继续（`/resume` 随时可查）
 - 长期记忆有生命周期：来源分级（只有「用户明确要求」与「用户长期稳定行为」适合进长期库）、敏感信息默认只进候选区、冲突记忆本轮不注入
@@ -118,7 +118,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
-`fetch_url`（仅本地中继 + 顶栏「联网」打开时）、`run_git`（本地中继 `workspace/` 内 git）。
+`fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site`（新版 Worker + 联网开关）、`run_git`（本地中继 `workspace/` 内 git）。
 另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
@@ -143,7 +143,7 @@ ANSWERING → VERIFIED → COMMITTED（COMMITTED 只能从 VERIFIED 进入）
 - **工具失败不可能「隐式收尾」**：`TOOL_FAILED → COMMITTED` 是非法转移，必须走带限制作答并核验；
 - 刷新或中断后 `resumeExecutionState` 直接给出阶段、未完成步骤与续跑入口（工具执行中被中断 → 先核验再续跑，并自动在下一轮注入断点续跑提示）。
 
-**2. 工具调用前后的契约校验**（`tool-contract-2.3.0`，28 个工具 100% 覆盖）
+**2. 工具调用前后的契约校验**（`tool-contract-2.4.0`，30 个工具 100% 覆盖）
 
 - 每个工具声明输入 Schema、副作用、幂等性、重试策略、超时、回滚与风险等级；新增工具若没补契约，单测直接红灯；
 - 调用前：参数 Schema（类型 / 必填 / 枚举）、工具是否在本轮工具表、能力与约束、预算、幂等键是否指向「副作用不确定」的旧调用；
@@ -175,13 +175,17 @@ ANSWERING → VERIFIED → COMMITTED（COMMITTED 只能从 VERIFIED 进入）
 | 数据 | data-analyst 数据分析 · mathematician 数学 · sql-expert SQL · regex-expert 正则 |
 | 内容 | doc-writer 文档 · translator 翻译 · copywriter 文案 · explainer 讲解 · brainstormer 头脑风暴 |
 
-## 联网与抓取：本地中继
+## 网页搜索与抓取：Cloudflare Worker
 
-**顶栏「联网」只有探测到本地中继（`python3 server.py`）才能打开；GitHub Pages / 没有中继时按钮始终灰色、点不了。**
-打开后 Agent 用 `fetch_url` 经中继抓取具体网址。不接第三方搜索，也不再下发模型原生网页搜索字段。
+顶栏「联网」需要探测到一个可用 relay（本地 `server.py` 或 Cloudflare Worker）。模型原生网页搜索字段保持关闭；Worker health 未声明的工具不会进入工具表。
 
-`fetch_url`（抓取指定 URL）与 `run_git` 则需要本地中继 `server.py`：浏览器受同源与 CSP 限制抓不了任意站点，
-所以这两个工具是「中继优先」——中继不在就返回可读原因 + 修复步骤，绝不返回编造内容。
+- `fetch_url`：读取一个 URL 的正文。可由本地 `server.py` 或 Worker `/api/fetch` 提供。
+- `search_web`：仅在 Worker `/api/health` 声明 `search` 时出现。优先使用可选配置的 SearXNG，否则用 DuckDuckGo HTML 适配器；回退原因会显示。
+- `crawl_site`：仅在 health 声明 `crawl` 时出现。Worker 只跟进起始页同源文本链接，默认 3 页/深度 1，最多 5 页/深度 2；不渲染 JavaScript、不下载二进制。
+
+Worker 文档与部署说明见 [`relay/README.md`](relay/README.md)。可在 Cloudflare Worker Variables 设置 `SEARXNG_URL`（HTTPS、启用 JSON）；否则无需搜索 API Key。搜索词会发送给配置的 SearXNG 或 DuckDuckGo。搜索结果与网页正文是不可信资料，不能当作指令；回答中的关键事实应核对原始 URL。
+
+本地中继仍用于真实 Git 与单页抓取：
 
 ```bash
 python3 server.py 8787                 # 默认开启 git（只在 ./workspace 里跑）
@@ -189,18 +193,16 @@ python3 server.py --no-git             # 只留抓取
 python3 server.py --workspace ~/code   # 换工作区（git 的根，越界一律拒绝）
 ```
 
-中继端点：`GET /api/health`（前端据此决定「联网」能否打开）、`GET /api/fetch?url=&mode=text|raw&max=`、
-`POST /api/git {command,repo,timeout}`。**没有 `/api/search`**。
+本地 `server.py` 提供 `GET /api/health`、`GET /api/fetch`、`POST /api/git`；新 Worker 另提供 `GET /api/search` 与 `GET /api/crawl`。前端按 health capabilities 探测具体能力，不会把 Worker 新路由误打到旧版本地 relay 的 404。
 
-安全边界（`tests/server_checks.py` 51 项护栏自检覆盖）：
+安全边界：
 
-- 子命令白名单 + 参数黑名单（`-c/--git-dir/--work-tree/--upload-pack/--ext::/…`），
-  `GIT_CEILING_DIRECTORIES` 把仓库定位钉死在 `workspace/` 内，`GIT_TERMINAL_PROMPT=0` 不弹账号密码；
-  `config` 只允许白名单里的本仓库键，`--global/--file/alias.*` 一律拒绝；
-- `/api/fetch` 与 `/api/git` 的 URL 都过 `guard_public_http_url`：只允许公网 http(s)，
-  loopback / 私网 / 链路本地（含 `169.254.169.254`）直接拒，防中继当 SSRF 跳板；
-- 抓取上限 4 MB（`max` 可再调小），返回文本按 `max_bytes` 截断，`fetch_url` 超过 2000 字符时把全文
-  写进 `web/<host>/<slug>.md`（或模型指定的 `save_path`），对话里只给 6000 字符预览 + 落盘路径。
+- Worker / 本地 relay 均校验外部 URL 与重定向；Worker 对字面私网/环回/链路本地/保留 IP 做显式阻断，但 Cloudflare Worker 不提供通用 DNS 解析 API，**不宣称能防住所有 DNS 重绑定或私有 DNS 解析**。
+- Crawl 逐跳要求保持初始 origin；请求超时、页数、深度、每页字节数和字符数都有硬上限。
+- Worker CORS 为 `*` 且没有鉴权。公开部署时建议给 `/api/search`、`/api/crawl`、`/api/fetch` 配 Cloudflare Rate Limiting；不要把它当成私密网络代理。
+- 抓取上限 4 MB（`max` 可再调小），返回文本按 `max_bytes` 截断，`fetch_url` 超过 2000 字符时把全文写进 `web/<host>/<slug>.md`（或模型指定的 `save_path`），对话里只给 6000 字符预览 + 落盘路径。
+
+测试：`npm run test:worker`（Mock fetch，不请求外网）及 `python3 tests/server_checks.py`。
 
 `workspace/` 已进 `.gitignore`：Agent 在里面 clone / 改文件不会污染本项目仓库。
 
@@ -274,8 +276,8 @@ js/config.js      端点 / 协议路由 / 兜底模型表 / 系统提示词
 js/api.js         TeamoRouter 客户端（SSE 解析、双协议、重试、代理兜底）
 js/sandbox.js     Worker 沙箱 + Pyodide + 虚拟文件系统
 js/tools.js       工具定义与执行调度（含 generate_image：文生图 / 图片编辑）
-js/net.js         抓取 / git 的中继调用与 HTML→文本纯函数（webSearch 只剩一枚说明性兼容桩）
-js/websearch.js   联网：各模型家族的原生网页搜索请求格式、Responses 请求体/流转换、能力表
+js/net.js         抓取 / git 中继与 health-gated Worker 搜索/爬取调用、HTML→文本纯函数
+js/websearch.js   网页搜索兼容层：原生字段关闭，保留历史服务端事件解析与回归守卫
 js/titler.js      会话标题自动总结（独立小调用，不写进对话历史；新模块避免混版缓存的 link 期白屏）
 js/zip.js         零依赖 ZIP 打包（STORE + CRC32），供沙箱整包 / 单目录下载
 js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总、折叠展开）
@@ -287,15 +289,12 @@ js/cleanup.js     任务后自清理（只删本 Agent 创建的临时文件；�
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互
-server.py         静态服务 + 流式 API 代理（兜底通道）+ /api/{health,search,fetch,git} 本地中继
+server.py         静态服务 + 流式 API 代理（兜底通道）+ /api/{health,fetch,git} 本地中继
                   （默认仅绑定 127.0.0.1；git 只在 ./workspace 内执行）
-tests/            agent.test.mjs（156 项：双协议解析 / 上下文压缩不变量 / 回滚持久化 / 会话标题与清空 /
-                  Markdown·KaTeX 渲染 / Agent 工具循环 mock SSE 端到端（含思考块回传、并发委派）/
-                  生图与改图两条链路 / 附件落 uploads/ / 会话级模型 / ZIP 结构自洽 / 沙箱开关语义 /
-                  服务端联网块不进客户端累积器 / 联网失败如实报错）
-                  dom-smoke.mjs（156 项：入列时机 / 就地改名 / 一键清空 / 操作条显隐 / 面板两行布局 /
-                  移动端布局源码护栏）
-                  app-boot.mjs（66 项：真实入口整轮对话 + 重新生成覆盖 + 联网形状）
+tests/            agent.test.mjs（双协议解析 / 上下文压缩 / Agent 工具循环 / Worker 路由 / 搜索与爬取能力矩阵等）
+                  worker.test.mjs（SSRF 与重定向护栏 / SearXNG 与 DuckDuckGo / 同源爬取限制 / 取消信号）
+                  dom-smoke.mjs（会话列表 / 操作条显隐 / 设置页字号与思考档位 / 移动端布局）
+                  app-boot.mjs（真实入口整轮对话 / 重新生成 / 工具表与历史事件兼容）
                   live-smoke.mjs / live-web.mjs（拿 key 打真网关：双协议 + 联网能力实测，无 key 自动跳过）
                   mobile-layout.mjs（真 Chrome 量移动端：320/360/390/414/768 无溢出、无重叠、触控 ≥36px；
                   npm run audit:mobile，需先 npm i puppeteer）

@@ -24,7 +24,7 @@ import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js';
 // ── 0. 策略版本（一次执行的审计记录必须记录这些版本，否则无法归因退化来源）──
 export const EXECUTION_KERNEL_VERSION = '2.3.0';
 export const EXECUTION_POLICY_VERSION = 'policy-2.5.0';
-export const TOOL_CONTRACT_VERSION = 'tool-contract-2.3.0';
+export const TOOL_CONTRACT_VERSION = 'tool-contract-2.4.0';
 export const BUDGET_POLICY_VERSION = 'budget-policy-2.3.0';
 export const RISK_POLICY_VERSION = 'risk-policy-2.5.0';
 export const PROMISE_POLICY_VERSION = 'prompt-contract-2.3.0';
@@ -689,13 +689,24 @@ export function checkCapabilityConstraints({ name = '', args = {}, capabilities 
   const a = args && typeof args === 'object' ? args : {};
   const names = new Set((Array.isArray(toolNames) ? toolNames : []).map(toolNameOf).filter(Boolean));
 
-  if (name === 'fetch_url') {
+  if (['fetch_url', 'search_web', 'crawl_site'].includes(name)) {
     if (!caps.web.enabled) {
       return {
         allowed: false, decision: 'deny', constraintId: 'capability-web-off',
-        reason: '联网能力未开启（无本地中继或顶栏「联网」已关闭），fetch_url 本轮不在工具表里',
-        recovery: '启动 `python3 server.py` 本地中继并打开顶栏「联网」，或改用沙箱内已有数据作答',
+        reason: `联网能力未开启（无可用中继或顶栏「联网」已关闭），${name} 本轮不应出现在工具表里`,
+        recovery: '启动 `python3 server.py` 或配置可用 Cloudflare Worker，并打开顶栏「联网」；也可改用已提供的本地资料作答',
       };
+    }
+    const feature = name === 'search_web' ? 'search' : (name === 'crawl_site' ? 'crawl' : '');
+    if (feature && caps.web[feature] === false) {
+      return {
+        allowed: false, decision: 'deny', constraintId: `relay-${feature}-unavailable`,
+        reason: `当前中继未声明 ${feature === 'search' ? '搜索' : '站点爬取'}能力`,
+        recovery: '部署带有相应 /api/search 或 /api/crawl 路由的新版本 relay/worker.js 后重试',
+      };
+    }
+    if (name === 'search_web') {
+      return { allowed: true, decision: 'allow', constraintId: 'web-search-ok', reason: '中继声明支持网页搜索' };
     }
     const host = hostOf(a.url || a.href || '');
     if (PRIVATE_HOST_RE.test(host)) {
@@ -712,7 +723,7 @@ export function checkCapabilityConstraints({ name = '', args = {}, capabilities 
         recovery: `允许的域名：${caps.web.allowedHosts.join('、')}；如需扩展请调整能力约束`,
       };
     }
-    return { allowed: true, decision: 'allow', constraintId: 'web-ok', reason: `主机 ${host || '未指定'} 在白名单策略内` };
+    return { allowed: true, decision: 'allow', constraintId: name === 'crawl_site' ? 'web-crawl-ok' : 'web-ok', reason: `主机 ${host || '未指定'} 在白名单策略内` };
   }
 
   if (['execute_javascript', 'execute_python', 'execute_cpp'].includes(name)) {
@@ -833,6 +844,8 @@ export const TOOL_CONTRACTS = Object.freeze({
   zip_files: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L2', verifyAfterRun: true }),
   unzip_file: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L2', verifyAfterRun: true, note: '批量写入文件' }),
   fetch_url: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'backoff', timeoutMs: 30000, riskLevel: 'L2', external: true }),
+  search_web: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 30000, riskLevel: 'L2', external: true, note: '搜索词会发送给 Worker 配置的搜索服务，结果需核验' }),
+  crawl_site: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 60000, riskLevel: 'L2', external: true, note: '严格限制同源、页数与深度的只读抓取' }),
   run_git: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 30000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '远端操作（clone/push/pull）跨系统边界时升为 L3' }),
   search_files: contract({ idempotent: true, retryPolicy: 'backoff', timeoutMs: 8000, riskLevel: 'L1' }),
   diff_text: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L1' }),

@@ -10,9 +10,8 @@
   ANY  /api/proxy?path=/v1/chat/completions  →  https://api.teamorouter.com/v1/... （流式透传）
                                             第一个上游连不上时自动换 api.teamorouter.cn 重试
   GET  /api/health      →  能力探测（前端据此决定工具走中继还是降级）
-  GET  /api/fetch?url=  →  抓取网页并抽取正文（mode=text|raw，禁止指向内网地址）
-                        联网搜索不在这里：按用户要求，搜索只用模型 API 自带的请求格式
-                       （js/websearch.js），本中继不接任何第三方搜索服务
+  GET  /api/fetch?url=  →  抓取单页并抽取正文（mode=text|raw，禁止指向内网地址）
+                        搜索与同源站点爬取由可选的 Cloudflare Worker 提供；本地中继不提供搜索路由
   POST /api/git         →  在 ./workspace/ 里执行 git 子命令（白名单、不经 shell、禁交互凭据提示）
 """
 import html as htmlmod
@@ -319,9 +318,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def _fetch(self, qs):
         """抓一个公网 URL → 纯文本（或原始体）。
 
-        只有 text / raw 两种模式：原先的 markdown 模式借用 r.jina.ai，那是第三方服务，
-        按「联网只用模型 API 自带格式」的要求移除；正文抽取由前端/这里的 html_to_text 完成。
-        （顺带：原来的 _search 端点也删了 —— 见 js/websearch.js 的说明。）
+        只有 text / raw 两种模式：不再借用第三方 r.jina.ai 抽取器；正文抽取由前端/这里的
+        html_to_text 完成。搜索与同源站点爬取由可选 Cloudflare Worker 提供，不属于本地中继。
         """
         raw = (qs.get("url") or [""])[0]
         mode = (qs.get("mode") or ["text"])[0]
@@ -520,7 +518,7 @@ if __name__ == "__main__":
     print(
         f"◐ TeamoAgent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})\n"
         f"  工作区 {WORKSPACE} · /api/fetch on · /api/git {'on' if GIT_ENABLED else 'off'}\n"
-        "  联网搜索走模型 API 自带格式（本中继不提供 /api/search）"
+        "  网页搜索/站点爬取需配置 Cloudflare Worker（本中继仅提供 /api/fetch 与 /api/git）"
     )
     if not loopback and not args.allow_git and not args.no_git:
         print("  ⚠ 非本机监听：/api/git 已自动关闭（要开请加 --allow-git）")

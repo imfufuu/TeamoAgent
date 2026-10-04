@@ -15,7 +15,7 @@ export const BUNDLED_SKILLS = [
     },
     body: [
       '## Skill: web-research',
-      '- 时效性问题：联网已开且有中继时用 fetch_url 抓来源页；没有中继或开关关掉就直说无法核实。',
+      '- 时效性问题：工具表有 search_web 时先检索并记录来源；随后用 fetch_url 核实具体页面，文档站可用 crawl_site 限量抓取。没有对应工具或开关关闭就直说无法核实。',
       '- 不要写「已联网搜索」。查不到就明说没查到，不要用记忆数字冒充刚搜到的。',
     ].join('\n'),
   },

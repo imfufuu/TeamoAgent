@@ -95,6 +95,37 @@ check('能力齐全时上下文自检通过（含与旧路径工具表的交叉�
   assert.equal(r.consistent, true, JSON.stringify(r.splits));
   assert.ok(r.checks.includes('claim-vs-effective'));
 });
+check('Worker search/crawl 只有 health 明确声明时才进入工具表，且声明与工具表双向校验', () => {
+  const featureCapability = buildCapabilityConstraints({
+    relayOk: true, webEnabled: true, sandboxEnabled: true, canDispatch: true,
+    overrides: { web: { search: true, crawl: true } },
+  });
+  const featureCtx = createTurnExecutionContext({
+    capability: featureCapability, budget: DEFAULT_TURN_BUDGET, policy: policySnapshot,
+    audit: { schemaVersion: AUDIT_SCHEMA_VERSION, policyVersion: EXECUTION_POLICY_VERSION, prevDigest: '0'.repeat(64) },
+  });
+  const workerTools = fakeTools([...allTools.map((t) => t.name), 'search_web', 'crawl_site']);
+  const workerWhitelist = deriveToolWhitelist(featureCtx, workerTools);
+  assert.ok(workerWhitelist.allowed.some((t) => t.name === 'search_web'));
+  assert.ok(workerWhitelist.allowed.some((t) => t.name === 'crawl_site'));
+  assert.equal(assertExecutionContextConsistency(featureCtx, workerWhitelist.allowed).consistent, true);
+  const missingRoutes = assertExecutionContextConsistency(featureCtx, allTools);
+  assert.equal(missingRoutes.consistent, false);
+  assert.equal(missingRoutes.splits.filter((s) => s.code === CONTEXT_SPLIT_CODES.capabilityWithoutTool).length, 2);
+
+  const oldRelayCapability = buildCapabilityConstraints({
+    relayOk: true, webEnabled: true, sandboxEnabled: true, canDispatch: true,
+    overrides: { web: { search: false, crawl: false } },
+  });
+  const oldRelayContext = createTurnExecutionContext({
+    capability: oldRelayCapability, budget: DEFAULT_TURN_BUDGET, policy: policySnapshot,
+    audit: { schemaVersion: AUDIT_SCHEMA_VERSION, policyVersion: EXECUTION_POLICY_VERSION, prevDigest: '0'.repeat(64) },
+  });
+  const oldRelayWhitelist = deriveToolWhitelist(oldRelayContext, workerTools);
+  assert.ok(!oldRelayWhitelist.allowed.some((t) => t.name === 'search_web' || t.name === 'crawl_site'));
+  assert.equal(assertExecutionContextConsistency(oldRelayContext, oldRelayWhitelist.allowed).consistent, true);
+  return 'health=true 时两路工具进入工具表并强制对齐；false/未声明时安全裁剪';
+});
 check('经典状态分裂被检出：声明允许 Web 但工具表没有 Web 工具', () => {
   // 声明能力由故障自测篡改（claim 说能联网），实际工具表里没有 fetch_url
   const claimed = createTurnExecutionContext({

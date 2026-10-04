@@ -424,9 +424,8 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
   const tempInfo = typeof temperature === 'number'
     ? { temperature, profile: 'custom', label: `T=${temperature}` }
     : resolveTemperature({ messages, plan, iteration, phase, subagentId });
-  // 联网 = 只往请求体里塞模型 API 自带的网页搜索字段（能力表见 js/websearch.js）。
-  // 没有原生格式的模型（DeepSeek 等）就是「本轮不联网」，绝不改道去调第三方搜索 API。
-  // 原生网页搜索已下线（各模型不稳定）；webEnabled 不再注入任何服务端搜索字段
+  // 本产品不向模型请求体注入不稳定的原生网页搜索字段；显式联网通过 tools.js 的 Worker-backed
+  // search_web / crawl_site / fetch_url 工具完成，并由能力白名单按 relay health 声明裁剪。
   const webCap = null;
   let endpoint = webCap && webCap.endpoint === 'responses' && !responsesUnsupported.has(model) ? 'responses'
     : (protocol === 'anthropic' ? 'messages' : 'chat');

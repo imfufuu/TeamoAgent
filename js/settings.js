@@ -1,6 +1,7 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION } from './config.js';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js';
 import { currentRelay, resetRelayProbe } from './net.js';
+import { writeThemePreference } from './theme.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -66,11 +67,20 @@ export function openSettingsModal({ store } = {}) {
   const rel = currentRelay();
   $('#set-about-relay').textContent = rel ? (rel.label === 'origin' ? '同源 /api' : rel.base) : '未连接';
   try {
-    const raw = localStorage.getItem('teamo-agent-state') || '';
-    const est = raw ? JSON.parse(raw) : {};
-    const sess = (est.sessions || []).length;
-    const size = Math.round(raw.length / 1024);
-    $('#set-about-store').textContent = `${sess} 个会话 · ~${size}KB`;
+    let raw = '';
+    for (const key of [`${STORAGE_KEY}-v2`, STORAGE_KEY]) {
+      const value = localStorage.getItem(key);
+      if (value) { raw = value; break; }
+    }
+    let saved = {};
+    try { saved = raw ? JSON.parse(raw) : {}; } catch { saved = {}; }
+    const sessions = Array.isArray(store.state.sessions)
+      ? store.state.sessions
+      : (Array.isArray(saved.sessions) ? saved.sessions : []);
+    let bytes = raw.length;
+    try { bytes = new TextEncoder().encode(raw).byteLength; } catch { /* 旧浏览器按字符长度估算 */ }
+    const size = Math.round(bytes / 1024);
+    $('#set-about-store').textContent = `${sessions.length} 个会话 · ~${size}KB`;
   } catch { $('#set-about-store').textContent = '—'; }
   m.classList.add('open');
   setTimeout(() => $('#set-key').focus(), 100);
@@ -129,14 +139,10 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   bindSeg('#set-theme', (v) => {
     store.state.settings.theme = v;
     document.documentElement.dataset.theme = v;
+    writeThemePreference(v);
     store.notify();
   });
-  bindSeg('#set-fontsize', (v) => {
-    document.documentElement.dataset.fontsize = v;
-    try { localStorage.setItem('teamo-fontsize', v); } catch {}
-    const fs = v === 'small' ? 13 : v === 'large' ? 16 : 14.5;
-    document.documentElement.style.fontSize = fs + 'px';
-  });
+  bindSeg('#set-fontsize', (v) => applyFontSizeValue(v));
 
   const bindSw = (id, key, onChange) => {
     const el = $(id); if (!el) return;
@@ -173,11 +179,17 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   });
 }
 
+export function applyFontSizeValue(value, { persist = true } = {}) {
+  const v = ['small', 'medium', 'large'].includes(String(value)) ? String(value) : 'medium';
+  document.documentElement.dataset.fontsize = v;
+  if (persist) {
+    try { localStorage.setItem('teamo-fontsize', v); } catch { /* storage unavailable */ }
+  }
+  return v;
+}
+
 export function applyFontSize() {
   let v = 'medium';
-  try { v = localStorage.getItem('teamo-fontsize') || 'medium'; } catch {}
-  if (!['small', 'medium', 'large'].includes(v)) v = 'medium';
-  document.documentElement.dataset.fontsize = v;
-  const fs = v === 'small' ? 13 : v === 'large' ? 16 : 14.5;
-  document.documentElement.style.fontSize = fs + 'px';
+  try { v = localStorage.getItem('teamo-fontsize') || 'medium'; } catch { /* use default */ }
+  return applyFontSizeValue(v, { persist: false });
 }

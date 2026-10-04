@@ -1,3 +1,5 @@
+import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY } from './theme.js';
+
 const BPM = 124;
 const BEAT = 60 / BPM; // ≈ 483.871ms；第 0 帧 = 第一拍
 const WHIP = 2.8; // 切镜只轻轻拉远，避免高速甩镜
@@ -8,9 +10,9 @@ const INTEGRATE_START = 72;
 const INTEGRATE_END = 88;
 
 const root = document.documentElement;
-const saved = localStorage.getItem('teamo-home-theme');
 const preferDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-root.dataset.theme = saved || (preferDark ? 'dark' : 'light');
+root.dataset.theme = readThemePreference(preferDark ? 'dark' : 'light');
+writeThemePreference(root.dataset.theme);
 
 const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const audio = document.getElementById('home-audio');
@@ -570,10 +572,15 @@ function syncThemeBtn() {
 }
 function flipTheme() {
   root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('teamo-home-theme', root.dataset.theme);
+  writeThemePreference(root.dataset.theme);
   syncThemeBtn();
 }
 syncThemeBtn();
+window.addEventListener('storage', (event) => {
+  if (event.key !== THEME_STORAGE_KEY && event.key !== 'teamo-home-theme') return;
+  root.dataset.theme = readThemePreference(event.newValue || root.dataset.theme);
+  syncThemeBtn();
+});
 
 function prepareReveal() {
   if (reduce) return;

@@ -1,7 +1,7 @@
 // ─── P3 DOM 冒烟（tests/p3-dom-smoke.mjs）─────────────────────────────────
 // 用 jsdom 真挂载 app.html + mountUI，验证 P3 两条诉求在界面这一层真的接上了：
-//   ① 编辑直播折叠行（Editing File(s)）+ 预览窗（最近 N 行 / 行号 / 写入中游标 / 节流字段）
-//   ② 任务后自清理的可见面：顶栏「清理」开关（点击关、右键循环档位）+ 回复下方的清理痕迹
+//   ① 编辑直播折叠行（Editing Files）+ 预览窗（最近 N 行 / 行号 / 写入中游标 / 节流字段）
+//   ② 任务后自清理的可见面：固定 strip 策略（不提供开关）+ 回复下方的清理痕迹
 // 依赖可选：未安装 jsdom 时自动跳过（CI 不依赖本文件）。
 //   node tests/p3-dom-smoke.mjs          # 需 npm i -D jsdom
 import fs from 'node:fs';
@@ -52,24 +52,14 @@ const ui = mountUI(store, agent);
 const $ = (s) => window.document.querySelector(s);
 const $$ = (s) => [...window.document.querySelectorAll(s)];
 
-// ── ① 顶栏「清理」开关 ──
-console.log('\n① 顶栏「清理」开关（三档策略的入口）');
+// ── ① 顶栏清理状态（当前设计：永久开启，不提供开关按钮） ──
+console.log('\n① 文件自清理（永久 strip 策略，不提供切换 pill）');
 const pill = $('#cleanup-toggle');
-ok('清理 pill 存在且与思考/沙箱同风格', !!pill && pill.classList.contains('pill') && !!pill.querySelector('svg.pill-ico'));
-ok('文案为「清理」，不使用 emoji', pill && pill.textContent.trim() === '清理' && !/🧹|⚡|⬇/.test(pill.innerHTML));
-ok('默认档位 strip → pill 亮起', pill && pill.classList.contains('on') && store.state.settings.cleanupPolicy === 'strip');
-pill.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-ok('点击一次关闭自动清理（写入 settings.cleanupPolicy=off）', store.state.settings.cleanupPolicy === 'off' && !pill.classList.contains('on'));
-ok('能力行同步提示自清理状态', !$('#cap-line').textContent.includes('自清理'), $('#cap-line').textContent);
-pill.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-ok('再点一次恢复 strip', store.state.settings.cleanupPolicy === 'strip' && pill.classList.contains('on'));
-pill.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true }));
-ok('右键循环到「只报告」档，且用虚线边框区分（避免误以为会删）', store.state.settings.cleanupPolicy === 'report' && pill.classList.contains('watch'));
-ok('只报告档在能力行里明示', /自清理·只报告/.test($('#cap-line').textContent), $('#cap-line').textContent);
-store.state.settings.cleanupPolicy = 'strip';
+ok('自清理固定为 strip 且不渲染可关闭的顶栏开关', !pill && store.state.settings.cleanupPolicy === 'strip');
+ok('能力行明确显示自清理状态', /自清理/.test($('#cap-line')?.textContent || ''), $('#cap-line')?.textContent || '缺失');
 
 // ── ② 编辑直播折叠行 + 预览窗 ──
-console.log('\n② 编辑直播（Editing File(s) + 预览窗）');
+console.log('\n② 编辑直播（Editing Files + 预览窗）');
 const rawCall = { id: 'call-live-1', name: 'write_file', args: { __raw: '{"path":"tmp/live.md","content":"第一行\\n第二行\\n第三行' } };
 const liveMsg = store.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: [rawCall], done: false });
 const realGetStatus = agent.getStatus;
@@ -78,7 +68,7 @@ ui.onAssistantStart(liveMsg);
 
 const fold = $('.edited-files');
 ok('写文件折叠行已渲染', !!fold);
-ok('直播期间显示 Editing File(s)（不是 Edited Files）', /Editing File/.test(fold.querySelector('.chip-name').textContent), fold.querySelector('.chip-name').textContent);
+ok('直播期间显示 Editing Files（不是 Edited Files）', /Editing File/.test(fold.querySelector('.chip-name').textContent), fold.querySelector('.chip-name').textContent);
 ok('折叠行在直播期间自动展开（能看到预览窗）', fold.classList.contains('expanded'));
 ok('路径来自半截 JSON（流式期间也能拿到路径）', fold.textContent.includes('tmp/live.md'), fold.textContent.slice(0, 80));
 const win = $('.edited-files .edit-preview');
@@ -90,7 +80,7 @@ ok('写入中显示光标（直播语义）', !!$('.edited-files .ep-caret'));
 ok('预览窗标题含模式 / 行数 / 字符数', /整文件写入/.test(win.querySelector('.ep-head').textContent) && /行/.test(win.querySelector('.ep-head').textContent), win.querySelector('.ep-head').textContent);
 ok('刷新是节流的（2.5 秒档，不是每帧重排）', /EDIT_PREVIEW_REFRESH_MS/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
 
-// 完成：换成完整参数 + done → 折叠回 Edited File(s) N，预览窗仍在（可回看）
+// 完成：换成完整参数 + done → 折叠回 Edited Files N，预览窗仍在（可回看）
 const doneMsg = store.updateMessage(liveMsg.id, { toolCalls: [{ id: 'call-live-1', name: 'write_file', args: { path: 'tmp/live.md', content: '第一行\n第二行\n第三行' } }], done: true, text: '已写入。' });
 agent.getStatus = realGetStatus;
 ui.onAssistantDone(doneMsg);

@@ -167,8 +167,8 @@ export function createStore(onChange) {
     model: DEFAULT_CHAT_MODEL,
     imageModel: DEFAULT_IMAGE_MODEL, // 生图模型（由 generate_image 工具使用，与会话绑定）
     models: [],
-    // webEnabled：联网开关。开着时按当前模型 API 自带的网页搜索请求格式发请求
-    // （见 js/websearch.js）—— 没有第三方搜索接口，所以模型没有原生格式就等于不联网。
+    // webEnabled：联网开关。控制模型原生联网格式与已探测到的 Worker 搜索/抓取工具；
+    // fetch_url/search_web/crawl_site 仍须存在相应 relay capability 才会进入工具表。
     // cleanupPolicy（P3 v2.5.1）：任务完成后如何处理 Agent 自己产生的临时文件。
     // strip=自动清理（默认，用户明确要求「养成习惯」）｜report=只报告不删｜off=不检查。
     // 注意：无论哪个档位，都只对「本 Agent 创建 + 命中临时规则 + 未被引用」的文件生效。

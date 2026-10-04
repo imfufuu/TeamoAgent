@@ -9,6 +9,7 @@ import { fetchModels, getTransport } from './api.js';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
+import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY } from './theme.js';
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
@@ -21,8 +22,8 @@ import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
 // 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.1';
-import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.1';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.4';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.4';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -911,19 +912,56 @@ function sysReplyHtml(text) {
   return `<div class="sys-reply">${rows.join('')}</div>`;
 }
 
+function extractCodeFences(source, codeBlocks) {
+  const lines = [];
+  for (let start = 0; start < source.length;) {
+    const nl = source.indexOf('\n', start);
+    const end = nl < 0 ? source.length : nl + 1;
+    const rawEnd = nl < 0 ? source.length : nl;
+    lines.push({ start, end, text: source.slice(start, rawEnd).replace(/\r$/, '') });
+    start = end;
+  }
+  let out = '';
+  let cursor = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const open = /^ {0,3}(`{3,}|~{3,})([^\r\n]*)$/.exec(line.text);
+    if (!open) continue;
+    const fence = open[1];
+    const marker = fence[0];
+    const size = fence.length;
+    const info = String(open[2] || '').trim();
+    // CommonMark 禁止反引号围栏的信息字符串再含反引号。
+    if (marker === '`' && info.includes('`')) continue;
+    const lang = info.split(/\s+/, 1)[0] || 'text';
+    const closeRe = marker === '`' ? /^ {0,3}(`+)[ \t]*$/ : /^ {0,3}(~+)[ \t]*$/;
+    let closeAt = -1;
+    let closeEnd = source.length;
+    let closeLine = i;
+    for (let j = i + 1; j < lines.length; j++) {
+      const close = closeRe.exec(lines[j].text);
+      if (close && close[1].length >= size) {
+        closeAt = lines[j].start;
+        closeEnd = lines[j].end;
+        closeLine = j;
+        break;
+      }
+    }
+    out += source.slice(cursor, line.start);
+    const closed = closeAt >= 0;
+    const code = source.slice(line.end, closed ? closeAt : source.length);
+    codeBlocks.push({ lang, code, open: !closed });
+    out += `\uE000CB${codeBlocks.length - 1}\uE000`;
+    cursor = closed ? closeEnd : source.length;
+    i = closeLine;
+    if (!closed) break; // 流式输入中的末尾围栏：整段保留为一个未闭合代码块
+  }
+  return out + source.slice(cursor);
+}
+
 export function renderMarkdown(src) {
   const codeBlocks = [];
-  let t = String(src || '');
-  // 1) 先替换完整闭合的 ```...```
-  t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    codeBlocks.push({ lang, code, open: false });
-    return `\uE000CB${codeBlocks.length - 1}\uE000`;
-  });
-  // 2) 再替换未闭合的 ```（最后一个，正在流式输入中）——也要渲染（但没有复制按钮）
-  t = t.replace(/```(\w*)\n?([\s\S]*)$/g, (_, lang, code) => {
-    codeBlocks.push({ lang, code, open: true });
-    return `\uE000CB${codeBlocks.length - 1}\uE000`;
-  });
+  let t = extractCodeFences(String(src || ''), codeBlocks);
   // 行内代码先剥离（.18）：`code` 里的 $…$ 不能被当数学定界符——正则/命令含 $ 锚点时
   // 曾被 KaTeX 当数学渲染（数学模式吃空格 + 未知命令标红，产生整段乱码）
   const inlineCodes = [];
@@ -1266,11 +1304,20 @@ export function mountUI(store, agent) {
       }
     }
   }
-  const applyTheme = () => {
-    document.documentElement.dataset.theme = store.state.settings.theme;
+  store.state.settings.theme = readThemePreference(store.state.settings.theme || 'light');
+  const applyTheme = ({ persist = true } = {}) => {
+    const theme = store.state.settings.theme === 'dark' ? 'dark' : 'light';
+    document.documentElement.dataset.theme = theme;
+    if (persist) writeThemePreference(theme);
     syncThemeToggle();
   };
   applyTheme();
+  window.addEventListener('storage', (event) => {
+    if (event.key !== THEME_STORAGE_KEY) return;
+    store.state.settings.theme = readThemePreference(event.newValue || store.state.settings.theme);
+    applyTheme({ persist: false });
+    if (typeof store.save === 'function') store.save();
+  });
   const themeBtn = $('#theme-toggle');
   if (themeBtn) themeBtn.addEventListener('click', () => {
     store.state.settings.theme = store.state.settings.theme === 'light' ? 'dark' : 'light';
@@ -1525,8 +1572,8 @@ export function mountUI(store, agent) {
   });
   syncSandbox();
 
-  // 联网：只有探测到本地中继（server.py）才能开。无中继（GitHub Pages）始终灰、点不了。
-  // 打开后 Agent 可用 fetch_url 抓网页；原生网页搜索仍不下发。
+  // 联网：需探测到可用 relay（本地 server.py 或 Worker）才可开；搜索/爬虫工具按 Worker health 特性单独裁剪。
+  // 原生网页搜索请求字段仍关闭，网页检索走显式 Worker 工具。
   const GLOBE_SVG = '<svg class="pill-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/></svg>';
   const webToggle = $('#web-toggle');
   const hasRelay = () => store.state.relayOk === true;
@@ -2357,7 +2404,7 @@ function validateApiKey(s) {
       zipEl.title = `工作区文件打包后估算体积：${fmtSize(z)}（内部文件不打包）`;
     }
     if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件')); return; }
-    const imageSet = new Set(files.filter((f) => f.isImage).map((f) => f.path));
+    const imageSet = new Set(wsFiles.filter((f) => f.isImage).map((f) => f.path));
     const rows = flattenTree(tree, { isCollapsed: (p) => collapsedDirs.has(p) });
     for (const r of rows) {
       const closed = r.type === 'dir' && collapsedDirs.has(r.path);
@@ -2372,6 +2419,7 @@ function validateApiKey(s) {
         row.innerHTML = `<span class="ft-chev">${ICON.chevRight}</span>`
           + `<span class="ft-ico">${closed ? ICON.folder : ICON.folderOpen}</span>`
           + `<span class="ft-name">${esc(r.name)}</span>`
+          + `<span class="ft-meta">${Number(r.count) || 0} 个文件 · ${fmtSize(Number(r.size) || 0)}</span>`
           + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn ft-zip" type="button" title="打包 ${esc(r.path)}/">${ICON.download}</button></span>`;
         const toggle = () => {
           if (collapsedDirs.has(r.path)) collapsedDirs.delete(r.path); else collapsedDirs.add(r.path);
@@ -2388,7 +2436,7 @@ function validateApiKey(s) {
           saveZip(zipEntriesOf(collectPaths(r)), `teamo-${r.name || 'folder'}`);
         });
       } else {
-        const fr = files.find((ff) => ff.path === r.path);
+        const fr = wsFiles.find((ff) => ff.path === r.path);
         const isSvgFile = !!(fr && fr.isSvg);
         row.innerHTML = `<span class="ft-sp"></span>`
           + `<span class="ft-ico">${imageSet.has(r.path) || isSvgFile ? ICON.image : ICON.file}</span>`
@@ -2620,6 +2668,140 @@ function validateApiKey(s) {
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
 
+  const TOOL_RESULT_ERROR = /^(?:工具执行失败|图像模型调用失败|图像调用在发起前失败|未配置 TeamoRouter API Key|Python 沙箱不可用|(?:[A-Za-z][\w-]*)(?:\s+[A-Za-z][\w-]*)*\s+(?:失败|缺少|不可用|拒绝执行|错误)(?:[：:]|\b))/i;
+  function toolResultFailed(text) {
+    const body = String(text == null ? '' : text).trim();
+    return TOOL_RESULT_ERROR.test(body)
+      || /^\[git 退出码 (?!0\b)\d+\]/i.test(body)
+      || /^fatal:|^error:/im.test(body)
+      || /── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(body);
+  }
+  function toolIds(chip) {
+    return String(chip && (chip.dataset.callIds || chip.dataset.callId) || '').split(',').filter(Boolean);
+  }
+  function hasToolOutput(chip, id) {
+    return !!chip && !!chip._outs && Object.prototype.hasOwnProperty.call(chip._outs, id);
+  }
+  function toolCallSettled(chip, id) {
+    const status = chip && chip._toolStates && chip._toolStates[id] && chip._toolStates[id].status;
+    return hasToolOutput(chip, id) || status === 'ok' || status === 'error';
+  }
+  function syncRanCommandsFold(fold) {
+    if (!fold) return;
+    const children = $$('.tool-call-chip', fold);
+    if (!children.length) return;
+    const total = children.reduce((n, chip) => n + toolIds(chip).length, 0);
+    const settled = children.reduce((n, chip) => {
+      const ids = toolIds(chip);
+      return n + (chip.classList.contains('done') ? ids.length : ids.filter((id) => toolCallSettled(chip, id)).length);
+    }, 0);
+    const allDone = children.every((chip) => chip.classList.contains('done'));
+    const cancelled = children.some((chip) => chip.dataset.cancelled === 'true');
+    const failed = children.some((chip) => chip.classList.contains('fail'));
+    const label = $('.chip-name', fold);
+    if (label) label.textContent = total === 1 ? 'Ran Command' : `Ran Commands ${total}`;
+    fold.classList.toggle('done', allDone);
+    fold.classList.toggle('live', getBusy() && !allDone);
+    fold.classList.toggle('ok', allDone && !failed && !cancelled);
+    fold.classList.toggle('fail', allDone && failed);
+    const state = $('.chip-state', fold);
+    if (state) {
+      if (allDone && failed) {
+        const firstFailure = children.find((chip) => chip.classList.contains('fail'));
+        state.innerHTML = '<span class="chip-fail">✗</span> failed';
+        state.title = firstFailure ? String(($('.chip-state', firstFailure) || {}).title || '') : '';
+        state.classList.add('bad');
+      } else if (allDone && cancelled) {
+        state.textContent = '已停止'; state.title = ''; state.classList.remove('bad');
+      } else if (allDone) {
+        state.innerHTML = '<span class="chip-ok">✓</span>';
+        state.title = ''; state.classList.remove('bad');
+      } else {
+        state.textContent = settled ? `${settled}/${total}` : '…';
+        state.title = ''; state.classList.remove('bad');
+      }
+    }
+    if (fold._userToggle == null) fold.classList.toggle('expanded', getBusy() && !allDone);
+  }
+  function syncToolChip(chip, { cancelled = false } = {}) {
+    if (!chip) return;
+    if (!chip._toolStates) chip._toolStates = {};
+    if (!chip._outs) chip._outs = {};
+    if (cancelled) chip.dataset.cancelled = 'true';
+    const ids = toolIds(chip);
+    const terminal = (id) => {
+      const status = chip._toolStates[id] && chip._toolStates[id].status;
+      return hasToolOutput(chip, id) || status === 'ok' || status === 'error';
+    };
+    const allDone = chip.dataset.cancelled === 'true' || (ids.length > 0 && ids.every(terminal));
+    const failed = chip.dataset.cancelled !== 'true' && ids.some((id) => {
+      const state = chip._toolStates[id];
+      return (state && state.status === 'error') || (hasToolOutput(chip, id) && toolResultFailed(chip._outs[id]));
+    });
+    const settled = ids.filter(terminal).length;
+    const running = ids.map((id) => chip._toolStates[id]).find((x) => x && x.status === 'running');
+    chip.classList.toggle('done', allDone);
+    chip.classList.toggle('live', getBusy() && !allDone);
+    chip.classList.toggle('running', !allDone && !!running);
+    chip.classList.toggle('ok', allDone && !failed && chip.dataset.cancelled !== 'true');
+    chip.classList.toggle('fail', allDone && failed);
+    const state = $('.chip-state', chip);
+    if (state) {
+      if (chip.dataset.cancelled === 'true') {
+        state.textContent = '已停止'; state.title = ''; state.classList.remove('bad');
+      } else if (allDone && failed) {
+        const failId = ids.find((id) => {
+          const item = chip._toolStates[id];
+          return (item && item.status === 'error') || (hasToolOutput(chip, id) && toolResultFailed(chip._outs[id]));
+        });
+        const item = chip._toolStates[failId] || {};
+        const errTxt = String(item.note || chip._outs[failId] || '工具失败').slice(0, 400);
+        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗</span>`;
+        state.title = errTxt; state.classList.add('bad');
+      } else if (allDone) {
+        const dur = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).find((x) => Number.isFinite(Number(x)));
+        state.innerHTML = `<span class="chip-ok">✓</span>${dur != null ? ` <span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
+        state.title = ''; state.classList.remove('bad');
+      } else {
+        state.textContent = running ? (running.note || '执行中…') : (settled ? `${settled}/${ids.length}` : '…');
+        state.title = running ? (running.note || '') : ''; state.classList.remove('bad');
+      }
+    }
+    if (chip._userToggle == null) chip.classList.toggle('expanded', !allDone && chip.dataset.cancelled !== 'true');
+    syncRanCommandsFold(chip.closest('.ran-commands'));
+  }
+
+  function renderToolChipDetail(chip) {
+    if (!chip || !chip._detail) return;
+    const ids = toolIds(chip);
+    const items = chip._items || [];
+    const argJson = (value) => {
+      try { return JSON.stringify(value == null ? {} : value); } catch { return String(value); }
+    };
+    const argHtml = items.length > 1
+      ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(argJson(t.args))}</div>`).join('')
+      : `<div class="chip-args">参数 ${esc(argJson(chip._args))}</div>`;
+    const outHtml = ids.map((id, i) => {
+      const label = ids.length > 1 ? `<div class="chip-args">出参 #${i + 1}</div>` : '';
+      if (hasToolOutput(chip, id)) {
+        const value = String(chip._outs[id] == null ? '' : chip._outs[id]);
+        return `${label}<pre class="chip-result">${esc(value || '（空输出）')}</pre>`;
+      }
+      const status = chip._toolStates && chip._toolStates[id] && chip._toolStates[id].status;
+      if (status === 'ok' || status === 'error') {
+        const note = chip._toolStates[id].note || (status === 'ok' ? '工具已结束，但未收到出参。' : '工具失败，但未收到结果正文。');
+        return `${label}<pre class="chip-result tool-result-missing">${esc(note)}</pre>`;
+      }
+      return '';
+    }).join('');
+    chip._out = ids.filter((id) => hasToolOutput(chip, id)).map((id) => String(chip._outs[id] == null ? '' : chip._outs[id])).join('\n\n');
+    const detailSig = JSON.stringify([items.map((t) => t.args), ids.map((id) => hasToolOutput(chip, id) ? chip._outs[id] : null)]);
+    if (chip._detailSig !== detailSig) {
+      chip._detailSig = detailSig;
+      chip._detail.innerHTML = `<div class="fold-inner">${argHtml}${outHtml}</div>`;
+    }
+  }
+
   function paintAssistant(wrap, m) {
     wrap.classList.toggle('cancelled', !!m.cancelled);
     const body = $('.md-body', wrap);
@@ -2634,7 +2816,7 @@ function validateApiKey(s) {
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
     if (live && noOutputYet && !thinkOn) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
-      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
+      html += `<div class="connect-line"><span class="connect-mark" aria-hidden="true">${APP_LOGO}</span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
     html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
@@ -2724,86 +2906,148 @@ function validateApiKey(s) {
       if (wb) wb.addEventListener('click', (e) => { e.preventDefault(); doWebRetry(m); });
     }
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
-    // 工具芯片
+    // 所有命令收在 Ran Commands；读/写/识图分别进入 Explored / Edited File(s)。
     const chips = $('.tool-chips', wrap);
-    if (m.toolCalls && m.toolCalls.length) {
-      const groups = [];
-      const seen = new Map();
-      for (const t of m.toolCalls) {
-        if (t.name === 'write_file') continue;
-        if (t.name === 'read_file') continue;
-        if (!seen.has(t.name)) {
-          const g = { name: t.name, items: [] };
-          seen.set(t.name, g);
-          groups.push(g);
-        }
-        seen.get(t.name).items.push(t);
+    const groups = [];
+    const seen = new Map();
+    for (const t of (m.toolCalls || [])) {
+      if (['write_file', 'read_file', 'analyze_image'].includes(t.name)) continue;
+      if (!seen.has(t.name)) {
+        const g = { name: t.name, items: [] };
+        seen.set(t.name, g);
+        groups.push(g);
       }
-      const sig = groups.map((g) => g.items.map((t) => t.id).join('+')).join('|');
-      if (chips.dataset.sig !== sig) {
-        chips.dataset.sig = sig;
-        chips.innerHTML = '';
+      seen.get(t.name).items.push(t);
+    }
+    const sig = groups.map((g) => `${g.name}:${g.items.map((t) => t.id).join('+')}`).join('|');
+    if (chips.dataset.sig !== sig) {
+      chips.dataset.sig = sig;
+      chips.innerHTML = '';
+      if (groups.length) {
+        const fold = el('div', 'ran-commands');
+        fold.dataset.sig = sig;
+        fold._userToggle = null;
+        fold.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name"></span><span class="chip-state">…</span><div class="chip-detail"><div class="fold-inner"><div class="ran-command-items"></div></div></div>`;
+        fold.addEventListener('click', (e) => {
+          if (e.target.closest('.tool-call-chip, a, button, .chip-copy')) return;
+          fold.classList.toggle('expanded');
+          fold._userToggle = fold.classList.contains('expanded');
+        });
+        chips.appendChild(fold);
+        const itemsBox = $('.ran-command-items', fold);
         for (const g of groups) {
-          const chip = el('div', 'chip');
-          const ids = g.items.map((t) => t.id);
-          chip.dataset.callIds = ids.join(',');
-          chip.dataset.callId = ids[0] || '';
-          const label = g.items.length > 1 ? `${g.name} ×${g.items.length}` : g.name;
-          chip.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(label)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
-          chip.addEventListener('click', (e) => {
-            if (e.target.closest('.chip-copy')) return;
-            chip.classList.toggle('expanded');
-            chip._userToggle = chip.classList.contains('expanded');
+          const child = el('div', 'chip tool-call-chip');
+          const ids = g.items.map((t) => t.id).filter(Boolean);
+          child.dataset.callIds = ids.join(',');
+          child.dataset.callId = ids[0] || '';
+          child.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(g.items.length > 1 ? `${g.name} ×${g.items.length}` : g.name)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
+          child.addEventListener('click', (e) => {
+            if (e.target.closest('.chip-copy, button, a')) return;
+            child.classList.toggle('expanded');
+            child._userToggle = child.classList.contains('expanded');
           });
           const detail = el('div', 'chip-detail mono');
-          chip.appendChild(detail);
-          chip._detail = detail;
-          chip._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
-          chip._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
-          chip._outs = {};
-          chips.appendChild(chip);
+          child.appendChild(detail);
+          child._detail = detail;
+          child._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
+          child._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
+          child._outs = {};
+          child._toolStates = {};
+          itemsBox.appendChild(child);
         }
       }
-      const toolOut = (id) => {
-        const tm = store.state.messages.find((x) => x.role === 'tool' && x.toolCallId === id);
-        return tm ? String(tm.content || '') : '';
-      };
-      for (const chip of $$('.chip', chips)) {
-        const ids = String(chip.dataset.callIds || chip.dataset.callId || '').split(',').filter(Boolean);
-        const items = (m.toolCalls || []).filter((t) => ids.includes(t.id));
-        if (items.length) {
-          chip._items = items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
-          chip._args = items.length === 1 ? items[0].args : items.map((t) => t.args);
-        }
-        if (!chip._outs) chip._outs = {};
+    }
+    const fold = $('.ran-commands', chips);
+    if (fold) {
+      const resultById = new Map((store.state.messages || [])
+        .filter((x) => x && x.role === 'tool' && x.toolCallId != null)
+        .map((x) => [String(x.toolCallId), x]));
+      for (const g of groups) {
+        const ids = g.items.map((t) => String(t.id || '')).filter(Boolean);
+        const child = $$('.tool-call-chip', fold).find((x) => String(x.dataset.callIds || '') === ids.join(','));
+        if (!child) continue;
+        child._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
+        child._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
         for (const id of ids) {
-          const out = toolOut(id);
-          if (out) chip._outs[id] = out;
+          const tm = resultById.get(id);
+          if (tm) {
+            const body = String(tm.content == null ? '' : tm.content);
+            child._outs[id] = body;
+            const previous = child._toolStates[id] || {};
+            child._toolStates[id] = { ...previous, status: previous.status === 'error' || toolResultFailed(body) ? 'error' : 'ok' };
+          }
         }
-        const outs = ids.map((id) => chip._outs[id]).filter((x) => x != null);
-        chip._out = outs.join('\n\n');
-        if (!chip._renderedArgs || !m.done) {
-          const argHtml = items.length > 1
-            ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
-            : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
-          const resHtml = outs.length ? `<pre class="chip-result">${esc(chip._out)}</pre>` : '';
-          chip._detail.innerHTML = `<div class="fold-inner">${argHtml}${resHtml}</div>`;
-          chip._renderedArgs = !!m.done;
+        if (m.cancelled) {
+          syncToolChip(child, { cancelled: true });
+        } else {
+          if (m.done && !getBusy()) {
+            for (const id of ids) if (!toolCallSettled(child, id)) child._toolStates[id] = { status: 'error', note: '工具结果缺失' };
+          }
+          syncToolChip(child);
         }
-        chip.classList.toggle('live', live && !chip.classList.contains('done'));
-        if (chip._userToggle == null) chip.classList.toggle('expanded', !chip.classList.contains('done'));
-        if (m.cancelled && !chip.classList.contains('ok') && !chip.classList.contains('fail')) {
-          chip.classList.add('done');
-          chip.classList.remove('running');
-          const st = $('.chip-state', chip);
-          if (st && !st.querySelector('.chip-ok, .chip-fail')) st.textContent = '已停止';
-        }
+        renderToolChipDetail(child);
       }
+      syncRanCommandsFold(fold);
     }
     // 连续 Edited / Explored File 合并到同一轮最后一条对应工具的助手消息，避免连着两块
     const msgsAll = store.state.messages;
     const idxA = msgsAll.findIndex((x) => x.id === m.id);
-    const pathsOf = (msg, name) => [...new Set((msg.toolCalls || []).filter((c) => c.name === name && c.args && c.args.path).map((c) => String(c.args.path)))];
+    const pathsOf = (msg, name) => [...new Set((msg && msg.toolCalls || []).filter((c) => c.name === name && c.args && c.args.path).map((c) => String(c.args.path)))];
+    const imagePaths = (() => {
+      try {
+        return (agent && agent.fs && agent.fs.list ? agent.fs.list() : [])
+          .map((f) => String(f && f.path || ''))
+          .filter((p) => /\.(?:png|jpe?g|webp|gif)$/i.test(p));
+      } catch { return []; }
+    })();
+    const decodeRawJsonString = (raw, key) => {
+      const re = new RegExp('"' + key + '"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"');
+      const match = re.exec(raw);
+      if (!match) return '';
+      try { return JSON.parse('"' + match[1] + '"'); } catch { return match[1]; }
+    };
+    const pathsOfAnalyze = (msg) => {
+      const out = [];
+      for (const call of (msg && msg.toolCalls || [])) {
+        if (call.name !== 'analyze_image') continue;
+        const args = call.args && typeof call.args === 'object' ? call.args : {};
+        const raw = String(args.__raw || '');
+        let declared = [];
+        if (Array.isArray(args.paths)) declared = args.paths.map(String);
+        else if (args.path) declared = [String(args.path)];
+        if (!declared.length && raw) {
+          const rawPaths = /"paths"\s*:\s*\[([\s\S]*?)(?:\]|$)/.exec(raw);
+          if (rawPaths) {
+            for (const q of rawPaths[1].matchAll(/"((?:\\.|[^"\\])*)"/g)) {
+              try { declared.push(String(JSON.parse('"' + q[1] + '"'))); } catch { /* incomplete stream fragment */ }
+            }
+          }
+          if (!declared.length) {
+            const path = decodeRawJsonString(raw, 'path');
+            if (path) declared = [path];
+          }
+        }
+        const prefix = String(args.prefix || decodeRawJsonString(raw, 'prefix') || '');
+        if (!declared.length && prefix) declared = imagePaths.filter((path) => path.startsWith(prefix));
+        const toolMsg = (store.state.messages || []).find((x) => x.role === 'tool' && String(x.toolCallId) === String(call.id));
+        const result = String(toolMsg && toolMsg.content != null ? toolMsg.content : '');
+        const found = /^\[识图完成\][^\n]*?· 文件 (.*?) · 全文 \d+ 字/.exec(result);
+        if (found) declared = found[1].split('、').map((path) => path.trim()).filter(Boolean);
+        else if (!declared.length && imagePaths.length === 1) declared = [imagePaths[0]];
+        for (const path of declared) {
+          const page = /^(.*)-p\d+(\.[^.]+)$/i.exec(path);
+          if (page) {
+            const siblings = imagePaths.filter((candidate) => {
+              const match = /^(.*)-p\d+(\.[^.]+)$/i.exec(candidate);
+              return match && match[1] === page[1] && match[2].toLowerCase() === page[2].toLowerCase();
+            }).sort((a, b) => Number((/-p(\d+)\./i.exec(a) || [])[1] || 0) - Number((/-p(\d+)\./i.exec(b) || [])[1] || 0));
+            out.push(...(siblings.length ? siblings : [path]));
+          } else out.push(path);
+        }
+      }
+      return [...new Set(out)];
+    };
+    const pathsOfExplored = (msg) => [...new Set([...pathsOf(msg, 'read_file'), ...pathsOfAnalyze(msg)])];
     // P3：写文件类的路径要走 editpreview —— 流式期间 args 是半截 JSON（{__raw}），
     // 只有它能从「还没写完的文本」里把 path 扫出来，否则直播行会一直空着直到整段写完。
     const pathsOfEdit = (msg) => {
@@ -2857,8 +3101,8 @@ function validateApiKey(s) {
         }
       }
     };
-    const paintPathFold = (cls, name, icon, one, many, afterEl) => {
-      const paths = mergedPaths(name);
+    const paintPathFold = (cls, name, icon, one, many, afterEl, extractor = (msg) => pathsOf(msg, name)) => {
+      const paths = mergedPaths(name, extractor);
       let node = $(`.${cls}`, wrap);
       if (paths.length) {
         if (!node) {
@@ -2876,7 +3120,7 @@ function validateApiKey(s) {
         node.innerHTML = `<span class="chip-ico think-ico">${icon || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
         // 与思考/工具芯片同构：流式期间展开，回合完成后自动折叠（用户手动展开过则尊重）
         if (node._userToggle == null) node.classList.toggle('expanded', !!live);
-        dropEarlierFold(cls, (msg) => pathsOf(msg, name));
+        dropEarlierFold(cls, extractor);
       } else if (node) node.remove();
       return $(`.${cls}`, wrap) || afterEl;
     };
@@ -2958,7 +3202,7 @@ function validateApiKey(s) {
       } else if (node) node.remove();
       return $('.cleanup-fold', wrap) || afterEl;
     };
-    const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips);
+    const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips, pathsOfExplored);
     const afterEdit = paintEditFold(afterRead, live);
     paintCleanupFold(afterEdit, m);
     // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
@@ -3096,7 +3340,7 @@ function validateApiKey(s) {
   function webNote(w) {
     const box = el('div', 'web-note');
     const sources = (w.sources || []).filter((x) => x && x.url).slice(0, 6);
-    if (w.status === 'searching') box.innerHTML = '<span class="web-dot"></span><span>联网检索中（模型原生 web_search）…</span>';
+    if (w.status === 'searching') box.innerHTML = '<span class="web-dot"></span><span>联网检索中…</span>';
     else if (w.status === 'error') {
       // 上游检索服务不可用（如 Anthropic 的 error_code:"unavailable"）：如实说清，不显示「0 条来源」
       box.innerHTML = `<span class="web-fail">联网检索未成功</span><span class="mono">${esc(String(w.message || '上游未返回结果').slice(0, 90))}</span>`
@@ -3264,51 +3508,21 @@ function validateApiKey(s) {
   }
 
   function attachToolResult(toolMsg) {
-    const id = toolMsg.toolCallId;
-    const chip = $$('.chip', msgList).find((c) => String(c.dataset.callIds || c.dataset.callId || '').split(',').includes(id));
+    const id = String(toolMsg && toolMsg.toolCallId != null ? toolMsg.toolCallId : '');
+    if (!id) return;
+    const chip = $$('.tool-call-chip', msgList).find((c) => toolIds(c).includes(id));
     if (!chip) return;
-    const body = String(toolMsg.content || '');
-    const okOne = !body.startsWith('工具执行失败')
-      && !body.startsWith('图像模型调用失败')
-      && !body.startsWith('图像调用在发起前失败')
-      && !/── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(body);
+    const body = String(toolMsg.content == null ? '' : toolMsg.content);
     if (!chip._outs) chip._outs = {};
-    chip._outs[id] = body;
-    const ids = String(chip.dataset.callIds || chip.dataset.callId || '').split(',').filter(Boolean);
-    const outs = ids.map((x) => chip._outs[x]).filter((x) => x != null);
-    const allIn = outs.length >= ids.length && ids.length > 0;
-    const ok = outs.every((b) => b && !b.startsWith('工具执行失败')
-      && !b.startsWith('图像模型调用失败')
-      && !b.startsWith('图像调用在发起前失败')
-      && !/── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(b));
-    const dm = /执行耗时 (\d+)ms/.exec(body);
-    const dur = dm ? fmtSpan(Number(dm[1])) : '';
-    const errTxt = body.slice(0, 400);
-    const st = $('.chip-state', chip);
-    if (st) {
-      if (!allIn) st.textContent = `${outs.length}/${ids.length}`;
-      else {
-        st.innerHTML = ok
-          ? `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`
-          : `<span class="chip-fail" title="${esc(errTxt)}">✗</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
-        st.classList.toggle('bad', !ok);
-        st.title = ok ? '' : errTxt;
-      }
-    }
-    if (allIn) {
-      chip.classList.add('done');
-      chip.classList.toggle('ok', ok);
-      chip.classList.toggle('fail', !ok);
-      chip.classList.remove('running');
-      if (chip._userToggle == null) chip.classList.remove('expanded');
-    }
-    chip._out = outs.join('\n\n');
-    const items = chip._items || [];
-    const argHtml = items.length > 1
-      ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(JSON.stringify(t.args))}</div>`).join('')
-      : `<div class="chip-args">参数 ${esc(JSON.stringify(chip._args))}</div>`;
-    chip._detail.innerHTML = `<div class="fold-inner">${argHtml}<pre class="chip-result">${esc(chip._out)}</pre></div>`;
-    chip._renderedArgs = true;
+    if (!chip._toolStates) chip._toolStates = {};
+    chip._outs[id] = body; // 空字符串也是已收到的出参，不能被当成「结果还没回来」
+    const previous = chip._toolStates[id] || {};
+    chip._toolStates[id] = {
+      ...previous,
+      status: previous.status === 'error' || toolResultFailed(body) ? 'error' : 'ok',
+    };
+    syncToolChip(chip);
+    renderToolChipDetail(chip);
   }
 
   function scrollToBottom(force) {
@@ -4582,7 +4796,7 @@ function validateApiKey(s) {
       renderTimeStats();
     },
     // 回合结束后给会话起个标题（Agent 总结；用户手改过的不会被覆盖）
-    // 联网：进度与来源（模型服务端返回的 web_search 事件）
+    // 联网：进度与来源（兼容解析模型服务端 web_search 事件）
     onWebSearch: (m) => {
       const wrap = msgNodes.get(m && m.id);
       if (!wrap) return;
@@ -4652,13 +4866,10 @@ function validateApiKey(s) {
       if (last) {
         const wrap = msgNodes.get(last.id);
         if (wrap) paintAssistant(wrap, last);
-        for (const chip of $$('.chip', wrap || msgList)) {
-          if (!chip.classList.contains('done')) {
-            chip.classList.add('done');
-            const st = $('.chip-state', chip);
-            if (st && st.textContent === '…') { st.textContent = '已停止'; }
-          }
+        for (const chip of $$('.tool-call-chip', wrap || msgList)) {
+          if (!chip.classList.contains('done')) syncToolChip(chip, { cancelled: true });
         }
+        for (const fold of $$('.ran-commands', wrap || msgList)) syncRanCommandsFold(fold);
       }
       refreshActionVisibility();
       scrollToBottom();
@@ -4667,31 +4878,20 @@ function validateApiKey(s) {
     // 沙箱执行进度 → 回写到对应工具芯片的状态位（Pyodide 首次加载 10~30s、
     // C++ 远程编译、子智能体委派都需要可见的进度，否则界面看起来像卡死）
     onToolEvent(call, patch) {
-      const chip = $(`.chip[data-call-id="${CSS.escape(call.id)}"]`, msgList);
+      const id = String(call && call.id || '');
+      const chip = $$('.tool-call-chip', msgList).find((node) => toolIds(node).includes(id));
       if (!chip) return;
-      const state = $('.chip-state', chip);
-      if (!state) return;
-      if (patch.status === 'running') {
-        chip.classList.add('running');
-        state.textContent = patch.note || '执行中…';
-        state.title = patch.note || '';
-        state.classList.remove('bad');
-      } else if (patch.status === 'error') {
-        chip.classList.remove('running');
-        chip.classList.add('fail');
-        chip.classList.remove('ok');
+      if (!chip._toolStates) chip._toolStates = {};
+      if (['running', 'ok', 'error'].includes(patch.status)) {
+        const previous = chip._toolStates[id] || {};
         const errTxt = String((patch.error && patch.error.message) || patch.note || '工具失败').slice(0, 400);
-        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗</span>`;
-        state.title = errTxt;
-        state.classList.add('bad');
-      } else if (patch.status === 'ok') {
-        chip.classList.remove('running');
-        chip.classList.add('ok');
-        chip.classList.remove('fail');
-        const dur = patch.durationMs != null ? fmtSpan(patch.durationMs) : '';
-        state.innerHTML = `<span class="chip-ok">✓</span>${dur ? ` <span class="chip-time">${dur}</span>` : ''}`;
-        state.title = patch.note || '';
-        state.classList.remove('bad');
+        chip._toolStates[id] = {
+          ...previous,
+          status: patch.status,
+          note: patch.status === 'error' ? errTxt : (patch.note || previous.note || ''),
+          durationMs: patch.durationMs != null ? Number(patch.durationMs) : previous.durationMs,
+        };
+        syncToolChip(chip);
       }
       if (patch.image) {
         // 图走正文 sandbox:// 占位，不在芯片里画。仍记在 toolCall 上，好进 IDB。

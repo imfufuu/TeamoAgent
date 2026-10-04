@@ -4,7 +4,7 @@
 //
 // 为什么要有这一层：能力掩码（谁能用）、工具表（有哪些工具）、预算（能用多少）、风险上限
 // （最多能干到什么程度）、确认策略（哪些必须问人）以前分散在 agent.js 的几段代码里各自计算。
-// 只要其中一处被改而另一处没跟上，就会出现「上下文说可以联网，但工具表里 fetch_url 已被摘掉」
+// 只要其中一处被改而另一处没跟上，就会出现「上下文说可以联网，但工具表里网页工具缺失」
 // 这种自相矛盾——模型会去调一个不存在的工具，浪费一轮，而且审计记录无法解释到底哪个口径生效。
 //
 // 本模块把「一轮执行的完整状态」收进一个冻结对象，并让工具表**由它派生**（deriveToolWhitelist），
@@ -37,13 +37,15 @@ export const CONTEXT_SPLIT_CODES = Object.freeze({
 
 const CAPABILITY_TOOLS = Object.freeze([
   ['relay', null],                       // relay 是通道前提，不绑定单一工具
-  ['web', 'fetch_url'],
+  ['web', 'fetch_url'],                  // 基础网页抓取能力
+  ['web', 'search_web', 'search'],       // Worker 可选路由，由 health.capabilities 声明
+  ['web', 'crawl_site', 'crawl'],
   ['sandbox', 'execute_javascript'],
   ['dispatch', 'dispatch_subagent'],
 ]);
 
 // 只在中继（本地服务）可用、且不依赖具体能力位的工具：中继不在就必须摘掉
-export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url']);
+export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url', 'search_web', 'crawl_site']);
 
 // 受沙箱能力位管辖的工具（与 js/tools.js 的 CODE_TOOL_NAMES 必须一致；有单测钉住）
 export const SANDBOX_GATED_TOOLS = Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']);
@@ -158,9 +160,19 @@ export function deriveToolWhitelist(ctx, allTools = []) {
   for (const tool of list) {
     const name = toolName(tool);
     if (!name) { dropped.push({ name: '(unnamed)', reason: 'no-tool-name' }); continue; }
-    if (name === 'fetch_url' && !bits.web) {
+    if (RELAY_DEPENDENT_TOOLS.includes(name) && !bits.web) {
       // 摘除理由分两层说清楚：是通道没通（中继不在），还是开关关了（联网被关）
       dropped.push({ name, reason: bits.relay ? 'capability-web-off' : 'relay-offline' });
+      continue;
+    }
+    const webConstraints = ctx && ctx.capability && ctx.capability.constraints && ctx.capability.constraints.web;
+    // 可选 Worker 路由必须有明确的 health capability 声明；缺省/未知不能推断为可用。
+    if (name === 'search_web' && (!webConstraints || webConstraints.search !== true)) {
+      dropped.push({ name, reason: 'relay-search-unavailable' });
+      continue;
+    }
+    if (name === 'crawl_site' && (!webConstraints || webConstraints.crawl !== true)) {
+      dropped.push({ name, reason: 'relay-crawl-unavailable' });
       continue;
     }
     if (RELAY_DEPENDENT_TOOLS.includes(name) && !bits.relay) { dropped.push({ name, reason: 'relay-offline' }); continue; }
@@ -200,10 +212,14 @@ export function assertExecutionContextConsistency(ctx, tools = [], { legacyToolN
   }
 
   // ② 声明能力 ↔ 工具表（双向）：声明允许 Web 却拿不到 fetch_url，或反过来有工具但能力位是 0
-  for (const [bit, tool] of CAPABILITY_TOOLS) {
+  for (const [bit, tool, feature] of CAPABILITY_TOOLS) {
     if (!tool) continue;
-    if (claimed[bit] && !names.has(tool)) add(CONTEXT_SPLIT_CODES.capabilityWithoutTool, `能力位 ${bit}=1 但工具表没有 ${tool}`);
+    // 基础 Web 工具 fetch_url 由 web bit 控制；search/crawl 只有 health 明确声明时才成为必需工具。
+    const featureAvailable = !feature || !!(c && c.web && c.web[feature] === true);
+    const featureUnavailable = !!(feature && c && c.web && c.web[feature] === false);
+    if (claimed[bit] && featureAvailable && !names.has(tool)) add(CONTEXT_SPLIT_CODES.capabilityWithoutTool, `能力位 ${bit}=1${feature ? ` 且 Worker 声明 ${feature}=1` : ''} 但工具表没有 ${tool}`);
     if (!bits[bit] && names.has(tool)) add(CONTEXT_SPLIT_CODES.toolWithoutCapability, `工具表有 ${tool} 但能力位 ${bit}=0`);
+    if (featureUnavailable && names.has(tool)) add(CONTEXT_SPLIT_CODES.toolWithoutCapability, `Worker 未声明 ${feature}，工具表却有 ${tool}`);
   }
 
   // ② 约束 ↔ 能力：sandbox 关着却声明禁网/允许路径，等于给一个不存在的执行环境写规则

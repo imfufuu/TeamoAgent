@@ -65,7 +65,7 @@ export function evaluateTrajectory({
   // ── 负向指标 2：Under-routing（需要工具却没有调用）──
   const underReasons = [];
   if (planFlags.needSearch && caps.web && caps.web.enabled && !uniqueUsed.some((n) => WEB_TOOLS.has(n))) {
-    underReasons.push('计划判定需要联网检索，Web 能力可用，但本轮没有调用 fetch_url');
+    underReasons.push('计划判定需要联网检索，Web 能力可用，但本轮没有调用 fetch_url/search_web/crawl_site');
   }
   if (planFlags.needCode && caps.sandbox && caps.sandbox.enabled && !uniqueUsed.some((n) => CODE_TOOLS.has(n))) {
     underReasons.push('计划判定需要代码执行，沙箱可用，但本轮没有调用代码工具');

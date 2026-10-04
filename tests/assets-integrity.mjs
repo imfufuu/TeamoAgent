@@ -196,8 +196,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(ui, /:::color|COLOR_ALIAS/, '应有 :::color 颜色容器');
   assert.match(ui, /uE000COLOR/, '颜色容器应进恢复链');
   assert.match(ui, /thinkStreaming \? '思考中' : '思考过程'/, '思考中不显示「思考过程」标题');
-  assert.match(ui, /observedHiddenThink/, '应自学记录加密思考模型');
-  assert.match(ui, /思考链已加密/, '菜单应有加密徽章');
+  // 当前版本不在模型菜单做隐藏思考检测；保留徽章样式仅兼容旧消息状态。
   assert.match(ui, /handleSystemCommand/, '应有 /system 命令执行器');
   assert.match(ui, /'__system__'/, '应支持 __system__ 伪模型');
   assert.match(ui, /node\._userToggle == null\) node\.classList\.toggle\('expanded', !!live\)/, '文件行应流式展开/完成折叠');
@@ -379,7 +378,7 @@ await test('P3 两个新模块随项目存在，且都以 ?v= 版本化方式被
   assert.match(ui, /editpreview\.js\?v=\d/, 'ui.js 应以 ?v= 导入 editpreview.js（旧 agent 时兜底解析）');
   assert.match(ui, /cleanup\.js\?v=\d/, 'ui.js 应以 ?v= 导入 cleanup.js（档位文案单一来源）');
 });
-await test('编辑直播：折叠行直播语义 + 预览窗 + 节流刷新 + 完成后回落到 Edited File(s)', () => {
+await test('编辑直播：折叠行直播语义 + 预览窗 + 节流刷新 + 完成后回落到 Edited Files', () => {
   const ui = read('../js/ui.js');
   assert.match(ui, /editFoldLabel/, '折叠行文案应由 editpreview 生成');
   assert.match(ui, /paintEditFold/, '应有写入折叠的绘制函数');
@@ -390,17 +389,14 @@ await test('编辑直播：折叠行直播语义 + 预览窗 + 节流刷新 + �
   const css = read('../css/styles.css');
   for (const cls of ['.edit-preview', '.ep-line', '.ep-no', '.ep-caret']) assert.ok(css.includes(cls), `缺少预览窗样式 ${cls}`);
 });
-await test('自清理：三档策略 + 顶栏开关 + /cleanup 命令 + 清理报告渲染', () => {
+await test('自清理：默认自动策略 + /cleanup 命令 + 清理报告渲染', () => {
   const ui = read('../js/ui.js');
   assert.match(ui, /CLEANUP_MODES/, '档位应来自 cleanup.js（单一来源）');
-  assert.match(ui, /cleanup-toggle/, '顶栏应有清理开关');
   assert.match(ui, /name === 'cleanup'/, '应有 /cleanup 命令分支');
   assert.match(ui, /\/cleanup \[report\|strip\|off\]/, '帮助里应列出 /cleanup 用法');
   assert.match(ui, /paintCleanupFold/, '回复下方应渲染清理结论');
   assert.match(ui, /onCleanup/, 'UI 应接收清理钩子');
   assert.match(read('../js/main.js'), /onCleanup/, 'main.js 应桥接 onCleanup（旧 ui.js 静默降级）');
-  const app = read('../app.html');
-  assert.match(app, /id="cleanup-toggle"/, 'app.html 应有清理 pill');
   const css = read('../css/styles.css');
   for (const cls of ['.cleanup-fold', '.cleanup-report']) assert.ok(css.includes(cls), `缺少清理样式 ${cls}`);
 });
@@ -423,6 +419,47 @@ await test('自清理内核侧：台账 / 审计事件 / 未完成回合不删 /
   assert.match(st, /cleanupPolicy: 'strip'/, '默认档位为 strip（自动清理）');
 });
 
+await test('介绍页 / 对话页共享主题色，设置项同步外观并使用应用主题状态', () => {
+  const theme = read('../js/theme.js');
+  const home = read('../js/home.js');
+  const ui = read('../js/ui.js');
+  const settings = read('../js/settings.js');
+  assert.match(theme, /THEME_STORAGE_KEY = 'teamo-theme'/);
+  assert.match(home, /readThemePreference/);
+  assert.match(home, /writeThemePreference\(root\.dataset\.theme\)/);
+  assert.match(home, /addEventListener\('storage'/);
+  assert.match(ui, /readThemePreference\(store\.state\.settings\.theme/);
+  assert.match(ui, /addEventListener\('storage'/);
+  assert.match(settings, /writeThemePreference\(v\)/);
+});
+await test('字号三档实际覆盖固定 px 字号；思考 Off 的强度行可隐藏；本地存储读取 v2 key', () => {
+  const css = read('../css/styles.css');
+  const settings = read('../js/settings.js');
+  const app = read('../app.html');
+  assert.match(css, /html\[data-fontsize="small"\]/);
+  assert.match(css, /html\[data-fontsize="medium"\]/);
+  assert.match(css, /html\[data-fontsize="large"\]/);
+  assert.match(css, /font-size: var\(--ui-fs-14px, 14px\)/);
+  assert.match(css, /--ui-fs-14px: 12\.6px/);
+  assert.match(css, /--ui-fs-14px: 15\.4px/);
+  assert.match(settings, /applyFontSizeValue\(v\)/);
+  assert.doesNotMatch(settings, /document\.documentElement\.style\.fontSize/);
+  assert.match(css, /\.set-row\[hidden\] \{ display: none !important; \}/);
+  assert.match(settings, /\$\{STORAGE_KEY\}-v2/);
+  assert.match(settings, /store\.state\.sessions/);
+  assert.match(app, /id="set-reason-row" hidden/);
+});
+await test('加载屏使用与 APP_LOGO 同构的原生产品图标，且不会自转', () => {
+  const app = read('../app.html');
+  const icons = read('../js/icons.js');
+  const css = read('../css/styles.css');
+  const boot = /<div class="boot-logo"[\s\S]*?<\/div>/.exec(app)?.[0] || '';
+  for (const part of ['r="13"', 'stroke-opacity="0.55"', 'cx="16.000" cy="24.000"', 'cx="9.072" cy="12.000"']) {
+    assert.ok(boot.includes(part) && icons.includes(part), `启动图标与 APP_LOGO 不一致：${part}`);
+  }
+  assert.match(css, /\.boot-logo svg \{[^}]*animation: none/);
+  assert.doesNotMatch(css, /animation:\s*boot-spin/);
+});
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);

@@ -293,7 +293,7 @@ let e2e = { ok: false, detail: '未执行' };
 try {
   const responses = [
     toolTurn('e1', 'write_file', { path: 'files/one.txt', content: '1' }),
-    textTurn('第一步完成。'),
+    textTurn('已创建 files/one.txt，内容为 1。'),
     toolTurn('e2', 'write_file', { path: 'files/two.txt', content: '2' }),
     textTurn('两步都完成了。'),
   ];

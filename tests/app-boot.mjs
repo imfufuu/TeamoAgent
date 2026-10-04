@@ -154,19 +154,19 @@ globalThis.fetch = async (url, opts) => {
   if (ep === 'responses') {
     if (isToolTurn) return respTool('call_boot', 'write_file', args);
     if (isDispatchTurn) return respTool('call_sub', 'dispatch_subagent', JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }));
-    if (wantsWeb) return new Response([...respWeb, ...[enc({ type: 'response.output_text.delta', delta: turn === 2 ? '已写入' : '已整合专家意见' })],
+    if (wantsWeb) return new Response([...respWeb, ...[enc({ type: 'response.output_text.delta', delta: turn === 2 ? '已写入 uploads/cat.png' : '已整合专家意见' })],
       enc({ type: 'response.completed', response: { status: 'completed', usage: { input_tokens: 30, output_tokens: 12 }, output: [] } })].join(''), { status: 200, headers: SSE });
-    return respText(turn === 2 ? '已写入' : '已整合专家意见');
+    return respText(turn === 2 ? '已写入 uploads/cat.png' : '已整合专家意见');
   }
   if (ep === 'anthropic') {
     if (isToolTurn) return sseRes(anthToolSse('call_boot', 'write_file', args));
     // 联网由模型服务端完成：开联网时先回一段 server_tool_use + 结果，再接正文
     const pre = wantsWeb ? anthWeb.join('') : '';
-    return sseRes(pre + anthTextSse(turn === 2 ? '已写入' : '已整合专家意见'));
+    return sseRes(pre + anthTextSse(turn === 2 ? '已写入 uploads/cat.png' : '已整合专家意见'));
   }
   if (isToolTurn) return chatTool('call_boot', 'write_file', args);
   if (isDispatchTurn) return chatTool('call_sub', 'dispatch_subagent', JSON.stringify({ agent: 'code-reviewer', task: '审查 uploads/cat.png 的写入逻辑' }));
-  return chatText(turn === 2 ? '已写入' : '已整合专家意见');
+  return chatText(turn === 2 ? '已写入 uploads/cat.png' : '已整合专家意见');
 };
 
 console.log('应用装配冒烟（真实 js/main.js 引导）');
@@ -209,7 +209,7 @@ console.log('\n发送一整轮（含工具调用）');
 click($('#key-btn'));
 await tick(30);
 ok('API Key 弹窗可打开', $('#key-modal').classList.contains('open'));
-$('#key-input').value = 'sk-teamo-boot-test';
+$('#key-input').value = 'sk-teamo-boot-test-key-123456789';
 click($('#key-save'));
 await tick(30);
 ok('保存后弹窗关闭且 key 生效', !$('#key-modal').classList.contains('open'));
@@ -226,18 +226,20 @@ ok('用户消息点发送即上屏（不等 AI）', $$('#messages .msg-user .bub
 diag.push(`消息序列：${$$('#messages .msg').map((n) => n.textContent.replace(/\s+/g, ' ').slice(0, 28)).join(' ~ ')}`);
 await tick(1200);
 const allText = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ');
-ok('工具回合执行且回复落地', allText.includes('已写入') && !!$('.chip'), allText.replace(/\s+/g, ' ').slice(0, 120));
-ok('工具芯片显示 write_file 成功', !!$('.chip') && /write_file/.test($('.chip').textContent) && !/✕/.test($('.chip-state')?.textContent || ''));
-ok('工具芯片图标是 SVG（不再是 ⚙ 字符）', !!$('.chip .chip-ico svg') && !/⚙/.test($('.chip .chip-ico').textContent),
-  $('.chip .chip-ico').innerHTML.slice(0, 60));
-ok('工具跑完后芯片标记 .done（停止转动）', $('.chip').classList.contains('done') && !$('.chip').classList.contains('running'), $('.chip').className);
+const editFold = $('.edited-files');
+ok('工具回合执行且回复落地', allText.includes('已写入') && !!editFold, allText.replace(/\s+/g, ' ').slice(0, 120));
+ok('write_file 进入 Edited Files 折叠且显示交付路径', !!editFold && /Edited Files?/.test(editFold.querySelector('.chip-name')?.textContent || '')
+  && editFold.textContent.includes('uploads/cat.png'));
+ok('写文件折叠图标为 SVG（非 emoji）', !!editFold?.querySelector('.chip-ico svg') && !/⚙/.test(editFold.querySelector('.chip-ico')?.textContent || ''),
+  editFold?.querySelector('.chip-ico')?.innerHTML.slice(0, 60) || '');
+ok('写入完成后折叠不再处于直播态', !!editFold && !editFold.classList.contains('live') && !editFold.classList.contains('running'), editFold?.className || '');
 
 console.log('\n沙箱文件面板');
 const dirRow = $$('#file-list .ft-dir')[0];
 ok('uploads/ 目录行出现', dirRow?.dataset.path === 'uploads', $$('#file-list .ft-row').map((n) => n.dataset.path).join(','));
 ok('目录行为 button + aria-expanded + SVG 文件夹图标', dirRow?.getAttribute('role') === 'button' && dirRow?.getAttribute('aria-expanded') === 'true' && !!dirRow?.querySelector('.ft-ico svg'));
 const fileRow = $$('#file-list .ft-file')[0];
-ok('文件行显示文件名与体积', /cat\.png/.test(fileRow?.textContent || '') && /\d/.test(fileRow?.querySelector('.file-size')?.textContent || ''));
+ok('文件行显示文件名且 title 保留完整路径', /cat\.png/.test(fileRow?.textContent || '') && fileRow?.title === 'uploads/cat.png');
 ok('文件行下载按钮为 SVG（非 emoji）', !!fileRow?.querySelector('.file-dl svg') && !/⬇|↓/.test(fileRow.querySelector('.file-dl').textContent));
 click(dirRow);
 await tick(30);
@@ -272,17 +274,17 @@ const text2 = $$('#messages .msg-assistant').map((n) => n.textContent).join(' ')
 ok('子智能体报告被整合进最终回复', text2.includes('已整合专家意见'), text2.replace(/\s+/g, ' ').slice(-140));
 ok('报告正文回填到芯片详情', $$('#messages .chip-result').some((n) => /先加输入校验/.test(n.textContent)));
 
-console.log('\n联网：无中继时按钮灰掉');
+console.log('\n联网：无中继时关闭并允许重试探测');
 {
   const pill = $('#web-toggle');
   ok('顶栏仍有「联网」pill', !!pill && /联网/.test(pill.textContent));
-  ok('无中继时禁用且不亮', pill.disabled && !pill.classList.contains('on'), pill.title);
+  ok('无中继时保持关闭态并显示重试探测提示', !pill.disabled && !pill.classList.contains('on') && pill.classList.contains('degraded-off'), pill.title);
   ok('提示语点明中继', /中继/.test(pill.title), pill.title);
   ok('全程不走 /v1/responses', !reqs.some((r) => r.url.includes('/v1/responses')), JSON.stringify(reqs.map((r) => r.url.split('/v1/')[1]).slice(0, 8)));
   ok('请求体不含 web_search 原生字段', reqs.every((r) => !(r.body.tools || []).some((x) => String(x.type || '').startsWith('web_search'))));
   click(pill);
   await tick(30);
-  ok('无中继点击也不能打开', pill.disabled && !pill.classList.contains('on'));
+  ok('无中继点击只重试探测且不能打开', !pill.classList.contains('on'));
 }
 
 console.log('\n诚实性护栏：正文说「已联网」但没有任何检索事件');
@@ -296,16 +298,21 @@ console.log('\n诚实性护栏：正文说「已联网」但没有任何检索�
 
 console.log('\n停止生成：停下就是停下，不留「正在连接…」动画');
 {
+  // 连接提示只在 Off 推理模式显示：避免与思考内容/状态点重复。
+  click($('#thinking-toggle'));
+  await tick(10);
+  click($('#think-menu [data-think="off"]'));
+  await tick(20);
   $('#composer-input').value = '测试停止生成：问一句然后马上停';
   click($('#send-btn'));
   await tick(700);
   const live = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('等待首字时确实显示了连接动画（先确认前置状态）', /正在连接/.test(live.innerHTML) && !!live.querySelector('.connect-ring'),
+  ok('等待首字时使用静态原生产品 Logo（先确认前置状态）', /正在连接/.test(live.innerHTML) && !!live.querySelector('.connect-mark svg') && !live.querySelector('.connect-ring'),
     live.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
   click($('#send-btn'));          // busy 时同一个按钮就是「停止」
   await tick(900);
   const after = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('停止后连接动画消失', !/正在连接/.test(after.innerHTML) && !after.querySelector('.connect-ring'),
+  ok('停止后连接提示消失', !/正在连接/.test(after.innerHTML) && !after.querySelector('.connect-mark'),
     after.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
   ok('停止后标出「已停止」', !!after.querySelector('.cancelled-tag'));
   ok('停止后状态是「已停止」而不是继续转圈', /已停止/.test($('#status-text').textContent), $('#status-text').textContent);
@@ -360,9 +367,9 @@ ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !t
 globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis
 click($('#clear-sessions'));
 await tick(30);
-ok('侧栏底部写明「Teamo V1.3 正式版」+ 构建号', /Teamo V1\.3 正式版/.test($('#build-stamp').textContent) && /v\d{4}\.\d{1,2}\.\d{1,2}\.\d+/.test($('#build-stamp').textContent),
+ok('侧栏底部正式版与构建号跟随 config.js', $('#build-stamp').textContent === `Teamo ${cfg.APP_RELEASE} 正式版 · v${cfg.APP_VERSION}`,
   $('#build-stamp').textContent.trim());
-ok('侧栏 Logo 旁 V1.3 徽章在界面上', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === 'V1.3');
+ok('侧栏 Logo 旁徽章与当前发布版本一致', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === cfg.APP_RELEASE);
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));
 ok('没有会话记录时只显示一句短提示', $('#session-list .sess-empty-hint').textContent.trim() === '还没有会话记录'
   && $('#session-list .sess-empty-hint').querySelectorAll('br').length === 0, $('#session-list .sess-empty-hint').textContent.trim());
@@ -372,8 +379,8 @@ console.log('\n网络与 git 工具（只留中继抓取 + 本地 git）');
 {
   const tools = await import(path.join(ROOT, 'js/tools.js'));
   const names = tools.TOOL_DEFS.map((t) => t.name);
-  for (const n of ['fetch_url', 'run_git']) ok(`工具已注册：${n}`, names.includes(n));
-  ok('web_search 不再是工具（联网由模型 API 自带格式完成）', !names.includes('web_search'));
+  for (const n of ['fetch_url', 'search_web', 'crawl_site', 'run_git']) ok(`工具已注册：${n}`, names.includes(n));
+  ok('模型原生 web_search 不再作为客户端工具', !names.includes('web_search'));
   const modes = tools.TOOL_DEFS.find((t) => t.name === 'fetch_url').parameters.properties.mode.enum;
   ok('fetch_url 的 mode 只剩 text|raw（第三方抽取器已删）', modes.join(',') === 'text,raw', JSON.stringify(modes));
   ok('关沙箱也保留网络与 git 工具', tools.toolsFor(false).map((t) => t.name).includes('fetch_url'));

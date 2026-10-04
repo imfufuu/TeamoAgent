@@ -6,14 +6,15 @@
 //   ③ 内置公共 Cloudflare Worker 中继候选（留空可由用户或社区自行部署）
 //   全部不可用时给出可操作的错误提示，而不是返回假结果。
 //
-// 「联网搜索」不在这里：按用户要求，联网只使用模型 API 自带的网页搜索请求格式
-//（见 js/websearch.js 与 api.js 的注入逻辑），本项目不再调用任何第三方搜索 API。
+// 模型原生网页搜索字段保持关闭；另提供显式 search_web / crawl_site 工具，只有 health 声明对应能力的
+// Cloudflare Worker 才会被选作这两个路由，避免误调旧版本地 relay 的 404。
 //
 // 注意：本模块被 tools.js 与测试引用；具名导出形状需保持稳定避免 ESM 混版缓存白屏。
 
 // 当前选中的 relay endpoints 包；初始指向同源，探测成功后替换为公共 relay 地址
 let RELAY = { base: '', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
-let activeRelay = null; // { base, label, endpoints }
+let activeRelay = null; // { base, label, endpoints, capabilities }
+let featureRelays = { search: null, crawl: null };
 let relayOk = null;
 let relayProbe = null;
 
@@ -33,7 +34,7 @@ function userRelayOverride() {
 }
 function relayEndpoints(base) {
   const b = String(base || '').replace(/\/+$/, '');
-  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health` };
+  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health`, search: `${b}/api/search`, crawl: `${b}/api/crawl` };
 }
 async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
   // AbortSignal.any/timeout 老浏览器可能没有，手动派生一个 ctrl
@@ -50,7 +51,10 @@ async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
     const ct = res.headers.get('content-type') || '';
     if (!ct.includes('json')) return false;
     const j = await res.json().catch(() => ({}));
-    return !!(j && j.ok);
+    if (!(j && j.ok)) return false;
+    // 老版本本地 relay 未声明能力时仅视为支持其既有 fetch/git 接口。
+    const capabilities = Array.isArray(j.capabilities) ? j.capabilities.map((x) => String(x).toLowerCase()) : ['fetch', 'git'];
+    return { ok: true, capabilities };
   } catch { return false; }
   finally {
     clearTimeout(t);
@@ -67,11 +71,28 @@ export async function relayAvailable(signal) {
     const override = userRelayOverride();
     if (override) candidates.push({ base: override, label: 'user', endpoints: relayEndpoints(override) });
     for (const url of PUBLIC_RELAY_CANDIDATES) candidates.push({ base: url, label: 'public', endpoints: relayEndpoints(url) });
-    for (const c of candidates) {
-      const ok = await probeRelayEndpoint(c.endpoints, signal);
-      if (ok) { activeRelay = c; RELAY = { base: c.base, ...c.endpoints }; relayOk = true; return true; }
+    const unique = candidates.filter((c, i, all) => all.findIndex((x) => x.endpoints.base === c.endpoints.base) === i);
+    let selected = null;
+    featureRelays = { search: null, crawl: null };
+    // 先保留既有的中继优先级（同源 → 用户指定 → 公共），同时继续探测至找到声明搜索/爬虫能力的 Worker。
+    // 这样本地 server.py 可继续服务 fetch/git，而新增工具不会误打到它的 404 路由。
+    for (const c of unique) {
+      const probe = await probeRelayEndpoint(c.endpoints, signal, c.label === 'origin' ? 3500 : 1800);
+      if (!probe || !probe.ok) continue;
+      const candidate = { ...c, capabilities: probe.capabilities };
+      if (!selected) selected = candidate;
+      if (!featureRelays.search && probe.capabilities.includes('search')) featureRelays.search = candidate;
+      if (!featureRelays.crawl && probe.capabilities.includes('crawl')) featureRelays.crawl = candidate;
+      if (selected && featureRelays.search && featureRelays.crawl) break;
+    }
+    if (selected) {
+      activeRelay = selected;
+      RELAY = { base: selected.base, ...selected.endpoints };
+      relayOk = true;
+      return true;
     }
     activeRelay = null;
+    featureRelays = { search: null, crawl: null };
     // 回落到同源默认值
     RELAY = { base: '', ...relayEndpoints('') };
     relayOk = false;
@@ -81,11 +102,16 @@ export async function relayAvailable(signal) {
 }
 
 /** 当前生效 relay 信息，无则 null */
-export function currentRelay() { return relayOk && activeRelay ? { base: activeRelay.base, label: activeRelay.label } : null; }
+export function currentRelay() { return relayOk && activeRelay ? { base: activeRelay.base, label: activeRelay.label, capabilities: [...(activeRelay.capabilities || [])] } : null; }
+
+/** Worker 特性由 health.capabilities 声明；不要仅凭 /api/health=ok 假设存在新路由。 */
+export function relaySupports(feature) { return !!(relayOk && featureRelays[String(feature || '').toLowerCase()]); }
+export function relayCapabilities() { return { search: relaySupports('search'), crawl: relaySupports('crawl') }; }
 
 /** 重置探测缓存（测试 / 切换环境时用） */
 export function resetRelayProbe() {
   relayOk = null; relayProbe = null; activeRelay = null;
+  featureRelays = { search: null, crawl: null };
   RELAY = { base: '', ...relayEndpoints('') };
 }
 
@@ -112,13 +138,57 @@ export function pageTitle(html) {
 // 静态站点没有构建器、Pages 对子资源有 ~10 分钟缓存，于是可能出现「旧 tools.js + 新 net.js」：
 // 旧 tools.js 还写着 import { webSearch } —— 少这个导出会在 ESM link 期直接报错（整页白屏，
 // 比按钮失灵严重得多）。所以保留同名导出但不再实现任何搜索：搜索已按用户要求改成模型 API 自带格式。
-// 下一个发布周期（所有访问者的缓存都换过一轮后）可以删掉本函数与 tools.js 里的旧引用痕迹。
+// Worker-backed search_web 是另一个具名工具；本兼容桩只服务仍缓存旧 tools.js 的用户。
 export async function webSearch() {
   return {
     provider: 'none',
     results: [],
-    note: '项目已不再内置第三方搜索；联网请打开顶栏「联网」开关，由模型 API 自带的网页搜索格式完成。',
+    note: '兼容旧缓存的空桩；请使用工具表中的 search_web（仅新版 Worker 支持），或说明当前没有可用网页搜索路由。',
   };
+}
+
+async function relayFeatureJson(feature, params, signal) {
+  const key = String(feature || '').toLowerCase();
+  if (!await relayAvailable(signal)) return { ok: false, error: `没有可用中继。${RELAY_HINT}` };
+  const candidate = featureRelays[key];
+  if (!candidate) return { ok: false, error: `当前可用中继未声明 ${key === 'search' ? '搜索' : '爬虫'} 能力；请部署新版 relay/worker.js 并配置 Worker 路由。` };
+  const endpoint = candidate.endpoints[key];
+  const query = new URLSearchParams();
+  for (const [name, value] of Object.entries(params || {})) {
+    if (value !== undefined && value !== null && value !== '') query.set(name, String(value));
+  }
+  try {
+    const res = await fetch(`${endpoint}?${query.toString()}`, {
+      signal,
+      headers: { Accept: 'application/json' },
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, error: String(payload.error || `Worker 返回 HTTP ${res.status}`), status: res.status };
+    return { ok: true, ...payload };
+  } catch (err) {
+    return { ok: false, error: `Worker ${key} 请求失败：${err && err.message ? err.message : String(err)}` };
+  }
+}
+
+/** 调用声明支持 search 的 Worker 路由（SearXNG / DuckDuckGo 由 Worker 端选择）。 */
+export async function relaySearch({ query = '', limit = 5, signal } = {}) {
+  const q = String(query || '').trim();
+  if (!q) return { ok: false, error: '搜索词不能为空' };
+  if (q.length > 500) return { ok: false, error: '搜索词不能超过 500 个字符' };
+  const n = Math.max(1, Math.min(10, Math.floor(Number(limit) || 5)));
+  return relayFeatureJson('search', { q, limit: n }, signal);
+}
+
+/** 调用声明支持 crawl 的 Worker 路由（限制在站点同源、页数与深度硬上限内）。 */
+export async function relayCrawl({ url = '', maxPages = 3, maxDepth = 1, maxChars = 12000, signal } = {}) {
+  const target = String(url || '').trim();
+  if (!/^https?:\/\//i.test(target)) return { ok: false, error: 'crawl_site 只接受 http(s) 绝对地址' };
+  return relayFeatureJson('crawl', {
+    url: target,
+    max_pages: Math.max(1, Math.min(5, Math.floor(Number(maxPages) || 3))),
+    max_depth: Math.max(0, Math.min(2, Math.floor(Number(maxDepth) || 0))),
+    max_chars: Math.max(1000, Math.min(16000, Math.floor(Number(maxChars) || 12000))),
+  }, signal);
 }
 
 // ── 拉取网页 ────────────────────────────────────────────────────────────
@@ -441,6 +511,11 @@ function localGitRun({ command, repo, fs } = {}) {
 export async function gitRun({ command, repo, timeoutSec = 25, signal, fs } = {}) {
   const cmd = String(command || '').trim();
   if (!cmd) return { ok: false, error: 'run_git 需要 command，例如 "git status --short"' };
+  const localFallback = (reason) => {
+    const r = localGitRun({ command: cmd, repo, fs });
+    if (r.note === '内置沙箱 Git' && reason) r.note = `内置沙箱 Git（${reason}）`;
+    return r;
+  };
   if (await relayAvailable(signal)) {
     let res;
     try {
@@ -451,17 +526,26 @@ export async function gitRun({ command, repo, timeoutSec = 25, signal, fs } = {}
         signal,
       });
     } catch (err) {
-      return { ok: false, error: `git 中继请求失败：${err.message}` };
+      if (signal && signal.aborted) return { ok: false, error: `git 中继请求已取消：${err.message}` };
+      return localFallback(`Git 中继请求失败：${err.message}；以下为本地模拟器结果`);
     }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: `git 中继拒绝执行（HTTP ${res.status}）：${j.error || res.statusText}` };
+    if (!res.ok) {
+      const why = String(j.error || res.statusText || `HTTP ${res.status}`);
+      const noGitRoute = [404, 405, 501].includes(res.status)
+        || (res.status === 403 && /git.{0,12}(?:关闭|禁用|disabled|not enabled)/i.test(why));
+      if (noGitRoute) return localFallback(`中继未提供可用的真实 Git（${why}）`);
+      return { ok: false, error: `git 中继拒绝执行（HTTP ${res.status}）：${why}` };
+    }
+    // Cloudflare Worker / 旧版中继可能有 health 却没有 /api/git；不要把它误报成一次真实 Git 失败。
+    if (!Number.isInteger(j.code)) return localFallback('当前中继未提供 /api/git；以下为本地模拟器结果');
     const out = [j.stdout, j.stderr].filter((x) => x && String(x).trim()).join('\n── stderr ──\n');
     return {
       ok: j.code === 0,
       code: j.code,
       cwd: j.cwd || '',
       text: out || `（无输出，退出码 ${j.code}）`,
-      note: j.note || '',
+      note: ['本机真实 Git（经本地中继）', j.note].filter(Boolean).join('；'),
     };
   }
   return localGitRun({ command: cmd, repo, fs });

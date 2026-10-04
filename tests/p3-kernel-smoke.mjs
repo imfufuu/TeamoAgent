@@ -143,11 +143,11 @@ check('buildEditPreview：流式中判 streaming，写完才判 written', () => 
   assert.equal(done.status, 'written');
 });
 
-check('文案：折叠行直播显示 Editing File(s)，完成显示 Edited File(s) N', () => {
+check('文案：折叠行直播显示 Editing Files，完成显示 Edited Files N', () => {
   assert.equal(editFoldLabel(1, { live: true }), 'Editing File');
-  assert.equal(editFoldLabel(2, { live: true }), 'Editing File(s) 2');
+  assert.equal(editFoldLabel(2, { live: true }), 'Editing Files 2');
   assert.equal(editFoldLabel(1), 'Edited File');
-  assert.equal(editFoldLabel(3), 'Edited File(s) 3');
+  assert.equal(editFoldLabel(3), 'Edited Files 3');
   const note = formatEditPreviewNote(buildEditPreview([writeCall('a.md', 'x\ny')]));
   assert.ok(note.includes('a.md') && note.includes('2 行'), note);
   assert.equal(formatEditPreviewNote(null), '');

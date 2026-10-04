@@ -37,6 +37,8 @@ if (!window.CSS?.escape) { window.CSS = window.CSS || {}; window.CSS.escape = (s
 globalThis.CSS = window.CSS;
 window.Element.prototype.scrollTo = function () {};
 window.Element.prototype.scrollIntoView = function () {};
+if (typeof window.URL.createObjectURL !== 'function') window.URL.createObjectURL = () => 'blob:jsdom-mock';
+if (typeof window.URL.revokeObjectURL !== 'function') window.URL.revokeObjectURL = () => {};
 
 let failures = 0;
 const ok = (name, cond, extra = '') => {
@@ -64,10 +66,10 @@ const click = (n) => n.dispatchEvent(new window.MouseEvent('click', { bubbles: t
 
 console.log('\n挂载与初始状态');
 ok('mountUI 返回 hooks 对象', ui && typeof ui.setStatus === 'function');
-ok('生图模型下拉已填充 3 项', $('#image-model').options.length === 3, `实际 ${$('#image-model').options.length}`);
+ok('生图模型下拉与目录保持一致（4 项）', $('#image-model').options.length === 4, `实际 ${$('#image-model').options.length}`);
 ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
 ok('文件面板 ZIP 按钮存在', !!$('#download-zip'));
-ok('空沙箱工具栏仍显示 0.0MB/上限', /0\.0MB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
+ok('空沙箱工具栏仍显示 0.0KB/120.0MB 上限', /0\.0KB\/120\.0MB/.test($('#files-count').textContent), $('#files-count').textContent);
 
 console.log('\n② 生图模型不作为对话模型出现');
 click($('#model-btn'));
@@ -200,7 +202,7 @@ ok('每行有下载按钮（目录行只有 ZIP）', $$('#file-list .file-dl').l
 ok('目录行有打包按钮', $$('#file-list .ft-zip').length === 3, `${$$('#file-list .ft-zip').length} 个`);
 ok('目录/文件图标为内联 SVG', $$('#file-list .ft-ico').every((n) => !!n.querySelector('svg')));
 ok('文件数单独显示', /3 个文件/.test($('#files-n').textContent), $('#files-n').textContent);
-ok('容量单独显示已用/上限', /\d+\.\dMB\/\d+\.\dMB/.test($('#files-count').textContent), $('#files-count').textContent);
+ok('容量单独显示已用/上限（按字节动态切换 KB/MB）', /\d+\.\d(?:KB|MB)\/120\.0MB/.test($('#files-count').textContent), $('#files-count').textContent);
 
 // 折叠：点目录行收起整棵子树
 const uploadsRow = () => $$('#file-list .ft-dir').find((n) => rowPath(n) === 'uploads');
@@ -235,7 +237,7 @@ ok('目录 ZIP 以目录名命名', /^teamo-uploads-\d{4}-\d{2}-\d{2}-\d{2}-\d{2
 download = null; downloadName = null;
 click($('#download-zip'));
 ok('整包 ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
-ok('ZIP 文件名规范', /^teamo-sandbox-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
+ok('ZIP 文件名规范', /^teamo-workspace-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
 window.HTMLAnchorElement.prototype.click = origClick;
 window.URL.createObjectURL = origCreate;
 window.URL.revokeObjectURL = origRevoke;
@@ -264,35 +266,56 @@ const chip = window.document.querySelector(chipSel);
 ok('工具芯片已渲染', !!chip);
 ui.onToolEvent(call, { status: 'running', note: '图像生成中（gpt-image-2 · 1024x1024）…' });
 ok('芯片显示生图进度', chip.querySelector('.chip-state').textContent.includes('图像生成中'), chip.querySelector('.chip-state').textContent);
-ui.onToolEvent(call, { status: 'ok', image: 'data:image/png;base64,iVBORw0KGgo=', imagePath: 'outputs/image-001.png' });
-ok('芯片内显示生成的图片', !!chip.querySelector('.chip-img img'));
-ok('图片说明含沙箱路径', /outputs\/image-001\.png/.test(chip.querySelector('.chip-img-cap').textContent));
-ui.onToolResult(call, '[图像生成完成]\n- 模型：gpt-image-2\n- 输出：outputs/image-001.png');
-ok('回填结果后图片仍在', !!chip.querySelector('.chip-img img'));
-ok('回填后展示工具文本', chip.querySelector('.chip-result')?.textContent.includes('图像生成完成'));
+const imagePayload = 'data:image/png;base64,iVBORw0KGgo=';
+const resultText = '[图像生成完成]\n- 模型：gpt-image-2\n- 输出：outputs/image-001.png';
+ui.onToolEvent(call, { status: 'ok', image: imagePayload, imagePath: 'outputs/image-001.png' });
+ok('图片 payload 与路径保存在工具调用记录（由消息正文引用，不塞进芯片）', call.image === imagePayload && call.imagePath === 'outputs/image-001.png');
+store.pushMessage({ role: 'tool', toolCallId: call.id, content: resultText });
+ui.onToolResult(call, resultText);
+ok('回填结果后出参完整显示在芯片内', chip.querySelector('.chip-result')?.textContent.includes('outputs/image-001.png'));
+ok('工具调用到达完成态，不再持续旋转', chip.classList.contains('done') && !chip.classList.contains('running'));
 ui.onAssistantDone(imgMsg);
-ok('重绘后从缓存恢复图片', !!window.document.querySelector(`${chipSel} .chip-img img`));
+ok('重绘后从 Store 恢复出参', window.document.querySelector(`${chipSel} .chip-result`)?.textContent.includes('outputs/image-001.png'));
 ok('消息头部显示该轮实际模型 gpt-5.5', window.document.querySelector(`${chipSel}`).closest('.msg-assistant').querySelector('.msg-model').textContent === 'gpt-5.5');
 
 console.log('\n③ 未收到首字时气泡内的连接动画');
-const waitMsg = store.pushMessage({ role: 'assistant', text: '', model: 'claude-opus-5', done: false });
+const priorGetStatus = agent.getStatus;
+agent.getStatus = () => 'connecting';
+ui.setStatus('connecting');
+const waitMsg = store.pushMessage({ role: 'assistant', text: '', model: 'claude-opus-5', reasoningLevel: 'off', done: false });
 ui.onAssistantStart(waitMsg);
 const waitWrap = window.document.querySelector(`.msg[data-id="${waitMsg.id}"]`);
 ok('显示「正在连接 claude-opus-5」', waitWrap.querySelector('.connect-line')?.textContent.includes('正在连接 claude-opus-5'), waitWrap.querySelector('.md-body')?.textContent);
-ok('连接中有旋转环元素', !!waitWrap.querySelector('.connect-ring'));
+ok('对话连接提示使用原生产品 Logo 且无旋转环', !!waitWrap.querySelector('.connect-mark svg') && !waitWrap.querySelector('.connect-ring'));
 store.updateMessage(waitMsg.id, { text: '你好！', done: true });
 ui.onAssistantDone(waitMsg);
 ok('收到内容后连接动画消失', !waitWrap.querySelector('.connect-line'));
+agent.getStatus = priorGetStatus;
+ui.setStatus('done');
 
 console.log('\n① 用户消息即时上屏（不必等 AI 输出完）');
 const mainSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
 ok('main.js 已把 onUserMessage 接到 ui.onUserMessage(msg)', /onUserMessage:\s*\(text,\s*msg\)\s*=>\s*\{\s*ui && ui\.onUserMessage\(msg\)/.test(mainSrc), mainSrc.split('\n').find((l) => l.includes('onUserMessage')));
 const origFetch = globalThis.fetch;
 let releaseStream = null;
-globalThis.fetch = () => new Promise((resolve) => { releaseStream = () => resolve(new Response('data: [DONE]\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } })); });
+store.state.settings.webEnabled = false;
+store.state.settings.jevEnabled = false;
+globalThis.fetch = async (url) => {
+  if (/\/api\/health(?:\?|$)/.test(String(url))) {
+    return new Response(JSON.stringify({ ok: true, relay: 'test-relay', capabilities: ['fetch'] }), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    });
+  }
+  return new Promise((resolve) => {
+    releaseStream = () => resolve(new Response(
+      "data: {\"choices\":[{\"delta\":{\"content\":\"已收到\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n",
+      { status: 200, headers: { 'content-type': 'text/event-stream' } },
+    ));
+  });
+};
 const beforeCount = store.state.messages.length;
 const sending = agent.send('这条输入应当立刻可见');
-await Promise.resolve(); // 让 send() 跑到 pushMessage + hook
+for (let i = 0; i < 20 && !releaseStream; i++) await new Promise((resolve) => setTimeout(resolve, 5));
 const userNodes = $$('#messages .msg-user .bubble').map((n) => n.textContent.trim());
 ok('发送后立即可见用户气泡', userNodes.some((t) => t.includes('这条输入应当立刻可见')), userNodes.join(' | '));
 ok('用户消息已进入 state（其后才是 assistant 占位）', (() => {
@@ -396,7 +419,7 @@ console.log('\n⑩ 操作条：输出结束才出现，复制按钮带 SVG 图�
 console.log('\n⑪ 沙箱面板：Workspace 卡片');
 {
   ok('卡片标题是「沙箱」', $('.files-card-name')?.textContent.trim() === '沙箱');
-  ok('容量与文件数分开显示', /0\.0MB\/\d+\.\dMB/.test($('#files-count')?.textContent || '') && /个文件/.test($('#files-n')?.textContent || ''),
+  ok('容量与文件数分开显示', /0\.0(?:KB|MB)\/\d+\.\dMB/.test($('#files-count')?.textContent || '') && /个文件/.test($('#files-n')?.textContent || ''),
     `${$('#files-count')?.textContent} | ${$('#files-n')?.textContent}`);
   ok('打包/清空是卡片头图标按钮', !!$('#download-zip.files-icon-btn') && !!$('#clear-files.files-icon-btn'));
   const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
@@ -404,18 +427,18 @@ console.log('\n⑪ 沙箱面板：Workspace 卡片');
   ok('空提示无虚线框', !/\.empty-hint\s*\{[^}]*dashed/.test(css));
 }
 
-console.log('\n⑫ 联网开关（无中继灰掉，有中继可开）');
+console.log('\n⑫ 联网开关（无中继显示关闭态并可重试探测，有中继可开）');
 {
   const web = await import(path.join(ROOT, 'js/websearch.js'));
   const pill = $('#web-toggle');
   ok('顶栏有「联网」pill（SVG + 中文）', !!pill && !!pill.querySelector('svg') && /联网/.test(pill.textContent), pill ? pill.textContent : '缺失');
   store.state.relayOk = false;
   ui.syncWeb();
-  ok('无中继时 disabled 且不亮', pill.disabled && !pill.classList.contains('on'));
+  ok('无中继时保持关闭态并标记为可重试探测', !pill.classList.contains('on') && pill.classList.contains('degraded-off') && !pill.disabled);
   ok('提示语点明中继', /中继/.test(pill.title), pill.title);
   ok('webCapFor 恒为 null', web.webCapFor('gpt-5.5') == null && web.webCapFor('claude-opus-5') == null);
   click(pill);
-  ok('无中继点击也不能打开', pill.disabled && !pill.classList.contains('on'));
+  ok('无中继点击只重试探测且不能打开', !pill.classList.contains('on'));
   store.state.relayOk = true;
   store.state.settings.webEnabled = true;
   ui.syncWeb();
@@ -470,16 +493,16 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   ok('网格用命名区域钉住三块', /grid-template-areas:\s*"side main panel"/.test(css));
   ok('.main / .sidebar / #sandbox-panel 各自认领区域', /\.main\s*\{[^}]*grid-area:\s*main/.test(css)
     && /\.sidebar\s*\{[^}]*grid-area:\s*side/.test(css) && /#sandbox-panel\s*\{[^}]*grid-area:\s*panel/.test(css));
-  const m720 = /@media \(max-width: 720px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
+  const m720 = [...css.matchAll(/@media \(max-width: 720px\) \{([\s\S]*?)^\}/gm)].map((m) => m[1]).join('\n');
   ok('存在 ≤720px 的移动端排布层', m720.length > 400, `${m720.length} 字节`);
   ok('顶栏胶囊横滑而不是挤成多行', /\.topbar-right\s*\{[^}]*flex-wrap: nowrap/.test(m720) && /\.topbar-right\s*\{[^}]*overflow-x: auto/.test(m720));
   ok('输入框字号 16px（低于它 iOS 会放大整页）', /#composer-input\s*\{[^}]*font-size: 16px/.test(m720));
-  ok('消息区左右留白收窄、操作条允许换行', /\.msg\s*\{[^}]*padding: 0 14px/.test(m720) && /\.msg-actions\s*\{[^}]*flex-wrap: wrap/.test(m720));
+  ok('消息区左右留白收窄，操作条保持紧凑并可横向滚动', /\.msg\s*\{[^}]*padding: 0 14px/.test(m720) && /\.msg-actions\s*\{[^}]*flex-wrap: nowrap/.test(m720) && /\.msg-actions\s*\{[^}]*overflow-x: auto/.test(m720));
   ok('长链接/代码块各自滚动不撑宽页面', /\.md-body pre\s*\{[^}]*font-size/.test(m720) && /\.md-body a\s*\{[^}]*overflow-wrap: anywhere/.test(m720));
   ok('输入区贴安全区（刘海屏不被遮挡）', /\.composer-wrap\s*\{[^}]*env\(safe-area-inset-bottom\)/.test(m720));
   const touch = /@media \(hover: none\), \(max-width: 720px\) \{([\s\S]*?)\n\}/.exec(css)?.[1] || '';
-  ok('触屏设备（含平板）可点区域 ≥40px', /\.act\s*\{[^}]*min-height: 40px/.test(touch) && /\.pill\s*\{[^}]*min-height: 40px/.test(touch)
-    && /\.mini-btn\s*\{[^}]*min-height: 40px/.test(touch), `${touch.length} 字节`);
+  ok('触屏设备（含平板）核心 pill/小按钮/图标按钮 ≥40px', /\.pill\s*\{[^}]*min-height: 40px/.test(touch)
+    && /\.mini-btn\s*\{[^}]*min-height: 40px/.test(touch) && /\.icon-btn\s*\{[^}]*min-height: 40px/.test(touch), `${touch.length} 字节`);
   // 触屏层曾把字号/内边距一起放大：中文标签一换行，左下角四个按钮就被撑成两行高（58px）、
   // 模型菜单每行 44px 也长得不像话 —— 现在只抬到「够点得中」，并且按钮文字永不折行
   ok('触屏层的按钮文字不折行', /\.mini-btn\s*\{[^}]*white-space: nowrap/.test(touch) && /\.mini-btn\s*\{[^}]*white-space: nowrap/.test(css));
@@ -490,7 +513,7 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
     && /\.chip\.done \.chip-ico\s*\{[^}]*animation: none/.test(css)
     && /chip-ico">\$\{ICON\.tool/.test(uiSrc) && !/chip-ico">⚙/.test(uiSrc));
   ok('刷新模型按钮只转箭头（不转整个按钮）', /\.icon-btn\.spin svg\s*\{[^}]*animation: spin/.test(css) && !/\.icon-btn\.spin\s*\{\s*animation/.test(css));
-  ok('芯片完成时打上 .done', /classList\.add\('done'\)/.test(uiSrc));
+  ok('芯片完成时打上 .done', /classList\.(?:add\('done'\)|toggle\('done',\s*allDone\))/.test(uiSrc));
   // 图例统一：按钮里不许再出现图形字符（用户明确要求「SVG + 中文，不要 emoji/字符图形」）
   const htmlSrc = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
   ok('顶栏/侧栏按钮图标全是 SVG（没有 ⟳ ⟨ ☰ ✕ 这类字符）', !/[\u27F3\u27E8\u2630\u2715\u21BB\u2699]/.test(htmlSrc) && /refresh-models[^>]*>\s*<svg/.test(htmlSrc)
@@ -499,15 +522,17 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   // 特异度更高，会压住 .pill.on → 点开后指针没移开时文字与背景同色（用户报的「点了没反应」）
   ok('pill 选中态压得住 hover（写进同一条规则）', /\.pill\.on,\s*\n?\.pill\.on:hover:not\(:disabled\)/.test(cssText));
   ok('icon-btn 用 flex 居中图标', /\.icon-btn\s*\{[^}]*display: inline-flex/.test(cssText) && /\.icon-btn\s*\{[^}]*justify-content: center/.test(cssText));
-  // V1.3 正式版标识：标题 / meta / 侧栏徽章 / 底部版本戳都要写出来
+  // 发布版本来自 config.js；app 与导航页共用 V 号，构建戳独立递增。
   const cfgSrc = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
-  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V1\.3'/.test(cfgSrc) && /APP_VERSION = '/.test(cfgSrc));
-  ok('标题与 meta 标明 V1.3 正式版', /<title>[^<]*V1\.3 正式版[^<]*<\/title>/.test(htmlSrc) && /<meta name="app-release" content="V1\.3"/.test(htmlSrc));
-  ok('侧栏 Logo 旁有 V1.3 徽章', /class="ver-badge"[^>]*>V1\.3</.test(htmlSrc) && /\.ver-badge\s*\{/.test(cssText));
+  const release = cfgMod2.APP_RELEASE;
+  const navHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V\d+(?:\.\d+)*'/.test(cfgSrc) && /APP_VERSION = '\d{4}\.\d+\.\d+\.\d+'/.test(cfgSrc));
+  ok('标题与 meta 标明当前正式版', htmlSrc.includes(`<title>TeamoAgent ${release} `) && htmlSrc.includes(`<meta name="app-release" content="${release}"`));
+  ok('侧栏 Logo 旁有当前版本徽章', htmlSrc.includes(`class="ver-badge" title="Teamo ${release} 正式版">${release}</span>`) && /\.ver-badge\s*\{/.test(cssText));
   ok('底部版本戳用 APP_RELEASE 写明正式版', /Teamo \$\{APP_RELEASE\} 正式版/.test(uiSrc) && /APP_RELEASE\b/.test(uiSrc));
-  ok('控制台横幅也是 V1.3', /TeamoAgent V1\.3 正式版/.test(fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8')));
-  ok('主题按钮只留图标（icon-only + aria-label）', /id="theme-toggle"[^>]*class="mini-btn icon-only"/.test(htmlSrc)
-    && /id="theme-toggle"[^>]*aria-label="切换明暗主题"/.test(htmlSrc) && />主题</.test(htmlSrc) === false);
+  const bootSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
+  ok('控制台横幅跟随当前正式版', /TeamoAgent \$\{APP_RELEASE\} 正式版/.test(bootSrc) && /import \{ APP_RELEASE \}/.test(bootSrc));
+  ok('导航页提供可访问的外观切换入口', /id="theme-toggle"[^>]*>外观<\/button>/.test(navHtml));
   ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));
   // 刷新后「对话 + 附件 + 沙箱」都要在：重数据外置到 IndexedDB
   const stateSrc = fs.readFileSync(path.join(ROOT, 'js/state.js'), 'utf8');
@@ -518,6 +543,81 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   // 侧栏面板按钮曾被 textContent='◧' 整体替换，丢掉 pill 的「图标 + 文字」统一外观并被压到 30 多像素宽
   ok('沙箱面板按钮保留图标+文字（没有 ◧ / ◨ 字符）', !/[◧◨]/.test(uiSrc));
   ok('它的状态改用 class + aria-pressed 表达', /setPanelCollapsed/.test(uiSrc) && /aria-pressed/.test(uiSrc) && /classList\.toggle\('on'/.test(uiSrc));
+}
+
+console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
+{
+  const unicodeOutput = '中文，标点「全角」✅🔧 \\frac{a}{b}\n```nested';
+  try { agent.fs.write('uploads/screenshot.png', 'data:image/png;base64,AA=='); } catch {}
+  store.state.messages = [
+    { id: 'ui-fold-user', role: 'user', text: '分析并整理附件' },
+    {
+      id: 'ui-fold-assistant', role: 'assistant', model: store.state.model, done: true, reasoningLevel: 'off', text: '',
+      toolCalls: [
+        { id: 'analyze-1', name: 'analyze_image', args: { path: 'uploads/screenshot.png' } },
+        { id: 'list-1', name: 'list_files', args: {} },
+        { id: 'list-2', name: 'list_files', args: { detail: true } },
+        { id: 'copy-1', name: 'copy_file', args: { from: 'a.txt', to: 'b.txt' } },
+        { id: 'empty-1', name: 'execute_javascript', args: { code: 'void 0' } },
+        { id: 'read-1', name: 'read_file', args: { path: 'notes/source.md' } },
+        { id: 'write-1', name: 'write_file', args: { path: 'notes/output.md', content: 'done' } },
+      ],
+    },
+    { id: 'ui-fold-tool-analyze', role: 'tool', toolCallId: 'analyze-1', name: 'analyze_image', content: '[识图完成] 模型 vision · 文件 uploads/screenshot.png · 全文 9 字\n' + unicodeOutput },
+    { id: 'ui-fold-tool-list-1', role: 'tool', toolCallId: 'list-1', name: 'list_files', content: unicodeOutput },
+    { id: 'ui-fold-tool-list-2', role: 'tool', toolCallId: 'list-2', name: 'list_files', content: 'second output' },
+    { id: 'ui-fold-tool-copy', role: 'tool', toolCallId: 'copy-1', name: 'copy_file', content: 'copied' },
+    { id: 'ui-fold-tool-empty', role: 'tool', toolCallId: 'empty-1', name: 'execute_javascript', content: '' },
+    { id: 'ui-fold-tool-read', role: 'tool', toolCallId: 'read-1', name: 'read_file', content: 'source text' },
+    { id: 'ui-fold-tool-write', role: 'tool', toolCallId: 'write-1', name: 'write_file', content: 'written' },
+  ];
+  ui.rebuildMessages();
+  const ran = $('.ran-commands');
+  const explored = $('.explored-files');
+  ok('其他命令进入唯一 Ran Commands 折叠行', !!ran && $$('.ran-commands').length === 1);
+  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran Commands 4', ran && ran.querySelector('.chip-name').textContent);
+  ok('analyze_image 不再作为命令 chip，图片路径进入 Explored Files', !!explored
+    && /uploads\/screenshot\.png/.test(explored.textContent)
+    && !ran.textContent.includes('analyze_image'));
+  ok('同名多次命令在折叠内分组，所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 3
+    && ran.textContent.includes(unicodeOutput) && ran.textContent.includes('second output'));
+  const emptyChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'empty-1');
+  ok('空字符串出参也算完成，并显示为空输出', !!emptyChip && emptyChip.classList.contains('done')
+    && emptyChip.querySelector('.chip-result')?.textContent === '（空输出）');
+  click(ran);
+  ok('Ran Commands 可单独展开', ran.classList.contains('expanded'));
+}
+
+console.log('\n⑱ 设置页字号 / 深度思考 / 本地会话数回归');
+{
+  const { mountSettings, openSettingsModal, applyFontSize } = await import(path.join(ROOT, 'js/settings.js'));
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ ok: false }), { status: 404, headers: { 'content-type': 'application/json' } });
+  try {
+    mountSettings(store);
+    store.state.sessions = [
+      { id: 'sess-1', messages: [{ role: 'user', text: 'one' }] },
+      { id: 'sess-2', messages: [{ role: 'user', text: 'two' }] },
+      { id: 'sess-3', messages: [{ role: 'user', text: 'three' }] },
+    ];
+    window.localStorage.setItem('teamo-agent-state-v1-v2', JSON.stringify({ sessions: store.state.sessions }));
+    window.localStorage.setItem('teamo-agent-state', JSON.stringify({ sessions: [] })); // 旧错 key：不得影响计数
+    openSettingsModal({ store });
+    ok('本地存储按 v2 实际显示会话数而非旧 key 的 0', $('#set-about-store').textContent.startsWith('3 个会话'), $('#set-about-store').textContent);
+    window.localStorage.setItem('teamo-fontsize', 'small');
+    applyFontSize();
+    click($('#set-fontsize [data-v="large"]'));
+    ok('字号按钮确实切换 html[data-fontsize] 并保存偏好', document.documentElement.dataset.fontsize === 'large'
+      && window.localStorage.getItem('teamo-fontsize') === 'large');
+    $('#set-thinking').checked = false;
+    $('#set-thinking').dispatchEvent(new window.Event('change', { bubbles: true }));
+    ok('深度思考关闭时隐藏推理强度行', $('#set-reason-row').hidden === true);
+    click($('#set-theme [data-v="dark"]'));
+    ok('设置页主题写入共享主题偏好', document.documentElement.dataset.theme === 'dark'
+      && window.localStorage.getItem('teamo-theme') === 'dark');
+  } finally {
+    globalThis.fetch = oldFetch;
+  }
 }
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');

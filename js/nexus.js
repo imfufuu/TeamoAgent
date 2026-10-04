@@ -84,7 +84,7 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     version: '2.3.0',
     policyVersion: 'policy-2.3.0',
     versioned: Object.freeze({
-      toolContractVersion: 'tool-contract-2.3.0',
+      toolContractVersion: 'tool-contract-2.4.0',
       budgetPolicyVersion: 'budget-policy-2.3.0',
       riskPolicyVersion: 'risk-policy-2.3.0',
       promptContractVersion: 'prompt-contract-2.3.0',
@@ -604,14 +604,15 @@ export function escalateNexusProfile(prevProfile, { iteration = 1, toolCallsCoun
   };
 }
 
-// 4 位正交能力向量（Orthogonal Capability Vector）：
-// 不把子状态塞进单一 DEGRADED_EXPLAINED 伞状态掩盖复杂度，而是证明每个能力位仅控制互不相交的工具子集：
-//   - fetch_url 仅依赖 (relayOk ∧ webEnabled)
+// 4 位主能力向量 + 两个由 Worker health 明确声明的网页路由特性：
+//   - fetch_url 依赖 (relayOk ∧ webEnabled)
+//   - search_web / crawl_site 额外依赖对应 Worker capability，不能从「health=ok」推断存在
 //   - execute_javascript / execute_python / execute_cpp 仅依赖 sandboxEnabled
 //   - dispatch_subagent 仅依赖 canDispatch
-//   - 其余 15 个本地工具（read_file/write_file/evaluate_expression/execute_sql/remember 等）与上述 4 位完全正交（恒定可用）
 export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
   webFetch: Object.freeze(['fetch_url']),
+  workerSearch: Object.freeze(['search_web']),
+  siteCrawler: Object.freeze(['crawl_site']),
   codeSandbox: Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']),
   subagentSwarm: Object.freeze(['dispatch_subagent']),
   invariantCore: Object.freeze([
@@ -624,6 +625,8 @@ export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
 export function computeCapabilityVector({
   relayOk = true,
   webEnabled = true,
+  searchEnabled = false,
+  crawlEnabled = false,
   sandboxEnabled = true,
   canDispatch = false,
 } = {}) {
@@ -633,13 +636,18 @@ export function computeCapabilityVector({
   const d = canDispatch ? 1 : 0;
   const capCode = `R${r}·W${w}·S${s}·D${d}`;
   const webFetchActive = Boolean(r && w);
+  const workerSearchActive = Boolean(webFetchActive && searchEnabled);
+  const siteCrawlerActive = Boolean(webFetchActive && crawlEnabled);
   const codeSandboxActive = Boolean(s);
   const subagentSwarmActive = Boolean(d);
   const disabledToolGroups = [];
   const disabledTools = [];
   if (!webFetchActive) {
     disabledToolGroups.push(!r ? 'webFetch(no-relay)' : 'webFetch(web-off)');
-    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch);
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch, ...CAPABILITY_GATED_TOOL_GROUPS.workerSearch, ...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler);
+  } else {
+    if (!workerSearchActive) { disabledToolGroups.push('workerSearch(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.workerSearch); }
+    if (!siteCrawlerActive) { disabledToolGroups.push('siteCrawler(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler); }
   }
   if (!codeSandboxActive) {
     disabledToolGroups.push('codeSandbox(sandbox-off)');
@@ -652,6 +660,8 @@ export function computeCapabilityVector({
   const enabledTools = [
     ...CAPABILITY_GATED_TOOL_GROUPS.invariantCore,
     ...(webFetchActive ? CAPABILITY_GATED_TOOL_GROUPS.webFetch : []),
+    ...(workerSearchActive ? CAPABILITY_GATED_TOOL_GROUPS.workerSearch : []),
+    ...(siteCrawlerActive ? CAPABILITY_GATED_TOOL_GROUPS.siteCrawler : []),
     ...(codeSandboxActive ? CAPABILITY_GATED_TOOL_GROUPS.codeSandbox : []),
     ...(subagentSwarmActive ? CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm : []),
   ];
@@ -659,6 +669,8 @@ export function computeCapabilityVector({
     bits: { relay: r, web: w, sandbox: s, dispatch: d },
     capCode,
     webFetchActive,
+    workerSearchActive,
+    siteCrawlerActive,
     codeSandboxActive,
     subagentSwarmActive,
     enabledTools,
@@ -667,49 +679,42 @@ export function computeCapabilityVector({
   };
 }
 
-// 遍历 2^4 = 16 种能力位组合，验证各工具子集是否严格正交、无隐式交叉耦合
+// 遍历 2^6 = 64 种输入组合，验证主能力位与 Worker 子特性互不耦合
 export function verifyCapabilityOrthogonalityMatrix() {
   const rows = [];
   let orthogonal = true;
-  const g1 = new Set(CAPABILITY_GATED_TOOL_GROUPS.webFetch);
-  const g2 = new Set(CAPABILITY_GATED_TOOL_GROUPS.codeSandbox);
-  const g3 = new Set(CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm);
-  const gCore = new Set(CAPABILITY_GATED_TOOL_GROUPS.invariantCore);
+  const groupSets = Object.values(CAPABILITY_GATED_TOOL_GROUPS).map((items) => new Set(items));
 
-  // 验证 4 个集合两两互不相交（Disjoint Partition）
-  const allSets = [g1, g2, g3, gCore];
-  for (let i = 0; i < allSets.length; i++) {
-    for (let j = i + 1; j < allSets.length; j++) {
-      for (const item of allSets[i]) {
-        if (allSets[j].has(item)) orthogonal = false;
-      }
+  // 验证六个工具分区两两互不相交（Disjoint Partition）
+  for (let i = 0; i < groupSets.length; i++) {
+    for (let j = i + 1; j < groupSets.length; j++) {
+      for (const item of groupSets[i]) if (groupSets[j].has(item)) orthogonal = false;
     }
   }
 
   for (const relayOk of [true, false]) {
     for (const webEnabled of [true, false]) {
-      for (const sandboxEnabled of [true, false]) {
-        for (const canDispatch of [true, false]) {
-          const vec = computeCapabilityVector({ relayOk, webEnabled, sandboxEnabled, canDispatch });
-          const hasFetch = vec.enabledTools.includes('fetch_url');
-          const hasSandbox = vec.enabledTools.includes('execute_javascript');
-          const hasDispatch = vec.enabledTools.includes('dispatch_subagent');
-          const rowOk = (hasFetch === (relayOk && webEnabled))
-            && (hasSandbox === sandboxEnabled)
-            && (hasDispatch === canDispatch);
-          if (!rowOk) orthogonal = false;
-          rows.push({
-            capCode: vec.capCode,
-            enabledCount: vec.enabledTools.length,
-            disabledToolGroups: vec.disabledToolGroups,
-            rowOk,
-          });
+      for (const searchEnabled of [true, false]) {
+        for (const crawlEnabled of [true, false]) {
+          for (const sandboxEnabled of [true, false]) {
+            for (const canDispatch of [true, false]) {
+              const vec = computeCapabilityVector({ relayOk, webEnabled, searchEnabled, crawlEnabled, sandboxEnabled, canDispatch });
+              const webOn = relayOk && webEnabled;
+              const rowOk = vec.enabledTools.includes('fetch_url') === webOn
+                && vec.enabledTools.includes('search_web') === (webOn && searchEnabled)
+                && vec.enabledTools.includes('crawl_site') === (webOn && crawlEnabled)
+                && vec.enabledTools.includes('execute_javascript') === sandboxEnabled
+                && vec.enabledTools.includes('dispatch_subagent') === canDispatch;
+              if (!rowOk) orthogonal = false;
+              rows.push({ capCode: vec.capCode, enabledCount: vec.enabledTools.length, disabledToolGroups: vec.disabledToolGroups, rowOk });
+            }
+          }
         }
       }
     }
   }
   return {
-    totalCombinations: rows.length, // 16
+    totalCombinations: rows.length, // 64
     disjointPartitionVerified: orthogonal,
     rows,
   };
@@ -1217,6 +1222,8 @@ export async function verifyRuntimePremises({
 export function buildDegradationDiagnostics({
   relayOk = false,
   webEnabled = false,
+  searchEnabled = null,
+  crawlEnabled = null,
   sandboxEnabled = true,
   canDispatch = false,
   thinking = true,
@@ -1229,18 +1236,36 @@ export function buildDegradationDiagnostics({
   if (!relayOk) {
     items.push({
       id: 'relay-offline',
-      capability: 'fetch_url 网页抓取 / 远端真实 Git (clone/push)',
+      capability: 'fetch_url / search_web / crawl_site 网页能力与远端真实 Git',
       status: 'degraded',
-      reason: '当前运行在纯静态页面环境（如 GitHub Pages），经探针确认未检测到本地 127.0.0.1:8787 的 server.py 中继服务',
-      recovery: '在项目根目录终端执行 `python3 server.py` 启动本地中继后无需重启会话（回合入口会自动重探针恢复），或刷新页面解锁顶栏「联网」',
+      reason: '当前没有探测到可用网页中继（本地 server.py 或 Cloudflare Worker）',
+      recovery: '启动 `python3 server.py` 以恢复单页抓取/Git，或部署新版 relay/worker.js 并在 localStorage 设置 teamo-relay；刷新后重新探测',
     });
   } else if (!webEnabled) {
     items.push({
       id: 'web-switched-off',
-      capability: 'fetch_url 网页抓取',
+      capability: 'fetch_url / search_web / crawl_site 网页能力',
       status: 'paused',
-      reason: '本地中继在线，但当前会话已手动关闭顶栏「联网」开关',
-      recovery: '点击顶栏「联网」胶囊开关即可立即恢复网页抓取能力',
+      reason: '网页中继在线，但当前会话已手动关闭顶栏「联网」开关',
+      recovery: '点击顶栏「联网」胶囊开关即可恢复当前 relay 声明的网页能力',
+    });
+  }
+  if (relayOk && webEnabled && searchEnabled === false) {
+    items.push({
+      id: 'worker-search-unavailable',
+      capability: 'search_web 网页搜索',
+      status: 'degraded',
+      reason: '当前 relay 的 /api/health 未声明 search（常见于旧版 server.py 或旧 Worker）',
+      recovery: '部署包含 /api/search 且 health.capabilities 含 search 的 relay/worker.js',
+    });
+  }
+  if (relayOk && webEnabled && crawlEnabled === false) {
+    items.push({
+      id: 'worker-crawl-unavailable',
+      capability: 'crawl_site 同源站点爬取',
+      status: 'degraded',
+      reason: '当前 relay 的 /api/health 未声明 crawl（常见于旧版 server.py 或旧 Worker）',
+      recovery: '部署包含 /api/crawl 且 health.capabilities 含 crawl 的 relay/worker.js',
     });
   }
   if (!sandboxEnabled) {

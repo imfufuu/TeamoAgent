@@ -1,12 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.4.1';
-import { createAgent } from './agent.js?v=2026.10.4.1';
-import { mountUI, toast } from './ui.js?v=2026.10.4.1';
+import { createStore } from './state.js?v=2026.10.4.4';
+import { createAgent } from './agent.js?v=2026.10.4.4';
+import { mountUI, toast } from './ui.js?v=2026.10.4.4';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.4.1';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.4.1';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.4.4';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.4.4';
+import { APP_RELEASE } from './config.js?v=2026.10.4.4';
 
 const store = createStore();
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
@@ -110,9 +111,8 @@ window.addEventListener('beforeunload', () => store.save(true));
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') store.save(true);
 });
-// 本地中继探测（一次）：静态托管上没有 server.py —— fetch_url 调到必然失败；run_git 已有内置沙箱 Git，
-// 但网页抓取仍不能假装可用。与其让模型在死路上浪费时间，不如本轮不给 fetch_url。
-// 探测结果只影响工具表与系统提示词，不影响任何联网搜索（那走的是模型 API 自带格式）。
+// 网页中继探测（一次）：本地 server.py 提供单页抓取/Git；Worker health 另行声明 search/crawl 特性。
+// 未声明的路由不会进入工具表，避免模型调用旧版本地 relay 的 404；内置沙箱 Git 仍可离线用。
 relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {});
 
 // 刷新后如果存的还是管理员别名，重新解封一次（口令就是别名本身，不需要再问用户）
@@ -137,7 +137,7 @@ if (store.hydrateBlobs) {
   store.hydrateBlobs().then((n) => { if (n) ui.afterHydrate(); }).catch(() => {});
 }
 
-console.log('%c◐ TeamoAgent V1.4 正式版', 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
+console.log(`%c◐ TeamoAgent ${APP_RELEASE} 正式版`, 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
 
 // 审核资源离线缓存：首次下载后持久化（stale-while-revalidate），之后会话零网络直读
 try {

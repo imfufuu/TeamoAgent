@@ -154,7 +154,7 @@ export function resolveTemperature({
       return makeResult('code', '工具返回异常，保持低温修正参数或代码');
     }
     const synthesizedTools = recentTools.toolNames.some((n) =>
-      n === 'dispatch_subagent' || n === 'analyze_image' || n === 'fetch_url' || n === 'generate_image'
+      n === 'dispatch_subagent' || n === 'analyze_image' || n === 'fetch_url' || n === 'search_web' || n === 'crawl_site' || n === 'generate_image'
     );
     if (CREATIVE_RE.test(query) && !CODE_TOOL_RE.test(query)) {
       return makeResult('creative', '基于工具结果继续文学/创意写作');

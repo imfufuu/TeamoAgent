@@ -16,9 +16,9 @@ import { SUBAGENTS, findSubagent, subagentGuide } from '../js/subagents.js';
 import { TOOL_DEFS, executeTool, toolsFor } from '../js/tools.js';
 import { createAgent, copyAttachmentsToFS } from '../js/agent.js';
 
-// 联网开关在本轮改动里默认是开的（走模型 API 自带格式），而下面这些既有用例只校验
-// /v1/chat/completions 与 /v1/messages 两条端点的解析与循环 —— 统一关掉，避免它们改道 /v1/responses。
-// 联网本身有独立的用例组（见「联网：模型 API 自带请求格式」）。
+// 联网开关默认开启，但模型原生网页搜索字段保持关闭；下面这些既有用例只校验
+// /v1/chat/completions 与 /v1/messages 两条端点的解析与循环 —— 统一关掉联网，避免无关路由变化。
+// Worker 搜索/爬取路由与旧服务端事件兼容性分别有独立用例。
 // 单测默认关掉联网与 Jev：Jev 会先打 /v1/systemone，否则会吃掉 mock 队列里给聊天用的那一格。
 const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.settings.jevEnabled = false; return st; };
 
@@ -277,6 +277,39 @@ test('代码块 / 行内代码 / 加粗', () => {
   assert.ok(html.includes('print(&quot;hi&quot;)'));
   assert.ok(html.includes('<code>pip install</code>'));
   assert.ok(renderMarkdown('**粗体**').includes('<strong>粗体</strong>'));
+});
+
+test('编码无损：Unicode、LaTeX 反斜杠与嵌套代码围栏保持原样', () => {
+  const source = [
+    '编码无损：中文、全角标点「」——……、emoji ✅🔧、LaTeX 反斜杠 `\\frac{a}{b}`，以及嵌套围栏。',
+    '````python',
+    'payload = """',
+    '```text',
+    '中文，全角「标点」✅\\frac{1}{2}',
+    '```',
+    '"""',
+    '````',
+    '',
+    '收尾行：不应遗失。',
+  ].join('\n');
+  const html = renderMarkdown(source);
+  for (const text of ['中文', '「」', '——……', '✅🔧', '\\frac{a}{b}', '```text', '收尾行：不应遗失。']) {
+    assert.ok(html.includes(text), `渲染结果丢失或改写：${text}`);
+  }
+  assert.ok(!html.includes('\\\\frac'), '反斜杠不得重复转义');
+  assert.ok(html.includes('<pre data-lang="python">'), '四反引号围栏应包住内部三反引号围栏');
+});
+test('LaTeX 公式中的 \\frac 只传递一个原始反斜杠', () => {
+  const oldKatex = globalThis.katex;
+  let seen = '';
+  globalThis.katex = { renderToString: (tex) => { seen = tex; return '<span>formula</span>'; } };
+  try {
+    renderMarkdown('$$\\frac{1}{2}$$');
+    assert.equal(seen, '\\frac{1}{2}');
+  } finally {
+    if (oldKatex === undefined) delete globalThis.katex;
+    else globalThis.katex = oldKatex;
+  }
 });
 
 group('虚拟文件系统 / 回滚（state）');
@@ -644,7 +677,7 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.ok(!/<p><pre/.test(pre), '代码块不包 p');
   // 公式：行内 + 块级
   assert.ok(renderMarkdown('行内 $a^2$ 结束').includes('class="katex"'), '行内公式');
-  assert.ok(renderMarkdown('$$\\frac{a}{b}$$').includes('katex-display'), '块级公式');
+  assert.ok(renderMarkdown('$$\frac{a}{b}$$').includes('katex-display'), '块级公式');
   const sbImg = renderMarkdown('看图 ![示例](sandbox://outputs/example.png)');
   assert.match(sbImg, /data-sandbox="outputs\/example\.png"/, '沙箱图占位');
   assert.equal(/src=["']sandbox:/i.test(sbImg), false, 'sandbox:// 不得进 img src');
@@ -721,6 +754,8 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(OUTPUT_SPEC, /:::flow/);
   assert.match(OUTPUT_SPEC, /:::mind/);
   assert.ok(OUTPUT_SPEC.includes('表格') && OUTPUT_SPEC.includes('围栏代码块'), '规范含表格/代码块要求');
+  assert.ok(OUTPUT_SPEC.includes(String.raw`少用）：\n:::fold 标题\n内容\n:::`), '折叠栏示例只保留单层反斜杠');
+  assert.ok(OUTPUT_SPEC.includes('Emoji：默认不使用装饰性 Emoji'), '提示词降低装饰性 Emoji 频率');
   assert.match(OUTPUT_SPEC, /完整可运行/, '代码不得写太短太简略');
   assert.ok(systemPrompt().includes('输出规范'), '主提示词含输出规范');
   assert.match(systemPrompt(), /imfufuu/);
@@ -870,7 +905,7 @@ test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）
   const calls = [];
   mockFetch([
     openaiToolTurn('call_1', 'write_file', JSON.stringify({ path: 'a.txt', content: 'hi' })),
-    openaiTextTurn('已写入'),
+    openaiTextTurn('已写入 a.txt'),
   ], calls);
   try {
     const store = storeNoWeb(createStore());
@@ -882,7 +917,7 @@ test('工具循环：调用 → 结果回填 → 结束回合（OpenAI 协议）
     assert.deepEqual(roles, ['user', 'assistant', 'tool', 'assistant']);
     assert.equal(store.state.messages[1].toolCalls[0].name, 'write_file');
     assert.ok(store.state.messages[2].content.includes('a.txt'), '工具结果应回填');
-    assert.equal(store.state.messages[3].text, '已写入');
+    assert.equal(store.state.messages[3].text, '已写入 a.txt');
     assert.equal(store.state.messages[3].usage.output, 3, 'usage 归一');
     assert.equal(agent.fs.read('a.txt'), 'hi', '工具副作用对虚拟 FS 可见');
     assert.equal(calls.length, 2);
@@ -2181,7 +2216,7 @@ test('识图：max_tokens 拉高、length 截断会续写、全文落盘且不�
     assert.equal(bodies.length, 2, 'finish_reason=length 必须续写');
     assert.match(out, /第一段OCR第二段OCR/);
     assert.match(out, /shot\.ocr\.md/);
-    assert.equal(fs.read('uploads/shot.ocr.md'), '第一段OCR第二段OCR');
+    assert.equal(fs.read('internal/ocr/shot.ocr.md'), '第一段OCR第二段OCR');
   } finally { globalThis.fetch = orig; }
 });
 test('识图：content 为 parts 数组时拼成全文', async () => {
@@ -2220,8 +2255,8 @@ test('analyze_image 批量 OCR：paths 与 PDF 页名 *-pNN 自动成批', async
     assert.match(out, /scan-p01\.jpg/);
     assert.match(out, /scan-p02\.jpg/);
     assert.match(out, /scan-p03\.jpg/);
-    assert.match(out, /uploads\/scan\.ocr\.md/);
-    const ocr = fs.read('uploads/scan.ocr.md');
+    assert.match(out, /internal\/ocr\/scan\.ocr\.md/);
+    const ocr = fs.read('internal/ocr/scan.ocr.md');
     assert.match(ocr, /## uploads\/scan-p01\.jpg/);
     assert.match(ocr, /页/);
     assert.equal(ocr.split('## ').length - 1, 3);
@@ -2461,11 +2496,40 @@ const withNetFetch = async (handler, fn) => {
   try { return await fn(net); } finally { globalThis.fetch = real; net.resetRelayProbe(); }
 };
 const NO_RELAY = { '/api/health': () => new Response('<html>404</html>', { status: 404, headers: { 'content-type': 'text/html' } }) };
-test('net.webSearch 只保留兼容桩，不再发起任何第三方搜索请求', async () => {
+test('net.webSearch 是旧缓存兼容空桩，不发起第三方搜索请求', async () => {
   await withNetFetch(async () => { throw new Error('不该发请求'); }, async (net) => {
     const r = await net.webSearch({ query: '随便' });
     assert.equal(r.provider, 'none');
-    assert.match(r.note, /模型 API 自带|顶栏「联网」/, '桩里要写清联网改哪儿了');
+    assert.match(r.note, /search_web|网页搜索路由/, '应引导使用 Worker 工具或说明无路由');
+  });
+});
+test('relaySearch/crawl 只调用 health 声明了 search/crawl 的 Worker 路由', async () => {
+  const seen = [];
+  await withNetFetch(async (url) => {
+    seen.push(url);
+    if (url === '/api/health') return jsonResponse({ ok: true, fetch: true, git: true });
+    if (url === 'https://relay.teamo.workers.dev/api/health') return jsonResponse({ ok: true, capabilities: ['fetch', 'search', 'crawl'] });
+    if (url.startsWith('https://relay.teamo.workers.dev/api/search?')) return jsonResponse({
+      ok: true, query: 'climate data', provider: 'SearXNG', results: [{ title: 'Source', url: 'https://example.org', snippet: 'Summary' }],
+    });
+    if (url.startsWith('https://relay.teamo.workers.dev/api/crawl?')) return jsonResponse({
+      ok: true, url: 'https://docs.example.org/', max_pages: 2, max_depth: 1, chars_total: 12, pages: [{ title: 'Guide', url: 'https://docs.example.org/', depth: 0, chars: 12, text: 'Hello world!' }], errors: [],
+    });
+    throw new Error(`unexpected relay request ${url}`);
+  }, async (net) => {
+    const searched = await net.relaySearch({ query: 'climate data', limit: 2 });
+    assert.equal(searched.ok, true);
+    assert.equal(searched.provider, 'SearXNG');
+    const crawled = await net.relayCrawl({ url: 'https://docs.example.org/', maxPages: 2, maxDepth: 1 });
+    assert.equal(crawled.ok, true);
+    assert.equal(crawled.pages[0].title, 'Guide');
+    assert.equal(net.relaySupports('search'), true);
+    assert.equal(net.relaySupports('crawl'), true);
+    assert.equal(net.currentRelay().label, 'origin', 'fetch/git primary relay stays local');
+    assert.ok(seen.includes('https://relay.teamo.workers.dev/api/health'));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.teamo.workers.dev/api/search?')));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.teamo.workers.dev/api/crawl?')));
+    assert.ok(!seen.includes('/api/search') && !seen.includes('/api/crawl'), 'new routes must not be sent to old local relay');
   });
 });
 test('fetch_url 只接受 http(s) 绝对地址', async () => {
@@ -2559,7 +2623,7 @@ test('run_git：POST 体带 command/repo/timeout 且成功判定看退出码', a
   });
 });
 
-group('联网：模型 API 自带的网页搜索请求格式');
+group('联网：关闭模型原生搜索字段并兼容历史服务端事件');
 const web = await import('../js/websearch.js');
 // 能力表以「拿 key 真打过网关」的实测为准（2026-09-21，tests/live-web.mjs 里是同款断言）：
 //   Claude / GPT 真联网；Kimi/GLM/Grok/Gemini 走不通 → 一律不联网，不让 UI 假装能查
@@ -3026,19 +3090,23 @@ test('Agent 回合：联网来源写进消息（切会话后还在），提示�
 group('工具层：抓取与 git 工具的对外契约');
 test('TOOL_DEFS 注册齐全且参数必填项正确', async () => {
   const byName = Object.fromEntries(TOOL_DEFS.map((t) => [t.name, t]));
-  for (const n of ['fetch_url', 'run_git', 'search_files', 'diff_text', 'json_tool', 'delete_file', 'copy_file', 'evaluate_expression', 'execute_sql', 'render_mermaid', 'render_dot']) assert.ok(byName[n], `缺少工具 ${n}`);
+  for (const n of ['fetch_url', 'search_web', 'crawl_site', 'run_git', 'search_files', 'diff_text', 'json_tool', 'delete_file', 'copy_file', 'evaluate_expression', 'execute_sql', 'render_mermaid', 'render_dot']) assert.ok(byName[n], `缺少工具 ${n}`);
   assert.ok(!byName.web_search, '不能再有 web_search 工具');
   assert.ok(byName.analyze_image, '识图工具');
   assert.ok(byName.write_file.parameters.properties.mode);
   assert.deepEqual(byName.fetch_url.parameters.required, ['url']);
   assert.deepEqual(byName.fetch_url.parameters.properties.mode.enum, ['text', 'raw'], 'markdown 模式依赖第三方抽取器，必须移除');
+  assert.deepEqual(byName.search_web.parameters.required, ['query']);
+  assert.deepEqual(byName.crawl_site.parameters.required, ['url']);
+  assert.match(byName.search_web.description, /Worker/);
+  assert.match(byName.crawl_site.description, /同源/);
   assert.ok(byName.run_git.parameters.required.includes('command'));
   assert.ok(/内置轻量 Git/.test(byName.run_git.description), '描述里要写清无中继也有内置 Git');
   assert.ok(TOOL_DEFS.length >= 10, `工具总数：${TOOL_DEFS.length}`);
 });
 test('系统提示词提到了抓取与 git、并说明联网不是工具（漂移守卫）', async () => {
   const sp = cfg.systemPrompt();
-  for (const kw of ['fetch_url', 'run_git', '联网']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
+  for (const kw of ['fetch_url', 'search_web', 'crawl_site', 'run_git', '联网']) assert.ok(sp.includes(kw), `提示词缺少 ${kw}`);
   assert.match(sp, /原生网页搜索/, '原生搜索已下线');
   assert.ok(!/不要去找一个叫\s*web_search/.test(sp), '旧句子会让模型以为自己没有联网能力（真踩过）');
   assert.match(sp, /无法核实|没查到/, '要有「查不到就明说」的自主性规则');
@@ -3727,16 +3795,19 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(ui, /bubble md-body/);
   assert.match(ui, /Explored File/);
   assert.match(ui, /Explored Files/);
-  // P3（v2.5.1）：写文件折叠行的文案移到 editpreview.js —— 直播「Editing File(s)」/ 完成「Edited File(s) N」
+  // P3（v2.5.1）：写文件折叠行的文案移到 editpreview.js —— 直播「Editing Files」/ 完成「Edited Files N」
   const ep = fsp.readFileSync(new URL('../js/editpreview.js', import.meta.url), 'utf8');
   assert.match(ui, /editFoldLabel/, '写文件折叠行文案应由 editpreview 统一给出（直播/完成两态）');
-  assert.match(ep, /Editing File\(s\)/, '写入期间显示 Editing File(s)');
-  assert.match(ep, /Edited File\(s\)/i, '完成后显示 Edited File(s) N');
+  assert.match(ep, /Editing Files/, '写入期间显示 Editing Files');
+  assert.match(ep, /Edited Files/i, '完成后显示 Edited Files N');
   assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
   assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
-  assert.match(ui, /t\.name === 'write_file'\) continue/, 'write_file 不单独出芯片');
-  assert.match(ui, /t\.name === 'read_file'\) continue/, 'read_file 改走 Explored File，不单独出芯片');
-  assert.match(ui, /×\$\{g\.items\.length\}/, '相同工具多次调用折叠');
+  assert.match(ui, /\['write_file', 'read_file', 'analyze_image'\]\.includes/, '文件读写与识图从命令芯片组移出');
+  assert.match(ui, /pathsOfAnalyze/, 'analyze_image 路径合并到 Explored Files');
+  assert.match(ui, /Ran Commands \${total}/, '其余命令统一折叠到 Ran Commands');
+  assert.match(ui, /tool-call-chip/, '命令输出仍可逐项展开查看');
+  assert.match(ui, /hasToolOutput/, '空字符串出参也必须被认定为已返回');
+  assert.match(ui, /callIds/, '同工具分组必须能按全部 call id 回填状态与出参');
   const toolsSrc = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
   const workerJs = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
   const cfgSrc = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
@@ -3800,7 +3871,7 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(html, /data-panel-tab=\"memory\"/);
   assert.match(ui, /暂无文件/);
   assert.match(css, /\.files-card/);
-  assert.match(css, /\.file-list[^}]*overflow-y: auto/s);
+  assert.match(css, /\.file-list[^}]*overflow(?:(?:-y):\s*auto|:\s*auto)/s);
   assert.match(ui, /ZIP ≈/);
   assert.match(ui, /zipEstimateBytes/);
   assert.match(ui, /产品上限 120MB/);
@@ -4167,7 +4238,7 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   const net = fsp.readFileSync(new URL('../js/net.js', import.meta.url), 'utf8');
   const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
-  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url'\]\)/);
+  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site'\]\)/);
   assert.match(ag, /内置沙箱 Git/);
   assert.match(net, /function localGitRun/);
   assert.match(net, /git version TeamoGit/);
@@ -4512,16 +4583,16 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
   }
 });
 
-group('V1.4 Stable / 桌面沙箱面板');
-test('V1.4 发布标识与构建号已同步', async () => {
+group('V1.5 Stable / 桌面沙箱面板');
+test('V1.5 发布标识与构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.equal(APP_RELEASE, 'V1.4');
+  assert.equal(APP_RELEASE, 'V1.5');
   assert.match(APP_VERSION, /^2026\.\d+\.\d+\.\d+$/);
-  assert.match(html, /TeamoAgent V1\.4/);
-  assert.match(home, /TeamoAgent V1\.4 · 构建 2026\.\d+\.\d+\.\d+/);
+  assert.match(html, /TeamoAgent V1\.5/);
+  assert.match(home, /TeamoAgent V1\.5 · 构建 2026\.\d+\.\d+\.\d+/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
@@ -4657,9 +4728,13 @@ test('Req 2：智能自适应输出温度系统（按任务类型/阶段动态�
 
 test('Req 3：全模型官方价格查询（识图与生图单独处理）与单轮多步费用汇总', async () => {
   const pricing = await import('../js/pricing.js');
-  // 校验目录内全部聊天模型与生图模型均有官方价格定义
+  // 固定模型必须有可核验的官方价格；智能路由器会动态选上游，不能伪造单一价目。
   for (const m of cfg.FALLBACK_MODELS) {
     const p = pricing.getModelPricing(m.id);
+    if (m.id === cfg.SMART_ROUTER_ID) {
+      assert.equal(p, null, '动态智能路由不能伪装成有固定官方单价');
+      continue;
+    }
     assert.ok(p && p.input > 0 && p.output > 0, `模型 ${m.id} 缺少官方价格`);
   }
   for (const im of cfg.IMAGE_MODELS) {
@@ -5097,8 +5172,8 @@ test('2026.9.30.7：支持全部 40 个可用对话模型，且按热度与版�
   for (const id of expected40) {
     assert.ok(fallbackIds.has(id), `FALLBACK_MODELS 缺少模型：${id}`);
   }
-  const chatModels = cfg.FALLBACK_MODELS.filter((m) => !cfg.isImageModel(m.id));
-  assert.equal(chatModels.length, 40, '排除识图/生图专用模型后应恰好包含 40 个对话模型');
+  const chatModels = cfg.FALLBACK_MODELS.filter((m) => m.id !== cfg.SMART_ROUTER_ID && !cfg.isImageModel(m.id));
+  assert.equal(chatModels.length, 40, '排除智能路由、识图/生图专用模型后应恰好包含 40 个固定对话模型');
 
   // Claude 与 GPT 新模型热度与组内版本优先级排序验证
   const anthropic = cfg.FALLBACK_MODELS.filter((m) => m.provider === 'Anthropic');
@@ -5489,7 +5564,7 @@ test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛
   assert.equal(scorecard.footprintFaithfulnessRate, 1.0, '6. 决策足迹 SHA-256 哈希链校验通过');
 });
 
-test('2026.9.30.10：天枢 THN v2.1 工程指标诚实化——代价加权混淆矩阵、16 组合正交能力向量、Purge 物理擦除通道、SHA-256 跨轮哈希链与外部 Store 独立交叉审计', async () => {
+test('2026.10.4：天枢 THN 正交能力向量扩展至 64 组合，并纳入 Worker 搜索/爬虫特性', async () => {
   const nexus = await import('../js/nexus.js');
   const mem = await import('../js/memory.js');
   const sk = await import('../js/skills.js');
@@ -5502,10 +5577,10 @@ test('2026.9.30.10：天枢 THN v2.1 工程指标诚实化——代价加权混�
     'sha256Hex 必须严格符合 FIPS 180-4 标准测试向量',
   );
 
-  // 2) 4 位正交能力向量（Relay·Web·Sandbox·Dispatch）2^4 = 16 全组合真值表与互不相交工具集验证
+  // 2) 4 位主能力 + Worker search/crawl 特性，共 2^6 = 64 组合真值表与互不相交工具集验证
   const ortho = nexus.verifyCapabilityOrthogonalityMatrix();
-  assert.equal(ortho.totalCombinations, 16);
-  assert.equal(ortho.disjointPartitionVerified, true, '4 个能力维度控制的工具子集必须严格两两不相交');
+  assert.equal(ortho.totalCombinations, 64);
+  assert.equal(ortho.disjointPartitionVerified, true, '主能力与 Worker 特性控制的工具子集必须严格两两不相交');
   const canonDegraded = nexus.resolveCanonicalRuntimeState({
     profile: { fastPath: false, escalated: false },
     relayOk: false,
@@ -6868,12 +6943,14 @@ queue.push({ group: '2026.10.2.15 天枢 THN v2.5.1 · P3 编辑直播预览与�
 test('2026.10.2.15：P3-1 端到端——交付物保留、临时文件被清掉，且台账 / 审计 / 回复痕迹三处对得上', async () => {
   const calls = [];
   mockFetch([
-    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'tmp/debug.json', content: '{"step":1}' })),
-    openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'outputs/report.md', content: '# 结论\n- 数据没问题' })),
+    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'outputs/report.md', content: '# 结论\n- 数据没问题' })),
     openaiTextTurn('报告已生成：outputs/report.md（结论如上）。'),
   ], calls);
   try {
     const store = storeNoWeb(createStore());
+    // 上轮遗留的、有台账记录的临时文件：当前回合应由清理器真实删除并核验。
+    store.state.files['tmp/debug.json'] = '{"step":1}';
+    store.state.cleanupArtifacts = [{ path: 'tmp/debug.json', at: Date.now() }];
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
@@ -6920,10 +6997,11 @@ test('2026.10.2.15：P3-2 端到端——只报告档不删任何文件；关闭
   const runTurn = async (policy) => {
     const calls = [];
     mockFetch([
-      openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'tmp/keep.json', content: '{}' })),
-      openaiTextTurn('已写入临时文件。'),
+      openaiTextTurn('已检查当前工作区。'),
     ], calls);
     const store = storeNoWeb(createStore());
+    store.state.files['tmp/keep.json'] = '{}';
+    store.state.cleanupArtifacts = [{ path: 'tmp/keep.json', at: Date.now() }];
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     store.state.settings.cleanupPolicy = policy;
@@ -6960,7 +7038,7 @@ test('2026.10.2.15：P3-3 端到端——uploads/ 原件与「未被引用的交
   mockFetch([
     openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'uploads/agent-note.csv', content: 'a,b\n1,2' })),
     openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'tmp/half-done.txt', content: '半成品' })),
-    openaiTextTurn('已处理完毕，没有额外说明。'),
+    openaiTextTurn('已处理完毕，原件保留：uploads/agent-note.csv。'),
   ], calls);
   try {
     const store = storeNoWeb(createStore());

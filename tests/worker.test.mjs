@@ -1,0 +1,286 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import worker from '../relay/worker.js';
+
+const makeRequest = (path, method = 'GET') => new Request(`https://teamo-worker.test${path}`, { method });
+async function jsonCall(path, env = {}) {
+  const response = await worker.fetch(makeRequest(path), env);
+  return { response, body: await response.json() };
+}
+async function withMockFetch(mock, run) {
+  const previous = globalThis.fetch;
+  globalThis.fetch = mock;
+  try { return await run(); } finally { globalThis.fetch = previous; }
+}
+const htmlResponse = (html, status = 200) => new Response(html, {
+  status,
+  headers: { 'content-type': 'text/html; charset=utf-8' },
+});
+
+test('Worker health advertises versioned fetch/search/crawl capabilities', async () => {
+  const { response, body } = await jsonCall('/api/health');
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.version, '1.6.0');
+  assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl']);
+});
+
+test('SSRF guard rejects private, loopback, link-local, reserved, and internal host targets before fetch', async () => {
+  await withMockFetch(async () => { throw new Error('SSRF target must not be fetched'); }, async () => {
+    const targets = [
+      'http://127.0.0.1/admin',
+      'http://10.2.3.4/',
+      'http://172.31.0.9/',
+      'http://192.168.1.1/',
+      'http://169.254.169.254/latest/meta-data/',
+      'http://100.64.0.1/',
+      'http://192.0.2.10/',
+      'http://[::1]/',
+      'http://[fd00::1]/',
+      'http://metadata.google.internal/',
+      'http://service.local/',
+      'http://host.test/',
+      'http://user:pass@example.org/private',
+    ];
+    for (const target of targets) {
+      const { response, body } = await jsonCall(`/api/fetch?url=${encodeURIComponent(target)}`);
+      assert.equal(response.status, 502, target);
+      assert.match(body.error, /拒绝|不得包含/ , target);
+    }
+  });
+});
+
+test('SSRF guard accepts a public IPv4/IPv6 literal and returns fetched text', async () => {
+  await withMockFetch(async (target) => {
+    const host = new URL(target).hostname;
+    assert.ok(host.includes('93.184.216.34') || host.includes('2001:4860:4860::8888'));
+    return new Response('public text', { headers: { 'content-type': 'text/plain; charset=utf-8' } });
+  }, async () => {
+    for (const target of ['https://93.184.216.34/doc', 'https://[2001:4860:4860::8888]/doc']) {
+      const { response, body } = await jsonCall(`/api/fetch?url=${encodeURIComponent(target)}`);
+      assert.equal(response.status, 200, body.error);
+      assert.equal(body.text, 'public text');
+    }
+  });
+});
+
+test('every redirect is revalidated and crawl redirects cannot leave the initial origin', async () => {
+  let calls = 0;
+  await withMockFetch(async () => {
+    calls++;
+    return new Response(null, { status: 302, headers: { location: 'http://127.0.0.1/private' } });
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/fetch?url=${encodeURIComponent('https://public.example.org/start')}`);
+    assert.equal(response.status, 502);
+    assert.match(body.error, /内网|保留|拒绝/);
+    assert.equal(calls, 1, 'blocked redirect must never be fetched');
+  });
+
+  calls = 0;
+  await withMockFetch(async () => {
+    calls++;
+    return new Response(null, { status: 302, headers: { location: 'https://other.example.net/page' } });
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/crawl?url=${encodeURIComponent('https://site.example.org/')}`);
+    assert.equal(response.status, 502);
+    assert.match(body.error, /重定向离开初始站点/);
+    assert.equal(calls, 1, 'cross-origin crawl redirect must stop before the next request');
+  });
+});
+
+test('SearXNG JSON adapter validates results, filters unsafe URLs, and enforces limit', async () => {
+  const seen = [];
+  await withMockFetch(async (target, options) => {
+    seen.push({ target: String(target), options });
+    const u = new URL(target);
+    assert.equal(u.pathname, '/search');
+    assert.equal(u.searchParams.get('q'), '東京の気候');
+    assert.equal(u.searchParams.get('format'), 'json');
+    assert.equal(options.redirect, 'manual');
+    assert.equal(options.cf, undefined, 'search queries should not be stored in the fetch cache');
+    return new Response(JSON.stringify({ results: [
+      { title: 'Official guide', url: 'https://docs.example.org/guide', content: 'Primary source', engine: 'brave' },
+      { title: 'Unsafe local result', url: 'http://127.0.0.1/admin', content: 'ignore' },
+      { title: 'Second result', url: 'https://news.example.net/story', snippet: 'News snippet' },
+      { title: 'Duplicate', url: 'https://docs.example.org/guide', content: 'duplicate' },
+    ] }), { headers: { 'content-type': 'application/json; charset=utf-8' } });
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/search?q=${encodeURIComponent('東京の気候')}&limit=2`, { SEARXNG_URL: 'https://search.example.org/' });
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'SearXNG');
+    assert.equal(body.fallback, false);
+    assert.equal(body.results.length, 2);
+    assert.equal(body.results[0].source, 'brave');
+    assert.equal(body.results[1].title, 'Second result');
+    assert.equal(seen.length, 1);
+  });
+});
+
+test('DuckDuckGo HTML adapter parses result links and records the provider', async () => {
+  const html = `<html><body>
+    <div class="result"><a class="result__a" href="https://docs.example.org/guide?a=1&amp;b=2">Example &amp; Docs</a>
+      <a class="result__snippet">A useful primary-source summary.</a></div>
+    <div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnews.example.net%2Fstory">News result</a>
+      <a class="result__snippet">A news summary.</a></div>
+  </body></html>`;
+  await withMockFetch(async (target) => {
+    assert.match(String(target), /^https:\/\/html\.duckduckgo\.com\/html\//);
+    return htmlResponse(html);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/search?q=${encodeURIComponent('agent tools')}&limit=5`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'DuckDuckGo');
+    assert.equal(body.results.length, 2);
+    assert.equal(body.results[0].title, 'Example & Docs');
+    assert.equal(body.results[0].url, 'https://docs.example.org/guide?a=1&b=2');
+    assert.match(body.results[0].snippet, /useful primary-source summary/i);
+    assert.equal(body.results[1].url, 'https://news.example.net/story');
+  });
+});
+
+test('invalid SearXNG configuration falls back to DuckDuckGo and exposes a warning', async () => {
+  const html = '<a class="result__a" href="https://docs.example.org/">Docs</a><span class="result__snippet">Summary</span>';
+  let calls = 0;
+  await withMockFetch(async (target) => {
+    calls++;
+    assert.match(String(target), /^https:\/\/html\.duckduckgo\.com\//, 'invalid SearXNG URL must be rejected before fetch');
+    return htmlResponse(html);
+  }, async () => {
+    const { response, body } = await jsonCall('/api/search?q=test', { SEARXNG_URL: 'http://search.example.org' });
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'DuckDuckGo');
+    assert.equal(body.fallback, true);
+    assert.match(body.warning, /SearXNG 不可用/);
+    assert.equal(calls, 1);
+  });
+});
+
+test('crawl follows only same-origin text links, extracts page metadata, and skips scripts/navigation/binaries', async () => {
+  const calls = [];
+  const root = `<html><head><title>Home page</title><meta name="description" content="Site &amp; docs"></head>
+    <body><nav>navigation secret</nav><script>script secret</script><h1>Home</h1><p>Welcome to the docs.</p>
+      <a href="/docs">Docs page</a><a href="https://other.example.net/offsite">Off site</a><a href="/download.pdf">PDF</a></body></html>`;
+  const docs = '<html><head><title>Docs</title></head><body><h1>Reference</h1><p>Useful reference text.</p></body></html>';
+  await withMockFetch(async (target) => {
+    const u = new URL(target);
+    calls.push(u.href);
+    if (u.pathname === '/') return htmlResponse(root);
+    if (u.pathname === '/docs') return htmlResponse(docs);
+    throw new Error(`unexpected crawl request: ${u.href}`);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/crawl?url=${encodeURIComponent('https://site.example.org/')}&max_pages=3&max_depth=1&max_chars=3000`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.pages.length, 2);
+    assert.equal(body.pages[0].title, 'Home page');
+    assert.equal(body.pages[0].description, 'Site & docs');
+    assert.match(body.pages[0].text, /Welcome to the docs/);
+    assert.doesNotMatch(body.pages[0].text, /navigation secret|script secret/);
+    assert.equal(body.pages[1].url, 'https://site.example.org/docs');
+    assert.equal(body.pages[1].title, 'Docs');
+    assert.equal(body.errors.length, 0);
+    assert.equal(body.visited, 2);
+    assert.equal(calls.length, 2);
+    assert.ok(calls.every((x) => new URL(x).origin === 'https://site.example.org'));
+  });
+});
+
+test('crawl enforces hard page/depth limits and omits binary links', async () => {
+  const calls = [];
+  await withMockFetch(async (target) => {
+    const u = new URL(target);
+    calls.push(u.pathname);
+    const links = u.pathname === '/' ? '<a href="/a">a</a><a href="/b">b</a><a href="/c">c</a><a href="/file.zip">zip</a>' : '';
+    return htmlResponse(`<html><head><title>${u.pathname}</title></head><body><p>Page ${u.pathname}</p>${links}</body></html>`);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/crawl?url=${encodeURIComponent('https://limit.example.org/')}&max_pages=99&max_depth=99`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.max_pages, 5);
+    assert.equal(body.max_depth, 2);
+    assert.equal(body.pages.length, 4, 'three same-origin pages plus start page; zip is not queued');
+    assert.equal(calls.length, 4);
+    assert.equal(body.truncated, false);
+  });
+});
+
+test('search and crawl use documented limits when parameters are omitted', async () => {
+  const requestedPaths = [];
+  const searchHtml = Array.from({ length: 7 }, (_, i) => `<a class="result__a" href="https://docs.example.org/${i}">Result ${i}</a>`).join('');
+  await withMockFetch(async (target) => {
+    const u = new URL(target);
+    if (u.hostname === 'html.duckduckgo.com') return htmlResponse(searchHtml);
+    requestedPaths.push(u.pathname);
+    if (u.pathname === '/') return htmlResponse('<a href="/one">One</a><a href="/two">Two</a><a href="/three">Three</a><p>Root</p>');
+    return htmlResponse(`<p>${u.pathname}</p>`);
+  }, async () => {
+    const search = await jsonCall(`/api/search?q=${encodeURIComponent('default search limit')}`);
+    assert.equal(search.response.status, 200, search.body.error);
+    assert.equal(search.body.results.length, 5);
+
+    const crawl = await jsonCall(`/api/crawl?url=${encodeURIComponent('https://defaults.example.org/')}`);
+    assert.equal(crawl.response.status, 200, crawl.body.error);
+    assert.equal(crawl.body.max_pages, 3);
+    assert.equal(crawl.body.max_depth, 1);
+    assert.equal(crawl.body.pages.length, 3);
+    assert.equal(crawl.body.visited, 3);
+    assert.equal(requestedPaths.length, 3);
+  });
+});
+
+test('crawl page budget counts failed requests, not only successful pages', async () => {
+  const calls = [];
+  await withMockFetch(async (target) => {
+    const u = new URL(target);
+    calls.push(u.pathname);
+    if (u.pathname === '/') return htmlResponse('<a href="/bad">bad</a><a href="/later">later</a><p>Home</p>');
+    if (u.pathname === '/bad') throw new Error('upstream unavailable');
+    if (u.pathname === '/later') return htmlResponse('<p>Later</p>');
+    throw new Error(`unexpected request: ${u.pathname}`);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/crawl?url=${encodeURIComponent('https://budget.example.org/')}&max_pages=2`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.visited, 2, 'failed fetch attempts must consume page budget');
+    assert.equal(body.pages.length, 1);
+    assert.equal(body.errors.length, 1);
+    assert.deepEqual(calls, ['/', '/bad']);
+    assert.equal(body.truncated, true, 'unvisited queued links remain beyond the page budget');
+  });
+});
+
+test('routes are GET-only except CORS preflight, and fetch honors caller cancellation', async () => {
+  const post = await worker.fetch(makeRequest('/api/health', 'POST'));
+  assert.equal(post.status, 405);
+  assert.equal(post.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
+  assert.match((await post.json()).error, /只允许 GET/);
+
+  const options = await worker.fetch(makeRequest('/api/search', 'OPTIONS'));
+  assert.equal(options.status, 204);
+  assert.equal(options.headers.get('access-control-allow-methods'), 'GET, OPTIONS');
+
+  const controller = new AbortController();
+  let observedAbortSignal;
+  await withMockFetch(async (_target, init) => {
+    observedAbortSignal = init.signal;
+    controller.abort(new Error('client disconnected'));
+    if (init.signal.aborted) throw init.signal.reason;
+    await new Promise((resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+    return new Response('unexpected');
+  }, async () => {
+    const request = new Request('https://teamo-worker.test/api/fetch?url=https%3A%2F%2Fpublic.example.org%2F', { signal: controller.signal });
+    const response = await worker.fetch(request);
+    assert.equal(response.status, 502);
+    const body = await response.json();
+    assert.match(body.error, /disconnect|abort|cancel/i);
+    assert.equal(observedAbortSignal.aborted, true);
+  });
+});
+
+test('search and crawl validate required parameters', async () => {
+  const missingSearch = await jsonCall('/api/search');
+  assert.equal(missingSearch.response.status, 400);
+  const missingCrawl = await jsonCall('/api/crawl');
+  assert.equal(missingCrawl.response.status, 400);
+  const longSearch = await jsonCall(`/api/search?q=${'x'.repeat(501)}`);
+  assert.equal(longSearch.response.status, 400);
+});
