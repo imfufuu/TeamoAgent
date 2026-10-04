@@ -1,6 +1,6 @@
 # TeamoAgent Cloudflare Relay 部署配置
 # 用法（已装 wrangler）：
 #   cd relay && npx wrangler deploy
-name = "teamo-relay"
+name = "relay"
 main = "worker.js"
 compatibility_date = "2025-01-09"

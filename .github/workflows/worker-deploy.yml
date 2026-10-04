@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy teamo-relay
+    name: Deploy production relay
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
