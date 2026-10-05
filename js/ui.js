@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.1';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.1';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -22,8 +22,8 @@ import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
 // 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.5';
-import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.5';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.1';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.5.1';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -2821,7 +2821,12 @@ function validateApiKey(s) {
     html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
     if (m.cancelled) html += '<span class="cancelled-tag">已停止</span>';
-    if (m.done && /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''))) {
+    const lengthCapped = /^(length|max_tokens|max_output_tokens)$/i.test(String(m.finishReason || ''));
+    if (m.done && !String(m.text || '').trim() && !(m.toolCalls && m.toolCalls.length) && !m.error) {
+      html += lengthCapped
+        ? '<div class="trunc-note">输出在长度上限前结束，未收到可见正文。请点击「重新生成」重试。</div>'
+        : '<div class="trunc-note">模型未返回可见答复。请点击「重新生成」重试。</div>';
+    } else if (m.done && lengthCapped) {
       html += '<div class="trunc-note">输出碰到长度上限，未写完。再说「继续」或点重新生成。</div>';
     }
     body.innerHTML = html;

@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.1';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -61,7 +61,7 @@ import {
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.4.5';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.1';
 // ─── P0 执行内核（THN v2.3）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -93,7 +93,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.4.5';
+} from './execution.js?v=2026.10.5.1';
 // ─── P1（THN v2.4）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -103,36 +103,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.4.5';
+} from './recovery.js?v=2026.10.5.1';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.4.5';
+} from './idempotency.js?v=2026.10.5.1';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.4.5';
+} from './memorylife.js?v=2026.10.5.1';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.4.5';
+} from './trajectory.js?v=2026.10.5.1';
 
 // ─── P2（THN v2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.4.5';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.4.5';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.1';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.1';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.4.5';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.4.5';
+} from './experiments.js?v=2026.10.5.1';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.1';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -142,15 +142,15 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.4.5';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.4.5';
+} from './executionContext.js?v=2026.10.5.1';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.1';
 // P3（v2.5.1）：编辑直播预览 + 任务后自清理。两个都是独立新模块，旧版 agent.js 不 import 它们，
 // 因此旧缓存组合下不会因缺导出白屏（混版纪律）。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.4.5';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.1';
 import {
   planCleanup, applyCleanup, mergeArtifacts, pruneArtifacts, cleanupPolicyOf,
   formatCleanupBrief, formatCleanupReport, formatChars,
-} from './cleanup.js?v=2026.10.4.5';
+} from './cleanup.js?v=2026.10.5.1';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -1385,7 +1385,7 @@ export function createAgent(store, hooks = {}) {
         setStatus(turn.thinking ? 'thinking' : 'connecting');
 
         // ── 一次 LLM 流式调用（流层早期失败自动重试一次）──
-        const acc = createToolCallAccumulator();
+        let acc = createToolCallAccumulator();
         let tb = createThinkingTracker(); // Anthropic 思考块（含 signature），随消息持久化并在下一轮回传
         let text = '', reasoning = '';
         let reasonT0 = 0;
@@ -1393,6 +1393,7 @@ export function createAgent(store, hooks = {}) {
         let web = null; // 服务端联网进度：{status, queries, sources, results}
         const usage = {};
         let finishReason = null;
+        let streamThinking = turn.thinking;
 
         const assistantMsg = store.pushMessage({
           role: 'assistant', text: '', model, usage: null,
@@ -1406,11 +1407,13 @@ export function createAgent(store, hooks = {}) {
         let streamed = false;
         const streamT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
 
-        const pull = () => streamChat({
+        const pull = () => {
+          const pullUsage = {};
+          return streamChat({
               model, apiKey, tools, signal,
               fastMode: settings.fastMode,
-              thinking: turn.thinking, // Off 时不发思考参数；流里若仍夹带 reasoning 也不入库
-              reasoningLevel: turn.reasoningLevel,
+              thinking: streamThinking, // 空正文恢复时临时关闭思考，避免再次只消耗 token 不产出正文
+              reasoningLevel: streamThinking ? turn.reasoningLevel : 'off',
               plan: turnPlan,
               iteration: iterations,
               onThinkingFallback: (m) => emit('onThinkingFallback', m), // 思考参数 400 降级 → 提示用户（不再静默）
@@ -1427,7 +1430,7 @@ export function createAgent(store, hooks = {}) {
                     break;
                   case 'reasoning':
                     // Off 后模型仍可能自己吐 reasoning_content；不入库、不画「思考过程」
-                    if (!turn.thinking) break;
+                    if (!streamThinking) break;
                     if (!reasonT0) reasonT0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
                     reasoning += ev.text;
                     tb.delta(ev.index, ev.text);
@@ -1435,7 +1438,7 @@ export function createAgent(store, hooks = {}) {
                     emit('onReasoning', assistantMsg, reasoning);
                     break;
                   case 'block_start':
-                    if (turn.thinking && ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
+                    if (streamThinking && ev.block && (ev.block.type === 'thinking' || ev.block.type === 'redacted_thinking')) tb.start(ev.index, ev.block);
                     break;
                   case 'signature_delta':
                     tb.signature(ev.index, ev.signature);
@@ -1472,10 +1475,10 @@ export function createAgent(store, hooks = {}) {
                     break;
                   }
                   case 'usage':
-                    // Anthropic 分两段上报（message_start: input；message_delta: output 累计值），取最新即可
-                    if (ev.usage.input != null) usage.input = ev.usage.input;
-                    if (ev.usage.output != null) usage.output = ev.usage.output;
-                    if (ev.usage.reasoning != null) usage.reasoning = ev.usage.reasoning;
+                    // 单次流内 Anthropic 的 message_delta 是累计值；pull 收尾时再并入整轮计量。
+                    if (ev.usage.input != null) pullUsage.input = ev.usage.input;
+                    if (ev.usage.output != null) pullUsage.output = ev.usage.output;
+                    if (ev.usage.reasoning != null) pullUsage.reasoning = ev.usage.reasoning;
                     break;
                   case 'finish':
                     finishReason = ev.reason;
@@ -1485,9 +1488,14 @@ export function createAgent(store, hooks = {}) {
                   default: break;
                 }
               },
+            }).finally(() => {
+              for (const key of ['input', 'output', 'reasoning']) {
+                if (pullUsage[key] != null) usage[key] = (Number(usage[key]) || 0) + (Number(pullUsage[key]) || 0);
+              }
             });
+        };
         let attempt = 0;
-        const MAX_FT_ATTEMPTS = 3; // 首 token 超时最多重试 3 次（包含首次）
+        const MAX_FT_ATTEMPTS = 3; // 首响应超时最多重试 3 次（包含首次）
         while (true) {
           try {
             await pull();
@@ -1496,7 +1504,7 @@ export function createAgent(store, hooks = {}) {
             const firstTokenTimeout = err && err.name === 'FirstTokenTimeout';
             const transient = err.status === undefined || err.status >= 500 || err.status === 429 || firstTokenTimeout;
             const hasOutput = !!text || !!reasoning || sawToolDelta;
-            // ① 首 token 超时（15s 无输出）：只要还没拿到任何内容，最多重试 3 次
+            // ① 首响应超时（15s 无有效 SSE 事件）：只要还没拿到任何内容，最多重试 3 次
             // ② 其他 5xx/429/网络瞬断：零输出时重试 1 次（保留旧行为）
             const maxAttempts = firstTokenTimeout ? MAX_FT_ATTEMPTS : 1;
             if (attempt < maxAttempts && !hasOutput && transient && !signal.aborted && err.name !== 'AbortError') {
@@ -1507,6 +1515,9 @@ export function createAgent(store, hooks = {}) {
               sawToolDelta = false;
               acc = createToolCallAccumulator();
               web = null;
+              finishReason = null;
+              streamThinking = turn.thinking;
+              streamed = false;
               store.updateMessage(assistantMsg.id, { reasoning: undefined, text: '', toolCalls: [], webSearch: undefined });
               emit('onRetry', assistantMsg, { attempt, reason: firstTokenTimeout ? 'first-token-timeout' : 'transient', message: err.message });
               const waitMs = firstTokenTimeout ? 1000 * attempt : 1200; // 超时重试：1s/2s/3s 退避
@@ -1518,27 +1529,97 @@ export function createAgent(store, hooks = {}) {
           }
         }
 
+        const isLengthFinish = (reason) => /^(length|max_tokens|max_output_tokens)$/i.test(String(reason || ''));
+        const removeSilent = (msg) => {
+          const ix = store.state.messages.findIndex((m) => m.id === msg.id);
+          if (ix >= 0) store.state.messages.splice(ix, 1);
+        };
+        const persistContinuationContext = () => {
+          const patch = { text };
+          if (turn.thinking && reasoning) patch.reasoning = reasoning;
+          const blocks = turn.thinking ? tb.blocks() : [];
+          if (blocks.length) patch.thinkingBlocks = blocks;
+          store.updateMessage(assistantMsg.id, patch);
+        };
+
         let lengthContinues = 0;
+        let completionRecoveryError = null;
         while (
           !acc.result().length
-          && /^(length|max_tokens|max_output_tokens)$/i.test(String(finishReason || ''))
+          && isLengthFinish(finishReason)
           && lengthContinues < 2
-          && text
           && !signal.aborted
         ) {
           lengthContinues++;
+          const hasPartialText = !!String(text || '').trim();
+          // Claude 的下一请求必须先拿到本轮 thinking signature；只在回合结束时保存会导致
+          // 续写请求缺签名而被拒。空正文时改成 answer-only 请求，避免再耗尽思考 token。
+          persistContinuationContext();
           const cont = store.pushMessage({
             role: 'user',
-            text: '请从截断处接着写完，不要重复已经输出的内容。',
+            text: hasPartialText
+              ? '请从截断处接着写完，不要重复已经输出的内容。'
+              : '上一轮在输出正文前触及长度上限，没有生成用户可见正文。请不要继续长篇推理，直接根据当前对话和已执行工具输出面向用户的最终答复；若信息不足请明确说明。',
             silent: true,
           });
+          const priorFinish = finishReason;
+          const beforeText = text;
+          const priorThinking = streamThinking;
           finishReason = null;
-          try { await pull(); } catch { break; }
-          const ix = store.state.messages.findIndex((m) => m.id === cont.id);
-          if (ix >= 0) store.state.messages.splice(ix, 1);
+          if (!hasPartialText) streamThinking = false;
+          streamed = false;
+          try {
+            await pull();
+          } catch (err) {
+            finishReason = priorFinish;
+            completionRecoveryError = err;
+            break;
+          } finally {
+            removeSilent(cont);
+            streamThinking = priorThinking;
+          }
+          // 上游续写若没补出新正文，或没有给出结束原因，保留长度限制标记以便 UI 如实提示。
+          if (isLengthFinish(priorFinish) && (!String(text || '').trim() || text === beforeText || !finishReason)) {
+            finishReason = priorFinish;
+          }
         }
 
-        const toolCalls = acc.result();
+        let toolCalls = acc.result();
+        // 有些模型在 stop / end_turn 下只返回隐藏思考，或 200 空流而没有可见正文。
+        // 工具执行已经成功时也必须再要一次最终答复；只补一次，杜绝无限请求。
+        if (!toolCalls.length && !String(text || '').trim() && !signal.aborted && lengthContinues === 0) {
+          persistContinuationContext();
+          const cont = store.pushMessage({
+            role: 'user',
+            text: '上一条模型响应已结束，但没有生成任何用户可见正文。请直接给出面向用户的最终答复，不要只输出思考过程；若信息不足，请明确说明。',
+            silent: true,
+          });
+          const priorFinish = finishReason;
+          const priorThinking = streamThinking;
+          finishReason = null;
+          streamThinking = false;
+          streamed = false;
+          try {
+            await pull();
+          } catch (err) {
+            completionRecoveryError = err;
+            if (isLengthFinish(priorFinish)) finishReason = priorFinish;
+          } finally {
+            removeSilent(cont);
+            streamThinking = priorThinking;
+          }
+          if (!String(text || '').trim() && isLengthFinish(priorFinish)) finishReason = priorFinish;
+          toolCalls = acc.result();
+        }
+        if (!toolCalls.length && !String(text || '').trim() && !signal.aborted) {
+          const note = completionRecoveryError
+            ? '自动补答请求未能完成'
+            : (lengthContinues ? '自动续写后仍未收到正文' : '自动补答一次后仍未收到正文');
+          const preserved = usedTools.length ? '此前成功执行的工具结果仍保留' : '当前对话上下文仍保留';
+          text = `模型本轮没有返回可见答复；${note}。${preserved}，请点击「重新生成」重试，或降低思考档位。`;
+          store.updateMessage(assistantMsg.id, { text });
+        }
+
         const thinkingBlocks = turn.thinking ? tb.blocks() : [];
         const nowT = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
         telemetry.recordUsage({ input_tokens: usage.input, output_tokens: usage.output });

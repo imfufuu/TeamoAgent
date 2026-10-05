@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js';
+} from '../js/api.js?v=2026.10.5.1';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js');
+const api = await import('../js/api.js?v=2026.10.5.1');
 
 let passed = 0;
 const queue = [];
@@ -871,6 +871,21 @@ const openaiTextTurn = (text) => sseResponse(
   sseEv({ choices: [{ delta: { content: text } }] })
   + sseEv({ usage: { prompt_tokens: 7, completion_tokens: 3 }, choices: [] })
   + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone);
+const openaiNoVisibleTextTurn = (finish = 'stop') => sseResponse(
+  sseEv({ choices: [{ delta: { reasoning_content: '已完成内部推理' }, finish_reason: finish }] })
+  + sseEv({ usage: { prompt_tokens: 7, completion_tokens: 8, completion_tokens_details: { reasoning_tokens: 8 } }, choices: [] })
+  + sseDone);
+const anthropicLengthTextTurn = (text, finish = 'max_tokens') => sseResponse(
+  sseEv({ type: 'message_start', message: { usage: { input_tokens: 20, output_tokens: 1 } } })
+  + sseEv({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } })
+  + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '需要继续回答' } })
+  + sseEv({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'sig-length' } })
+  + sseEv({ type: 'content_block_stop', index: 0 })
+  + sseEv({ type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } })
+  + sseEv({ type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text } })
+  + sseEv({ type: 'content_block_stop', index: 1 })
+  + sseEv({ type: 'message_delta', delta: { stop_reason: finish }, usage: { output_tokens: 100 } })
+  + sseEv({ type: 'message_stop' }) + sseDone);
 const anthropicTextTurn = (text) => sseResponse(
   sseEv({ type: 'message_start', message: { usage: { input_tokens: 20, output_tokens: 1 } } })
   + sseEv({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
@@ -1001,6 +1016,120 @@ test('P0-2 端到端：Claude 思考+工具调用，第二次请求回传思考�
     assert.equal(asstMsg.thinkingBlocks[0].signature, 'sig-replay');
     assert.equal(thinkingDisabledFor('claude-replay-test'), false, '不得再静默关闭思考');
     assert.equal(store.state.messages[store.state.messages.length - 1].text, '完成');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('Agent：工具成功后空正文被 max_tokens 截断，降为最终答复请求并续写', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_empty_length', 'write_file', JSON.stringify({ path: 'done.txt', content: 'ok' })),
+    openaiNoVisibleTextTurn('length'),
+    openaiTextTurn('已完成，结果已写入 done.txt。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, {});
+    await agent.send('创建 done.txt');
+    assert.equal(calls.length, 3, '长度上限后的空正文应自动发起一次可见答复续写');
+    const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(lastAssistant.text, '已完成，结果已写入 done.txt。');
+    assert.equal(lastAssistant.done, true);
+    assert.equal(lastAssistant.usage.input, 14, '空响应与续写请求的用量需要合并计费');
+    assert.equal(lastAssistant.usage.output, 11, '不能只记录最后一次续写的输出用量');
+    assert.equal(agent.fs.read('done.txt'), 'ok', '之前成功的工具副作用保留');
+    assert.equal(store.state.messages.some((m) => m.silent), false, '内部续写提示不留在会话历史');
+    assert.ok(calls[2].body.messages.some((m) => m.role === 'user' && /请不要继续长篇推理/.test(String(m.content || ''))), '续写请求要求直接生成用户可见答复');
+    assert.equal(calls[2].body.reasoning_effort, undefined, '空正文恢复请求不再消耗同档思考预算');
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('Agent：工具成功后 stop 但无正文时仍自动补答', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('call_empty_stop', 'write_file', JSON.stringify({ path: 'kept.txt', content: 'yes' })),
+    openaiNoVisibleTextTurn('stop'),
+    openaiTextTurn('已完成，文件保存在 kept.txt。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, {});
+    await agent.send('创建 kept.txt');
+    assert.equal(calls.length, 3, '非 length 的空答复也应自动补答一次');
+    const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(lastAssistant.text, '已完成，文件保存在 kept.txt。');
+    assert.equal(lastAssistant.done, true);
+    assert.equal(agent.fs.read('kept.txt'), 'yes');
+    assert.equal(store.state.messages.some((m) => m.silent), false);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('Agent：空正文补答仍无输出时给出明确说明，不留空白气泡', async () => {
+  const calls = [];
+  mockFetch([openaiNoVisibleTextTurn('stop'), openaiNoVisibleTextTurn('stop')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, {});
+    await agent.send('请给出结果');
+    assert.equal(calls.length, 2, '自动补答只执行一次，避免请求循环');
+    const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.match(lastAssistant.text, /没有返回可见答复/, '重试仍空时不得留下空白气泡');
+    assert.equal(lastAssistant.done, true);
+  } finally { globalThis.fetch = realFetch; }
+});
+
+test('Agent：零正文流中断时重建工具累积器并重试', async () => {
+  let calls = 0;
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    calls++;
+    if (calls === 1) {
+      return new Response(new ReadableStream({ start(controller) { controller.error(new Error('模拟流中断')); } }), {
+        status: 200, headers: { 'content-type': 'text/event-stream' },
+      });
+    }
+    return openaiTextTurn('重试后已完成。');
+  };
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('请确认');
+    assert.equal(calls, 2, '空输出的瞬时流错误只自动重试一次');
+    const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(lastAssistant.text, '重试后已完成。');
+    assert.equal(lastAssistant.done, true);
+  } finally { globalThis.fetch = origFetch; }
+});
+
+test('Agent：Claude 正文因长度截断续写前先持久化思考签名', async () => {
+  const calls = [];
+  mockFetch([anthropicLengthTextTurn('第一段'), anthropicTextTurn('第二段')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'claude-length-test';
+    store.state.settings.thinking = true;
+    const agent = createAgent(store, {});
+    await agent.send('请完整说明');
+    assert.equal(calls.length, 2, '触及长度上限后需要补一次');
+    const partial = calls[1].body.messages.find((m) => m.role === 'assistant' && m.content.some((b) => b.type === 'text' && b.text === '第一段'));
+    assert.ok(partial, '续写请求保留已输出正文');
+    assert.equal(partial.content[0].type, 'thinking');
+    assert.equal(partial.content[0].signature, 'sig-length', 'Claude 下一请求需要原样带回 signature');
+    const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.equal(lastAssistant.text, '第一段第二段');
+    assert.equal(lastAssistant.lengthContinues, 1);
+    assert.equal(store.state.messages.some((m) => m.silent), false);
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -2304,6 +2433,47 @@ test('api：200 但响应体为空时给出可读错误，不再抛 reading unde
     );
   } finally { globalThis.fetch = origFetch; }
 });
+test('streamChat：第一个 JSON SSE 事件解除首响应计时器，慢流不会在首包后被截断', async () => {
+  const origFetch = globalThis.fetch;
+  const enc = new TextEncoder();
+  const events = [];
+  globalThis.fetch = async () => new Response(new ReadableStream({
+    start(controller) {
+      setTimeout(() => {
+        try { controller.enqueue(enc.encode(sseEv({ choices: [{ delta: { content: '先到' } }] }))); } catch { /* watchdog 已取消时忽略 */ }
+      }, 1);
+      setTimeout(() => {
+        try {
+          controller.enqueue(enc.encode(
+            sseEv({ choices: [{ delta: { content: '后到' } }] })
+            + sseEv({ choices: [{ delta: {}, finish_reason: 'stop' }] }) + sseDone,
+          ));
+          controller.close();
+        } catch { /* watchdog 已取消时忽略 */ }
+      }, 50);
+    },
+  }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  try {
+    await api.streamChat({
+      model: 'gpt-5.6-sol', apiKey: 'k', messages: [{ role: 'user', text: 'hi' }],
+      firstTokenTimeoutMs: 20, onEvent: (ev) => events.push(ev),
+    });
+    assert.equal(events.filter((ev) => ev.type === 'text').map((ev) => ev.text).join(''), '先到后到');
+    assert.equal(events.find((ev) => ev.type === 'finish').reason, 'stop');
+  } finally { globalThis.fetch = origFetch; }
+});
+test('streamChat：首响应真的超时应抛出 FirstTokenTimeout，不能静默当空成功', async () => {
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(new ReadableStream({ start() {} }), {
+    status: 200, headers: { 'content-type': 'text/event-stream' },
+  });
+  try {
+    await assert.rejects(
+      api.streamChat({ model: 'gpt-5.6-sol', apiKey: 'k', messages: [{ role: 'user', text: 'hi' }], firstTokenTimeoutMs: 10, onEvent() {} }),
+      (err) => err && err.name === 'FirstTokenTimeout',
+    );
+  } finally { globalThis.fetch = origFetch; }
+});
 test('沙箱输出被截断只在预算不足时发生（回归：历史轮次工具结果分级收紧）', () => {
   const long = 'x'.repeat(20000);
   const msgs = [{ role: 'user', text: 'q' }, { role: 'assistant', text: 'a' }, { role: 'user', text: 'q2' }, { role: 'tool', toolCallId: 'c', name: 'execute_javascript', content: long }];
@@ -2764,7 +2934,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js');
+  const api = await import('../js/api.js?v=2026.10.5.1');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3377,6 +3547,8 @@ test('paintAssistant：光标必须叠上忙碌状态（导入后去不掉的根
   assert.match(paint, /const live = !m\.done && getBusy\(\)/, '历史消息缺 done 时不能只靠 !m.done 画光标');
   assert.match(paint, /live && !noOutputYet.*cursor/, '光标只在 live 时出现');
   assert.equal(paint.includes("if (!m.done && !noOutputYet) html += '<span class=\"cursor\""), false, '旧条件会让导入会话的每条回复一直闪光标');
+  assert.match(paint, /模型未返回可见答复/, '旧会话里的空完成消息也不能继续显示为空白');
+  assert.match(paint, /m\.done && !String\(m\.text \|\| ''\)\.trim\(\)/, '完成但无正文时应显示重新生成提示');
 });
 
 group('Hermes 式 harness（提示词分层 / 技能 / 记忆 / 并行工具）');
@@ -3703,7 +3875,7 @@ test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   assert.match(css, /\.msg-foot \{/);
   assert.match(css, /\.msg-toolbar/);
   assert.match(css, /text-align:\s*right/);
-  assert.match(ag, /if \(!turn\.thinking\) break/);
+  assert.match(ag, /if \(!streamThinking\) break/, '临时 answer-only 补答不采集隐藏思考');
   assert.match(ag, /reasoningLevel: turn\.thinking \? \(turn\.reasoningLevel \|\| 'medium'\) : 'off'/);
   assert.match(ag, /durationMs: Math\.round\(nowT - streamT0\)/);
   assert.match(ag, /thoughtHidden/);

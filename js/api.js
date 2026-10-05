@@ -411,7 +411,7 @@ export function buildAnthropicPayload(messages, { maxTokens = MAX_TOKENS, includ
 
 // ── 流式对话（含 429/5xx 单次退避重试 + 思考参数 400 自动降级）─────────
 // onThinkingFallback：思考参数被 400 降级时回调（用于向用户提示，避免静默关闭）
-// 首个 token 超时：HTTP 200 已返回但读流时超过该毫秒数仍未拿到任何 SSE 事件 → 视为连接假死
+// 首响应超时：HTTP 200 已返回但读流时超过该毫秒数仍未解析到有效 JSON SSE 事件 → 视为连接假死
 export const FIRST_TOKEN_TIMEOUT_MS = 15000;
 export const FIRST_TOKEN_MAX_RETRIES = 3;
 
@@ -549,7 +549,18 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
 
   const normalize = endpoint === 'responses' ? createResponsesStream(onEvent)
     : (protocol === 'anthropic' ? createAnthropicStream(onEvent) : createOpenAIStream(onEvent));
-  const feed = createSSEParser((json) => { if (json !== null) normalize(json); });
+  let gotFirstEvent = false;
+  let firstTokenTimer = null;
+  const onFirst = () => {
+    if (gotFirstEvent) return;
+    gotFirstEvent = true;
+    if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
+  };
+  // 以解析到的有效 SSE JSON 事件作为首响应；原先对原始 chunk 做正则会漏掉
+  // 常见的 `data: {"choices":...}`，导致慢流即使已在输出也会被 15 秒 watchdog 取消。
+  const feed = createSSEParser((json) => {
+    if (json !== null) { onFirst(); normalize(json); }
+  });
 
   // 某些代理/服务端会以 200 + 空 body 回（如中间层截断）：直接 getReader() 会抛
   // 一个「reading undefined」的 TypeError，用户看不懂；换成可定位的提示。
@@ -559,13 +570,7 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
   // cancel() 在流已出错时返回 rejected promise，必须显式吞掉，否则产生未处理拒绝
   const cancelQuiet = () => { try { Promise.resolve(reader.cancel()).catch(() => {}); } catch { /* noop */ } };
   const timeout = setTimeout(cancelQuiet, REQUEST_TIMEOUT_MS);
-  let gotFirstEvent = false;
-  const onFirst = () => {
-    if (gotFirstEvent) return;
-    gotFirstEvent = true;
-    if (firstTokenTimer) { clearTimeout(firstTokenTimer); firstTokenTimer = null; }
-  };
-  // 首 token 超时：用 AbortController 派生一个可被超时取消的 signal
+  // 首响应超时：用 AbortController 派生一个可被超时取消的 signal
   const ftAC = new AbortController();
   // AbortSignal.any 老浏览器没有，这里自己监听外部 signal 来联动 abort ftAC
   if (signal) {
@@ -573,14 +578,14 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
     else signal.addEventListener('abort', () => ftAC.abort(signal.reason), { once: true });
   }
   // 把我们派生的 signal 传给后续取消路径（原 fetch 已用 signal，这里 reader 阶段只需要 cancel reader）
-  let firstTokenTimer = setTimeout(() => {
+  firstTokenTimer = setTimeout(() => {
     if (!gotFirstEvent) {
       const err = new Error(`连接建立后 ${Math.round(firstTokenTimeoutMs / 1000)} 秒未收到模型输出`);
       err.name = 'FirstTokenTimeout';
       err.retryable = true;
       err.status = 0;
-      cancelQuiet();
       ftAC.abort(err);
+      cancelQuiet();
     }
   }, firstTokenTimeoutMs);
   // 外部 signal 中止：cancel reader 并清定时器（cancelQuiet 会让 reader.read 抛错）
@@ -600,12 +605,11 @@ export async function streamChat({ model, apiKey, messages, tools, fastMode = fa
         throw readErr;
       }
       const { done, value } = readRes;
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      if (!gotFirstEvent && /^data:[ \t]*[^:\s\n{[]/m.test(chunk) && !/^data:[ \t]*\[(DONE|done)\][ \t]*$/m.test(chunk)) {
-        onFirst();
+      if (ftAC.signal.aborted && ftAC.signal.reason && ftAC.signal.reason.name === 'FirstTokenTimeout') {
+        throw ftAC.signal.reason;
       }
-      feed(chunk);
+      if (done) break;
+      feed(decoder.decode(value, { stream: true }));
     }
     feed(decoder.decode());
   } catch (err) {
