@@ -357,11 +357,11 @@ for (let i = 0; i < 40 && $$('#session-list .sess-title')[0]?.textContent !== '�
 ok('Agent 自动总结出的标题已上屏（覆盖首条消息截断的兜底名）', $$('#session-list .sess-title')[0]?.textContent === '沙箱算质数与 π', $$('#session-list .sess-title')[0]?.textContent);
 await tick(400); // 持久化是 300ms 防抖，等一下再核对落盘内容
 ok('自动标题写进持久化状态并标记 auto', (() => {
-  const raw = window.localStorage.getItem('teamo-agent-state-v1-v2');
+  const raw = window.localStorage.getItem('dubhe-agent-state-v1-v2');
   const st = raw ? JSON.parse(raw) : null;
   const sess = st?.sessions?.find((x) => x.id === st.activeSessionId);
   return sess?.title === '沙箱算质数与 π' && sess?.titleSource === 'auto' && sess?.titled === true;
-})(), JSON.stringify(Object.keys(JSON.parse(window.localStorage.getItem('teamo-agent.state-v2') || '{}'))));
+})(), JSON.stringify(Object.keys(JSON.parse(window.localStorage.getItem('dubhe-agent.state-v2') || '{}'))));
 const titleReq = reqs.find((r) => String(r.body.messages?.[0]?.content || '').includes('起一个标题'));
 ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !titleReq.body.tools && titleReq.body.messages.length === 1, titleReq ? `${titleReq.body.messages.length} 条消息` : '未发起');
 globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis

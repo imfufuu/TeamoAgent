@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.8';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.9';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
@@ -11,11 +11,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.8';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.9';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
+import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.8';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.9';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -37,7 +38,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage（通常走浏览器缓存）。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API；沙箱禁网（requests / js.fetch 对任意网址都会被拒，只有装包时的 Pyodide CDN 与 PyPI 放行），要抓网页用 fetch_url。写入 FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage（通常走浏览器缓存）。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {
@@ -391,6 +392,105 @@ export const TOOL_DEFS = [
         degrees: { type: 'boolean', description: 'true=三角函数用角度，默认弧度' },
       },
       required: ['expression'],
+    },
+  },
+  {
+    name: 'csv_tool',
+    description:
+      '本地 CSV/TSV 工作台，不必开沙箱也不要为此写 pandas。action：preview 预览（默认）、stats 每列类型/非空/唯一/最小最大均值中位数、select 按 where 过滤 + sort 排序 + columns 投影（format=markdown/csv/json）、aggregate 按 by 分组对 value 做 sum/avg/count/min/max、to_json、to_markdown。自动识别分隔符（, TAB ; |）与表头。text 或 path 二选一；结果超过 limit 行时截断。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['preview', 'stats', 'select', 'aggregate', 'to_json', 'to_markdown'], description: '默认 preview' },
+        text: { type: 'string', description: 'CSV 文本' },
+        path: { type: 'string', description: '沙箱里的 .csv/.tsv 路径（与 text 二选一）' },
+        delimiter: { type: 'string', description: '分隔符，留空自动识别；TAB 写 "\\t"' },
+        header: { type: 'boolean', description: '第一行是否表头，默认 true' },
+        where: { type: 'array', items: { type: 'string' }, description: 'select 的过滤条件，如 ["price > 100", "city contains 上海"]；运算符 = != > < >= <= contains startswith' },
+        sort: { type: 'string', description: 'select 的排序列；前缀 - 表示降序，如 "-price"' },
+        columns: { type: 'array', items: { type: 'string' }, description: 'select 要保留的列（名称或 0 起下标）' },
+        by: { type: 'string', description: 'aggregate 的分组列' },
+        value: { type: 'string', description: 'aggregate 的数值列' },
+        fn: { type: 'string', enum: ['sum', 'avg', 'count', 'min', 'max'], description: 'aggregate 聚合函数，默认 sum' },
+        format: { type: 'string', enum: ['markdown', 'csv', 'json'], description: 'select 输出格式，默认 markdown' },
+        out: { type: 'string', description: '可选：把 select/to_json 结果写到沙箱的这个路径' },
+        limit: { type: 'number', description: '最多输出行数，默认 50，上限 500' },
+      },
+    },
+  },
+  {
+    name: 'date_calc',
+    description:
+      '本地日期时间计算，不要口算也不要为此开沙箱。action：info 解析并给出 ISO/时间戳/星期/ISO 周/季度/距今（默认）、add 加时长、subtract 减时长、diff 两个时间相差多少（天/周/工作日/秒）、weekday 查星期几。日期支持 YYYY-MM-DD、YYYY-MM-DD HH:mm、ISO 8601、Unix 时间戳、today/tomorrow/yesterday；时长支持 "3 days"、"2周"、"1y 2mo"、"90 minutes"。按用户浏览器本地时区。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['info', 'add', 'subtract', 'diff', 'weekday'], description: '默认 info' },
+        date: { type: 'string', description: '起点日期/时间；留空=现在' },
+        add: { type: 'string', description: 'add 的时长，如 "45 days" / "3个月"' },
+        subtract: { type: 'string', description: 'subtract 的时长' },
+        to: { type: 'string', description: 'diff 的终点日期' },
+        format: { type: 'boolean', description: 'info 时附带本地化长格式' },
+        locale: { type: 'string', description: '格式化语言，默认 zh-CN' },
+      },
+    },
+  },
+  {
+    name: 'text_tool',
+    description:
+      '本地文本处理，不必开沙箱。action：stats 字数/词数/句段行/字节/阅读时长（默认）、case 大小写转换（mode=upper/lower/title/sentence/camel/pascal/snake/kebab/constant/slug）、trim 去尾随空白与首尾空行、dedupe 按行去重、sort 按行排序（numeric/order=desc/ignore_case）、reverse、number 加行号、wrap 按 width 折行、extract 抽取 what=urls/emails/numbers/hashtags/mentions/ips/dates/phones、frequency 词频 top N、replace 查找替换（regex=true 用正则，支持 $1）、truncate 截断到 length、escape/unescape（mode=html/json/regex/shell）、lorem 占位文本。text 或 path 二选一。',
+    parameters: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['stats', 'case', 'trim', 'dedupe', 'sort', 'reverse', 'number', 'wrap', 'extract', 'frequency', 'replace', 'truncate', 'escape', 'unescape', 'lorem'], description: '默认 stats' },
+        text: { type: 'string', description: '要处理的文本' },
+        path: { type: 'string', description: '沙箱文件路径（与 text 二选一）' },
+        mode: { type: 'string', description: 'case / escape / unescape 的模式' },
+        what: { type: 'string', description: 'extract 要抽取的类型' },
+        find: { type: 'string', description: 'replace 要找的文本或正则' },
+        replacement: { type: 'string', description: 'replace 的替换文本' },
+        regex: { type: 'boolean', description: 'replace 时 find 按正则解释' },
+        ignore_case: { type: 'boolean' },
+        numeric: { type: 'boolean', description: 'sort 时按数值' },
+        order: { type: 'string', enum: ['asc', 'desc'] },
+        width: { type: 'number', description: 'wrap 的列宽，默认 80' },
+        length: { type: 'number', description: 'truncate 的长度' },
+        top: { type: 'number', description: 'frequency 的 N，默认 20' },
+        paragraphs: { type: 'number', description: 'lorem 的段落数' },
+        out: { type: 'string', description: '可选：把结果写到沙箱的这个路径' },
+      },
+    },
+  },
+  {
+    name: 'convert_units',
+    description:
+      '本地单位换算，不要口算。支持长度/质量/时间/面积/体积/速度/数据量（含 KiB 与 Mbps）/能量/功率/压强/角度/频率/温度（C/F/K）/油耗（mpg↔L/100km），含中文市制（斤、两、亩、里、尺）。传 value+from+to，或直接 text="5 km to mi"。',
+    parameters: {
+      type: 'object',
+      properties: {
+        value: { type: 'number', description: '数值' },
+        from: { type: 'string', description: '源单位，如 km、lb、°F、GiB、斤' },
+        to: { type: 'string', description: '目标单位' },
+        text: { type: 'string', description: '自然语言写法，如 "72 F to C"、"3 斤 to kg"' },
+        precision: { type: 'number', description: '小数位，默认 6' },
+      },
+    },
+  },
+  {
+    name: 'qr_code',
+    description:
+      '本地生成二维码（纯 JS 编码，内容不出浏览器）：网址、Wi-Fi（WIFI:T:WPA;S:名;P:密码;;）、vCard、文本都行。写入沙箱 outputs/qr-001.svg，随后必须用 ![说明](sandbox://outputs/qr-001.svg) 嵌入正文。ec 为纠错等级 L/M/Q/H（默认 M）；最长约 2000 字符。',
+    parameters: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: '要编码的内容' },
+        ec: { type: 'string', enum: ['L', 'M', 'Q', 'H'], description: '纠错等级，默认 M' },
+        out: { type: 'string', description: '输出路径，默认 outputs/qr-NNN.svg' },
+        fg: { type: 'string', description: '前景色 #rrggbb，默认 #0a0a0a' },
+        bg: { type: 'string', description: '背景色，默认 #ffffff' },
+        module: { type: 'number', description: '每个模块的像素，默认 8' },
+      },
+      required: ['text'],
     },
   },
   {
@@ -1071,6 +1171,51 @@ async function executeToolBody(name, args, ctx) {
         const out = evaluateExpression(args.expression, { degrees: !!args.degrees });
         emit({ status: out.ok ? 'ok' : 'error', note: out.ok ? out.text : out.error, error: out.ok ? undefined : { message: out.error } });
         return formatMathResult(out, args.expression);
+      }
+      case 'csv_tool': {
+        const src = readToolText(args, fs);
+        if (src.error) { emit({ status: 'error', error: { message: src.error } }); return `csv_tool 失败：${src.error}`; }
+        const r = runCsv({ ...args, text: src.text });
+        if (!r.ok) { emit({ status: 'error', error: { message: r.error } }); return `csv_tool 失败：${r.error}`; }
+        let outNote = '';
+        if (args.out && (r.csv || r.json)) {
+          const outPath = normalizeFsPath(args.out);
+          if (outPath) { fs.write(outPath, r.csv || JSON.stringify(r.json, null, 2)); outNote = `\n已写入 ${outPath}`; }
+        }
+        emit({ status: 'ok', fsChange: !!outNote, note: `${src.label}${r.rows != null ? ` · ${r.rows} 行` : ''}` });
+        return r.text + outNote;
+      }
+      case 'date_calc': {
+        const r = runDateCalc(args || {});
+        emit({ status: r.ok ? 'ok' : 'error', note: r.ok ? (r.iso || '') : r.error, error: r.ok ? undefined : { message: r.error } });
+        return r.ok ? r.text : `date_calc 失败：${r.error}`;
+      }
+      case 'text_tool': {
+        const src = readToolText(args, fs);
+        if (src.error) { emit({ status: 'error', error: { message: src.error } }); return `text_tool 失败：${src.error}`; }
+        const r = runTextTool({ ...args, text: src.text });
+        if (!r.ok) { emit({ status: 'error', error: { message: r.error } }); return `text_tool 失败：${r.error}`; }
+        let outNote = '';
+        if (args.out) {
+          const outPath = normalizeFsPath(args.out);
+          if (outPath) { fs.write(outPath, r.text); outNote = `\n已写入 ${outPath}（${r.text.length} 字符）`; }
+        }
+        emit({ status: 'ok', fsChange: !!outNote, note: r.count != null ? `${r.count} 处` : r.removed != null ? `去重 ${r.removed} 行` : String(args.action || 'stats') });
+        return (r.text.length > 60000 ? `${r.text.slice(0, 60000)}\n…（已截断，完整结果请用 out 写入沙箱）` : r.text) + outNote;
+      }
+      case 'convert_units': {
+        const r = runConvertUnits(args || {});
+        emit({ status: r.ok ? 'ok' : 'error', note: r.ok ? r.text : r.error, error: r.ok ? undefined : { message: r.error } });
+        return r.ok ? r.text : `convert_units 失败：${r.error}`;
+      }
+      case 'qr_code': {
+        emit({ status: 'running', note: '二维码…' });
+        const r = runQrCode(args || {});
+        if (!r.ok) { emit({ status: 'error', error: { message: r.error } }); return `qr_code 失败：${r.error}`; }
+        const path = normalizeFsPath(args.out) || nextOutputPath(fs, 'qr', 'svg');
+        fs.write(path, r.svg);
+        emit({ status: 'ok', fsChange: true, note: `v${r.version}-${r.ecLevel} → ${path}` });
+        return `已生成二维码 ${path}（版本 ${r.version}，${r.size}×${r.size} 模块，纠错 ${r.ecLevel}，${r.bytes} 字节）。请在回复里用 ![二维码](sandbox://${path}) 嵌入。`;
       }
       case 'execute_sql': {
         emit({ status: 'running', note: 'SQL…' });

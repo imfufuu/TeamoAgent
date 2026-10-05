@@ -649,21 +649,21 @@ console.log('\n⑱ 设置页字号 / 深度思考 / 本地会话数回归');
       { id: 'sess-2', messages: [{ role: 'user', text: 'two' }] },
       { id: 'sess-3', messages: [{ role: 'user', text: 'three' }] },
     ];
-    window.localStorage.setItem('teamo-agent-state-v1-v2', JSON.stringify({ sessions: store.state.sessions }));
-    window.localStorage.setItem('teamo-agent-state', JSON.stringify({ sessions: [] })); // 旧错 key：不得影响计数
+    window.localStorage.setItem('dubhe-agent-state-v1-v2', JSON.stringify({ sessions: store.state.sessions }));
+    window.localStorage.setItem('dubhe-agent-state', JSON.stringify({ sessions: [] })); // 旧错 key：不得影响计数
     openSettingsModal({ store });
     ok('本地存储按 v2 实际显示会话数而非旧 key 的 0', $('#set-about-store').textContent.startsWith('3 个会话'), $('#set-about-store').textContent);
-    window.localStorage.setItem('teamo-fontsize', 'small');
+    window.localStorage.setItem('dubhe-fontsize', 'small');
     applyFontSize();
     click($('#set-fontsize [data-v="large"]'));
     ok('字号按钮确实切换 html[data-fontsize] 并保存偏好', document.documentElement.dataset.fontsize === 'large'
-      && window.localStorage.getItem('teamo-fontsize') === 'large');
+      && window.localStorage.getItem('dubhe-fontsize') === 'large');
     $('#set-thinking').checked = false;
     $('#set-thinking').dispatchEvent(new window.Event('change', { bubbles: true }));
     ok('深度思考关闭时隐藏推理强度行', $('#set-reason-row').hidden === true);
     click($('#set-theme [data-v="dark"]'));
     ok('设置页主题写入共享主题偏好', document.documentElement.dataset.theme === 'dark'
-      && window.localStorage.getItem('teamo-theme') === 'dark');
+      && window.localStorage.getItem('dubhe-theme') === 'dark');
   } finally {
     globalThis.fetch = oldFetch;
   }

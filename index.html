@@ -4,12 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.5.8" />
-<meta name="app-release" content="V1.6" />
+<meta name="app-version" content="2026.10.5.9" />
+<meta name="app-release" content="V1.7" />
 <meta name="description" content="Dubhe Agent — 浏览器里的智能体。沙箱、文件、生图、深度思考，打开网页即可开始。" />
 <title>Dubhe Agent — 浏览器里的智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/home.css?v=2026.10.5.8" />
+<link rel="stylesheet" href="css/home.css?v=2026.10.5.9" />
 </head>
 <body>
 <div class="noise" aria-hidden="true"></div>
@@ -55,7 +55,7 @@
   <div class="vignette"></div>
   <div class="film-hud" id="film-hud" aria-hidden="true">
     <span class="hud-scene" id="hud-scene">01 / 09 · DUBHE CORE</span>
-    <span class="hud-bpm">124 BPM · 3D STAGE</span>
+    <span class="hud-bpm">108 BPM · BEAT-SYNCED</span>
   </div>
   <div class="beat-progress"><i id="beat-bar"></i></div>
   <div class="billboard empty" id="billboard"><span id="bill-text"></span></div>
@@ -65,6 +65,7 @@
   </div>
   <button type="button" id="film-pause" class="film-pause">暂停</button>
   <button type="button" id="film-skip" class="film-skip">跳过</button>
+  <button type="button" id="film-sound" class="film-sound" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9v6h4l5 4V5L8 9H4z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/></svg>开启声音</button>
   <div class="world" id="world">
     <div class="constellation-ring r1" aria-hidden="true"></div>
     <div class="constellation-ring r2" aria-hidden="true"></div>
@@ -170,11 +171,12 @@ RMSE = 0.5831
     <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg></span>
     <span class="logo-text">DUBHE<i>AGENT</i></span>
   </a>
-  <span class="ver">V1.6</span>
+  <span class="ver">V1.7</span>
   <span class="nav-spacer"></span>
   <a class="nav-link" href="#why">优势</a>
   <a class="nav-link" href="#capabilities">能力</a>
   <a class="nav-link" href="#think-levels">思考档</a>
+  <a class="nav-link" href="#whats-new">新特性</a>
   <a class="nav-link" href="#bench">工作台</a>
   <a class="nav-link" href="#flow">流程</a>
   <a class="nav-link" href="#principles">原则</a>
@@ -216,7 +218,7 @@ RMSE = 0.5831
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 19.5v-11a1.5 1.5 0 0 0-1.5-1.5h-7L9.6 4.6A1.5 1.5 0 0 0 8.44 4h-5A1.5 1.5 0 0 0 2 5.5v13a1.5 1.5 0 0 0 1.5 1.5h15.5a1.5 1.5 0 0 0 1.5-1.5Z"/></svg>
         <h3>沙箱</h3>
-        <p>JavaScript Worker、Pyodide（可装第三方库）与远程 C++20。超时可杀，stdout / 返回值可捕获，改动写回工作区。</p>
+        <p>JavaScript Worker、Pyodide（可装第三方库）与远程 C++20。沙箱断网：fetch / XHR / WebSocket 被拆除，Python 只放行装包的 CDN 与 PyPI；回写文件先过路径与容量校验，internal/ 受保护。超时可杀，stdout / 返回值可捕获。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 2.5H7A1.5 1.5 0 0 0 5.5 4v16A1.5 1.5 0 0 0 7 21.5h10a1.5 1.5 0 0 0 1.5-1.5V8Z"/><path d="M14 2.8V7a1.5 1.5 0 0 0 1.5 1.5H20"/></svg>
@@ -236,7 +238,7 @@ RMSE = 0.5831
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg>
         <h3>本地工作台</h3>
-        <p>正则、哈希、编解码、Unicode、差分、JSON，不必为这些开沙箱。关沙箱时代码执行不可用，文件工具仍在。</p>
+        <p>正则、哈希、编解码、Unicode、差分、JSON，再加 CSV、日期、文本整理、单位换算与二维码——36 件工具里 21 件纯本地，不必为这些开沙箱。关沙箱时代码执行不可用，文件工具仍在。</p>
       </article>
       <article class="card">
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5v11.2"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M4.5 17.5v1.8a1.2 1.2 0 0 0 1.2 1.2h12.6a1.2 1.2 0 0 0 1.2-1.2v-1.8"/></svg>
@@ -267,6 +269,28 @@ RMSE = 0.5831
     </div>
   </section>
 
+  <section class="section" id="whats-new">
+    <h2>V1.7 新在哪里。</h2>
+    <p class="sub">这一版把三件「看得见」的事做完：照片工作台按站点风格重写、介绍片的脉冲对齐到真实鼓点、全站补齐进入与反馈动效；再把两件「看不见」的事做实：沙箱断网加固与五件新工具。</p>
+    <div class="grid grid-3">
+      <article class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.2"/><path d="m3 16 5-5 4 4 3-3 6 6"/><circle cx="16" cy="9" r="1.6"/></svg>
+        <h3>照片工作台</h3>
+        <p>裁剪、旋转、翻转、亮度 / 对比 / 饱和 / 色温 / 锐化 / 晕影，六档滤镜与一键自动增强，全部在浏览器里按 Canvas 实时预览。与对话页同一套字体、圆角、阴影与暗色模式。</p>
+      </article>
+      <article class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h3l2.5-6 4 12 2.5-6H21"/></svg>
+        <h3>鼓点同步的介绍片</h3>
+        <p>用 onset 检测把 47 秒配乐的 71 个底鼓逐个标出来，脉冲、切镜与字幕跟真实鼓点走，而不是按固定 BPM 猜。音频也修好了：点「播放介绍片」就有声，不再静音。</p>
+      </article>
+      <article class="card">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.6 7.5 9.5 4.3-.9 7.5-4.9 7.5-9.5V6Z"/><path d="m9 12 2 2 4-4"/></svg>
+        <h3>沙箱断网</h3>
+        <p>JS Worker 拆掉 fetch / XHR / WebSocket / importScripts / IndexedDB，postMessage 私有化防伪造结果；Python 的 fetch 只放行 Pyodide CDN 与 PyPI；日志 / 返回值 / 文件都有硬上限，回写走路径白名单。</p>
+      </article>
+    </div>
+  </section>
+
   <section class="section" id="bench">
     <h2>关沙箱也能用的本地工具。</h2>
     <p class="sub">这些在浏览器里直接跑，不消耗网关、也不需要 Worker / Pyodide。写正则、对拍文本、整理 JSON 时优先用它们。</p>
@@ -277,7 +301,10 @@ RMSE = 0.5831
       <span class="chip">search_files</span><span class="chip">diff_text</span><span class="chip">json_tool</span>
       <span class="chip">zip_files</span><span class="chip">unzip_file</span><span class="chip">get_current_time</span>
       <span class="chip">run_git</span><span class="chip">fetch_url</span>
+      <span class="chip new">csv_tool</span><span class="chip new">date_calc</span><span class="chip new">text_tool</span>
+      <span class="chip new">convert_units</span><span class="chip new">qr_code</span>
     </div>
+    <p class="sub bench-note">V1.7 新增五件：<b>csv_tool</b> 做 CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON；<b>date_calc</b> 算日期差、加减、工作日、时区换算；<b>text_tool</b> 统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐；<b>convert_units</b> 覆盖长度、质量、温度、速度、面积、体积、数据、时间；<b>qr_code</b> 在本地生成二维码 SVG（Version 1–20，与 python-qrcode 逐位一致）并写入 outputs/。</p>
   </section>
 
   <section class="section" id="flow">
@@ -373,7 +400,7 @@ RMSE = 0.5831
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.6 · 构建 2026.10.5.8</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.9</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
@@ -384,6 +411,6 @@ RMSE = 0.5831
   </span>
 </footer>
 </div>
-<script type="module" src="js/home.js?v=2026.10.5.8"></script>
+<script type="module" src="js/home.js?v=2026.10.5.9"></script>
 </body>
 </html>

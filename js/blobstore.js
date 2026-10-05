@@ -9,7 +9,9 @@
 // blobAtts/blobChips）。浏览器没有 IndexedDB（老环境 / 隐私模式）时全部函数退化为 no-op，
 // 上层走原来的老路径，不会有额外风险。
 
-const DB_NAME = 'teamo-agent-blobs';
+import { legacyNameFor } from './legacy-keys.js';
+
+const DB_NAME = 'dubhe-agent-blobs';
 const STORE = 'blobs';
 const DB_VERSION = 1;
 
@@ -20,19 +22,66 @@ export function blobsSupported() {
   try { return typeof indexedDB !== 'undefined' && !!indexedDB; } catch { return false; }
 }
 
-function openDB() {
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve, reject) => {
+function openNamed(name, { createIfMissing = true } = {}) {
+  return new Promise((resolve, reject) => {
     let req;
-    try { req = indexedDB.open(DB_NAME, DB_VERSION); } catch (e) { reject(e); return; }
+    try { req = indexedDB.open(name, DB_VERSION); } catch (e) { reject(e); return; }
     req.onupgradeneeded = () => {
+      if (!createIfMissing) { // 旧库不存在：中止升级，不留下空库
+        try { req.transaction.abort(); } catch { /* ignore */ }
+        return;
+      }
       const db = req.result;
       if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error || new Error('IndexedDB 打开失败'));
     req.onblocked = () => reject(new Error('IndexedDB 被其它标签页阻塞'));
-  }).catch((e) => { dbPromise = null; throw e; });
+  });
+}
+
+/** 一次性把旧品牌数据库里的大对象搬到新库，搬完删除旧库；任何失败都静默放弃（不影响新库使用）。 */
+async function migrateLegacyDb(db) {
+  const legacyName = legacyNameFor(DB_NAME);
+  if (!legacyName || legacyName === DB_NAME) return;
+  try {
+    if (typeof indexedDB.databases === 'function') {
+      const names = (await indexedDB.databases()).map((d) => d && d.name);
+      if (!names.includes(legacyName)) return;
+    }
+    const old = await openNamed(legacyName, { createIfMissing: false });
+    if (!old.objectStoreNames.contains(STORE)) { old.close(); indexedDB.deleteDatabase(legacyName); return; }
+    const entries = await new Promise((resolve, reject) => {
+      const out = [];
+      const cur = old.transaction(STORE, 'readonly').objectStore(STORE).openCursor();
+      cur.onsuccess = () => {
+        const c = cur.result;
+        if (!c) { resolve(out); return; }
+        if (typeof c.key === 'string' && typeof c.value === 'string') out.push([c.key, c.value]);
+        c.continue();
+      };
+      cur.onerror = () => reject(cur.error);
+    });
+    old.close();
+    if (entries.length) {
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(STORE, 'readwrite');
+        const st = tx.objectStore(STORE);
+        for (const [k, v] of entries) st.put(v, k);
+        tx.oncomplete = resolve;
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error);
+      });
+    }
+    indexedDB.deleteDatabase(legacyName);
+  } catch { /* 旧库缺失 / 被阻塞：下次再试，不影响新库 */ }
+}
+
+function openDB() {
+  if (dbPromise) return dbPromise;
+  dbPromise = openNamed(DB_NAME)
+    .then(async (db) => { await migrateLegacyDb(db); return db; })
+    .catch((e) => { dbPromise = null; throw e; });
   return dbPromise;
 }
 

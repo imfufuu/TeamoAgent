@@ -24,7 +24,7 @@ npx wrangler deploy
 **方式 B：配置 Worker URL**：在 Dubhe Agent 浏览器控制台执行：
 
 ```js
-localStorage.setItem('teamo-relay', 'https://<worker>.<account>.workers.dev');
+localStorage.setItem('dubhe-relay', 'https://<worker>.<account>.workers.dev');
 location.reload();
 ```
 

@@ -2,6 +2,9 @@
 // CREATE / DROP / INSERT / SELECT / UPDATE / DELETE；WHERE / ORDER / LIMIT / GROUP BY / 聚合。
 // 库文件以 JSON 落在沙箱（默认 data/app.db）。不做 JOIN / 子查询。
 
+import { legacyKeyFor } from './legacy-keys.js';
+
+const SQL_DB_KIND = 'dubhe-sql';
 const MAX_SQL = 80000;
 const MAX_ROWS_OUT = 500;
 
@@ -70,7 +73,7 @@ function identName(t) {
 }
 
 export function emptyDb() {
-  return { v: 1, kind: 'teamo-sql', tables: {} };
+  return { v: 1, kind: SQL_DB_KIND, tables: {} };
 }
 
 export function parseDb(raw) {
@@ -79,14 +82,14 @@ export function parseDb(raw) {
   if (/^data:/i.test(s)) throw new Error('这是二进制库文件，当前引擎读写 JSON 格式的 data/app.db');
   let obj;
   try { obj = JSON.parse(s); } catch { throw new Error('库文件不是 JSON，无法打开'); }
-  if (!obj || obj.kind !== 'teamo-sql' || !obj.tables || typeof obj.tables !== 'object') {
+  if (!obj || (obj.kind !== SQL_DB_KIND && obj.kind !== legacyKeyFor(SQL_DB_KIND)) || !obj.tables || typeof obj.tables !== 'object') {
     throw new Error('库文件格式不对（需要 Dubhe Agent SQL JSON）');
   }
   return obj;
 }
 
 function serialize(db) {
-  return JSON.stringify({ v: 1, kind: 'teamo-sql', tables: db.tables });
+  return JSON.stringify({ v: 1, kind: SQL_DB_KIND, tables: db.tables });
 }
 
 function colOf(table, name) {

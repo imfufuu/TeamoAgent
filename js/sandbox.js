@@ -3,38 +3,97 @@
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
 import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js';
+import { readLocal, writeLocal } from './legacy-keys.js';
+import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 
 // ── 虚拟文件系统（会话级，随 state 持久化）─────────────────────────────
 // 内部文件前缀：长久保存但用户不直接查看（识图 OCR/联网缓存/元数据等）；
 // 工作区（uploads/、outputs/ 及用户主动写入的路径）对用户可见。
 const WS_INTERNAL_PREFIXES = ['internal/', '.git/'];
+const FS_MAX_PATH = 512;
+const FS_MAX_FILES = 5000;
+
+// 路径合法性：相对路径、无反斜杠 / 控制字符、无空段 / . / ..、不允许原型键，长度 ≤ 512
+export function isSafeFsPath(path) {
+  const p = String(path == null ? '' : path);
+  if (!p || p.length > FS_MAX_PATH) return false;
+  if (p.startsWith('/') || p.includes('\\') || /[\u0000-\u001f\u007f]/.test(p)) return false;
+  const parts = p.split('/');
+  return !parts.some((seg) => !seg || seg === '.' || seg === '..' || seg === '__proto__' || seg === 'constructor' || seg === 'prototype');
+}
+
+// 把沙箱 Worker 回传的 files 快照合并回真实文件系统（Worker 代码可能是对抗性的）：
+//   · 键必须通过 isSafeFsPath；值必须是字符串
+//   · internal/ 与 .git/ 为受保护前缀：Worker 不能新增、修改或删除（保留 before 里的版本）
+//   · 总量不得超过 SANDBOX_STORAGE_CAP、文件数不得超过 FS_MAX_FILES；超限时整体拒收，保留 before
+export function sanitizeWorkerFiles(before, after, { cap = SANDBOX_STORAGE_CAP, maxFiles = FS_MAX_FILES } = {}) {
+  const prev = before && typeof before === 'object' ? before : {};
+  const next = after && typeof after === 'object' ? after : {};
+  const out = Object.create(null);
+  const rejected = [];
+  const isProtected = (k) => WS_INTERNAL_PREFIXES.some((pref) => k.startsWith(pref));
+  // 受保护文件原样保留
+  for (const k of Object.keys(prev)) if (isProtected(k)) out[k] = prev[k];
+  let total = Object.values(out).reduce((n, v) => n + String(v).length, 0);
+  let count = Object.keys(out).length;
+  for (const k of Object.keys(next)) {
+    if (isProtected(k)) { if (!(k in prev) || prev[k] !== next[k]) rejected.push({ path: k, reason: 'protected' }); continue; }
+    if (!isSafeFsPath(k)) { rejected.push({ path: k, reason: 'unsafe-path' }); continue; }
+    const v = next[k];
+    if (typeof v !== 'string') { rejected.push({ path: k, reason: 'non-string' }); continue; }
+    out[k] = v;
+    total += v.length;
+    count += 1;
+  }
+  if (total > cap || count > maxFiles) {
+    return { ok: false, files: { ...prev }, rejected, reason: total > cap ? `沙箱输出 ${(total / 1048576).toFixed(1)} MB 超过容量上限 ${(cap / 1048576).toFixed(0)} MB` : `文件数 ${count} 超过上限 ${maxFiles}`, total, count };
+  }
+  return { ok: true, files: { ...out }, rejected, total, count };
+}
+
+function applyWorkerFiles(fsObj, before, after) {
+  const r = sanitizeWorkerFiles(before, after);
+  if (r.ok) { fsObj.clear(); fsObj.import(r.files); }
+  return r;
+}
+
+function noteWorkerFiles(out, r) {
+  if (!r) return out;
+  const notes = [];
+  if (!r.ok) notes.push(`[沙箱] ${r.reason}，本次对文件的修改已全部丢弃`);
+  if (r.rejected.length) {
+    const why = { protected: '受保护路径', 'unsafe-path': '非法路径', 'non-string': '值不是字符串' };
+    notes.push(`[沙箱] 已拒绝 ${r.rejected.length} 个文件写入：${r.rejected.slice(0, 5).map((x) => `${x.path}（${why[x.reason] || x.reason}）`).join('；')}${r.rejected.length > 5 ? ' …' : ''}`);
+  }
+  if (!notes.length) return out;
+  return { ...out, logs: [...(out.logs || []), ...notes.map((text) => ({ level: 'warn', text }))], filesRejected: r.rejected.length, filesDropped: !r.ok };
+}
+
 export function createFS(initial = {}) {
-  const files = { ...initial };
+  const files = Object.create(null);
+  for (const [k, v] of Object.entries(initial || {})) files[k] = v;
+  const has = (p) => Object.prototype.hasOwnProperty.call(files, p);
   return {
     read(path) {
-      if (!(path in files)) throw new Error(`文件不存在: ${path}`);
-      return files[path];
+      const p = String(path);
+      if (!has(p)) throw new Error(`文件不存在: ${path}`);
+      return files[p];
     },
     write(path, content) {
       const p = String(path || '');
-      const parts = p.split('/');
-      if (!p || p.startsWith('/') || p.includes('\\') || p.includes('\0')
-          || parts.some((seg) => !seg || seg === '.' || seg === '..')) {
-        throw new Error(`非法路径: ${p}`);
-      }
+      if (!isSafeFsPath(p)) throw new Error(`非法路径: ${p}`);
       files[p] = String(content);
     },
     remove(path) {
       const p = String(path || '');
-      const parts = p.split('/');
-      if (p.startsWith('/') || p.includes('\0') || parts.some((seg) => seg === '..')) return;
+      if (!isSafeFsPath(p)) return;
       delete files[p];
     },
     list() {
       return Object.entries(files).map(([path, c]) => ({ path, size: String(c).length }));
     },
     export() { return { ...files }; },
-    import(obj) { for (const [k, v] of Object.entries(obj || {})) files[k] = String(v); },
+    import(obj) { for (const [k, v] of Object.entries(obj || {})) { if (isSafeFsPath(k)) files[k] = String(v); } },
     clear() { for (const k of Object.keys(files)) delete files[k]; },
     // 清空工作区（保留内部文件 internal/ 与元数据 .git/）
     clearWorkspace() {
@@ -48,7 +107,7 @@ export function createFS(initial = {}) {
       return this.list().filter(({ path }) => !WS_INTERNAL_PREFIXES.some((pref) => path.startsWith(pref)));
     },
     isInternalPath(p) { return WS_INTERNAL_PREFIXES.some((pref) => String(p).startsWith(pref)); },
-    has(path) { return Object.prototype.hasOwnProperty.call(files, String(path)); },
+    has(path) { return has(String(path)); },
     keys() { return Object.keys(files); },
   };
 }
@@ -190,12 +249,12 @@ export function createTempFS(baseFS) {
 let pyodideBroken = false; // CDN 加载失败后不再尝试
 export function pythonAvailable() { return !pyodideBroken; }
 
-const PY_PKG_KEY = 'teamo-py-packages';
+const PY_PKG_KEY = 'dubhe-py-packages';
 function loadPyPkgs() {
-  try { return JSON.parse(localStorage.getItem(PY_PKG_KEY) || '[]'); } catch { return []; }
+  try { return JSON.parse(readLocal(PY_PKG_KEY) || '[]'); } catch { return []; }
 }
 function savePyPkgs(list) {
-  try { localStorage.setItem(PY_PKG_KEY, JSON.stringify([...new Set((list || []).filter(Boolean))])); } catch { /* 隐私模式 */ }
+  writeLocal(PY_PKG_KEY, JSON.stringify([...new Set((list || []).filter(Boolean))]));
 }
 
 // ── Worker 创建：同源文件优先，blob 兜底 ───────────────────────────────
@@ -262,8 +321,8 @@ function runInWorker(workerFile, payload, timeoutMs) {
 export async function runJavaScript(code, fsObj) {
   const t0 = performance.now();
   const files = fsObj.export();
-  const out = await runInWorker('worker-js.js', { code, files }, SANDBOX_JS_TIMEOUT_MS);
-  if (out.files && !out.timedOut) { fsObj.clear(); fsObj.import(out.files); }
+  let out = await runInWorker('worker-js.js', { code, files }, SANDBOX_JS_TIMEOUT_MS);
+  if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }
 
@@ -333,8 +392,8 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
     pyWorker = null;
     out.error.message += '（已标记 Python 沙箱不可用，本次会话内请使用 execute_javascript）';
   }
-  if (out.files && !out.timedOut) { fsObj.clear(); fsObj.import(out.files); }
-  if (out.installed) savePyPkgs(out.installed);
+  if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
+  if (Array.isArray(out.installed)) savePyPkgs(out.installed.filter((n) => typeof n === 'string' && /^[A-Za-z0-9_.\-\[\]]{1,80}$/.test(n)).slice(0, 200));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }
 

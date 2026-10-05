@@ -1,8 +1,9 @@
 // 介绍页与对话页共用一份外观偏好；旧的 home key 仅用于向后迁移。
 import { STORAGE_KEY } from './config.js';
+import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
-export const THEME_STORAGE_KEY = 'teamo-theme';
-const LEGACY_HOME_THEME_KEY = 'teamo-home-theme';
+export const THEME_STORAGE_KEY = 'dubhe-theme';
+export const LEGACY_HOME_THEME_KEY = 'dubhe-home-theme';
 const VALID_THEMES = new Set(['light', 'dark']);
 
 function validTheme(value) {
@@ -16,11 +17,11 @@ function validTheme(value) {
  */
 export function readThemePreference(fallback = 'light') {
   try {
-    const shared = validTheme(localStorage.getItem(THEME_STORAGE_KEY));
+    const shared = validTheme(readLocal(THEME_STORAGE_KEY));
     if (shared) return shared;
-    const legacy = validTheme(localStorage.getItem(LEGACY_HOME_THEME_KEY));
+    const legacy = validTheme(readLocal(LEGACY_HOME_THEME_KEY));
     if (legacy) return legacy;
-    const stateRaw = localStorage.getItem(`${STORAGE_KEY}-v2`) || localStorage.getItem(STORAGE_KEY) || '';
+    const stateRaw = readLocal(`${STORAGE_KEY}-v2`) || readLocal(STORAGE_KEY) || '';
     if (stateRaw) {
       const state = JSON.parse(stateRaw);
       const saved = validTheme(state && state.settings && state.settings.theme);
@@ -30,13 +31,11 @@ export function readThemePreference(fallback = 'light') {
   return validTheme(fallback) || 'light';
 }
 
-/** 保存共享主题，并继续写旧介绍页 key 以兼容已打开的旧构建。 */
+/** 保存共享主题；旧介绍页 key 只清不写，避免两份偏好并存。 */
 export function writeThemePreference(value) {
   const theme = validTheme(value);
   if (!theme) return '';
-  try {
-    localStorage.setItem(THEME_STORAGE_KEY, theme);
-    localStorage.setItem(LEGACY_HOME_THEME_KEY, theme);
-  } catch { /* storage quota / private mode */ }
+  writeLocal(THEME_STORAGE_KEY, theme);
+  removeLocal(LEGACY_HOME_THEME_KEY);
   return theme;
 }

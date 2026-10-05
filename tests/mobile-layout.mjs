@@ -41,7 +41,7 @@ const PORT = server.address().port;
 // ── 桩网关：让页面能「真的」跑完一轮带工具与联网的对话 ────────────────────
 const STUB = `(() => {
   const NL = String.fromCharCode(10); // 换行字符，避免在模板字符串里反复转义
-  localStorage.setItem('teamo-agent-state-v1-v2', JSON.stringify({ apiKey: 'sk-teamo-stub', model: 'claude-sonnet-5' }));
+  localStorage.setItem('dubhe-agent-state-v1-v2', JSON.stringify({ apiKey: 'sk-teamo-stub', model: 'claude-sonnet-5' }));
   const sse = (chunks) => new Response(new ReadableStream({ start(c) { const e = new TextEncoder();
     for (const s of chunks) c.enqueue(e.encode(s)); c.close(); } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
   const ev = (o) => 'data: ' + JSON.stringify(o) + '\\n\\n';

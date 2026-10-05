@@ -3,7 +3,7 @@
  * v1.5
  *
  * 端点：
- *   GET /api/health         -> {"ok":true,"relay":"teamo-cf-worker","version":"1.5"}
+ *   GET /api/health         -> {"ok":true,"relay":"dubhe-cf-worker","version":"1.5"}
  *   GET /api/fetch?url=...  -> 抓取并抽正文（text/raw，max=字节上限）
  *   GET /                   -> 版本说明
  *
@@ -150,7 +150,7 @@ addEventListener('fetch', event => {
   }
   if (url.pathname === '/api/health') {
     // Preserve the legacy health identifier for compatible clients.
-    return event.respondWith(json({ ok: true, relay: 'teamo-cf-worker', version: '1.5' }));
+    return event.respondWith(json({ ok: true, relay: 'dubhe-cf-worker', version: '1.5' }));
   }
   if (url.pathname === '/api/fetch') {
     return event.respondWith((async () => {

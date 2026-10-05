@@ -42,18 +42,19 @@ export function orderedHostsByRegion() {
     : [GATEWAY_GLOBAL, GATEWAY_CN];
 }
 
-const LS_KEY = 'teamo-gateway-endpoint';
+const LS_KEY = 'dubhe-gateway-endpoint';
 const PROBE_TIMEOUT_MS = 4500;
 
 let active = null;          // 当前选中的域名（未探测时为 null → 用第一个）
 let chosenBy = 'default';   // 'default' | 'probe' | 'stored' | 'failover' | 'manual'
 
+import { readLocal } from './legacy-keys.js';
 const hasLS = () => { try { return typeof localStorage !== 'undefined' && !!localStorage; } catch { return false; } };
 
 function loadStored() {
   if (!hasLS()) return null;
   try {
-    const v = localStorage.getItem(LS_KEY);
+    const v = readLocal(LS_KEY);
     return GATEWAY_HOSTS.includes(v) ? v : null;
   } catch { return null; }
 }

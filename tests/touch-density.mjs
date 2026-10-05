@@ -69,7 +69,7 @@ async function probe(vp, label) {
     if (u.includes('/v1/messages')) { const body = ++turn === 1 ? SSE : SSE_TEXT; return r.respond({ status: 200, headers: CORS, contentType: 'text/event-stream', body }); }
     r.continue();
   });
-  await page.evaluateOnNewDocument(() => localStorage.setItem('teamo-agent-state-v1-v2', JSON.stringify({
+  await page.evaluateOnNewDocument(() => localStorage.setItem('dubhe-agent-state-v1-v2', JSON.stringify({
     apiKey: 'sk-stub', model: 'claude-haiku-4-5',
     settings: { webEnabled: false, thinking: false, sandboxEnabled: true, fastMode: false, theme: 'light' },
     sessions: [], messages: [], files: {} })));

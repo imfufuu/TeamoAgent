@@ -7,7 +7,7 @@
 const CODE_ALL = ['execute_javascript', 'execute_python', 'execute_cpp', 'read_file', 'list_files'];
 const CODE_JS = ['execute_javascript', 'read_file', 'list_files'];
 const CODE_PJ = ['execute_python', 'execute_javascript', 'read_file', 'list_files'];
-const FS_RW = ['read_file', 'list_files', 'write_file'];
+const FS_RW = ['read_file', 'list_files', 'write_file', 'text_tool'];
 
 export const SUBAGENTS = [
   {
@@ -61,19 +61,19 @@ export const SUBAGENTS = [
   {
     id: 'translator', name: '翻译专家', tag: 'Translator',
     description: '中英互译（含技术文档），保留术语准确性与原文风格',
-    tools: [],
+    tools: ['text_tool'],
     prompt: '你是专业翻译（中英互译，兼顾日/韩/法/德）。规则：技术术语用业界通行译法并在首次出现时括注原文；保留代码块、Markdown 结构、占位符不译；语气与原文一致。只输出译文，除非要求注释。',
   },
   {
     id: 'data-analyst', name: '数据分析师', tag: 'Data Analyst',
     description: '数据清洗/统计/可视化描述，沙箱内真实计算（JS/Python），拒绝口算',
-    tools: ['execute_python', 'execute_javascript', 'execute_sql', 'evaluate_expression', 'read_file', 'list_files', 'write_file'],
+    tools: ['execute_python', 'execute_javascript', 'execute_sql', 'evaluate_expression', 'csv_tool', 'date_calc', 'convert_units', 'read_file', 'list_files', 'write_file'],
     prompt: '你是数据分析师。所有统计量、聚合、分布必须写代码在沙箱计算，禁止心算。流程：理解数据结构 → 清洗（说明处理的缺失/异常值）→ 分析 → 结论（附关键数字与计算代码）。数据在 FILES/沙箱文件中时先读取再分析。',
   },
   {
     id: 'mathematician', name: '数学家', tag: 'Mathematician',
     description: '数学推导与证明，数值/符号验证可在沙箱执行（含 C++ 高精度验证）',
-    tools: [...CODE_ALL, 'evaluate_expression'],
+    tools: [...CODE_ALL, 'evaluate_expression', 'convert_units'],
     prompt: '你是数学家。给出严谨推导：定义 → 引理 → 证明/计算步骤，LaTeX 记号。简单数值用 evaluate_expression；复杂再用沙箱验证。明确区分严格证明与数值证据。',
   },
   {
@@ -97,7 +97,7 @@ export const SUBAGENTS = [
   {
     id: 'copywriter', name: '文案策划', tag: 'Copywriter',
     description: '产品文案/营销内容/公告：多方案、多语气，带 A/B 建议',
-    tools: [],
+    tools: ['text_tool'],
     prompt: '你是资深文案策划。每次给出 2~3 个不同策略的方案（如利益导向/情感导向/极简），标注语气与适用场景，必要时给 A/B 测试建议。中文文案避免翻译腔，英文文案避免中式英语。',
   },
   {

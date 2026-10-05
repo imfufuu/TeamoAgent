@@ -1,6 +1,7 @@
 // ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
 // 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
 import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js';
+import { readLocal } from './legacy-keys.js';
 import { isJevModel } from './jev.js';
 import { blobsSupported, blobPut, blobGet, blobPrune } from './blobstore.js';
 import { pruneMemoryFacts } from './memory.js';
@@ -405,7 +406,7 @@ export function createStore(onChange) {
   }
 
   try {
-    const raw = localStorage.getItem(STORAGE_KEY + '-v2');
+    const raw = readLocal(STORAGE_KEY + '-v2'); // 新键缺失时自动从旧品牌键迁移
     if (raw) {
       const parsed = JSON.parse(raw);
       Object.assign(state, parsed);
@@ -426,7 +427,7 @@ export function createStore(onChange) {
       if (typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches) {
         state.settings.theme = 'dark';
       }
-      const v1 = localStorage.getItem(STORAGE_KEY);
+      const v1 = readLocal(STORAGE_KEY);
       if (v1) { // v1 单会话 → 迁移为一个会话
         const old = JSON.parse(v1);
         const s = newSession();

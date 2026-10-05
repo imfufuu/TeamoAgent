@@ -108,7 +108,7 @@ await page.evaluateOnNewDocument((du) => {
   const s1 = { id: 's1', title: '', model: '', imageModel: '', createdAt: Date.now(), updatedAt: Date.now(),
     messages: [], checkpoints: [], undoBranch: null,
     files: { 'outputs/pic.png': du, 'notes.md': '普通文本文件' }, stats: { lastMs: 0, totalMs: 0 } };
-  localStorage.setItem('teamo-agent-state-v1-v2', JSON.stringify({
+  localStorage.setItem('dubhe-agent-state-v1-v2', JSON.stringify({
     apiKey: 'sk-stub', model: 'claude-haiku-4-5', activeSessionId: 's1',
     settings: { webEnabled: false, thinking: false, sandboxEnabled: true, fastMode: false, theme: 'light' },
     sessions: [s1], messages: s1.messages, files: s1.files,
@@ -130,7 +130,7 @@ await new Promise((r) => setTimeout(r, 1500));
 const snap = (tag) => page.evaluate(async (t) => {
   const idbCount = await new Promise((res) => {
     try {
-      const req = indexedDB.open('teamo-agent-blobs');
+      const req = indexedDB.open('dubhe-agent-blobs');
       req.onerror = () => res(-1);
       req.onsuccess = () => {
         const db = req.result;
@@ -140,7 +140,7 @@ const snap = (tag) => page.evaluate(async (t) => {
       };
     } catch { res(-1); }
   });
-  const ls = localStorage.getItem('teamo-agent-state-v1-v2') || '';
+  const ls = localStorage.getItem('dubhe-agent-state-v1-v2') || '';
   return {
     tag: t,
     消息数: document.querySelectorAll('#messages .msg').length,

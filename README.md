@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.6** · 构建 `2026.10.5.8` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.9` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -115,8 +115,27 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
 `fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site`（新版 Worker + 联网开关）、`run_git`（本地中继 `workspace/` 内 git）。
-另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
+另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`，以及 V1.7 新增的 `csv_tool`（CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON）/ `date_calc`（日期差、加减、工作日、时区）/ `text_tool`（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）/ `convert_units`（长度、质量、温度、速度、面积、体积、数据、时间）/ `qr_code`（本地二维码 SVG，Version 1–20，写入 `outputs/`），全部在 `js/utiltools.js`，纯本地、零依赖。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
+
+## V1.7 架构评审（Dubhe Helix 2.5）
+
+对 `agent.js → execution.js → tools.js → sandbox.js` 主链做了一次只读评审，结论分「本版已改」与「建议下版」两栏，不夸大：
+
+**本版已改**
+
+- **信任边界前移到主线程**：过去 `runJavaScript / runPython` 直接 `fs.clear(); fs.import(worker.files)`，等于让 Worker 代码拥有工作区的全部写权限。现在 `sanitizeWorkerFiles(before, after)` 是唯一回写入口：路径白名单、字符串值、`internal/` 与 `.git/` 不可增删改、超容量整体回滚，并把拒绝原因以 warn 日志回灌给模型（模型能看见「为什么没写进去」而不是静默丢失）。
+- **Worker 侧最小权限**：JS Worker 零网络、零派生、零持久化；Python Worker 仅保留装包所需的两个来源。`postMessage` 私有化后，用户代码无法抢先发送伪造的 `{ok:true}` 帧。
+- **本地工具扩容而非沙箱扩容**：CSV / 日期 / 文本 / 单位 / 二维码这类高频小任务不再触发 Pyodide 冷启动（首次 3–8 s），直接在主线程毫秒级完成；`date_calc` / `convert_units` 为纯函数，纳入 `PARALLEL_TOOLS` 并行批。
+- **子智能体权限表随工具表演进**：`subagents.js` 的 `data-analyst` / `mathematician` / `translator` / `copywriter` 等角色按需获得新工具，避免「主 Agent 会、子 Agent 不会」的能力断层。
+
+**建议下版**
+
+1. `batchToolCalls` 只合并*相邻*的并行安全调用；可改为基于读写集的依赖图调度（`read_file(a)` 与 `write_file(b)` 无依赖即可并行），预计多工具回合延迟再降 20–40%。
+2. `estimateTokens` 对每条消息重复 `JSON.stringify(toolCalls)`；长会话每轮 O(n) 重算，可在消息入库时缓存 `tokenEstimate` 字段。
+3. `ui.js` 已超过 5000 行，建议按「消息渲染 / 侧栏 / 沙箱面板 / 设置」拆成四个模块，便于动效与可访问性回归各自独立。
+4. Pyodide Worker 当前每次 `runPython` 复用常驻实例，但 FILES 以全量快照往返；可改为增量 diff（只传变更键），大工作区（>20 MB）时省去一次大拷贝。
+5. 远程 C++（Compiler Explorer）是唯一出网的执行路径，建议在工具描述与 UI 芯片上持续显式标注「代码会离开浏览器」，并提供一键关闭。
 
 ## P0 执行内核（Dubhe Helix 2.5（天枢2.5），`js/execution.js`）
 
@@ -384,7 +403,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
 - 顶栏「沙箱」开关只决定三个代码执行工具是否下发（文件读写/生图/委派不受影响）；无鉴权中继 `server.py` 因此同源使用，不要暴露到共享网络。
-- JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
+- JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界。V1.7 加固：JS Worker 执行前拆除 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` / `importScripts` / `Worker` / `BroadcastChannel` / `indexedDB` / `caches` 并私有化 `postMessage`（用户代码无法联网、无法伪造结果帧）；Python Worker 的 `fetch` 只放行 Pyodide CDN 与 PyPI；日志 500 条 / 1 MB、返回值 200 KB、文件 128 MB / 5000 个硬上限；主线程 `sanitizeWorkerFiles` 逐键校验回写路径（拒绝绝对路径、`..`、反斜杠、控制字符、原型键），`internal/` 与 `.git/` 不可被沙箱代码增删改，超容量整体回滚；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
 - 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证。
 - 本地服务器默认仅监听 `127.0.0.1`（代理通道无鉴权，`--host 0.0.0.0` 显式开放需自担风险）。
 

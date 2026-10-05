@@ -16,7 +16,7 @@ export const TRAJECTORY_LOG_MAX = 24;
 
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'list_files', 'search_files', 'get_current_time', 'regex', 'hash', 'codec', 'unicode',
-  'evaluate_expression', 'diff_text', 'json_tool',
+  'evaluate_expression', 'diff_text', 'json_tool', 'csv_tool', 'date_calc', 'text_tool', 'convert_units',
 ]);
 const HEAVY_TOOLS = new Set(['write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
 const CODE_TOOLS = new Set(['execute_javascript', 'execute_python', 'execute_cpp']);

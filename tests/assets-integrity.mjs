@@ -194,7 +194,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   // 2026.9.27.16：SW 离线缓存 / 颜色语法 / 思考标题 / /system 通道 / 加密徽章 / 文件行折叠
   assert.ok(exists('../sw.js'), 'sw.js 应随项目存在');
   const sw = read('../sw.js');
-  assert.match(sw, /teamo-assets-v1/, 'SW 缓存名应存在');
+  assert.match(sw, /dubhe-assets-v2/, 'SW 缓存名应存在');
   assert.match(sw, /assets\/(vendor|moderation)/, 'SW 应覆盖 vendor/moderation');
   assert.match(main, /serviceWorker\.register\('\.\/sw\.js'/, 'main 应注册 SW');
   assert.match(ui, /:::color|COLOR_ALIAS/, '应有 :::color 颜色容器');
@@ -473,7 +473,7 @@ await test('介绍页 / 对话页共享主题色，设置项同步外观并使�
   const home = read('../js/home.js');
   const ui = read('../js/ui.js');
   const settings = read('../js/settings.js');
-  assert.match(theme, /THEME_STORAGE_KEY = 'teamo-theme'/);
+  assert.match(theme, /THEME_STORAGE_KEY = 'dubhe-theme'/);
   assert.match(home, /readThemePreference/);
   assert.match(home, /writeThemePreference\(root\.dataset\.theme\)/);
   assert.match(home, /addEventListener\('storage'/);

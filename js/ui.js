@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.8';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.9';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.8';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.9';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -21,12 +21,12 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.8';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.8';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.8';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.8';
-import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.8';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.8';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.9';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.9';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.9';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.9';
+import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.9';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.9';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -2647,10 +2647,10 @@ function validateApiKey(s) {
 
   // ── 消息渲染 ──────────────────────────────────────────────────────────
   function loadLastSuggest() {
-    try { return JSON.parse(sessionStorage.getItem('teamo.suggest.last') || '[]'); } catch { return []; }
+    try { return JSON.parse(sessionStorage.getItem('dubhe.suggest.last') || '[]'); } catch { return []; }
   }
   function saveLastSuggest(picks) {
-    try { sessionStorage.setItem('teamo.suggest.last', JSON.stringify((picks || []).map((x) => x.text))); } catch { /* 无 storage */ }
+    try { sessionStorage.setItem('dubhe.suggest.last', JSON.stringify((picks || []).map((x) => x.text))); } catch { /* 无 storage */ }
   }
   function renderEmpty() {
     if (store.state.messages.length) return;

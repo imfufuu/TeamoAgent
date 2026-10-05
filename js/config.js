@@ -18,8 +18,8 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 发布版本号：index.html 用 ?v= 挂在入口样式/脚本上，用来穿透 GitHub Pages 对静态资源
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
-export const APP_RELEASE = 'V1.6';
-export const APP_VERSION = '2026.10.5.8';
+export const APP_RELEASE = 'V1.7';
+export const APP_VERSION = '2026.10.5.9';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -31,7 +31,7 @@ export const SUBAGENT_LOOP_MAX = 0;      // 0 = 不限制
 export const REQUEST_TIMEOUT_MS = 600000; // 官方服务器最长支持 600s
 export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
-export const STORAGE_KEY = 'teamo-agent-state-v1';
+export const STORAGE_KEY = 'dubhe-agent-state-v1';
 
 // 智能路由器 ID（客户端内置元模型）：根据任务类型/难度自动选择合适的模型。
 // 用户完成任务后可以点击路由器图表查看服务提供商，但不能看到具体模型。
@@ -352,7 +352,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '## 能力',
     '你可以调用以下工具（三个代码执行工具需要用户开启「沙箱」；fetch_url/search_web/crawl_site 需 Worker health 声明相应网页能力，否则不会出现在工具表）：',
     '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。只有 console 与 files，没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是普通对象，键=完整相对路径，例 files["files/a.txt"] = "hi"。支持顶层 await。适合计算、数据处理、算法验证。',
-    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage，通常走浏览器缓存而不重新下载。将结果赋给 result 可被捕获。',
+    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage，通常走浏览器缓存而不重新下载。将结果赋给 result 可被捕获。两个沙箱都禁网（Python 只放行装包的 CDN/PyPI），抓网页请用 fetch_url；写入 files/FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护，日志/结果/文件总量有硬上限。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获。可用 path/files/dir 把沙箱头文件与多文件源码一并提交，stdin / args 传给程序。',
     '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
     '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文，也会搜图片/二进制的 mime、宽高、体积与 ASCII strings（不跳过 data URL）；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',
@@ -362,6 +362,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- remember：跨会话长效记忆。只记真正重要、跨会话仍有用的内容：用户明确说「记住」、稳定偏好、身份、长期项目、不可恢复的约定。严禁记闲聊、问候、一次性任务、临时路径、本轮步骤。过时了就 forget；不确定先 list。记忆会出现在之后每个对话里。',
     '- regex / hash / codec / unicode：本地代码小工具，不需要开沙箱。regex 做匹配/替换/分割/解释（JS 正则，\\p{…} 加 u 或 v）；hash 算 md5/sha1/sha256/sha384/sha512/crc32；codec 做 base64/base64url/hex/url/html 编解码、jwt 解码、生成 uuid；unicode 查码位/正规化/转义。写正则、算指纹、编解码时用它们，不要口算也不要为此开 execute_javascript。',
     '- evaluate_expression：本地求值纯数学表达式（pi、sin、sqrt、^、阶乘），不必开沙箱。',
+    '- csv_tool / date_calc / text_tool / convert_units / qr_code：本地实用工具，不需要开沙箱。csv_tool 预览/统计/过滤排序/分组聚合 CSV（小表不要写 pandas）；date_calc 做日期加减、相差天数/工作日、星期与 ISO 周（日期一律用它算，不要口算）；text_tool 做字数统计、大小写/命名风格转换、去重排序、抽取网址邮箱、词频、正则替换、转义；convert_units 做单位换算（含温度、数据量、市制）；qr_code 生成二维码 SVG 到 outputs/，随后用 ![二维码](sandbox://outputs/qr-001.svg) 嵌入正文。',
     '- execute_sql：会话内 SQLite 方言（CREATE/INSERT/SELECT/UPDATE/DELETE，库文件默认 data/app.db）。不必开代码沙箱。不要为查数去写 Python sqlite3。不做 JOIN。',
     '- render_mermaid / render_dot：把流程图/时序图/架构图渲染成 SVG 写入 outputs/，随后用 ![说明](sandbox://outputs/diagram-001.svg) 嵌入正文。思维导图优先用 :::mind；不要用 generate_image 硬画结构化图示。',
     '- search_web：通过新版 Cloudflare Worker 的 /api/search 搜索公开网页；默认 DuckDuckGo HTML，设置 SEARXNG_URL 时优先 SearXNG。返回标题/URL/摘要/来源；搜索词会发送给上游。只有 Worker health 声明 search 时才可用。',

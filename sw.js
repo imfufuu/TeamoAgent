@@ -4,7 +4,7 @@
  * 效果：模型/运行时/厂商图标只在首次使用时下载一次，之后所有会话（含隔天重开）直接读本地缓存，
  *       连 304 协商都不发生。版本号变更时改 CACHE 名即可整体失效。
  */
-const CACHE = 'teamo-assets-v1';
+const CACHE = 'dubhe-assets-v2';
 const SCOPE_RE = /\/assets\/(vendor|moderation|katex|pdfjs|hljs|fonts|icons|audio)\//;
 
 // 厂商图标安装即预热（.19）：模型菜单/消息头第一次画就有缓存，不发起可见网络加载。

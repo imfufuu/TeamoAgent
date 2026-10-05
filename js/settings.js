@@ -1,6 +1,9 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.8';
-import { currentRelay, resetRelayProbe } from './net.js';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.9';
+import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
+import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
+
+const FONT_SIZE_KEY = 'dubhe-fontsize';
 import { writeThemePreference } from './theme.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -38,7 +41,7 @@ function syncSeg(sel, v) {
 
 async function relayCheck() {
   try {
-    const override = (() => { try { return localStorage.getItem('teamo-relay') || ''; } catch { return ''; } })();
+    const override = readLocal(RELAY_OVERRIDE_KEY) || '';
     resetRelayProbe();
     const { relayAvailable } = await import('./net.js');
     const ok = await relayAvailable();
@@ -54,7 +57,7 @@ export function openSettingsModal({ store } = {}) {
   const m = $('#settings-modal');
   if (!m) return;
   $('#set-key').value = store.state.apiKey || '';
-  $('#set-relay').value = (() => { try { return localStorage.getItem('teamo-relay') || ''; } catch { return ''; } })();
+  $('#set-relay').value = readLocal(RELAY_OVERRIDE_KEY) || '';
   syncSeg('#set-theme', store.state.settings.theme || 'light');
   syncSeg('#set-fontsize', document.documentElement.dataset.fontsize || 'medium');
   $('#set-sandbox').checked = store.state.settings.sandboxEnabled !== false;
@@ -129,7 +132,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   $('#set-key').addEventListener('blur', saveKey);
   $('#set-relay').addEventListener('change', async () => {
     const v = $('#set-relay').value.trim();
-    try { if (v) localStorage.setItem('teamo-relay', v); else localStorage.removeItem('teamo-relay'); } catch {}
+    if (v) writeLocal(RELAY_OVERRIDE_KEY, v); else removeLocal(RELAY_OVERRIDE_KEY);
     const msg = await relayCheck();
     const el = $('#set-relay-msg'); if (el) el.textContent = msg;
     onRelayChanged && onRelayChanged();
@@ -183,13 +186,13 @@ export function applyFontSizeValue(value, { persist = true } = {}) {
   const v = ['small', 'medium', 'large'].includes(String(value)) ? String(value) : 'medium';
   document.documentElement.dataset.fontsize = v;
   if (persist) {
-    try { localStorage.setItem('teamo-fontsize', v); } catch { /* storage unavailable */ }
+    writeLocal(FONT_SIZE_KEY, v);
   }
   return v;
 }
 
 export function applyFontSize() {
   let v = 'medium';
-  try { v = localStorage.getItem('teamo-fontsize') || 'medium'; } catch { /* use default */ }
+  v = readLocal(FONT_SIZE_KEY) || 'medium';
   return applyFontSizeValue(v, { persist: false });
 }

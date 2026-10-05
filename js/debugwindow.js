@@ -9,8 +9,10 @@
 // 实现纪律：样式自包含；与其他模块只经 globalThis.__dubhe* 桥接（混版安全）；
 // 删除本文件并去掉 main.js 的 import 即可整体下线。
 
-const DEBUG_KEY = 'teamo.debug';
-const POS_KEY = 'teamo.debug.pos';
+import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
+
+const DEBUG_KEY = 'dubhe.debug';
+const POS_KEY = 'dubhe.debug.pos';
 const MAX_ROWS = 300;
 const MIN_W = 320, MIN_H = 220;
 
@@ -24,13 +26,13 @@ let closing = false;
 let unsubscribe = null;
 
 export function debugActive() {
-  try { return localStorage.getItem(DEBUG_KEY) === '1'; } catch { return false; }
+  return readLocal(DEBUG_KEY) === '1';
 }
 
 export function setDebug(on) {
   try {
-    if (on) localStorage.setItem(DEBUG_KEY, '1');
-    else localStorage.removeItem(DEBUG_KEY);
+    if (on) writeLocal(DEBUG_KEY, '1');
+    else removeLocal(DEBUG_KEY);
   } catch { /* 无痕/沙箱环境忽略 */ }
 }
 
@@ -284,7 +286,7 @@ function buildWindow() {
   // ── 位置/尺寸：恢复 / 默认右上 ──
   let state = { x: Math.max(10, (window.innerWidth || 800) - 476), y: 14, w: 460, h: Math.min(360, (window.innerHeight || 600) - 28) };
   try {
-    const saved = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+    const saved = JSON.parse(readLocal(POS_KEY) || 'null');
     if (saved && Number.isFinite(saved.x) && Number.isFinite(saved.y)) {
       state = { x: saved.x, y: saved.y, w: Number(saved.w) || state.w, h: Number(saved.h) || state.h };
     }
@@ -319,13 +321,13 @@ function buildWindow() {
     root.style.left = `${Math.round(state.x)}px`;
     root.style.top = `${Math.round(state.y)}px`;
   });
-  const endDrag = () => { if (drag) { drag = null; try { localStorage.setItem(POS_KEY, JSON.stringify(state)); } catch { /* 忽略 */ } } };
+  const endDrag = () => { if (drag) { drag = null; writeLocal(POS_KEY, JSON.stringify(state)); } };
   head.addEventListener('pointerup', endDrag);
   head.addEventListener('pointercancel', endDrag);
   head.addEventListener('dblclick', () => {
     state = { x: Math.max(10, vw() - state.w - 10), y: 14, w: state.w, h: state.h };
     applyState();
-    try { localStorage.setItem(POS_KEY, JSON.stringify(state)); } catch { /* 忽略 */ }
+    writeLocal(POS_KEY, JSON.stringify(state));
   });
 
   // ── 四角缩放 ──
@@ -342,7 +344,7 @@ function buildWindow() {
         h.removeEventListener('pointermove', move);
         h.removeEventListener('pointerup', up);
         h.removeEventListener('pointercancel', up);
-        try { localStorage.setItem(POS_KEY, JSON.stringify(state)); } catch { /* 忽略 */ }
+        writeLocal(POS_KEY, JSON.stringify(state));
       };
       h.addEventListener('pointermove', move);
       h.addEventListener('pointerup', up);

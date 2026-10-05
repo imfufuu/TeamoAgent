@@ -2,7 +2,7 @@
 //
 // 中继探测顺序（relay 自动）：
 //   ① 同源中继（本地 python3 server.py，或 Pages/Functions 把 /api/* 绑到 Worker）
-//   ② 用户在 localStorage 手动设置的公共中继（key: teamo-relay，值如 https://xxx.workers.dev）
+//   ② 用户在 localStorage 手动设置的公共中继（key: dubhe-relay，值如 https://xxx.workers.dev）
 //   ③ 内置公共 Cloudflare Worker 中继候选（留空可由用户或社区自行部署）
 //   全部不可用时给出可操作的错误提示，而不是返回假结果。
 //
@@ -12,6 +12,8 @@
 // 注意：本模块被 tools.js 与测试引用；具名导出形状需保持稳定避免 ESM 混版缓存白屏。
 
 // 当前选中的 relay endpoints 包；初始指向同源，探测成功后替换为公共 relay 地址
+import { readLocal } from './legacy-keys.js';
+
 let RELAY = { base: '', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
 let activeRelay = null; // { base, label, endpoints, capabilities }
 let featureRelays = { search: null, crawl: null };
@@ -19,14 +21,16 @@ let relayOk = null;
 let relayProbe = null;
 
 // 内置公共 Cloudflare Worker 中继候选。按顺序探测，第一个 200/ok 的生效。
-// 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'teamo-relay' 覆盖。
+// 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'dubhe-relay' 覆盖。
+export const RELAY_OVERRIDE_KEY = 'dubhe-relay';
+export const DEFAULT_PUBLIC_RELAY = 'https://relay.dubhe.workers.dev';
 const PUBLIC_RELAY_CANDIDATES = [
-  'https://relay.teamo.workers.dev',
+  DEFAULT_PUBLIC_RELAY,
 ];
 
 function userRelayOverride() {
   try {
-    const v = typeof localStorage !== 'undefined' ? localStorage.getItem('teamo-relay') : null;
+    const v = readLocal(RELAY_OVERRIDE_KEY);
     if (!v) return '';
     const u = new URL(v);
     return u.origin;
@@ -115,7 +119,7 @@ export function resetRelayProbe() {
   RELAY = { base: '', ...relayEndpoints('') };
 }
 
-export const RELAY_HINT = '需要中继：请执行 python3 server.py 启动本地中继，或在控制台设置 localStorage.setItem("teamo-relay","https://<你的-worker>.workers.dev") 指定已部署的 Cloudflare Worker 中继（见仓库 relay/worker.js）。';
+export const RELAY_HINT = '需要中继：请执行 python3 server.py 启动本地中继，或在控制台设置 localStorage.setItem("dubhe-relay","https://<你的-worker>.workers.dev") 指定已部署的 Cloudflare Worker 中继（见仓库 relay/worker.js）。';
 
 // ── HTML → 纯文本（纯函数，可在 node 里单测）─────────────────────────
 export function htmlToText(html) {
@@ -291,7 +295,7 @@ function cleanRepo(repo) {
   return String(repo || '').trim().replace(/^\/+|\/+$/g, '').split('/').filter((x) => x && x !== '.' && x !== '..').join('/');
 }
 function joinRepo(base, rel) { return base ? `${base}/${rel}` : rel; }
-function metaPath(base) { return joinRepo(base, '.git/teamo.json'); } // .git/ 目录天然不展示给用户（点前缀），作为内部元数据位置
+function metaPath(base) { return joinRepo(base, '.git/dubhe.json'); } // .git/ 目录天然不展示给用户（点前缀），作为内部元数据位置
 function relPath(base, path) {
   const p = String(path || '');
   if (!base) return p;

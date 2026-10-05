@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.8';
+} from '../js/api.js?v=2026.10.5.9';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.8');
+const api = await import('../js/api.js?v=2026.10.5.9');
 
 let passed = 0;
 const queue = [];
@@ -820,7 +820,7 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
-test('照片编辑工作台：黑白灰界面与内联 SVG 控件图标', async () => {
+test('照片编辑工作台：复用站点设计令牌（浅深色自适应）与内联 SVG 控件图标', async () => {
   const fs = await import('node:fs');
   const source = fs.readFileSync(new URL('../js/photo-editor.js', import.meta.url), 'utf8');
   const css = fs.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -828,10 +828,18 @@ test('照片编辑工作台：黑白灰界面与内联 SVG 控件图标', async 
   assert.match(source, /photo-editor-close[^>]*><svg[\s\S]*?<\/svg><\/button>/, '关闭控件应使用 SVG，而不是字形符号');
   assert.doesNotMatch(source, /photo-editor-close[^>]*>×<\/button>/);
   assert.match(source, /value="#ffffff"/, '默认画笔使用白色');
-  assert.match(photoCss, /--photo-fg:\s*#f4f4f2/);
-  assert.match(photoCss, /\.photo-tool-button\.active[^}]*background:\s*#2a2a2a/);
-  assert.match(photoCss, /\.photo-editor-foot \.photo-save[^}]*background:\s*#f0f0ee/);
-  assert.doesNotMatch(photoCss, /#ff3b30|#8bb6ff|#4778c4|#62d3a0/i, '工作台不应再使用红/蓝/绿强调色');
+  assert.match(photoCss, /--photo-fg:\s*var\(--fg\)/, '前景色应来自站点令牌');
+  assert.match(photoCss, /\.photo-tool-button\.active[^}]*background:\s*var\(--fg\)/, '激活态与 .seg .on 同样反色');
+  assert.match(photoCss, /\.photo-editor-foot \.photo-save[^}]*background:\s*var\(--fg\)/, '主按钮与 .primary-btn 同色');
+  assert.doesNotMatch(photoCss, /color-scheme:\s*dark/, '不再强制深色，跟随站点主题');
+  assert.doesNotMatch(photoCss, /#ff3b30|#8bb6ff|#4778c4|#62d3a0|#2a2a2a|#f4f4f2|#f0f0ee/i, '工作台不应再使用硬编码的旧配色');
+  assert.match(photoCss, /\.photo-editor-modal\.open/, '弹窗应有 open 过渡态');
+  assert.match(photoCss, /@keyframes photoBump/, '旋转后画布应有回弹动画');
+  assert.match(source, /class="photo-toolbar" role="toolbar"/, '工具应为顶部工具栏');
+  assert.match(source, /photo-swatch-btn/, '画笔应提供常用色板');
+  assert.match(source, /key === 'r'[\s\S]{0,80}rotate\(/, '应支持 R 旋转快捷键');
+  assert.match(source, /class="primary-btn photo-save"/, '保存按钮复用 .primary-btn');
+  assert.match(source, /class="ghost-btn photo-cancel"/, '取消按钮复用 .ghost-btn');
 });
 
 test('照片编辑器：裁剪框可按四边/四角调整并限制在图像范围内', async () => {
@@ -926,7 +934,7 @@ test('save(true) 同步落盘，不依赖 300ms 防抖定时器', async () => {
     const { createStore } = await import('../js/state.js?imm=' + Date.now());
     const store = storeNoWeb(createStore());
     store.pushMessage({ role: 'user', text: '最后一轮对话' });
-    const key = 'teamo-agent-state-v1-v2';
+    const key = 'dubhe-agent-state-v1-v2';
 
     // 防抖版：定时器未触发前不应写入
     store.save();
@@ -962,7 +970,7 @@ test('小体积状态：图片 dataUrl 原样持久化', async () => {
     const store = storeNoWeb(createStore());
     store.pushMessage({ role: 'user', text: '看图', attachments: [{ kind: 'image', name: 'p.png', size: 10, dataUrl: 'data:image/png;base64,AAA' }] });
     store.save(true);
-    const saved = JSON.parse(mem.get('teamo-agent-state-v1-v2'));
+    const saved = JSON.parse(mem.get('dubhe-agent-state-v1-v2'));
     const att = saved.sessions[0].messages.find((m) => m.role === 'user').attachments[0];
     assert.equal(att.dataUrl, 'data:image/png;base64,AAA', '小体积不应剥离图片');
   } finally {
@@ -987,7 +995,7 @@ test('超大状态（含 5MB 图片）：走瘦身路径，剥离 dataUrl 且不
       attachments: [{ kind: 'image', name: 'big.png', size: 5 * 1024 * 1024, dataUrl: 'data:image/png;base64,' + 'A'.repeat(5 * 1024 * 1024) }],
     });
     store.save(true);
-    const raw = mem.get('teamo-agent-state-v1-v2');
+    const raw = mem.get('dubhe-agent-state-v1-v2');
     assert.ok(raw && raw.length < 100000, `瘦身后应远小于原图体积（实际 ${raw.length}）`);
     const saved = JSON.parse(raw);
     const att = saved.sessions[0].messages.find((m) => m.role === 'user').attachments[0];
@@ -1700,7 +1708,7 @@ test('大图片不写入 localStorage（沙箱 data URL 瘦身）', async () => 
       'uploads/big.png': 'data:image/png;base64,' + 'A'.repeat(5 * 1024 * 1024),
     };
     store.save(true);
-    const saved = JSON.parse(mem.get('teamo-agent-state-v1-v2'));
+    const saved = JSON.parse(mem.get('dubhe-agent-state-v1-v2'));
     const files = saved.sessions[0].files;
     assert.equal(files['notes/small.txt'], '短文本要保留', '小文本文件照常持久化');
     assert.ok(!('uploads/big.png' in files), '超限时剥离沙箱内的大图片（避免顶穿 4MB 配额）');  } finally {
@@ -2165,13 +2173,14 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.equal(/card:hover::after/.test(homeCss), false, '导航卡不要一起抛光');
   assert.equal(/explore-label[\s\S]{0,280}animation:\s*sheen/.test(homeCss), false);
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
-  assert.match(homeJs, /const BPM = 124/);
+  assert.match(homeJs, /const BPM = TRACK\.bpm/, 'BPM 应来自离线节拍分析数据');
+  assert.match(homeJs, /from '\.\/home-beats\.js'/);
   assert.match(homeJs, /const BEAT = 60 \/ BPM/);
   assert.match(homeJs, /const SCENES =/);
   assert.match(homeJs, /const WHIP/);
   assert.match(homeJs, /const SWITCH_OUT = 0\.58/, '镜头切换要比旧版慢');
   assert.match(homeJs, /const FILM_SCALE = 1\.08/, '片中元素整体放大');
-  assert.match(homeJs, /INTEGRATE_START = 72/);
+  assert.match(homeJs, /INTEGRATE_START = 40\.681/, '星座聚合应对准第三次 drop 的真实鼓点');
   assert.match(homeJs, /classList\.toggle\('integrating'/);
   assert.match(homeJs, /translate3d[\s\S]{0,100}scale\(\$\{FILM_SCALE\}\)/);
   assert.match(homeJs, /translate3d/);
@@ -2353,7 +2362,7 @@ test('subagentTools：沙箱关闭时子智能体保留文件工具，不整体�
   const { subagentTools } = await import('../js/agent.js');
   const names = (list) => (list || []).map((t) => t.name);
   const writer = findSubagent('doc-writer');
-  assert.deepEqual(names(subagentTools(false, writer)).sort(), ['list_files', 'read_file', 'write_file']);
+  assert.deepEqual(names(subagentTools(false, writer)).sort(), ['list_files', 'read_file', 'text_tool', 'write_file']);
   const analyst = findSubagent('data-analyst');
   assert.ok(names(subagentTools(true, analyst)).includes('execute_python'), '开沙箱时该有代码执行');
   assert.ok(!names(subagentTools(false, analyst)).some((n) => ['execute_javascript', 'execute_python', 'execute_cpp'].includes(n)), '关沙箱时不该有代码执行');
@@ -2845,11 +2854,11 @@ test('relaySearch/crawl 只调用 health 声明了 search/crawl 的 Worker 路�
   await withNetFetch(async (url) => {
     seen.push(url);
     if (url === '/api/health') return jsonResponse({ ok: true, fetch: true, git: true });
-    if (url === 'https://relay.teamo.workers.dev/api/health') return jsonResponse({ ok: true, capabilities: ['fetch', 'search', 'crawl'] });
-    if (url.startsWith('https://relay.teamo.workers.dev/api/search?')) return jsonResponse({
+    if (url === 'https://relay.dubhe.workers.dev/api/health') return jsonResponse({ ok: true, capabilities: ['fetch', 'search', 'crawl'] });
+    if (url.startsWith('https://relay.dubhe.workers.dev/api/search?')) return jsonResponse({
       ok: true, query: 'climate data', provider: 'SearXNG', results: [{ title: 'Source', url: 'https://example.org', snippet: 'Summary' }],
     });
-    if (url.startsWith('https://relay.teamo.workers.dev/api/crawl?')) return jsonResponse({
+    if (url.startsWith('https://relay.dubhe.workers.dev/api/crawl?')) return jsonResponse({
       ok: true, url: 'https://docs.example.org/', max_pages: 2, max_depth: 1, chars_total: 12, pages: [{ title: 'Guide', url: 'https://docs.example.org/', depth: 0, chars: 12, text: 'Hello world!' }], errors: [],
     });
     throw new Error(`unexpected relay request ${url}`);
@@ -2863,9 +2872,9 @@ test('relaySearch/crawl 只调用 health 声明了 search/crawl 的 Worker 路�
     assert.equal(net.relaySupports('search'), true);
     assert.equal(net.relaySupports('crawl'), true);
     assert.equal(net.currentRelay().label, 'origin', 'fetch/git primary relay stays local');
-    assert.ok(seen.includes('https://relay.teamo.workers.dev/api/health'));
-    assert.ok(seen.some((x) => x.startsWith('https://relay.teamo.workers.dev/api/search?')));
-    assert.ok(seen.some((x) => x.startsWith('https://relay.teamo.workers.dev/api/crawl?')));
+    assert.ok(seen.includes('https://relay.dubhe.workers.dev/api/health'));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe.workers.dev/api/search?')));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe.workers.dev/api/crawl?')));
     assert.ok(!seen.includes('/api/search') && !seen.includes('/api/crawl'), 'new routes must not be sent to old local relay');
   });
 });
@@ -3078,7 +3087,7 @@ test('默认接入 .com；探测后能切到 .cn 并记住；失败回退另一�
     const r = await ep.probeGatewayHosts({ timeoutMs: 500 });
     assert.equal(r.host, 'https://api.teamorouter.cn', `应切到 .cn：${JSON.stringify(r)}`);
     assert.equal(ep.gatewayBase(), 'https://api.teamorouter.cn');
-    assert.equal(store.get('teamo-gateway-endpoint'), 'https://api.teamorouter.cn', '选择要落盘记住');
+    assert.equal(store.get('dubhe-gateway-endpoint'), 'https://api.teamorouter.cn', '选择要落盘记住');
     // 两个都不通：保持原样，不抛
     globalThis.fetch = async () => { throw new TypeError('Failed to fetch'); };
     const r2 = await ep.probeGatewayHosts({ timeoutMs: 300 });
@@ -3101,7 +3110,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.8');
+  const api = await import('../js/api.js?v=2026.10.5.9');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3246,7 +3255,7 @@ test('初次 Worker 探测未完成时，回合等待真实结果而不乐观开
   const calls = [];
   const relayEvents = [];
   await withNetFetch(async (url, opts) => {
-    if (url === '/api/health' || url === 'https://relay.teamo.workers.dev/api/health') return NO_RELAY['/api/health']();
+    if (url === '/api/health' || url === 'https://relay.dubhe.workers.dev/api/health') return NO_RELAY['/api/health']();
     if (url.includes('/v1/chat/completions')) {
       const body = JSON.parse(opts.body);
       calls.push({ url, body });
@@ -3278,7 +3287,7 @@ test('启动期误判离线时，实际可用的 Cloudflare Worker 会在联网�
   const relayEvents = [];
   await withNetFetch(async (url, opts) => {
     if (url === '/api/health') return NO_RELAY['/api/health']();
-    if (url === 'https://relay.teamo.workers.dev/api/health') return jsonResponse({ ok: true, relay: 'teamo-cf-worker', capabilities: ['fetch', 'search', 'crawl'] });
+    if (url === 'https://relay.dubhe.workers.dev/api/health') return jsonResponse({ ok: true, relay: 'dubhe-cf-worker', capabilities: ['fetch', 'search', 'crawl'] });
     if (url.includes('/v1/chat/completions')) {
       const body = JSON.parse(opts.body);
       calls.push({ url, body });
@@ -4472,7 +4481,7 @@ test('execute_sql：建表插入查询更新删除', async () => {
   assert.match(create, /已创建表/);
   assert.match(create, /已插入 2 行/);
   assert.match(create, /\ba\b/);
-  assert.ok(fs.read('data/app.db').includes('teamo-sql'));
+  assert.ok(fs.read('data/app.db').includes('dubhe-sql'));
   const upd = await executeTool('execute_sql', { sql: "UPDATE t SET name = 'c' WHERE id = 1; SELECT name FROM t ORDER BY id;" }, { fs, onUi: () => {} });
   assert.match(upd, /已更新 1 行/);
   assert.match(upd, /c/);
@@ -4636,7 +4645,7 @@ test('宣传片片尾现在就开始有整合景深，元素放大且切镜变�
   assert.match(js, /const SWITCH_OUT = 0\.58/);
   assert.match(js, /const FOCUS_CUT = 0\.42/);
   assert.match(js, /const FILM_SCALE = 1\.08/);
-  assert.match(js, /INTEGRATE_START = 72/);
+  assert.match(js, /INTEGRATE_START = 40\.681/);
   assert.match(js, /root\.classList\.toggle\('integrating'/);
   assert.match(css, /html\.integrating \.shot\[data-id="logo"\]/);
   assert.match(css, /html\.integrating \.shot\[data-id="term"\]/);
@@ -4992,18 +5001,19 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
   }
 });
 
-group('V1.6 / 桌面沙箱面板');
-test('V1.6 发布标识与构建号已同步', async () => {
+group('V1.7 / 桌面沙箱面板');
+test('V1.7 发布标识与构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
-  assert.equal(APP_RELEASE, 'V1.6');
-  assert.equal(APP_VERSION, '2026.10.5.8');
-  assert.match(html, /Dubhe Agent V1\.6 —/);
-  assert.match(home, /Dubhe Agent V1\.6 · 构建 2026\.10\.5\.8/);
-  assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.6">V1\.6<\/span>/);
+  assert.equal(APP_RELEASE, 'V1.7');
+  assert.equal(APP_VERSION, '2026.10.5.9');
+  assert.match(html, /Dubhe Agent V1\.7 —/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.9/);
+  assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.9/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -5403,6 +5413,31 @@ test('介绍片优化：聚集时 ZIP 打包与 Ultra 不重叠、开片平滑�
   assert.match(homeJs, /isPaused\s*\?\s*'mode-play'\s*:\s*'mode-pause'/, '暂停时闪现播放图标，继续时闪现暂停图标');
   assert.match(indexHtml, /id="film-pause-flash"/, 'HTML 应包含暂停图标层');
   assert.doesNotMatch(homeCss, /content:\s*"已暂停"/, '不应再显示“已暂停”文字');
+
+  // 6. 节拍同步：镜头时间点必须落在真实鼓点上；开片音频必须在手势栈内 play()
+  const { TRACK } = await import('../js/home-beats.js');
+  assert.ok(TRACK.bpm > 100 && TRACK.bpm < 115, `BPM 应 ≈108，实际 ${TRACK.bpm}`);
+  assert.ok(Math.abs(TRACK.duration - 47.647) < 0.05, '音轨时长 47.65s');
+  assert.ok(TRACK.kicks.length > 50 && TRACK.beats.length > 70 && TRACK.energy.length > 400);
+  const sceneTimes = [...homeJs.matchAll(/\{ t: ([\d.]+),/g)].map((m) => Number(m[1]));
+  assert.ok(sceneTimes.length >= 20, '应有 20+ 个按秒定位的镜头');
+  const kickTimes = TRACK.kicks.map((k) => k[0]);
+  for (const t of sceneTimes) {
+    if (t === 0) continue;
+    const nearest = Math.min(...kickTimes.map((k) => Math.abs(k - t)));
+    assert.ok(nearest < 0.03, `镜头 ${t}s 偏离最近鼓点 ${nearest.toFixed(3)}s`);
+  }
+  for (let i = 1; i < sceneTimes.length; i++) assert.ok(sceneTimes[i] > sceneTimes[i - 1], '镜头时间应递增');
+  assert.match(homeJs, /function primeAudio[\s\S]{0,400}audio\.play\(\)/, '开片音频应在手势里同步 play()');
+  assert.match(homeJs, /function requestFilm\(\)[\s\S]{0,300}primeAudio\(\);\s*beginFilmTransition\(\)/, 'requestFilm 必须先在手势内起播再过场');
+  assert.doesNotMatch(homeJs, /audio\.muted = true/, '不得再用「静音起播、过场后取消静音」的方式（Safari/iOS 无声根因）');
+  assert.match(homeJs, /function unblockAudio/, '应有「开启声音」兜底');
+  assert.match(indexHtml, /id="film-sound"/, 'HTML 应包含开启声音按钮');
+  assert.match(homeCss, /\.film-sound\b/, 'CSS 应定义开启声音按钮');
+  assert.match(homeJs, /--beat-accent/, '应有高频重音包络');
+  assert.match(homeJs, /--beat-energy/, '应有响度包络');
+  assert.match(homeJs, /function transient\(/, '鼓点包络应为 attack/decay 瞬态');
+  assert.match(indexHtml, /108 BPM · BEAT-SYNCED/);
   // 6. WebKit 3D 层不吃 opacity 的修复：.shot 设为 transform-style: flat + visibility: hidden 且 copy 与 image 空间坐标彻底分离
   assert.match(homeCss, /\.shot\s*\{[\s\S]{0,140}transform-style:\s*flat;/, '.shot 应使用 transform-style: flat 确保 Safari 生效 opacity: 0');
   assert.match(homeCss, /\.shot\s*\{[\s\S]{0,140}visibility:\s*hidden;/, '非焦点镜头应默认 visibility: hidden');
@@ -5559,6 +5594,15 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
   // 5. 会话页/文档页左上角图标定位到导航页，导航页左上角图标定位到探索页
   assert.match(appHtml, /class="logo-mark" href="\.\/index\.html\?view=nav"/);
   assert.match(docsHtml, /class="brand" href="\.\/index\.html\?view=nav"/);
+  // 5b. 文档页导航：品牌栏与主页同构（不再把 4 个分区塞进同一行），分区入口为独立的分段标签条 + 滑动指示器
+  assert.match(docsHtml, /<header class="nav">[\s\S]*?<\/header>\s*<nav class="doc-tabs"/, 'docs.html 导航应拆成品牌栏 + 分区标签条');
+  assert.doesNotMatch(docsHtml, /<header class="nav">[\s\S]*?data-page=[\s\S]*?<\/header>/, '品牌栏内不应再堆放分区链接');
+  assert.match(docsHtml, /class="doc-tabs-ind"/, '应有滑动指示器');
+  assert.match(docsHtml, /function moveTabIndicator/, '指示器按激活标签几何定位');
+  assert.match(docsHtml, /\.doc-tabs \{ position: sticky/, '标签条应吸顶');
+  assert.match(docsHtml, /<a class="nav-link nav-home" href="\.\/index\.html\?view=nav">首页<\/a>/);
+  assert.match(docsHtml, /<button id="theme-toggle" class="nav-link" type="button">外观<\/button>\s*<a class="cta" href="\.\/app\.html">打开对话<\/a>/);
+  assert.equal((docsHtml.match(/class="nav-link doc-tab"/g) || []).length, 4, '四个分区标签');
   assert.match(homeJs, /function openGate\(\)/, 'home.js 应提供返回探索页的 openGate');
   assert.match(homeJs, /initialView === 'nav'/, 'home.js 应支持 ?view=nav 直达导航页');
 
@@ -7404,6 +7448,147 @@ test('正常任务不会因临时路径名删除既有文件', async () => {
     assert.equal('cleanupArtifacts' in store.state, false);
     assert.equal('cleanupPolicy' in store.state.settings, false);
   } finally { globalThis.fetch = realFetch; }
+});
+
+group('实用工具：csv_tool / date_calc / text_tool / convert_units / qr_code');
+test('csv_tool：自动识别分隔符、stats、select 过滤排序、aggregate 分组', async () => {
+  const { runCsv, parseCsv } = await import('../js/utiltools.js');
+  const csv = 'name,city,price\n"Wang, Lei",上海,120\nLi,北京,80\nZhao,上海,"1,500"\n';
+  const parsed = parseCsv(csv);
+  assert.deepEqual(parsed.columns, ['name', 'city', 'price']);
+  assert.equal(parsed.rows[0][0], 'Wang, Lei', '引号内逗号不拆列');
+  const stats = runCsv({ action: 'stats', text: csv });
+  assert.ok(stats.ok && /price \| 数值 \| 3 \| 3 \| 80 \| 1500 \| 566\.666667 \| 120/.test(stats.text), stats.text);
+  const sel = runCsv({ action: 'select', text: csv, where: ['city = 上海'], sort: '-price', columns: ['name', 'price'] });
+  assert.ok(sel.ok && sel.rows === 2 && sel.text.indexOf('Zhao') < sel.text.indexOf('Wang'), sel.text);
+  const agg = runCsv({ action: 'aggregate', text: csv, by: 'city', value: 'price', fn: 'sum' });
+  assert.ok(agg.ok && /上海 \| 1620/.test(agg.text) && /北京 \| 80/.test(agg.text), agg.text);
+  const tsv = runCsv({ text: 'a\tb\n1\t2\n' });
+  assert.ok(tsv.ok && /TAB/.test(tsv.text));
+  assert.equal(runCsv({ action: 'select', text: csv, where: ['nope > 1'] }).ok, false);
+});
+test('date_calc：加减时长、相差天数与工作日、信息解析', async () => {
+  const { runDateCalc, parseDuration } = await import('../js/utiltools.js');
+  assert.deepEqual(parseDuration('1y 2mo 3 周 4 days 5h'), { years: 1, months: 2, weeks: 3, days: 4, hours: 5, minutes: 0, seconds: 0 });
+  const add = runDateCalc({ action: 'add', date: '2026-01-31', add: '1 month' });
+  assert.ok(add.ok && /= 2026-02-28/.test(add.text), `月末加一月应钳到 2 月末：${add.text}`);
+  const diff = runDateCalc({ action: 'diff', date: '2026-10-05', to: '2026-12-25' });
+  assert.ok(diff.ok && /= 81 天/.test(diff.text) && /工作日[^\n]*：59 天/.test(diff.text), diff.text);
+  const info = runDateCalc({ action: 'info', date: '2026-10-05' });
+  assert.ok(info.ok && /周一/.test(info.text) && /W41/.test(info.text) && /Q4/.test(info.text), info.text);
+  assert.equal(runDateCalc({ date: '2026-13-40' }).ok, false);
+});
+test('text_tool：统计、命名风格、去重、抽取、正则替换、转义', async () => {
+  const { runTextTool } = await import('../js/utiltools.js');
+  const st = runTextTool({ action: 'stats', text: '你好，世界。Hello world!\n\n第二段' });
+  assert.ok(st.ok && st.stats.cjk === 7 && st.stats.latinWords === 2 && st.stats.paragraphs === 2, JSON.stringify(st.stats));
+  assert.equal(runTextTool({ action: 'case', mode: 'snake', text: 'helloWorld FooBar' }).text, 'hello_world_foo_bar');
+  assert.equal(runTextTool({ action: 'case', mode: 'camel', text: 'user_first-name' }).text, 'userFirstName');
+  assert.equal(runTextTool({ action: 'dedupe', text: 'a\nb\na\nc\nb' }).text, 'a\nb\nc');
+  const ex = runTextTool({ action: 'extract', what: 'emails', text: '联系 a@b.com 或 c.d@e.org，a@b.com 重复' });
+  assert.deepEqual(ex.items, ['a@b.com', 'c.d@e.org']);
+  const rep = runTextTool({ action: 'replace', regex: true, find: '(\\d+)px', replacement: '$1rem', text: '10px 20px' });
+  assert.ok(rep.ok && rep.text === '10rem 20rem' && rep.count === 2);
+  assert.equal(runTextTool({ action: 'escape', mode: 'html', text: '<a href="x">' }).text, '&lt;a href=&quot;x&quot;&gt;');
+  assert.equal(runTextTool({ action: 'nope', text: 'x' }).ok, false);
+});
+test('convert_units：量纲校验、温度、数据量、市制、自然语言', async () => {
+  const { runConvertUnits } = await import('../js/utiltools.js');
+  assert.ok(Math.abs(runConvertUnits({ value: 5, from: 'km', to: 'mi' }).value - 3.106856) < 1e-5);
+  assert.ok(Math.abs(runConvertUnits({ value: 212, from: 'F', to: 'C' }).value - 100) < 1e-9);
+  assert.equal(runConvertUnits({ value: 1, from: 'GiB', to: 'MB' }).value, 1073.741824);
+  assert.equal(runConvertUnits({ value: 3, from: '斤', to: 'kg' }).value, 1.5);
+  assert.ok(/= 72 (in|inch)/.test(runConvertUnits({ text: '6 ft to in' }).text));
+  const bad = runConvertUnits({ value: 1, from: 'kg', to: 'km' });
+  assert.ok(!bad.ok && /量纲不同/.test(bad.error));
+});
+test('qr_code：编码矩阵结构正确（寻像/定时/格式位）并输出 SVG', async () => {
+  const { encodeQrMatrix, runQrCode } = await import('../js/utiltools.js');
+  const q = encodeQrMatrix('https://imfufuu.github.io/dubhe-agent/', { ecLevel: 'M' });
+  assert.equal(q.size, q.version * 4 + 17);
+  const m = q.matrix;
+  // 三个寻像图形的外框与中心
+  for (const [r0, c0] of [[0, 0], [0, q.size - 7], [q.size - 7, 0]]) {
+    assert.equal(m[r0][c0], 1); assert.equal(m[r0 + 3][c0 + 3], 1); assert.equal(m[r0 + 1][c0 + 1], 0);
+  }
+  // 定时图形交替
+  for (let i = 8; i < q.size - 8; i++) assert.equal(m[6][i], i % 2 === 0 ? 1 : 0);
+  assert.equal(m[q.size - 8][8], 1, 'dark module');
+  const r = runQrCode({ text: 'WIFI:T:WPA;S:Dubhe;P:secret;;', ec: 'H' });
+  assert.ok(r.ok && /^<svg /.test(r.svg) && r.ecLevel === 'H' && r.version >= 2);
+  assert.equal(runQrCode({ text: '' }).ok, false);
+  assert.equal(runQrCode({ text: 'x'.repeat(1900), ec: 'H' }).ok, false, '超出版本 20 容量应报错而不是崩');
+});
+test('新工具已接入全部触点：TOOL_DEFS / 契约 / 并行表 / 只读表 / 系统提示', async () => {
+  const { TOOL_DEFS, executeTool } = await import('../js/tools.js');
+  const { TOOL_CONTRACTS } = await import('../js/execution.js');
+  const { PARALLEL_TOOLS } = await import('../js/agent.js');
+  const { CAPABILITY_GATED_TOOL_GROUPS } = await import('../js/nexus.js');
+  const fsp = await import('node:fs');
+  const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  const names = TOOL_DEFS.map((t) => t.name);
+  for (const n of ['csv_tool', 'date_calc', 'text_tool', 'convert_units', 'qr_code']) {
+    assert.ok(names.includes(n), `TOOL_DEFS 缺 ${n}`);
+    assert.ok(TOOL_CONTRACTS[n], `契约缺 ${n}`);
+    assert.ok(CAPABILITY_GATED_TOOL_GROUPS.invariantCore.includes(n), `invariantCore 缺 ${n}`);
+    assert.ok(cfg.includes(n), `系统提示缺 ${n}`);
+  }
+  assert.ok(PARALLEL_TOOLS.has('date_calc') && PARALLEL_TOOLS.has('convert_units') && PARALLEL_TOOLS.has('json_tool'));
+  assert.ok(!PARALLEL_TOOLS.has('write_file') && !PARALLEL_TOOLS.has('qr_code'), '写沙箱的工具仍串行');
+  for (const ghost of ['encode_decode', 'generate_chart']) assert.ok(!CAPABILITY_GATED_TOOL_GROUPS.invariantCore.includes(ghost), `invariantCore 不应含不存在的 ${ghost}`);
+  for (const n of CAPABILITY_GATED_TOOL_GROUPS.invariantCore) assert.ok(names.includes(n), `invariantCore 的 ${n} 必须真实存在`);
+  // 端到端：qr_code 写 outputs/，csv_tool 读沙箱文件
+  const files = {};
+  const fs = { read: (p) => { if (!(p in files)) throw new Error('nf'); return files[p]; }, write: (p, v) => { files[p] = v; }, list: () => Object.keys(files).map((path) => ({ path })), remove: (p) => { delete files[p]; } };
+  files['data/x.csv'] = 'k,v\na,1\nb,2\n';
+  const r1 = await executeTool('qr_code', { text: 'hello' }, { fs, store: { state: { files, settings: {} } } });
+  assert.ok(files['outputs/qr-001.svg'] && /^<svg/.test(files['outputs/qr-001.svg']), String(r1 && r1.text || r1));
+  const r2 = await executeTool('csv_tool', { action: 'aggregate', path: 'data/x.csv', value: 'v', fn: 'sum' }, { fs, store: { state: { files, settings: {} } } });
+  assert.match(String(r2 && r2.text != null ? r2.text : r2), /全部 \| 3/);
+});
+
+group('沙箱安全加固');
+test('sanitizeWorkerFiles：拒绝非法路径 / 非字符串 / 受保护前缀，超容量整体拒收', async () => {
+  const { sanitizeWorkerFiles, isSafeFsPath, createFS } = await import('../js/sandbox.js');
+  for (const bad of ['', '/abs', '../x', 'a/../b', 'a//b', 'a\\b', 'a/./b', '__proto__/x', 'constructor', 'a\u0000b', 'x'.repeat(600)]) assert.equal(isSafeFsPath(bad), false, `应拒绝 ${JSON.stringify(bad)}`);
+  for (const ok of ['a.txt', 'uploads/图 1.png', 'outputs/qr-001.svg', '.hidden/file', 'internal/x']) assert.equal(isSafeFsPath(ok), true, `应接受 ${ok}`);
+  const before = { 'internal/secret': 'orig', '.git/dubhe.json': '{}', 'uploads/u.txt': 'u', 'old.txt': 'gone' };
+  const after = { 'internal/secret': 'tampered', '.git/dubhe.json': '{}', 'uploads/u.txt': 'u2', '../escape': 'x', '/abs': 'x', 'num.txt': 42, 'internal/new': 'x', 'ok/new.txt': 'fine' };
+  const r = sanitizeWorkerFiles(before, after);
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.files, { 'internal/secret': 'orig', '.git/dubhe.json': '{}', 'uploads/u.txt': 'u2', 'ok/new.txt': 'fine' }, '受保护文件保留原版，合法修改与删除生效');
+  assert.deepEqual(r.rejected.map((x) => x.reason).sort(), ['non-string', 'protected', 'protected', 'unsafe-path', 'unsafe-path']);
+  const over = sanitizeWorkerFiles({ 'keep.txt': 'k' }, { 'big.txt': 'x'.repeat(2000) }, { cap: 1000 });
+  assert.equal(over.ok, false);
+  assert.deepEqual(over.files, { 'keep.txt': 'k' }, '超容量时保留执行前的文件');
+  assert.match(over.reason, /超过容量上限/);
+  const many = sanitizeWorkerFiles({}, Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`f${i}`, 'x'])), { maxFiles: 10 });
+  assert.equal(many.ok, false);
+  // createFS：原型键不再泄漏为「存在的文件」，import 也走路径校验
+  const fs = createFS({});
+  assert.equal(fs.has('toString'), false);
+  assert.throws(() => fs.read('constructor'), /文件不存在/);
+  fs.import({ '../evil': 'x', 'good.txt': 'y' });
+  assert.deepEqual(fs.keys(), ['good.txt']);
+  assert.throws(() => fs.write('a\\b', 'x'), /非法路径/);
+});
+test('Worker 源码：JS 沙箱拆除联网/派生/存储原语并私有化 postMessage；Python 沙箱 fetch 只放行 CDN/PyPI', async () => {
+  const fsp = await import('node:fs');
+  const js = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
+  const py = fsp.readFileSync(new URL('../js/worker-py.js', import.meta.url), 'utf8');
+  assert.match(js, /const post = self\.postMessage\.bind\(self\)/, '真实 postMessage 应先私有化');
+  for (const n of ['fetch', 'importScripts', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'Worker', 'BroadcastChannel', 'indexedDB', 'caches', 'navigator']) assert.ok(js.includes(`'${n}'`), `JS 沙箱应移除 ${n}`);
+  assert.match(js, /lockdown\(\);[\s\S]*new Function\(/, '必须先 lockdown 再执行用户代码');
+  assert.doesNotMatch(js, /self\.onmessage\s*=/, '应改用 addEventListener，并锁死 onmessage');
+  assert.match(js, /Object\.defineProperty\(self, 'postMessage', \{ value: \(\) => \{\}/, '全局 postMessage 应置空防伪造结果帧');
+  assert.match(js, /LOG_MAX_ENTRIES = 500/); assert.match(js, /RESULT_MAX_BYTES = 200 \* 1024/); assert.match(js, /FILES_MAX_BYTES = 128 \* 1024 \* 1024/);
+  assert.match(js, /Object\.create\(null\)/, 'files 应为无原型对象');
+  assert.match(py, /const realFetch = self\.fetch\.bind\(self\)/);
+  assert.match(py, /cdn\\\.jsdelivr\\\.net\\\/pyodide\\\//); assert.match(py, /pypi\\\.org/); assert.match(py, /files\\\.pythonhosted\\\.org/);
+  assert.match(py, /沙箱禁止联网/);
+  for (const n of ['XMLHttpRequest', 'WebSocket', 'indexedDB', 'caches']) assert.ok(py.includes(`'${n}'`), `Python 沙箱应移除 ${n}`);
+  assert.doesNotMatch(py, /self\.postMessage\(/, 'Python 沙箱不应再直接使用全局 postMessage');
+  assert.match(py, /realImportScripts\(PY_BASE/);
 });
 
 for (const item of queue) {

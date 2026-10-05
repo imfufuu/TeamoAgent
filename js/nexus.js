@@ -616,9 +616,11 @@ export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
   codeSandbox: Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']),
   subagentSwarm: Object.freeze(['dispatch_subagent']),
   invariantCore: Object.freeze([
-    'read_file', 'write_file', 'list_files', 'delete_file', 'search_files',
+    'read_file', 'write_file', 'list_files', 'delete_file', 'copy_file', 'search_files',
     'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'regex',
-    'hash', 'encode_decode', 'generate_image', 'generate_chart', 'remember',
+    'hash', 'codec', 'unicode', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'qr_code',
+    'render_mermaid', 'render_dot', 'zip_files', 'unzip_file', 'get_current_time',
+    'generate_image', 'analyze_image', 'remember',
   ]),
 });
 
@@ -1239,7 +1241,7 @@ export function buildDegradationDiagnostics({
       capability: 'fetch_url / search_web / crawl_site 网页能力与远端真实 Git',
       status: 'degraded',
       reason: '当前没有探测到可用网页中继（本地 server.py 或 Cloudflare Worker）',
-      recovery: '启动 `python3 server.py` 以恢复单页抓取/Git，或部署新版 relay/worker.js 并在 localStorage 设置 teamo-relay；刷新后重新探测',
+      recovery: '启动 `python3 server.py` 以恢复单页抓取/Git，或部署新版 relay/worker.js 并在 localStorage 设置 dubhe-relay；刷新后重新探测',
     });
   } else if (!webEnabled) {
     items.push({

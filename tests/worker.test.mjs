@@ -23,7 +23,7 @@ test('Worker health advertises versioned fetch/search/crawl capabilities', async
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.version, '1.6.0');
-  assert.equal(body.relay, 'teamo-cf-worker', 'health identifier remains stable for compatibility');
+  assert.equal(body.relay, 'dubhe-cf-worker', 'health identifier remains stable for compatibility');
   assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl']);
 });
 
@@ -37,7 +37,7 @@ test('Worker root banner uses the Dubhe Agent identity', async () => {
 test('dashboard-compatible Worker source carries the migrated identity', () => {
   const source = readFileSync(new URL('../relay/worker-dashboard.js', import.meta.url), 'utf8');
   assert.match(source, /Dubhe Agent Cloudflare Relay v1\.5/);
-  assert.match(source, /relay: 'teamo-cf-worker'/);
+  assert.match(source, /relay: 'dubhe-cf-worker'/);
 });
 
 test('SSRF guard rejects private, loopback, link-local, reserved, and internal host targets before fetch', async () => {

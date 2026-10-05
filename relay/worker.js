@@ -476,7 +476,7 @@ export default {
     if (request.method !== 'GET') return json({ error: '只允许 GET 请求' }, 405);
     if (url.pathname === '/api/health') {
       // Keep this legacy health identifier stable for clients that inspect metadata.
-      return json({ ok: true, relay: 'teamo-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl'] });
+      return json({ ok: true, relay: 'dubhe-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl'] });
     }
     if (url.pathname === '/api/search') {
       try {
