@@ -1,15 +1,17 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.4';
-import { createAgent } from './agent.js?v=2026.10.5.4';
-import { mountUI, toast } from './ui.js?v=2026.10.5.4';
+import { createStore } from './state.js?v=2026.10.5.5';
+import { createAgent } from './agent.js?v=2026.10.5.5';
+import { mountUI, toast } from './ui.js?v=2026.10.5.5';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.4';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.4';
-import { APP_RELEASE } from './config.js?v=2026.10.5.4';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.5';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.5';
+import { APP_RELEASE } from './config.js?v=2026.10.5.5';
 
 const store = createStore();
+// relayOk 是运行时探测结果，不复用上次持久化值；null 表示探测进行中。
+store.state.relayOk = null;
 // 正式应用强制开启本地内容审核：旧 localStorage 里即使残留 contentModeration=false 也不能绕过图片审核。
 store.state.settings.contentModeration = true;
 
@@ -52,9 +54,9 @@ const hooks = {
     ui && ui.autoTitle && ui.autoTitle();
   },
   onThinkingFallback: (model) => toast(`${model} 不支持思考参数，本次会话已为其自动关闭思考模式`, 'warn', 5200),
-  // 联网：搜索由模型服务端完成（原生请求格式），这里只把进度/来源转给 UI 画引用条；
-  // 网关或模型拒收该字段时说明原因（UI 会同时把 pill 的说明刷新成「当前不联网」）
+  // 兼容旧网关回传的服务端搜索进度/来源事件；当前网页查询走 health 声明的 Worker 工具。
   onWebSearch: (m, web) => ui && ui.onWebSearch && ui.onWebSearch(m, web),
+  onRelayStatus: () => { if (ui && ui.syncWeb) ui.syncWeb(); },
   onWebFallback: (model, why) => {
     toast(`联网已自动关闭：${String(why || '').slice(0, 140)}`, 'warn', 7000);
     ui && ui.onWebFallback && ui.onWebFallback(model, why);

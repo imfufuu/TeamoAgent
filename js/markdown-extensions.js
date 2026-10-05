@@ -387,8 +387,23 @@ function protectFootnoteRefs(source, state) {
   });
 }
 
+// 普通 Markdown 正文里常见的化学式写法 H_2O / H~_2O（误把 Pandoc 波浪号
+// 与 TeX 下划线叠在一起）也应显示为下标。这里只解析元素符号组成的化学式 token；
+// 行内代码、代码围栏、原始 HTML 与 $...$ 数学段此前均已占位保护，不会被改写。
+const CHEMICAL_ELEMENTS = '(?:Ac|Ag|Al|Am|Ar|As|At|Au|Ba|Be|Bh|Bi|Bk|Br|Ca|Cd|Ce|Cf|Cl|Cm|Cn|Co|Cr|Cs|Cu|Db|Ds|Dy|Er|Es|Eu|Fe|Fl|Fm|Fr|Ga|Gd|Ge|He|Hf|Hg|Ho|Hs|In|Ir|Kr|La|Li|Lr|Lu|Lv|Mc|Md|Mg|Mn|Mo|Mt|Na|Nb|Nd|Ne|Nh|Ni|No|Np|Og|Os|Pa|Pb|Pd|Pm|Po|Pr|Pt|Pu|Ra|Rb|Re|Rf|Rg|Rh|Rn|Ru|Sb|Sc|Se|Sg|Si|Sm|Sn|Sr|Ta|Tb|Tc|Te|Th|Ti|Tl|Tm|Ts|Xe|Yb|Zn|Zr|Ac|B|C|N|O|F|P|S|K|V|Y|I|W|U|H)';
+function protectChemicalSubscripts(source, state) {
+  const term = `(?:${CHEMICAL_ELEMENTS})(?:~?_[0-9]+)?`;
+  const formulaRe = new RegExp(`(?<![A-Za-z])(${term}(?:${term})*)`, 'g');
+  const subscriptRe = new RegExp(`(${CHEMICAL_ELEMENTS})(?:~)?_([0-9]+)`, 'g');
+  return String(source || '').replace(formulaRe, (formula) => formula.replace(subscriptRe, (_whole, element, digits) => {
+    const token = placeholder('SUB', state.superSub.push({ tag: 'sub', content: digits }) - 1);
+    return `${element}${token}`;
+  }));
+}
+
 function protectSuperSub(source, state) {
-  return String(source || '')
+  const text = protectChemicalSubscripts(source, state);
+  return text
     .replace(/(?<!\\)\^([^\s^]+)\^(?!\^)/g, (whole, content) => placeholder('SUP', state.superSub.push({ tag: 'sup', content }) - 1))
     .replace(/(?<!\\)~(?!~)([^\s~]+)~(?!~)/g, (whole, content) => placeholder('SUB', state.superSub.push({ tag: 'sub', content }) - 1));
 }

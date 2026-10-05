@@ -1185,7 +1185,7 @@ export function arbitrateUnifiedEvidence({
 // ─── 12. Stage 1 前提自校验与可解释降级诊断（Premise Self-Verification）──────
 // 解决“单点前提错误向下传播（如启动期误判无中继，导致 L3–L6 全在错误前提上工作）”：
 // 当 relayOk 为 false 但用户请求涉及网页/URL/远端 Git 时，执行实时重探针自校验，恢复即纠偏
-const WEB_OR_GIT_INTENT_RE = /(?:https?:\/\/|抓取|网页|联网|最新|搜索|clone|push|pull|fetch_url)/i;
+const WEB_OR_GIT_INTENT_RE = /(?:https?:\/\/|网址|链接|网页|网站|浏览|访问|抓取|联网|上网|最新|当前|今日|今天|实时|搜索|检索|查询|查资料|搜一下|\burl\b|\bweb\b|\bwebpage\b|\bwebsite\b|\bbrowse\b|\blookup\b|\bcurrent\b|\btoday\b|\blatest\b|\bnews\b|\bweather\b|\bsearch(?:_web)?\b|\bcrawl(?:_site)?\b|\bclone\b|\bpush\b|\bpull\b|\bfetch(?:_url)?\b)/i;
 
 export async function verifyRuntimePremises({
   relayOk = false,

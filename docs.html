@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.4" />
+<meta name="app-version" content="2026.10.5.5" />
 <meta name="app-release" content="V1.5" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.5</title>
@@ -180,7 +180,18 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.5 · Markdown、图表与照片交互修复</span><span class="ver-build">2026.10.5.4</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.5 · 编辑器、联网与图表交互修复</span><span class="ver-build">2026.10.5.5</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag imp">IMPROVE</span><span><strong>照片编辑器工作台重排</strong>：改为大预览区与分组工具侧栏，突出本地处理状态，按屏幕尺寸适配桌面与手机；保留旋转、八点裁剪、画笔、撤销和保存附件流程。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>联网能力与状态统一</strong>：首次 Worker 探测未完成时显示检查中；联网任务遇启动期离线误判会复探，并以同一份 Worker capability 结果生成工具表、系统提示与胶囊状态。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>化学式下标</strong>：普通正文的 <code>H_2O</code>、<code>H~_2O</code>、<code>CO_2</code> 等渲染为下标，数学公式与行内/围栏代码保持原样。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>折线图与散点图交互</strong>：放大数据点命中区，增加键盘聚焦、Enter/空格操作和无障碍名称。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>SVG 查看器缩放</strong>：滚轮 delta 按像素/行/页归一化，关闭变换缓动，并改善双指缩放转单指拖动的衔接。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.5 · Markdown、图表与照片交互修复</span><span class="ver-build">2026.10.5.4</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>修复嵌套 Markdown 占位符泄漏</strong>：高亮、下标或上标中的行内代码会在扩展展开后正确恢复，不再显示私用区 <code>IC0</code> 标记；同时兼容单波浪号闭合的删除线输入，保留转义定界符按字面显示。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>图表与 SVG 查看器</strong>：图表和流程/思维导图增加明确的展开入口；SVG 补足固有尺寸，查看器缩放以指针为锚点并限制 25%–800%，工具栏保持在画布上层。</span></li>
@@ -474,7 +485,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.5 · 构建 2026.10.5.4</span>
+  <span>TeamoAgent V1.5 · 构建 2026.10.5.5</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

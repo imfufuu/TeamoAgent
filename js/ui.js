@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.4';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.5';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.4';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.5';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -18,15 +18,15 @@ import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
-import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
+import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.4';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.4';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.4';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.4';
-import { zoomLightboxState } from './lightbox.js?v=2026.10.5.4';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.4';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.5';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.5';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.5';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.5';
+import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.5';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.5';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -336,8 +336,15 @@ function renderQuickChart(kind, body, title = '') {
     rows.forEach((row, i) => {
       const color = kind === 'st' ? '#0ea5e9' : CHART_COLORS[i % CHART_COLORS.length];
       const fill = kind === 'scatter' ? ` fill="${color}"` : '';
-      const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="(${esc(chartFmt(row.x))}, ${esc(chartFmt(row.value))})" data-chart-color="${color}" tabindex="0"`;
-      inner += `<circle cx="${x(row.x).toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="${kind === 'st' ? 4.5 : 5.5}"${fill} ${dataAttrs} class="${kind === 'st' ? 'md-chart-dot' : 'md-chart-point'}"><title>${esc(row.label)}: ${esc(row.x)}, ${esc(row.value)}</title></circle>`;
+      const px = x(row.x).toFixed(1);
+      const py = sc.y(row.value).toFixed(1);
+      const pointValue = `(${chartFmt(row.x)}, ${chartFmt(row.value)})`;
+      const pointTitle = `${row.label}: ${chartFmt(row.x)}, ${chartFmt(row.value)}`;
+      const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(pointValue)}" data-chart-color="${color}" tabindex="0" role="button" aria-label="${esc(pointTitle)}"`;
+      // The clear, non-scaling SVG stroke creates a forgiving ~30px pointer target while
+      // the visible dot remains compact. The hit target owns tooltip, click and keyboard focus.
+      inner += `<circle cx="${px}" cy="${py}" r="7" fill="transparent" stroke="transparent" stroke-width="28" vector-effect="non-scaling-stroke" pointer-events="stroke" ${dataAttrs} class="md-chart-hit-area"><title>${esc(pointTitle)}</title></circle>`;
+      inner += `<circle cx="${px}" cy="${py}" r="${kind === 'st' ? 4.5 : 5.5}"${fill} class="${kind === 'st' ? 'md-chart-dot' : 'md-chart-point'}" pointer-events="none" aria-hidden="true"/>`;
     });
   } else {
     const sc = chartScales(rows, w, h, m, { includeZero: true });
@@ -364,8 +371,12 @@ function renderQuickChart(kind, body, title = '') {
       inner += `<polyline points="${pts.join(' ')}" class="md-chart-line"/>`;
       rows.forEach((row, i) => {
         const x = xAt(i);
-        const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(chartFmt(row.value))}" data-chart-color="#4f46e5" tabindex="0"`;
-        inner += `<circle cx="${x.toFixed(1)}" cy="${sc.y(row.value).toFixed(1)}" r="4.5" ${dataAttrs} class="md-chart-dot"><title>${esc(row.label)}: ${esc(row.value)}</title></circle>`;
+        const y = sc.y(row.value).toFixed(1);
+        const pointValue = chartFmt(row.value);
+        const pointTitle = `${row.label}: ${pointValue}`;
+        const dataAttrs = `data-chart-label="${esc(row.label)}" data-chart-val="${esc(pointValue)}" data-chart-color="#4f46e5" tabindex="0" role="button" aria-label="${esc(pointTitle)}"`;
+        inner += `<circle cx="${x.toFixed(1)}" cy="${y}" r="7" fill="transparent" stroke="transparent" stroke-width="28" vector-effect="non-scaling-stroke" pointer-events="stroke" ${dataAttrs} class="md-chart-hit-area"><title>${esc(pointTitle)}</title></circle>`;
+        inner += `<circle cx="${x.toFixed(1)}" cy="${y}" r="4.5" class="md-chart-dot" pointer-events="none" aria-hidden="true"/>`;
       });
     }
   }
@@ -1692,33 +1703,49 @@ export function mountUI(store, agent) {
     if (!webToggle) return;
     webToggle.innerHTML = GLOBE_SVG + '联网';
     if (!hasRelay()) {
-      webToggle.disabled = false;
+      const checking = store.state.relayOk == null;
+      webToggle.disabled = checking;
       webToggle.classList.remove('on');
-      webToggle.classList.add('degraded-off');
+      webToggle.classList.toggle('relay-checking', checking);
+      webToggle.classList.toggle('degraded-off', !checking);
+      webToggle.setAttribute('aria-pressed', 'false');
+      webToggle.dataset.webCapabilities = '';
       webToggle.removeAttribute('aria-disabled');
-      webToggle.title = '点此重新探测中继（公共 Cloudflare Worker 或本地 server.py）';
+      webToggle.title = checking
+        ? '正在检查同源中继与 Cloudflare Worker…'
+        : '点此重新探测中继（公共 Cloudflare Worker 或本地 server.py）';
       syncCapLine();
       return;
     }
     webToggle.disabled = false;
-    webToggle.classList.remove('degraded-off');
+    webToggle.classList.remove('degraded-off', 'relay-checking');
     webToggle.removeAttribute('aria-disabled');
     const on = store.state.settings.webEnabled !== false;
     webToggle.classList.toggle('on', on);
+    webToggle.setAttribute('aria-pressed', on ? 'true' : 'false');
     const rel = currentRelay();
     const relName = rel ? (rel.label === 'origin' ? '同源' : rel.base) : '中继';
+    const capabilities = ['fetch_url'];
+    if (relaySupports('search')) capabilities.push('search_web');
+    if (relaySupports('crawl')) capabilities.push('crawl_site');
+    webToggle.dataset.webCapabilities = capabilities.join(' ');
+    const capabilityLabels = capabilities.map((name) => ({ fetch_url: '单页抓取', search_web: '搜索', crawl_site: '站点抓取' })[name]);
     webToggle.title = on
-      ? `联网已开：经${relName}抓取网页。再点关闭。`
-      : `联网已关。点此开启（经${relName}抓取网页）。`;
+      ? `联网已开：${relName}可用；工具表能力：${capabilityLabels.join('、')}。再点关闭。`
+      : `联网已关。${relName}可用；可恢复能力：${capabilityLabels.join('、')}。点此开启。`;
     syncCapLine();
   };
   if (webToggle) {
     webToggle.addEventListener('click', async () => {
       if (!hasRelay()) {
+        if (store.state.relayOk == null) return;
+        store.state.relayOk = null;
+        syncWeb();
         resetRelayProbe();
-        const liveOk = await relayAvailable();
+        let liveOk = false;
+        try { liveOk = await relayAvailable(); } catch { liveOk = false; }
+        store.state.relayOk = liveOk;
         if (liveOk) {
-          store.state.relayOk = true;
           store.state.settings.webEnabled = true;
           store.notify();
           syncWeb();
@@ -1726,6 +1753,7 @@ export function mountUI(store, agent) {
           toast(`✓ 已探测到可用中继（${rel && rel.base || '同源'}），联网抓取已开启`, 'ok', 3600);
           return;
         }
+        syncWeb();
         toast('未检测到可用中继（公共 Cloudflare Worker 或本地 server.py 都不可达），联网抓取暂不可用', 'warn', 4200);
         return;
       }
@@ -4465,6 +4493,13 @@ function validateApiKey(s) {
     }
   }
 
+  msgList.addEventListener('keydown', (e) => {
+    const datum = e.target.closest && e.target.closest('[data-chart-label]');
+    if (!datum || (e.key !== 'Enter' && e.key !== ' ')) return;
+    e.preventDefault();
+    datum.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+  });
+
   msgList.addEventListener('pointerover', (e) => {
     const datum = e.target.closest && e.target.closest('[data-chart-label]');
     if (!datum) return;
@@ -4521,12 +4556,13 @@ function validateApiKey(s) {
   function lbApplyTransform() {
     const stage = $('#img-lightbox-pic');
     if (!stage) return;
-    stage.style.transform = `translate(${lbState.tx}px, ${lbState.ty}px) scale(${lbState.scale})`;
+    stage.style.transform = `translate3d(${lbState.tx}px, ${lbState.ty}px, 0) scale(${lbState.scale})`;
     const lbl = $('.lb-zoom-label', $('#img-lightbox'));
     if (lbl) lbl.textContent = `${Math.round(lbState.scale * 100)}%`;
   }
   function lbReset() {
     lbState.scale = 1; lbState.tx = 0; lbState.ty = 0;
+    lbState.dragging = false; lbState.sx = 0; lbState.sy = 0; lbState.sTx = 0; lbState.sTy = 0;
     lbApplyTransform();
   }
   function lbZoomAt(factor, cx, cy) {
@@ -4604,7 +4640,7 @@ function validateApiKey(s) {
       stageWrap.addEventListener('pointerdown', (e) => {
         if (e.target.closest('.lb-btn') || e.target.closest('button')) return;
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        stageWrap.setPointerCapture(e.pointerId);
+        stageWrap.setPointerCapture?.(e.pointerId);
         lastPinchDist = 0;
         if (pointers.size === 1) {
           lbState.dragging = true;
@@ -4637,16 +4673,22 @@ function validateApiKey(s) {
       const endPtr = (e) => {
         pointers.delete(e.pointerId);
         if (pointers.size < 2) lastPinchDist = 0;
-        if (pointers.size === 0) lbState.dragging = false;
+        if (pointers.size === 1) {
+          // Seamlessly continue a pinch as a one-finger pan when the other finger lifts.
+          const remaining = [...pointers.values()][0];
+          lbState.dragging = true;
+          lbState.sx = remaining.x; lbState.sy = remaining.y;
+          lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
+        } else if (pointers.size === 0) lbState.dragging = false;
       };
       stageWrap.addEventListener('pointerup', endPtr);
       stageWrap.addEventListener('pointercancel', endPtr);
-      stageWrap.addEventListener('pointerleave', endPtr);
-      // 滚轮缩放
+      // Pointer capture keeps drags/pinches continuous even if a finger crosses the stage edge.
+      // Wheel deltas are normalized so a high-rate trackpad feels finer than a stepped mouse wheel.
       stageWrap.addEventListener('wheel', (e) => {
         e.preventDefault();
-        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-        lbZoomAt(factor, e.clientX, e.clientY);
+        const pageSize = stageWrap.clientHeight || window.innerHeight || 800;
+        lbZoomAt(lightboxWheelFactor(e.deltaY, e.deltaMode, pageSize), e.clientX, e.clientY);
       }, { passive: false });
       // 双击重置
       stageWrap.addEventListener('dblclick', (e) => { e.preventDefault(); lbReset(); });

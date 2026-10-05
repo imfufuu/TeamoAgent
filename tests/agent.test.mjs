@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.4';
+} from '../js/api.js?v=2026.10.5.5';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.4');
+const api = await import('../js/api.js?v=2026.10.5.5');
 
 let passed = 0;
 const queue = [];
@@ -740,6 +740,12 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(pandoc, /x<sup>2<\/sup> 与水 H<sub>2<\/sub>O/);
   assert.match(pandoc, /class="md-footnote-ref"/);
   assert.match(pandoc, /class="md-footnotes"/);
+  const chemistry = renderMarkdown('水分子 H~_2O、H_2O，二氧化碳 CO_2；葡萄糖 C_6H_12O_6 😀。');
+  assert.match(chemistry, /H<sub>2<\/sub>O、H<sub>2<\/sub>O，二氧化碳 CO<sub>2<\/sub>/, '化学式里的多余波浪号/下划线应规范成下标，保留中文与全角标点');
+  assert.match(chemistry, /C<sub>6<\/sub>H<sub>12<\/sub>O<sub>6<\/sub> 😀/);
+  assert.doesNotMatch(chemistry, /H~_2O|H_2O/, '普通正文不得把化学式源码标记显示出来');
+  assert.match(renderMarkdown('`H~_2O`'), /<code>H~_2O<\/code>/, '行内代码中的波浪号/下划线必须原样保留');
+  assert.match(renderMarkdown('```text\nH~_2O\n```'), /H~_2O/, '围栏代码中的化学式标记必须原样保留');
   const div = renderMarkdown('::: {.note #box style="text-align:center;color:blue;position:absolute"}\n**安全排版**\n:::');
   assert.match(div, /<div id="box" class="md-fenced-div note" style="text-align:center;color:blue">/);
   assert.match(div, /<strong>安全排版<\/strong>/);
@@ -799,6 +805,12 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(stChart, /t \/ s/);
   assert.match(stChart, /s \/ m/);
   assert.doesNotMatch(stChart, /md-chart-scatter/);
+  const linePoints = renderMarkdown(':::chart line 采样趋势\n一月, 10\n二月, 12\n:::');
+  const scatterPoints = renderMarkdown(':::chart scatter 位置\nA, 0, 1\nB, 1, 3\n:::');
+  assert.equal((linePoints.match(/class="md-chart-hit-area"/g) || []).length, 2, '折线图每个数据点都应有独立的扩大命中层');
+  assert.equal((scatterPoints.match(/class="md-chart-hit-area"/g) || []).length, 2, '散点图每个数据点都应有独立的扩大命中层');
+  assert.match(linePoints, /stroke-width="28" vector-effect="non-scaling-stroke" pointer-events="stroke"/);
+  assert.match(linePoints, /role="button" aria-label=/, '数据点命中层应可键盘聚焦并带无障碍名称');
   const flow = renderMarkdown(':::flow 注册流程\n开始 -> 填写 ->|通过| 完成\n填写 ->|失败| 修改\n:::');
   assert.match(flow, /md-diagram-flow/);
   assert.match(flow, /md-flow-arrow/);
@@ -818,7 +830,7 @@ test('照片编辑器：裁剪框可按四边/四角调整并限制在图像范�
 });
 
 test('图表查看器缩放：以指针位置为锚点并限制缩放范围', async () => {
-  const { zoomLightboxState, LIGHTBOX_MIN_SCALE, LIGHTBOX_MAX_SCALE } = await import('../js/lightbox.js');
+  const { zoomLightboxState, lightboxWheelFactor, LIGHTBOX_MIN_SCALE, LIGHTBOX_MAX_SCALE } = await import('../js/lightbox.js');
   const zoomed = zoomLightboxState({ scale: 1, tx: 0, ty: 0 }, 2, { x: 120, y: 80 });
   assert.deepEqual(zoomed, { scale: 2, tx: -120, ty: -80 }, '缩放时保持锚点位置');
   const maxed = zoomLightboxState(zoomed, 100, { x: 120, y: 80 });
@@ -826,7 +838,11 @@ test('图表查看器缩放：以指针位置为锚点并限制缩放范围', as
   const mined = zoomLightboxState({ scale: 1, tx: 3, ty: 4 }, 0.001, { x: 10, y: 20 });
   assert.equal(mined.scale, LIGHTBOX_MIN_SCALE, '最小缩放应限幅');
   assert.ok(Number.isFinite(mined.tx) && Number.isFinite(mined.ty));
+  assert.equal(lightboxWheelFactor(0), 1);
+  assert.ok(lightboxWheelFactor(2, 0) < 1 && lightboxWheelFactor(-2, 0) > 1, '滚轮方向应自然对应缩小/放大');
+  assert.ok(lightboxWheelFactor(2, 1) < lightboxWheelFactor(2, 0), '线式滚轮 delta 应按步长归一化');
   const css = (await import('node:fs')).readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.lb-transform\s*\{[^}]*transition:\s*none/, '关闭 CSS transform 缓动，避免锚点位置与动画中的边界错位');
   assert.match(css, /\.img-lightbox-toolbar\s*\{[^}]*z-index:\s*5/);
   assert.match(css, /\.img-lightbox-stage\s*\{[^}]*z-index:\s*0/);
 });
@@ -3071,7 +3087,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.4');
+  const api = await import('../js/api.js?v=2026.10.5.5');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3210,6 +3226,76 @@ test('没有本地中继时，只摘掉 fetch_url，run_git 仍走内置沙箱 G
       assert.match(sys, /内置沙箱 Git/);
     } finally { globalThis.fetch = realFetch; }
   });
+});
+
+test('初次 Worker 探测未完成时，回合等待真实结果而不乐观开放联网工具', async () => {
+  const calls = [];
+  const relayEvents = [];
+  await withNetFetch(async (url, opts) => {
+    if (url === '/api/health' || url === 'https://relay.teamo.workers.dev/api/health') return NO_RELAY['/api/health']();
+    if (url.includes('/v1/chat/completions')) {
+      const body = JSON.parse(opts.body);
+      calls.push({ url, body });
+      return openaiTextTurn('当前按实际联网状态继续。');
+    }
+    throw new Error(`unexpected request ${url}`);
+  }, async () => {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = null;
+    const agent = createAgent(store, { onRelayStatus: (ok, meta) => relayEvents.push({ ok, meta }) });
+    await agent.send('你好');
+    assert.equal(store.state.relayOk, false, '首轮发送应等待探测完成并写回离线状态');
+    assert.deepEqual(relayEvents.at(-1), { ok: false, meta: { reverified: false, initial: true } });
+    assert.equal(calls.length, 1);
+    assert.equal((calls[0].body.tools || []).some((t) => ['fetch_url', 'search_web', 'crawl_site'].includes(t.function?.name || t.name)), false);
+    const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+    assert.match(sys, /没有通过健康检查/);
+    assert.doesNotMatch(sys, /本轮已开启；中继健康检查通过/);
+  });
+  await drainSaves();
+});
+
+test('启动期误判离线时，实际可用的 Cloudflare Worker 会在联网请求入口复探并统一工具表/提示词', async () => {
+  const calls = [];
+  const relayEvents = [];
+  await withNetFetch(async (url, opts) => {
+    if (url === '/api/health') return NO_RELAY['/api/health']();
+    if (url === 'https://relay.teamo.workers.dev/api/health') return jsonResponse({ ok: true, relay: 'teamo-cf-worker', capabilities: ['fetch', 'search', 'crawl'] });
+    if (url.includes('/v1/chat/completions')) {
+      const body = JSON.parse(opts.body);
+      calls.push({ url, body });
+      return openaiTextTurn('我会根据本轮实际提供的网页工具处理。');
+    }
+    throw new Error(`unexpected request ${url}`);
+  }, async (net) => {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = false; // 启动期可能误判；公开 Worker 实际可用
+    const agent = createAgent(store, { onRelayStatus: (ok, meta) => relayEvents.push({ ok, meta }) });
+    await agent.send('请联网搜索 TeamoAgent 的公开说明');
+    assert.equal(store.state.relayOk, true, '实时复探成功后纠正 Store 中的离线状态');
+    assert.equal(net.currentRelay()?.label, 'public', '应选中健康检查通过的 Cloudflare Worker');
+    assert.equal(net.relaySupports('search'), true);
+    assert.equal(net.relaySupports('crawl'), true);
+    assert.ok(relayEvents.some((event) => event.ok === null && event.meta?.revalidating), '复探期间应通知 UI 显示检查中并避免重复触发');
+    assert.equal(relayEvents.at(-1)?.ok, true, '应通知 UI 同步联网胶囊状态');
+    assert.equal(calls.length, 1);
+    const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
+    for (const name of ['fetch_url', 'search_web', 'crawl_site']) assert.ok(names.includes(name), `Worker 声明能力后工具表应包含 ${name}`);
+    const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+    assert.match(sys, /本轮已开启；中继健康检查通过/);
+    assert.match(sys, /search_web（网页搜索）/);
+    assert.match(sys, /crawl_site（同源站点抓取）/);
+    assert.doesNotMatch(sys, /本轮未联网|没有通过健康检查/);
+  });
+  await drainSaves();
 });
 
 test('诚实性护栏：正文声称「已联网」但没有检索事件时能被识别', async () => {
@@ -3801,7 +3887,7 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
     assert.equal((calls[0].body.tools || []).some((t) => (t.function && t.function.name) === 'dispatch_subagent'), false, '默认 Medium 不得委派');
     assert.equal(calls[0].body.max_tokens, undefined, '思考等级/对话类型不限制输出 token（由网关按模型真实上限决定）');
     const joined = sys.map((m) => m.content).join('\n');
-    assert.match(joined, /本轮未联网/);
+    assert.match(joined, /用户已关闭顶栏「联网」开关/);
   } finally { globalThis.fetch = realFetch; }
 });
 
@@ -5840,6 +5926,15 @@ test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛
   assert.equal(premiseCheck.reverifyTriggered, true);
   assert.equal(premiseCheck.premiseCorrected, true);
   assert.equal(premiseCheck.relayOk, true, '实时重探针成功后应立即纠正前提，阻止错误前提向下传播');
+  let currentInfoProbeCount = 0;
+  const currentInfoCheck = await nexus.verifyRuntimePremises({
+    relayOk: false,
+    webEnabled: true,
+    userText: '今天的美元汇率是多少？',
+    reprobeRelay: async () => { currentInfoProbeCount++; return true; },
+  });
+  assert.equal(currentInfoCheck.reverifyTriggered, true, '今日/当前信息问题也应触发联网前提复探');
+  assert.equal(currentInfoProbeCount, 1);
 
   // 验收第 6 条：决策足迹忠实度（真实执行分支 FNV-1a 哈希校验，篡改或伪造足迹时拦截）
   const trace = nexus.createFaithfulTraceRecorder();

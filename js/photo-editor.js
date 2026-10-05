@@ -73,21 +73,75 @@ export function openPhotoEditor(file, options = {}) {
     modal.setAttribute('aria-label', '编辑拍摄的照片');
     modal.innerHTML = `
       <section class="photo-editor" role="document">
-        <header class="photo-editor-head"><div class="photo-editor-title">编辑照片</div><button class="photo-editor-close" type="button" aria-label="取消编辑" title="取消">×</button></header>
-        <div class="photo-editor-toolbar">
-          <button type="button" data-photo-action="undo" title="撤销最近一次编辑" disabled>↶ <span>撤销</span></button>
-          <button type="button" data-photo-action="rotate-left" title="向左旋转 90°">↶ <span>左旋</span></button>
-          <button type="button" data-photo-action="rotate-right" title="向右旋转 90°">↷ <span>右旋</span></button>
-          <button type="button" data-photo-action="crop" title="拖动裁剪框边缘或手柄调整区域">裁剪</button>
-          <button type="button" data-photo-action="apply-crop" title="应用当前裁剪" hidden>应用裁剪</button>
-          <button type="button" data-photo-action="cancel-crop" title="取消当前裁剪" hidden>取消裁剪</button>
-          <button type="button" data-photo-action="draw" title="在照片上绘制">画笔</button>
-          <label class="photo-pen-color" title="画笔颜色"><span>颜色</span><input type="color" value="#ff3b30" aria-label="画笔颜色"></label>
-          <label class="photo-pen-size" title="画笔粗细"><span>粗细</span><input type="range" min="2" max="18" value="6" aria-label="画笔粗细"></label>
+        <header class="photo-editor-head">
+          <div class="photo-editor-head-left">
+            <span class="photo-editor-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 7.5h3l1.5-2h5l1.5 2h3A2 2 0 0 1 20 9.5v8A2 2 0 0 1 18 19.5H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13.5" r="3.5"/><path d="M16.8 10.5h.01"/></svg></span>
+            <div class="photo-editor-heading">
+              <div class="photo-editor-eyebrow">LOCAL PHOTO STUDIO</div>
+              <div class="photo-editor-title">照片编辑工作台</div>
+              <div class="photo-file-name" aria-live="polite">正在读取照片…</div>
+            </div>
+          </div>
+          <div class="photo-editor-head-right">
+            <span class="photo-local-badge"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 2.5 16 5v4.6c0 3.7-2.5 6.4-6 7.9-3.5-1.5-6-4.2-6-7.9V5l6-2.5Z"/><path d="m7.2 9.9 1.8 1.8 3.8-4"/></svg>仅本地处理</span>
+            <button class="photo-editor-close" type="button" aria-label="取消编辑" title="关闭编辑器">×</button>
+          </div>
+        </header>
+        <div class="photo-editor-main">
+          <aside class="photo-editor-sidebar" aria-label="照片编辑工具">
+            <div class="photo-section-caption"><span>编辑工具</span><span>TOOLS</span></div>
+            <div class="photo-tool-grid">
+              <button class="photo-tool-button" type="button" data-photo-action="undo" title="撤销最近一次编辑（⌘/Ctrl+Z）" aria-label="撤销" disabled>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 8 5 12l4 4"/><path d="M5.5 12H14a5 5 0 0 1 0 10h-1" transform="translate(0 -5)"/></svg><span class="photo-tool-name">撤销</span><span class="photo-tool-hint">⌘ Z</span>
+              </button>
+              <button class="photo-tool-button" type="button" data-photo-action="rotate-left" title="向左旋转 90°" aria-label="向左旋转 90 度">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 10V5m0 0h5M4.5 5.5A8 8 0 1 1 3 12"/><path d="M12 8v4l2.5 1.5"/></svg><span class="photo-tool-name">左旋</span><span class="photo-tool-hint">90°</span>
+              </button>
+              <button class="photo-tool-button" type="button" data-photo-action="rotate-right" title="向右旋转 90°" aria-label="向右旋转 90 度">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 10V5m0 0h-5m4.5.5A8 8 0 1 0 21 12"/><path d="M12 8v4l-2.5 1.5"/></svg><span class="photo-tool-name">右旋</span><span class="photo-tool-hint">90°</span>
+              </button>
+              <button class="photo-tool-button" type="button" data-photo-action="crop" title="拖动裁剪框或手柄调整区域" aria-label="裁剪" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3v13a2 2 0 0 0 2 2h12M3 7h13a2 2 0 0 1 2 2v12"/><path d="M7 7h10v10H7z"/></svg><span class="photo-tool-name">裁剪</span><span class="photo-tool-hint">自由选区</span>
+              </button>
+              <button class="photo-tool-button photo-tool-wide" type="button" data-photo-action="draw" title="在照片上绘制标注" aria-label="画笔" aria-pressed="false">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m4 16.5-.8 4.3 4.3-.8L19 8.5 15.5 5 4 16.5Z"/><path d="m13.8 6.7 3.5 3.5M4 20.8l3.5-.8"/></svg><span class="photo-tool-name">画笔标注</span><span class="photo-tool-hint">自由绘制</span>
+              </button>
+            </div>
+            <section class="photo-editor-context-panel" hidden>
+              <div class="photo-context-heading"><span class="photo-context-spark"></span><strong>裁剪区域</strong></div>
+              <p>拖动照片创建选区，再移动边缘或手柄微调。</p>
+              <div class="photo-context-actions">
+                <button class="photo-context-apply" type="button" data-photo-action="apply-crop" title="应用当前裁剪"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m4 10 4 4 8-8"/></svg>应用</button>
+                <button class="photo-context-cancel" type="button" data-photo-action="cancel-crop" title="取消当前裁剪">取消</button>
+              </div>
+            </section>
+            <section class="photo-brush-panel" aria-label="画笔设置">
+              <div class="photo-section-caption photo-brush-caption"><span>画笔样式</span><span>BRUSH</span></div>
+              <label class="photo-pen-color" title="画笔颜色">
+                <input type="color" value="#ff3b30" aria-label="画笔颜色">
+                <span><strong>颜色</strong><small class="photo-color-value">#FF3B30</small></span>
+                <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m7 4 6 6-6 6"/></svg>
+              </label>
+              <label class="photo-pen-size" title="画笔粗细">
+                <span class="photo-size-line"><span>笔触粗细</span><output class="photo-pen-size-value">6 px</output></span>
+                <input type="range" min="2" max="18" value="6" aria-label="画笔粗细">
+              </label>
+            </section>
+            <div class="photo-sidebar-note"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M5 9V6.5a5 5 0 0 1 10 0V9"/><rect x="3.5" y="9" width="13" height="9" rx="2"/><path d="M10 12v3"/></svg><span>照片只在此设备本地处理</span></div>
+          </aside>
+          <div class="photo-workspace">
+            <div class="photo-stage-head">
+              <div class="photo-stage-status"><span class="photo-stage-live-dot"></span><strong>预览工作区</strong><span class="photo-stage-tag">LIVE PREVIEW</span></div>
+              <div class="photo-dimensions">— × — px</div>
+            </div>
+            <div class="photo-stage"><div class="photo-canvas-wrap"><canvas class="photo-canvas" aria-label="照片预览"></canvas><canvas class="photo-overlay" aria-hidden="true"></canvas></div></div>
+            <div class="photo-editor-hint" role="status" aria-live="polite"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="10" cy="10" r="7.25"/><path d="M10 9v4M10 6.5h.01"/></svg><span>旋转、裁剪或标注后，保存的照片会作为附件加入本轮。</span></div>
+          </div>
         </div>
-        <div class="photo-editor-hint" aria-live="polite">旋转、裁剪或标注后，保存的照片会作为附件加入本轮。</div>
-        <div class="photo-stage"><div class="photo-canvas-wrap"><canvas class="photo-canvas" aria-label="照片预览"></canvas><canvas class="photo-overlay" aria-hidden="true"></canvas></div></div>
-        <footer class="photo-editor-foot"><button type="button" data-photo-action="cancel">取消</button><button type="button" class="photo-save" data-photo-action="save">保存并添加附件</button></footer>
+        <footer class="photo-editor-foot">
+          <div class="photo-footer-note"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m5 10 3.2 3.2L15 6.5"/></svg><span>编辑完成后，照片将添加到本轮对话</span></div>
+          <div class="photo-footer-actions"><button class="photo-cancel" type="button" data-photo-action="cancel">取消</button><button type="button" class="photo-save" data-photo-action="save"><svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 3.5v9m0 0 3.5-3.5M10 12.5 6.5 9M4.5 16.5h11"/></svg>保存并添加附件</button></div>
+        </footer>
       </section>`;
     doc.body.appendChild(modal);
 
@@ -97,6 +151,7 @@ export function openPhotoEditor(file, options = {}) {
     const ctx = canvas.getContext && canvas.getContext('2d');
     const overlayCtx = overlay.getContext && overlay.getContext('2d');
     const hint = modal.querySelector('.photo-editor-hint');
+    const hintText = hint && hint.querySelector('span');
     const color = modal.querySelector('input[type="color"]');
     const penSize = modal.querySelector('input[type="range"]');
     const buttons = [...modal.querySelectorAll('[data-photo-action]')];
@@ -113,8 +168,19 @@ export function openPhotoEditor(file, options = {}) {
     const applyCropButton = modal.querySelector('[data-photo-action="apply-crop"]');
     const cancelCropButton = modal.querySelector('[data-photo-action="cancel-crop"]');
     const undoButton = modal.querySelector('[data-photo-action="undo"]');
+    const contextPanel = modal.querySelector('.photo-editor-context-panel');
+    const penSizeValue = modal.querySelector('.photo-pen-size-value');
+    const colorValue = modal.querySelector('.photo-color-value');
     const MAX_UNDO_ENTRIES = 8;
     const MAX_UNDO_BYTES = 96 * 1024 * 1024;
+
+    const syncBrushControls = () => {
+      if (penSizeValue && penSize) penSizeValue.textContent = `${Number(penSize.value) || 6} px`;
+      if (colorValue && color) colorValue.textContent = String(color.value || '#ff3b30').toUpperCase();
+    };
+    if (penSize) penSize.addEventListener('input', syncBrushControls);
+    if (color) color.addEventListener('input', syncBrushControls);
+    syncBrushControls();
 
     const cleanup = () => {
       if (state.finished) return;
@@ -123,7 +189,7 @@ export function openPhotoEditor(file, options = {}) {
       modal.remove();
     };
     const finish = (value) => { cleanup(); resolve(value); };
-    const setHint = (text) => { if (hint) hint.textContent = text; };
+    const setHint = (text) => { if (hintText) hintText.textContent = text; else if (hint) hint.textContent = text; };
     const syncActionButtons = () => {
       const blocked = !state.ready || state.undoing || state.drawing;
       if (undoButton) undoButton.disabled = blocked || (!undoHistory.length && !pendingSnapshots.size);
@@ -173,8 +239,13 @@ export function openPhotoEditor(file, options = {}) {
       state.dragHandle = null;
       state.dragInitial = null;
       if (!state.crop) state.selection = null;
+      if (contextPanel) contextPanel.hidden = !state.crop;
       canvas.style.cursor = state.crop ? 'crosshair' : state.draw ? 'crosshair' : '';
-      for (const button of buttons) button.classList.toggle('active', button.dataset.photoAction === mode);
+      for (const button of buttons) {
+        const active = button.dataset.photoAction === mode;
+        button.classList.toggle('active', active);
+        if (button.dataset.photoAction === 'crop' || button.dataset.photoAction === 'draw') button.setAttribute('aria-pressed', active ? 'true' : 'false');
+      }
       if (applyCropButton) applyCropButton.hidden = !state.crop || !state.selection;
       if (cancelCropButton) cancelCropButton.hidden = !state.crop;
       if (state.crop) setHint('拖动裁剪框边缘或八个手柄调整选区；也可在框内移动，完成后点“应用裁剪”。');
@@ -251,8 +322,8 @@ export function openPhotoEditor(file, options = {}) {
       overlay.height = canvas.height;
       if (overlayCtx) overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
       if (stage) stage.setAttribute('data-size', `${canvas.width}×${canvas.height}`);
-      const title = modal.querySelector('.photo-editor-title');
-      if (title) title.textContent = `${file.name || '照片'} · ${canvas.width}×${canvas.height}`;
+      const dimensions = modal.querySelector('.photo-dimensions');
+      if (dimensions) dimensions.textContent = `${canvas.width.toLocaleString()} × ${canvas.height.toLocaleString()} px`;
     };
     const beginCropDrag = (event, p) => {
       const handle = hitCropHandle(p, state.selection);
@@ -445,7 +516,8 @@ export function openPhotoEditor(file, options = {}) {
         ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
         syncOverlay();
         state.ready = true;
-        modal.querySelector('.photo-editor-title').textContent = `${file.name || '照片'} · ${canvas.width}×${canvas.height}`;
+        const fileName = modal.querySelector('.photo-file-name');
+        if (fileName) fileName.textContent = file.name || '拍摄照片';
         syncActionButtons();
         modal.querySelector('[data-photo-action="save"]').focus();
       } catch (error) {
