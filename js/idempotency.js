@@ -1,4 +1,4 @@
-// ─── 天枢 THN v2.4 · P1 幂等账本（Idempotency Ledger，预写日志语义）──────
+// ─── Dubhe Helix 2.5（天枢2.5） · P1 幂等账本（Idempotency Ledger，预写日志语义）──────
 // P0 已经在调用前算幂等键 `idem = hash(turnId + toolName + 规范化参数)` 并拦下「副作用不确定」的重发；
 // P1 把它升级成一份可持久化、可跨轮查询的账本（write-ahead log）：
 //   · claim  → 执行前登记「本键正在执行」（同键并发调用直接复用同一次执行，绝不重复落副作用）

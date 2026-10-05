@@ -1,5 +1,5 @@
-// ─── Teamo-Hermes Nexus（「天枢·赫尔墨斯」自研双系统自演进融合 Agent 架构）──
-// 深度融合 Nous Research Hermes Agent 架构精髓与 TeamoAgent 端云协同双系统优势：
+// ─── Dubhe Helix 2.5（天枢2.5）自研 Agent 执行框架 ───────────────────────
+// 融合 Nous Research Hermes Agent 的架构思路与 Dubhe Agent 的端云协同双系统：
 //   1. System-1 / System-2 双系统认知路由（Jev 预判向量 × 自适应温度 × 零额外轮次技能直注）
 //   2. 四层缓存不变量提示词编译器（stable → context → volatile 锁死前缀缓存 + ephemeral 动态注入）
 //   3. 沙箱工作区规范自发现（自动扫描 TEAMO.md / AGENTS.md / HERMES.md / CLAUDE.md / .cursorrules）
@@ -17,7 +17,7 @@ export { computeWilsonConfidenceInterval };
 //   - Stage 3 · 执行核验与链式足迹（合并原 L5 编排仲裁 + L6 自省与足迹）：并发工具调度 + 披露深度差异的口径核验 + SHA-256 跨轮次哈希链与外部 Store 交叉审计
 // 路由 / 档位策略的版本号（P2 v2.5）：策略改了这里必须改，且会被 policy.js 的
 // verifyPolicyRegistry() 与模块实际导出比对——审计记录里的「当时生效的路由策略」指的就是它。
-export const THN_ROUTER_POLICY_VERSION = 'thn-router-policy-2.5.0';
+export const DUBHE_ROUTER_POLICY_VERSION = 'dubhe-router-policy-2.5.0';
 
 export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
   mergedFromLayers: 6,
@@ -52,11 +52,11 @@ export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
 });
 
 export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
-  id: 'teamo-hermes-nexus-v1',
-  code: 'THN',
-  shortName: '天枢 THN',
-  name: '天枢 THN · Teamo-Hermes Nexus Architecture (三核正交架构 + P0 执行内核)',
-  version: '2.4.0',
+  id: 'dubhe-helix-2.5',
+  code: 'DH25',
+  shortName: '天枢2.5',
+  name: 'Dubhe Helix 2.5（天枢2.5） · 三核正交架构 + P0 执行内核',
+  version: '2.5.0',
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
@@ -811,7 +811,7 @@ export function recommendExecutionEngine(userText = '', { sandboxEnabled = true,
 
 export function formatExecutionRoutingHint(rec) {
   if (!rec || !rec.recommendedTools || !rec.recommendedTools.length) return '';
-  return `【天枢 THN · L5 工具引擎优选路由（${rec.tier}）】建议优先调用：${rec.recommendedTools.join(' / ')}（${rec.rationale}；环境溯源：算力=${rec.provenance.compute}，网络=${rec.provenance.network}）。`;
+  return `【天枢2.5 · L5 工具引擎优选路由（${rec.tier}）】建议优先调用：${rec.recommendedTools.join(' / ')}（${rec.rationale}；环境溯源：算力=${rec.provenance.compute}，网络=${rec.provenance.network}）。`;
 }
 
 // ─── 9. L5 子智能体冲突仲裁与置信度矩阵（Subagent Conflict Arbitration）───────
@@ -921,7 +921,7 @@ export function arbitrateSubagentReports(reports = []) {
 export function formatSubagentArbitrationNote(arb) {
   if (!arb || !Array.isArray(arb.ranked) || arb.ranked.length < 2) return '';
   const lines = [
-    '【天枢 THN · L5 子智能体冲突仲裁与置信度矩阵】',
+    '【天枢2.5 · L5 子智能体冲突仲裁与置信度矩阵】',
     `- 置信度排序：${arb.ranked.map((r) => `${r.agent}(置信度 ${r.confidence}, 倾向:${r.stance})`).join(' > ')}`,
   ];
   if (arb.consensus.length) {
@@ -986,7 +986,7 @@ export function createTurnTelemetry({ model = '', fastPath = false, activeMemory
 }
 
 export function formatObservabilityReport(telemetry) {
-  if (!telemetry) return '（暂无天枢 THN 遥测数据）';
+  if (!telemetry) return '（暂无天枢2.5 遥测数据）';
   const totalIn = telemetry.inputTokens + telemetry.cacheReadTokens;
   const cacheHitRate = totalIn > 0 ? `${Math.round((telemetry.cacheReadTokens / totalIn) * 100)}%` : '0%';
   const spans = Object.entries(telemetry.layerSpans || {})
@@ -996,7 +996,7 @@ export function formatObservabilityReport(telemetry) {
     .map((t) => `${t.name}(${t.engine},${t.durationMs}ms${t.ok ? '' : ',ERR'})`)
     .join(' → ') || '无工具调用';
   return [
-    `【天枢 THN · L6+ 全链路可观测性遥测（v${telemetry.version || '1.6.0'}）】`,
+    `【天枢2.5 · L6+ 全链路可观测性遥测（v${telemetry.version || '1.6.0'}）】`,
     `- 执行模式：${telemetry.escalated ? 'L1↗L6 中途反悔升档' : (telemetry.fastPath ? 'L1 Fast-Path 轻快直达' : 'L1-L6 全链路协同')} ｜ 总耗时：${telemetry.totalDurationMs || 0}ms`,
     `- 分层耗时：${spans}`,
     `- L2 缓存命中率：${cacheHitRate}（缓存读取 ${telemetry.cacheReadTokens} tok / 新增缓存 ${telemetry.cacheCreationTokens} tok / 输入 ${telemetry.inputTokens} tok）`,
@@ -1136,7 +1136,7 @@ export function arbitrateUnifiedEvidence({
       ? '深度等级 L2（多工具实测交叉核验，结论口径已对齐）'
       : `深度等级 L2（口径一致 + 误差已披露：当前有效档位 ${tierLabel} 通过多工具实测对齐结论口径，未启用 18 路独立子智能体隔离复核）`;
     const note = [
-      `【天枢 THN · L5 多工具证据交叉仲裁（有效档位：${tierLabel} ｜ ${depthDisclosure}）】`,
+      `【天枢2.5 · L5 多工具证据交叉仲裁（有效档位：${tierLabel} ｜ ${depthDisclosure}）】`,
       `- 已完成工具证据链：成功 [${okTools.join(', ') || '无'}]${errTools.length ? ` ｜ 异常 [${errTools.join(', ')}]` : ''}`,
       hasConflict
         ? '- 分歧仲裁：部分工具曾返回报错或空结果，最终结论必须以最新成功执行的沙箱/本地工具实测输出为准，严禁混用失败步骤的中间猜测。'
@@ -1166,7 +1166,7 @@ export function arbitrateUnifiedEvidence({
       depthGapDisclosed: true,
       depthDisclosure,
       hasConflict: false,
-      note: `【天枢 THN · L5 内源双视角交叉仲裁（${depthDisclosure}）】请在内部同时从「方案正向成立依据」与「边界反例/潜在隐患」两个对立视角交叉审视后再输出最终结论。`,
+      note: `【天枢2.5 · L5 内源双视角交叉仲裁（${depthDisclosure}）】请在内部同时从「方案正向成立依据」与「边界反例/潜在隐患」两个对立视角交叉审视后再输出最终结论。`,
     };
   }
 
@@ -1305,9 +1305,9 @@ export function formatDegradationDiagnostics(items = [], { compact = false, capC
   if (!Array.isArray(items) || !items.length) return '';
   if (compact) {
     const shortList = items.map((it) => `${it.id}:${it.status}`).join(', ');
-    return `【天枢 THN · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
+    return `【天枢2.5 · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
   }
-  const lines = [`【天枢 THN · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
+  const lines = [`【天枢2.5 · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
   for (const it of items) {
     lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}`);
   }
@@ -1317,7 +1317,7 @@ export function formatDegradationDiagnostics(items = [], { compact = false, capC
 // Ephemeral 元信息注入预算控制器（解决“决策足迹、L2 诊断等元信息挤占上下文预算”问题）：
 //   1. 快路径（FAST_DIRECT）完全跳过治理元信息注入（0 Token 开销）；
 //   2. 全链路下仅当用户问题涉及能力/架构/自评或触发受限工具意图时才展开多行恢复指南，否则压缩为单行能力掩码，降低 >65% 元提示词开销。
-const GOVERNANCE_DETAIL_TRIGGER_RE = /(?:天枢|THN|框架|架构|自评|评分|降级|为什么不能|不可用|开启|恢复|联网|中继|沙箱|子智能体|dispatch_subagent|fetch_url|能力|权限|工具表|口径|足迹)/i;
+const GOVERNANCE_DETAIL_TRIGGER_RE = /(?:天枢|Dubhe Helix 2\.5|框架|架构|自评|评分|降级|为什么不能|不可用|开启|恢复|联网|中继|沙箱|子智能体|dispatch_subagent|fetch_url|能力|权限|工具表|口径|足迹)/i;
 
 export function budgetEphemeralGovernanceNotes({
   fastPath = false,
@@ -1669,7 +1669,7 @@ export function formatDecisionFootprintForPrompt(fp) {
     `L5仲裁=${fp.arbitrationMode || '按需待命'}`,
     `链式校验=${fp.traceHash || 'verified'}(前序:${String(fp.prevTurnDigest || '').slice(0, 8)})`,
   ];
-  return `【天枢 THN · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
+  return `【天枢2.5 · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
 }
 
 export function formatDecisionFootprintSummary(fp) {
@@ -2088,7 +2088,7 @@ export function formatNexusAcceptanceReport(opts = {}) {
   const mCi = m.memoryGateWilson95CI.accuracy;
   const cCi = m.combinedAccuracyCI;
   return [
-    '【天枢 THN v2.5 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
+    '【Dubhe Helix 2.5（天枢2.5） · P2 · 离线基准评测与 Wilson 95% 置信区间验收报告】',
     '一、架构正交性与能力-工具表一致性锁（不藏状态、不夸大绝对值）：',
     `  - 4 位正交能力向量验证（Relay·Web·Sandbox·Dispatch，共 16 种掩码）：工具子集严格不相交 = ${m.capabilityOrthogonalityVerified}`,
     '  - 档位-工具表一致性锁（resolveEffectiveReasoningState + verifyPromptToolAlignment）：根治思考开关 Off 时残留 ULTRA 预设导致的自相矛盾诊断',

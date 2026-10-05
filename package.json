@@ -1,8 +1,8 @@
 {
-  "name": "teamo-agent",
+  "name": "dubhe-agent",
   "private": true,
   "type": "module",
-  "description": "Web Agent built on TeamoRouter LLM gateway",
+  "description": "Dubhe Agent — browser-based agent built on the TeamoRouter LLM gateway",
   "scripts": {
     "test": "node tests/agent.test.mjs",
     "eval:nexus": "node tests/run-nexus-eval.mjs",

@@ -11,7 +11,7 @@ import fs from 'node:fs';
 
 const KEY = process.env.TEAMO_API_KEY || '';
 const CHAT_MODEL = process.env.TEAMO_CHAT_MODEL || 'claude-sonnet-5';
-const OUT_DIR = process.env.TEAMO_LIVE_OUT || '/tmp/teamo-live';
+const OUT_DIR = process.env.TEAMO_LIVE_OUT || '/tmp/dubhe-live';
 
 if (!KEY) {
   console.log('⏭  tests/live-check.mjs 跳过：未设置 TEAMO_API_KEY（真实网关测试需显式提供 key）');

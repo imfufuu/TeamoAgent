@@ -1,6 +1,6 @@
 # 第三方组件与许可声明
 
-TeamoAgent 本体以 MIT 许可发布（见 [LICENSE](./LICENSE)）。
+Dubhe Agent 本体以 MIT 许可发布（见 [LICENSE](./LICENSE)）。
 本项目打包或运行时依赖以下第三方组件：
 
 ## 本地打包（随仓库分发，位于 `assets/`）

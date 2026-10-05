@@ -1,5 +1,5 @@
-// ─── 天枢 THN v2.3 · P0 执行内核（Execution Kernel）──────────────────────
-// 目标（对应 P0 三件事）：把 THN 从「能选择工具的 Agent」提升为「能安全管理执行过程的 Agent」。
+// ─── Dubhe Helix 2.5（天枢2.5） · P0 执行内核（Execution Kernel）──────────────────────
+// 目标（对应 P0 三件事）：把 Dubhe Helix 2.5 从「能选择工具的 Agent」提升为「能安全管理执行过程的 Agent」。
 //
 //   1. 统一执行状态机：路由 / 工具 / 审计 / 重试共用一条显式状态轨迹，
 //      每次转移都记录 { turnId, from, to, reason, timestamp, policyVersion }。
@@ -1735,7 +1735,7 @@ export function evaluateExecutionKernelAcceptance({ toolNames = [], sampleTurnId
 
 export function formatExecutionKernelAcceptanceReport(result = evaluateExecutionKernelAcceptance()) {
   return [
-    `【天枢 THN v${result.kernelVersion} · P0 执行内核自检（${result.passed}/${result.total} 通过）】`,
+    `【天枢2.5 v${result.kernelVersion} · P0 执行内核自检（${result.passed}/${result.total} 通过）】`,
     ...result.checks.map((c) => `  ${c.ok ? '✓' : '✗'} ${c.label}\n    · ${c.detail}`),
   ].join('\n');
 }

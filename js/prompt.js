@@ -26,7 +26,7 @@ export function assembleSystemLayers({
 }
 
 export function formatRuntime({ now, model, imageModel, filesNote, webNote, relayNote } = {}) {
-  const lines = ['# TeamoAgent runtime', '底层框架：天枢 THN（天枢·赫尔墨斯 / Teamo-Hermes Nexus）'];
+  const lines = ['# Dubhe Agent runtime', '底层框架：Dubhe Helix 2.5（天枢2.5）'];
   if (now) lines.push(`当前时间：${now instanceof Date ? now.toISOString() : String(now)}`);
   if (model) lines.push(`Session model: ${model}`);
   if (imageModel) lines.push(`生图模型：${imageModel}（generate_image 必须用这个 ID，不要传 model 参数；仅用于照片/插画/海报等栅格画面，统计图/流程图/思维导图/架构图禁止用生图）`);

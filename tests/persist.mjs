@@ -5,7 +5,7 @@
 // 现在重数据外置到 IndexedDB，localStorage 只存轻量状态。
 //
 // 用法：npm run test:persist            （默认跑本地文件）
-//       TEAMO_PERSIST_URL=https://imfufuu.github.io/TeamoAgent/ npm run test:persist
+//       TEAMO_PERSIST_URL=https://imfufuu.github.io/dubhe-agent/ npm run test:persist
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';

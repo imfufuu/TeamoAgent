@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.7';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.8';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,8 +62,8 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.7';
-// ─── P0 执行内核（THN v2.3）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.8';
+// ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
   EXECUTION_STATES,
@@ -94,8 +94,8 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.7';
-// ─── P1（THN v2.4）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
+} from './execution.js?v=2026.10.5.8';
+// ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   buildCheckpoint,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.7';
+} from './recovery.js?v=2026.10.5.8';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.7';
+} from './idempotency.js?v=2026.10.5.8';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.7';
+} from './memorylife.js?v=2026.10.5.8';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.7';
+} from './trajectory.js?v=2026.10.5.8';
 
-// ─── P2（THN v2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.7';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.7';
+// ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.8';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.8';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.7';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.7';
+} from './experiments.js?v=2026.10.5.8';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.8';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +143,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.7';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.7';
+} from './executionContext.js?v=2026.10.5.8';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.8';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.7';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.8';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -219,7 +219,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
   const subTools = subagentTools(sandboxEnabled, def);
   const memBlock = formatMemory(memory);
   const messages = [
-    { role: 'system', text: `${def.prompt}\n\n你是 TeamoAgent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}${memBlock ? `\n\n${memBlock}` : ''}\n\n${OUTPUT_SPEC}` },
+    { role: 'system', text: `${def.prompt}\n\n你是 Dubhe Agent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}${memBlock ? `\n\n${memBlock}` : ''}\n\n${OUTPUT_SPEC}` },
     { role: 'user', text: task },
   ];
   let finalText = '';
@@ -323,7 +323,7 @@ export function createAgent(store, hooks = {}) {
     try {
       return fn(...args);
     } catch (err) {
-      console.warn(`[TeamoAgent] hooks.${name} 异常（已忽略，不影响本轮对话）`, err);
+      console.warn(`[Dubhe Agent] hooks.${name} 异常（已忽略，不影响本轮对话）`, err);
       return undefined;
     }
   };
@@ -1171,7 +1171,7 @@ export function createAgent(store, hooks = {}) {
     });
     const nexusState = { stepHistory, ledger: taskLedger, subagentReports: turn.subagentReports, telemetry, turnTools: tools };
 
-    // ── P0 执行内核初始化（THN v2.3）──────────────────────────────────
+    // ── P0 执行内核初始化（Dubhe Helix 2.5 · P0）──────────────────────────────────
     // 一个回合一条状态轨迹：路由/工具/审计/重试共用同一状态机，杜绝各模块各自维护状态。
     const sessionId = store.state.activeSessionId || 'session-local';
     const prevRecord = store.state.lastExecutionRecord && store.state.lastExecutionRecord.sessionId === sessionId
@@ -2132,11 +2132,11 @@ export function createAgent(store, hooks = {}) {
       if (typeof globalThis !== 'undefined' && globalThis.__teamoModPush) globalThis.__teamoModPush({ stage: imgTurn ? 'turn:fail-closed' : 'turn:fail-open', reason, error: String(err && err.message || err).slice(0, 220) });
       if (imgTurn) {
         // 带图回合 fail-closed：审核没跑完就不放行，图片绝不进沙箱（模型在后台继续预热，用户可重试）
-        console.warn(`[TeamoAgent] 图片审核${reason}，已 fail-closed 拦截本轮`, err);
+        console.warn(`[Dubhe Agent] 图片审核${reason}，已 fail-closed 拦截本轮`, err);
         emit('onModerationFailClosed', reason);
         return { blocked: true, timeout: true, image: { blocked: true, timeout: true, reason } };
       }
-      console.warn(`[TeamoAgent] 内容审核${reason}，已 fail-open 放行本轮（纯文本，规则层已兜底）`, err);
+      console.warn(`[Dubhe Agent] 内容审核${reason}，已 fail-open 放行本轮（纯文本，规则层已兜底）`, err);
       emit('onModerationFailOpen', reason);
       return { blocked: false, error: err && err.message ? err.message : String(err) };
     } finally {
@@ -2349,7 +2349,7 @@ export function createAgent(store, hooks = {}) {
         if (moderation && moderation.blocked) { removePreviewTurn(userMsg, checkpoint); blockByModeration(moderation); return; }
       } catch (err) {
         if (err && err.name === 'AbortError') { removePreviewTurn(userMsg, checkpoint); setStatus('cancelled'); emit('onCancelled'); return; }
-        console.warn('[TeamoAgent] 内容审核异常，已 fail-open 放行本轮', err);
+        console.warn('[Dubhe Agent] 内容审核异常，已 fail-open 放行本轮', err);
       }
       store.updateMessage(userMsg.id, { transientModeration: false, moderationPending: false });
       const copied = copyAttachmentsToFS(fs, attachments);

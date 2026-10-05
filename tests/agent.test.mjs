@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.7';
+} from '../js/api.js?v=2026.10.5.8';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.7');
+const api = await import('../js/api.js?v=2026.10.5.8');
 
 let passed = 0;
 const queue = [];
@@ -905,7 +905,7 @@ test('systemPrompt / 子智能体：注入输出规范', async () => {
   assert.match(systemPrompt(), /上海初中业余编程爱好者/);
   assert.match(systemPrompt(), /lks\.tan\.cn@gmail\.com/);
   assert.match(systemPrompt(), /不是 Kiro/);
-  assert.match(systemPrompt(), /只回答 TeamoAgent/);
+  assert.match(systemPrompt(), /只回答 Dubhe Agent/);
   assert.equal(/望舒|团团|茶沫/.test(systemPrompt()), false);
 });
 
@@ -2195,10 +2195,10 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(homeJs, /keydown/);
   assert.match(homeJs, /hasOwnProperty.call\(sc, 'title'\)/);
   assert.match(home, /mailto:lks\.tan\.cn@gmail\.com/);
-  assert.match(home, /github.com\/imfufuu\/TeamoAgent/);
+  assert.match(home, /github.com\/imfufuu\/dubhe-agent/);
   const appHtml = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.equal(appHtml.includes('lks.tan.cn@gmail.com'), false, '对话页不展示联系邮箱');
-  assert.equal(appHtml.includes('github.com/imfufuu/TeamoAgent'), false, '对话页不展示仓库链接');
+  assert.equal(appHtml.includes('github.com/imfufuu/dubhe-agent'), false, '对话页不展示仓库链接');
   assert.match(home, /id="principles"/);
   assert.match(home, /id="why"/);
   assert.match(home, /为什么选我们？/);
@@ -2469,9 +2469,9 @@ test('write_file 支持 append 与 replace 局部修改', async () => {
   const a = await executeTool('write_file', { path: 'n.md', mode: 'append', content: ' world' }, { fs });
   assert.match(a, /已追加/);
   assert.equal(fs.read('n.md'), 'hello world');
-  const r = await executeTool('write_file', { path: 'n.md', mode: 'replace', old_text: 'world', new_text: 'Teamo' }, { fs });
+  const r = await executeTool('write_file', { path: 'n.md', mode: 'replace', old_text: 'world', new_text: 'Dubhe' }, { fs });
   assert.match(r, /已局部修改/);
-  assert.equal(fs.read('n.md'), 'hello Teamo');
+  assert.equal(fs.read('n.md'), 'hello Dubhe');
   const miss = await executeTool('write_file', { path: 'n.md', mode: 'replace', old_text: 'nope', new_text: 'x' }, { fs });
   assert.match(miss, /找不到指定片段/);
 });
@@ -3101,7 +3101,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.7');
+  const api = await import('../js/api.js?v=2026.10.5.8');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3293,7 +3293,7 @@ test('启动期误判离线时，实际可用的 Cloudflare Worker 会在联网�
     store.state.settings.jevEnabled = false;
     store.state.relayOk = false; // 启动期可能误判；公开 Worker 实际可用
     const agent = createAgent(store, { onRelayStatus: (ok, meta) => relayEvents.push({ ok, meta }) });
-    await agent.send('请联网搜索 TeamoAgent 的公开说明');
+    await agent.send('请联网搜索 Dubhe Agent 的公开说明');
     assert.equal(store.state.relayOk, true, '实时复探成功后纠正 Store 中的离线状态');
     assert.equal(net.currentRelay()?.label, 'public', '应选中健康检查通过的 Cloudflare Worker');
     assert.equal(net.relaySupports('search'), true);
@@ -3894,7 +3894,7 @@ test('Agent：系统提示拆成 cached + ephemeral，Jev 只出现在后者', a
     await agent.send('随便聊聊');
     const sys = (calls[0].body.messages || []).filter((m) => m.role === 'system');
     assert.ok(sys.length >= 1);
-    assert.match(sys[0].content, /TeamoAgent/);
+    assert.match(sys[0].content, /Dubhe Agent/);
     assert.match(sys[0].content, /available_skills/);
     assert.match(sys[0].content, /子智能体委派（dispatch_subagent）/);
     assert.match(sys[0].content, /不是 Max\/Ultra/);
@@ -3934,11 +3934,11 @@ test('index.html 附件 accept 含 PDF 与 ZIP；提示词说明转图片再识�
   assert.match(sys, /zip_files/);
   assert.equal(/\.pdf\.txt/.test(sys), false);
 });
-test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 TEAMOAGENT', async () => {
+test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 DUBHEAGENT', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
-  assert.match(html, /class="logo-text"[^>]*>TEAMO<i>AGENT<\/i>/);
+  assert.match(html, /class="logo-text"[^>]*>DUBHE<i>AGENT<\/i>/);
   const logo = css.slice(css.indexOf('.logo-text {'), css.indexOf('.logo-text i'));
   assert.equal(/text-overflow:\s*ellipsis/.test(logo), false, '品牌名不得裁成省略号');
   assert.match(css, /\.logo-text \{[^}]*flex-shrink:\s*0/);
@@ -4650,7 +4650,7 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
   assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site'\]\)/);
   assert.match(ag, /内置沙箱 Git/);
   assert.match(net, /function localGitRun/);
-  assert.match(net, /git version TeamoGit/);
+  assert.match(net, /git version DubheGit/);
   assert.match(tools, /内置轻量 Git/);
   assert.match(tools, /gitRun\(\{ command: args\.command[\s\S]{0,120}fs \}\)/);
 });
@@ -5000,11 +5000,11 @@ test('V1.6 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.6');
-  assert.equal(APP_VERSION, '2026.10.5.7');
-  assert.match(html, /TeamoAgent V1\.6 —/);
-  assert.match(home, /TeamoAgent V1\.6 · 构建 2026\.10\.5\.7/);
-  assert.match(docs, /class="ver-badge" title="Teamo V1\.6">V1\.6<\/span>/);
-  assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.7/);
+  assert.equal(APP_VERSION, '2026.10.5.8');
+  assert.match(html, /Dubhe Agent V1\.6 —/);
+  assert.match(home, /Dubhe Agent V1\.6 · 构建 2026\.10\.5\.8/);
+  assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.6">V1\.6<\/span>/);
+  assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
@@ -5333,7 +5333,7 @@ test('对话区图表修复：CSS 定义 --accent/--sans/--warn 且思维导图�
   assert.match(stylesCss, /\.md-mind-node\.branch-0 rect/, 'branch-0 应有显式填充样式');
 
   const { renderMarkdown } = await import('../js/ui.js');
-  const md = `:::mind TeamoAgent 能力版图
+  const md = `:::mind Dubhe Agent 能力版图
 - 计算
   - JavaScript (Web Worker)
   - Python (Pyodide)
@@ -5429,9 +5429,14 @@ test('Explored Files 合并后空壳助手节点自动折叠，不再累加多�
   assert.match(stylesCss, /\.msg-assistant\.msg-collapsed\s*\{\s*display:\s*none\s*!important/, '空壳助手节点应 display: none 不占行距');
 });
 
-test('Teamo-Hermes Nexus 自研融合架构：六层架构规范、工作区上下文自发现、跨会话 BM25 召回、压缩前记忆刷盘、技能遥测与执行自省护栏', async () => {
+test('Dubhe Helix 2.5（天枢2.5） 自研融合架构：六层架构规范、工作区上下文自发现、跨会话 BM25 召回、压缩前记忆刷盘、技能遥测与执行自省护栏', async () => {
   const nexus = await import('../js/nexus.js');
   assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.layers.length, 6, '应包含完整六层融合架构定义');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.id, 'dubhe-helix-2.5');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.code, 'DH25');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.shortName, '天枢2.5');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.name, 'Dubhe Helix 2.5（天枢2.5） · 三核正交架构 + P0 执行内核');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.version, '2.5.0');
 
   // 1. 工作区规范文件自发现
   const fs = createFS({
@@ -5510,7 +5515,7 @@ test('Teamo-Hermes Nexus 自研融合架构：六层架构规范、工作区上�
   assert.match(nexus.formatTaskLedgerNote(ledger), /read_file → write_file/);
 });
 
-test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、render_dot 错位修复、天枢 THN 身份、导航与文档精简）', async () => {
+test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、render_dot 错位修复、天枢2.5 身份、导航与文档精简）', async () => {
   const fsp = await import('node:fs');
   const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
@@ -5541,12 +5546,12 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
   assert.ok(dotRes.svg.includes('模型流式推理'), '节点 C 的 label 不应被回边的 label 覆盖');
   assert.ok(dotRes.svg.includes('生图与识图'), '含方括号的节点 T4 应完整解析');
 
-  // 3. Agent 知晓自身底层框架名（天枢 THN）
+  // 3. Agent 知晓自身底层框架名（天枢2.5）
   const { systemPrompt } = await import('../js/config.js');
   const { formatRuntime } = await import('../js/prompt.js');
   const sysText = systemPrompt(new Date());
-  assert.match(sysText, /天枢 THN/, 'systemPrompt 应声明底层框架天枢 THN');
-  assert.match(formatRuntime({}), /天枢 THN/, 'runtime 提示应包含底层框架天枢 THN');
+  assert.match(sysText, /天枢2.5/, 'systemPrompt 应声明底层框架天枢2.5');
+  assert.match(formatRuntime({}), /天枢2.5/, 'runtime 提示应包含底层框架天枢2.5');
 
   // 4. 导航页外观左边改为「文档」
   assert.match(indexHtml, /<a class="nav-link" href="\.\/docs\.html">文档<\/a>\s*<button id="theme-toggle" class="nav-link" type="button">外观<\/button>/);
@@ -5563,10 +5568,10 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
 
   // 8. 文档页移除零散的 V1.3 β 条目，全部精简整合进 V1.4 Stable
   assert.equal(docsHtml.includes('V1.3 β'), false, 'docs.html 不应再保留零散的 V1.3 β 版本块');
-  assert.match(docsHtml, /V1\.4 Stable（天枢 THN 融合架构）/);
+  assert.match(docsHtml, /V1\.4 Stable（Dubhe Helix 2.5（天枢2.5）融合架构）/);
 });
 
-group('2026.9.30.7 40模型全支持与热度版本排序 / 长期记忆自动生效 / 天枢THN自演进增强 / 黑粒回滚与图表微交互');
+group('2026.9.30.7 40模型全支持与热度版本排序 / 长期记忆自动生效 / 天枢2.5自演进增强 / 黑粒回滚与图表微交互');
 
 test('2026.9.30.7：支持全部 40 个可用对话模型，且按热度与版本优先级排序', async () => {
   const expected40 = [
@@ -5633,7 +5638,7 @@ test('2026.9.30.7：长期记忆点自动传递给 Agent 与子智能体生效�
   assert.match(autoFacts[0], /TypeScript 严格模式/);
 });
 
-test('2026.9.30.7：天枢 THN 五项自演进增强（L1 轻快路径、L3 中英概念簇召回、L5 0ms工具路由与子智能体冲突仲裁、L6+ 可观测性）', async () => {
+test('2026.9.30.7：天枢2.5 五项自演进增强（L1 轻快路径、L3 中英概念簇召回、L5 0ms工具路由与子智能体冲突仲裁、L6+ 可观测性）', async () => {
   const nexus = await import('../js/nexus.js');
   assert.ok(nexus.NEXUS_ARCHITECTURE_SPEC.enhancements.length >= 5);
 
@@ -5720,7 +5725,7 @@ test('2026.9.30.7：Toast 最多堆叠 3 条、回滚小黑色高精细微粒特
   assert.match(stylesCss, /\.md-chart-tooltip\.show/);
 });
 
-group('2026.9.30.8 天枢 THN 深度自评六大痛点闭环治理（写入守门与遗忘GC / L1可逆路由 / 决策足迹 / 记忆ID置信度TTL / 可解释降级 / 全档位L5仲裁）');
+group('2026.9.30.8 天枢2.5 深度自评六大痛点闭环治理（写入守门与遗忘GC / L1可逆路由 / 决策足迹 / 记忆ID置信度TTL / 可解释降级 / 全档位L5仲裁）');
 
 test('2026.9.30.8：痛点1&4 治理——技能与记忆统一质量守门人、自动淘汰 learned-这个呢 噪声技能、记忆带 ID/置信度/TTL 并支持精准删除', async () => {
   const sk = await import('../js/skills.js');
@@ -5834,7 +5839,7 @@ test('2026.9.30.8：痛点2/3/5/6 治理——L1 路由可逆化中途升档、�
   assert.match(summaryFp, /天枢 L1↗L6 中途升档 · 记忆×1 · 召回×1 · 技能:structured-diagrams · 工具×1 · GC清理×1/);
 });
 
-group('2026.9.30.9 天枢 THN v2.0 六大挑刺与六项验收指标闭环重构（三核四态收敛 / 软归档可恢复 / 0ms本地预筛 / 口径一致与深度披露 / 前提重探针 / 足迹哈希忠实度）');
+group('2026.9.30.9 天枢2.5 v2.0 六大挑刺与六项验收指标闭环重构（三核四态收敛 / 软归档可恢复 / 0ms本地预筛 / 口径一致与深度披露 / 前提重探针 / 足迹哈希忠实度）');
 
 test('2026.9.30.9：挑刺①&②治理——六层合并收敛为「三核四态」消除组合爆炸，并通过跨层交集矩阵测试', async () => {
   const nexus = await import('../js/nexus.js');
@@ -5985,7 +5990,7 @@ test('2026.9.30.9：挑刺④/⑤/⑥与六项验收指标——0ms 本地预筛
   assert.equal(scorecard.footprintFaithfulnessRate, 1.0, '6. 决策足迹 SHA-256 哈希链校验通过');
 });
 
-test('2026.10.4：天枢 THN 正交能力向量扩展至 64 组合，并纳入 Worker 搜索/爬虫特性', async () => {
+test('2026.10.4：天枢2.5 正交能力向量扩展至 64 组合，并纳入 Worker 搜索/爬虫特性', async () => {
   const nexus = await import('../js/nexus.js');
   const mem = await import('../js/memory.js');
   const sk = await import('../js/skills.js');
@@ -6095,7 +6100,7 @@ test('2026.10.4：天枢 THN 正交能力向量扩展至 64 组合，并纳入 W
   assert.equal(brokenChainAudit.passed, false, '跨轮次哈希链断裂时必须被独立审计器检出');
 });
 
-test('2026.9.30.11：天枢 THN v2.2 档位-工具表一致性锁、N=240 Wilson 95% 置信区间、元提示词预算控制、底栏净空与图表 2D 扁平交互', async () => {
+test('2026.9.30.11：天枢2.5 v2.2 档位-工具表一致性锁、N=240 Wilson 95% 置信区间、元提示词预算控制、底栏净空与图表 2D 扁平交互', async () => {
   const { readFileSync } = await import('node:fs');
   const nexus = await import('../js/nexus.js');
   const mem = await import('../js/memory.js');
@@ -6192,7 +6197,7 @@ test('2026.9.30.11：天枢 THN v2.2 档位-工具表一致性锁、N=240 Wilson
 });
 
 
-group('2026.10.1.12 天枢 THN v2.3 · P0 执行内核（统一状态机 / 预算与风险治理 / 工具契约校验）');
+group('2026.10.1.12 Dubhe Helix 2.5（天枢2.5） · P0 执行内核（统一状态机 / 预算与风险治理 / 工具契约校验）');
 
 test('2026.10.1.12：P0-1 显式执行状态机——转移表自洽、工具失败不可隐式收尾、转移可在版本化审计中重放', async () => {
   const ex = await import('../js/execution.js');
@@ -6640,7 +6645,7 @@ test('2026.10.1.12：P0-7 端到端——预算耗尽时调用前拦截并转入
 });
 
 
-group('2026.10.1.13 天枢 THN v2.4 · P1 可恢复执行（检查点 / 幂等账本 / 交互确认 / 记忆生命周期 / 轨迹级评测）');
+group('2026.10.1.13 Dubhe Helix 2.5（天枢2.5） · P1 可恢复执行（检查点 / 幂等账本 / 交互确认 / 记忆生命周期 / 轨迹级评测）');
 
 test('2026.10.1.13：P1-1 执行检查点——步骤可复用、产物漂移可检出、恢复计划给出核验顺序', async () => {
   const rc = await import('../js/recovery.js');
@@ -7194,10 +7199,10 @@ test('2026.10.1.13：P1-8 端到端——记忆按生命周期注入与写入：
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// P2（THN v2.5）：策略实验与在线反馈闭环 / 故障注入与红队评测
+// P2（Dubhe Helix 2.5）：策略实验与在线反馈闭环 / 故障注入与红队评测
 // 这一组是**真跑一轮**（mock 模型），验的不是「代码里有这个词」，而是「跑完之后状态里真的有」。
 // ══════════════════════════════════════════════════════════════════════════
-queue.push({ group: '2026.10.2.14 天枢 THN v2.5 · P2 策略演进与红队评测（统一执行上下文 / 策略版本化 / 指标 / 审计三层 / 故障注入 / 实验）' });
+queue.push({ group: '2026.10.2.14 Dubhe Helix 2.5（天枢2.5） · P2 策略演进与红队评测（统一执行上下文 / 策略版本化 / 指标 / 审计三层 / 故障注入 / 实验）' });
 
 test('2026.10.2.14：P2-1 端到端——一轮跑完，策略快照 / 统一上下文 / 指标 / 审计三层对账 / 遥测五面同时落盘', async () => {
   const calls = [];

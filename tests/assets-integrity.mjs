@@ -137,11 +137,11 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   const icons = read('../js/icons.js');
   const css0 = read('../css/styles.css');
   assert.match(ui, /p:debug/, '⌘K 命令面板应有调试浮窗入口');
-  // 2026.9.27.19：图标入缓存 / Teamo 组图标 / 文档页重设计 / opus-5-5 热门置顶
+  // 2026.9.27.19：图标入缓存 / Dubhe Agent /system 组图标 / 文档页重设计 / opus-5-5 热门置顶
   const swPre = read('../sw.js');
   assert.match(swPre, /fonts\|icons/, 'SW 范围应覆盖 assets/icons');
   assert.match(swPre, /PRECACHE_ICONS/, 'SW 应在 install 预热厂商图标');
-  assert.match(ui, /sys-gear">\$\{ICON\.system\}<\/span><span>Teamo/, 'Teamo 分组标题应有图标');
+  assert.match(ui, /sys-gear">\$\{ICON\.system\}<\/span><span>Dubhe Agent/, 'Dubhe Agent 分组标题应有图标');
   const cfg = read('../js/config.js');
   assert.match(cfg, /\{ id: 'claude-opus-5-5',\s+provider: 'Anthropic', hot: true \}/, 'opus-5-5 应入表且标热门');
   const idx55 = cfg.indexOf("claude-opus-5-5");
@@ -163,7 +163,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(ui, /m\.model === '__system__' \? sysReplyHtml/, 'system 回复应走格式化渲染');
   assert.match(ui, /syncCapLine\(\); \/\/ 能力行/, '进通道应刷新能力行');
   assert.match(ui, /'<span class="dd-item-id mono">system-commands<\/span>'/, '菜单条目应为英文且无图标');
-  assert.match(ui, /dd-group-title', `<span class="sys-gear">\$\{ICON\.system\}<\/span><span>Teamo<\/span>`\)\);/, '分组标题应为 Teamo（带图标）');
+  assert.match(ui, /dd-group-title', `<span class="sys-gear">\$\{ICON\.system\}<\/span><span>Dubhe Agent<\/span>`\)\);/, '分组标题应为 Dubhe Agent（带图标）');
   assert.match(ui, /model-search-clear/, '搜索清空按钮应接线');
   assert.ok(exists('../docs.html'), 'docs.html 文档页应存在');
   const docs = read('../docs.html');
@@ -226,7 +226,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(agent, /turn:fail-closed/, '带图回合审核失败应 fail-closed');
 });
 
-// ── P1（THN v2.4）：可恢复执行与记忆生命周期的接线钉子 ──
+// ── P1（Dubhe Helix 2.5）：可恢复执行与记忆生命周期的接线钉子 ──
 // 这些不是「实现正确性」测试（那在 agent.test.mjs / recovery-kernel-smoke.mjs），
 // 而是「混版缓存下不能悄悄丢失」的结构钉子：模块、桥、样式、命令都必须在位。
 group('P1 可恢复执行接线（检查点 / 幂等账本 / 确认卡 / 记忆生命周期）');

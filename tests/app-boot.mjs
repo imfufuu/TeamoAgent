@@ -98,7 +98,7 @@ globalThis.fetch = async (url, opts) => {
   if (hay.includes('给下面这轮对话起一个标题')) {
     return ep === 'anthropic' ? sseRes(anthTextSse('沙箱算质数与 π')) : ep === 'responses' ? respText('沙箱算质数与 π') : chatText('沙箱算质数与 π');
   }
-  // 子智能体的首轮请求只有 system+user，system 里一定带「TeamoAgent 体系中的」
+  // 子智能体的首轮请求只有 system+user，system 里一定带「Dubhe Agent 体系中的」
   if (hay.includes('体系中的')) {
     return ep === 'anthropic' ? sseRes(anthTextSse('结论：先加输入校验，再补边界用例'))
       : ep === 'responses' ? respText('结论：先加输入校验，再补边界用例')
@@ -176,8 +176,8 @@ await tick();
 console.log('\n挂载与入口资源');
 const cfg = await import(path.join(ROOT, 'js/config.js'));
 ok('main.js 完成挂载（顶栏与对话区就绪）', !!$('#messages') && !!$('#composer-input') && !!$('#send-btn'));
-ok(`侧栏构建标识 = Teamo ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`,
-  $('#build-stamp').textContent === `Teamo ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`, $('#build-stamp').textContent);
+ok(`侧栏构建标识 = Dubhe Agent ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`,
+  $('#build-stamp').textContent === `Dubhe Agent ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`, $('#build-stamp').textContent);
 const htmlSrc = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
 ok('入口样式/脚本带 ?v=（穿透 Pages 静态资源缓存）', htmlSrc.includes(`css/styles.css?v=${cfg.APP_VERSION}`) && htmlSrc.includes(`js/main.js?v=${cfg.APP_VERSION}`));
 
@@ -367,7 +367,7 @@ ok('起标题是独立请求（不带对话历史与工具）', !!titleReq && !t
 globalThis.confirm = window.confirm = () => true; // ui.js 里是裸 confirm → 解析到 globalThis
 click($('#clear-sessions'));
 await tick(30);
-ok('侧栏底部版本标识与构建号跟随 config.js', $('#build-stamp').textContent === `Teamo ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`,
+ok('侧栏底部版本标识与构建号跟随 config.js', $('#build-stamp').textContent === `Dubhe Agent ${cfg.APP_RELEASE} · v${cfg.APP_VERSION}`,
   $('#build-stamp').textContent.trim());
 ok('侧栏 Logo 旁徽章与当前发布版本一致', !!$('.ver-badge') && $('.ver-badge').textContent.trim() === cfg.APP_RELEASE);
 ok('「清空」一键删除全部会话记录', $$('#session-list .sess-item').length === 0 && !!$('#session-list .sess-empty-hint'));

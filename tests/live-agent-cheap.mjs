@@ -27,7 +27,7 @@ async function step(name, fn) {
   console.log(rows[rows.length - 1]);
 }
 
-console.log('═══ TeamoAgent 便宜工具循环实测 ═══\n');
+console.log('═══ Dubhe Agent 便宜工具循环实测 ═══\n');
 
 let models = [];
 await step('GET /v1/models', async () => {

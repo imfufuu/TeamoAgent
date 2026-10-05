@@ -52,7 +52,7 @@ function collect(onExtra) {
   };
 }
 
-console.log('═══ TeamoAgent 全局冒烟测试 ═══\n');
+console.log('═══ Dubhe Agent 全局冒烟测试 ═══\n');
 
 // ── 0. 模型列表（免费）──
 let models = [];

@@ -73,7 +73,7 @@ function collect() {
   };
 }
 
-console.log('═══ TeamoAgent 联网实测（真实网关）═══\n');
+console.log('═══ Dubhe Agent 联网实测（真实网关）═══\n');
 
 for (const model of WEB_MODELS) {
   const cap = webCapFor(model);

@@ -1,4 +1,4 @@
-/* ─── TeamoAgent · 黑白极简设计系统 ─────────────────────────────────── */
+/* ─── Dubhe Agent · 黑白极简设计系统 ─────────────────────────────────── */
 @property --bg { syntax: "<color>"; inherits: true; initial-value: #ffffff; }
 @property --bg-soft { syntax: "<color>"; inherits: true; initial-value: #fafafa; }
 @property --fg { syntax: "<color>"; inherits: true; initial-value: #0a0a0a; }
@@ -197,7 +197,7 @@ a { color: var(--fg); }
   .sidebar.sidebar-open { transform: none; box-shadow: var(--shadow-lg); }
   #sidebar-fab { display: flex; }
   .app:has(.sidebar.sidebar-open) #sidebar-fab { display: none; }
-  /* 抽屉比桌面侧栏窄：收紧 Logo 行，完整显示 TEAMOAGENT，不省略 */
+  /* 抽屉比桌面侧栏窄：收紧 Logo 行，完整显示 DUBHEAGENT，不省略 */
   .logo { gap: 8px; padding: 16px 10px 12px 14px; }
   .logo .ver-badge { display: none; }
   #sidebar-toggle { min-width: 36px; min-height: 36px; padding: 6px; }

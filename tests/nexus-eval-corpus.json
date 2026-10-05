@@ -1,6 +1,6 @@
 {
   "version": "2026.10.1.12",
-  "description": "天枢 THN v2.2 独立离线基准评测集（共 240 条：路由升档 120 条 [In-Domain 60 + OOD 60] + 记忆守门人 120 条 [In-Domain 60 + OOD 60]，支持 95% Wilson 置信区间与基线对比）",
+  "description": "天枢2.5 v2.2 独立离线基准评测集（共 240 条：路由升档 120 条 [In-Domain 60 + OOD 60] + 记忆守门人 120 条 [In-Domain 60 + OOD 60]，支持 95% Wilson 置信区间与基线对比）",
   "costWeights": {
     "routeEscalation": {
       "fnWeight": 5,
@@ -979,7 +979,7 @@
       "id": "mem-pos-018",
       "split": "in_domain",
       "category": "identity",
-      "text": "用户目前在上海就读初中，业余维护开源项目 TeamoAgent",
+      "text": "用户目前在上海就读初中，业余维护开源项目 Dubhe Agent",
       "expected": true
     },
     {

@@ -1,4 +1,4 @@
-# TeamoAgent Cloudflare Relay
+# Dubhe Agent Cloudflare Relay
 
 Cloudflare Worker 中继（module syntax），为静态站点提供单页抓取、有限网页搜索与同源小站点爬取。当前版本 **1.6.0**。
 
@@ -17,11 +17,11 @@ npx wrangler deploy
 
 在 Workers & Pages 创建 Worker，使用模块编辑器粘贴仓库中的 `worker.js` 全文并部署。`worker-dashboard.js` 是旧式 service-worker 语法的 **1.5 兼容版**，没有 Search/Crawl 路由；不要用它部署新功能。
 
-## 在 TeamoAgent 里启用
+## 在 Dubhe Agent 里启用
 
 **方式 A：同源绑定（推荐）**：把 Pages/Worker 的 `/api/*` 路由绑定到这个 Worker。前端探测 `/api/health`，只有 health 声明 `capabilities: ["fetch", "search", "crawl"]` 才会提供对应工具。
 
-**方式 B：配置 Worker URL**：在 TeamoAgent 浏览器控制台执行：
+**方式 B：配置 Worker URL**：在 Dubhe Agent 浏览器控制台执行：
 
 ```js
 localStorage.setItem('teamo-relay', 'https://<worker>.<account>.workers.dev');

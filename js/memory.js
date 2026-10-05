@@ -409,7 +409,7 @@ export const MEMORY_GATEKEEPER_BENCHMARK = Object.freeze([
   { id: 'mem-pos-015', split: 'in_domain', category: 'project-spec', text: 'API 网关认证统一采用 Bearer Token 头传输', expected: true },
   { id: 'mem-pos-016', split: 'in_domain', category: 'convention', text: 'Git 提交信息一律遵循 Conventional Commits 规范', expected: true },
   { id: 'mem-pos-017', split: 'in_domain', category: 'preference', text: '架构图默认优先使用 Graphviz DOT 或客户端 SVG 绘制', expected: true },
-  { id: 'mem-pos-018', split: 'in_domain', category: 'identity', text: '用户目前在上海就读初中，业余维护开源项目 TeamoAgent', expected: true },
+  { id: 'mem-pos-018', split: 'in_domain', category: 'identity', text: '用户目前在上海就读初中，业余维护开源项目 Dubhe Agent', expected: true },
   { id: 'mem-pos-019', split: 'in_domain', category: 'constraint', text: '所有哈希链路校验统一使用 FIPS 180-4 SHA-256 标准实现', expected: true },
   { id: 'mem-pos-020', split: 'in_domain', category: 'project-spec', text: '本地中继服务默认监听 127.0.0.1:8787 端口', expected: true },
   { id: 'mem-pos-021', split: 'in_domain', category: 'preference', text: '给出代码修改时优先提供可直接运行的完整函数实现', expected: true },

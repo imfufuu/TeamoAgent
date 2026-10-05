@@ -1038,7 +1038,7 @@ h1 {
   padding: 36px 48px 28px;
   overflow: visible;
 }
-/* 三重对称星轨彗尾弧绕标题回旋（呼应 TeamoAgent 三轨星环标识）。
+/* 三重对称星轨彗尾弧绕标题回旋（呼应 Dubhe Agent 三轨星环标识）。
    禁止用标题自身的宽矩形 inset:0 去 rotate——那会把胶囊边框拧成斜线划过文字。 */
 .cta-block h2::before {
   content: ""; pointer-events: none;

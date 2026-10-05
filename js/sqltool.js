@@ -80,7 +80,7 @@ export function parseDb(raw) {
   let obj;
   try { obj = JSON.parse(s); } catch { throw new Error('库文件不是 JSON，无法打开'); }
   if (!obj || obj.kind !== 'teamo-sql' || !obj.tables || typeof obj.tables !== 'object') {
-    throw new Error('库文件格式不对（需要 TeamoAgent SQL JSON）');
+    throw new Error('库文件格式不对（需要 Dubhe Agent SQL JSON）');
   }
   return obj;
 }

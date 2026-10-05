@@ -176,7 +176,7 @@ export function createStore(onChange) {
     messages: [], checkpoints: [], files: {}, undoBranch: null, stats: { lastMs: 0, totalMs: 0 },
     memory: [],
     learnedSkills: [],
-    // P1（THN v2.4）：可恢复执行与记忆生命周期的根级状态。
+    // P1（Dubhe Helix 2.5）：可恢复执行与记忆生命周期的根级状态。
     // 容量上限与各自模块保持一致（recovery.CHECKPOINT_MAX / idempotency.LEDGER_MAX /
     // trajectory.TRAJECTORY_LOG_MAX / memorylife 候选区 8 条）——这里刻意不 import 那些模块，
     // 避免 state.js 被拖进执行内核的依赖图（混版缓存时 state 必须最先可用）。
@@ -186,7 +186,7 @@ export function createStore(onChange) {
     trajectoryTotals: null,     // 轨迹累计计数（健康回合 / 恢复成功率 / P95 等）
     memoryCandidates: [],       // 记忆候选区（最多 8）：未通过长期库门槛的条目先在这里等确认
     memoryHealth: null,         // 记忆健康度快照（来源分级 / 敏感条目数 / 冲突数）
-    // P2（THN v2.5）：策略演进 / 故障注入 / 统一指标 / 审计对账的根级状态。
+    // P2（Dubhe Helix 2.5）：策略演进 / 故障注入 / 统一指标 / 审计对账的根级状态。
     // 同样刻意不 import 各 P2 模块——state.js 必须是最先可用的那一层，混版缓存时不炸。
     policySnapshot: null,       // 策略版本快照（会话首轮写入；用于漂移对比「同一会话里策略换过没有」）
     policyDrift: null,          // 策略漂移自检结果（注册表声明 vs 模块实际导出）

@@ -1,4 +1,4 @@
-/* TeamoAgent 审核资源离线缓存 Service Worker（构建 2026.10.2.15）
+/* Dubhe Agent 审核资源离线缓存 Service Worker（构建 2026.10.2.15）
  * 策略：stale-while-revalidate —— 命中缓存立即返回（零网络），后台静默更新。
  * 覆盖：assets/vendor、assets/moderation、assets/katex、assets/pdfjs、assets/hljs、assets/icons、fonts。
  * 效果：模型/运行时/厂商图标只在首次使用时下载一次，之后所有会话（含隔天重开）直接读本地缓存，
@@ -8,7 +8,7 @@ const CACHE = 'teamo-assets-v1';
 const SCOPE_RE = /\/assets\/(vendor|moderation|katex|pdfjs|hljs|fonts|icons|audio)\//;
 
 // 厂商图标安装即预热（.19）：模型菜单/消息头第一次画就有缓存，不发起可见网络加载。
-// 注意必须相对 registration.scope 解析（.20 修正）：Pages 部署在 /TeamoAgent/ 子路径下，
+// 注意必须相对 registration.scope 解析（.20 修正）：Pages 部署在 /dubhe-agent/ 子路径下，
 // 绝对路径 /assets/... 会打到源根 404，预热静默全灭。
 const PRECACHE_ICONS = [
   'anthropic.svg', 'openai.svg', 'gemini.svg', 'deepseek.svg',

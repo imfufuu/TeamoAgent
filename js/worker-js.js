@@ -1,4 +1,4 @@
-// TeamoAgent · JS 沙箱 Worker（独立同源文件，避免 blob: 被页面 CSP 拦截）
+// Dubhe Agent · JS 沙箱 Worker（独立同源文件，避免 blob: 被页面 CSP 拦截）
 // 环境：无 DOM；files 为虚拟文件系统快照；console 输出被捕获；支持顶层 await
 self.onmessage = async (e) => {
   const { code, files } = e.data;

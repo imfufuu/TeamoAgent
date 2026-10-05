@@ -22,12 +22,12 @@ export const SUGGESTIONS = [
     text: '用 JavaScript 沙箱实现插入排序（稳定、原地）。对 120 组随机整数数组（长度 8–40，含负数与重复）与 Array.prototype.sort 的数值序对拍。若全部一致，打印 PASS 与最大数组长度；一旦失败，把该组输入、两种输出写入 files/sort-fail.json，并停止后续组。不要用内置 sort 充当插入排序的实现。',
   },
   {
-    title: '生成一张黑白极简的 TeamoAgent 发布海报，完成后把沙箱路径告诉我',
-    text: '生成一张 1024×1024 海报：近黑底、极细白线网格、中心是轨道枢纽几何标（三弧+核心），主标题 TeamoAgent，副标题「浏览器里的智能体 / V1.6」。留足够负空间，不要堆满装饰。生成后告诉我沙箱路径，并用一句话说明构图（不超过 40 字）。不要用 ASCII 画代替真实出图。',
+    title: '生成一张黑白极简的 Dubhe Agent 发布海报，完成后把沙箱路径告诉我',
+    text: '生成一张 1024×1024 海报：近黑底、极细白线网格、中心是轨道枢纽几何标（三弧+核心），主标题 Dubhe Agent，副标题「浏览器里的智能体 / V1.6」。留足够负空间，不要堆满装饰。生成后告诉我沙箱路径，并用一句话说明构图（不超过 40 字）。不要用 ASCII 画代替真实出图。',
   },
   {
     title: '在沙箱搭好三页可打开的静态站，再用 zip_files 打成可分发的 ZIP',
-    text: '在沙箱创建 site/index.html、site/about.html、site/style.css。首页介绍 TeamoAgent 三句话+两个内链；about 写能力列表（沙箱、生图、文件、思考档）。CSS 黑白极简、系统字体、max-width 640。用 list_files 核对路径后 zip_files 打成 archives/site.zip，回报 zip 路径和三个文件的字节量。页面须能直接打开，不要占位注释。',
+    text: '在沙箱创建 site/index.html、site/about.html、site/style.css。首页介绍 Dubhe Agent 三句话+两个内链；about 写能力列表（沙箱、生图、文件、思考档）。CSS 黑白极简、系统字体、max-width 640。用 list_files 核对路径后 zip_files 打成 archives/site.zip，回报 zip 路径和三个文件的字节量。页面须能直接打开，不要占位注释。',
   },
   {
     title: '用模拟销售账计算各城市 GMV、最高五单，以及连续低于均值的异常日',
@@ -55,7 +55,7 @@ export const SUGGESTIONS = [
   },
   {
     title: '给沙箱里的三个文本文件批量算 sha256，并输出可再核对的 SHA256SUMS',
-    text: '在沙箱写入 files/a.txt（内容 Teamo）、files/b.txt（内容 Agent）、files/c.txt（内容 2026-09-26）。用 hash 工具分别算 sha256，生成 files/SHA256SUMS，格式与 GNU sha256sum 一致（哈希、两个空格、文件名）。再用 JavaScript 读回清单，逐行重新哈希核对，打印全部 OK 或第一处 mismatch。不要口算哈希。',
+    text: '在沙箱写入 files/a.txt（内容 Dubhe）、files/b.txt（内容 Agent）、files/c.txt（内容 2026-09-26）。用 hash 工具分别算 sha256，生成 files/SHA256SUMS，格式与 GNU sha256sum 一致（哈希、两个空格、文件名）。再用 JavaScript 读回清单，逐行重新哈希核对，打印全部 OK 或第一处 mismatch。不要口算哈希。',
   },
   {
     title: '用可复现的蒙特卡洛为欧式看涨期权定价，写清假设、价格与 95% 置信区间',

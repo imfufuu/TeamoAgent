@@ -1,4 +1,4 @@
-// Safe subset of Pandoc / MultiMarkdown extensions used by TeamoAgent.
+// Safe subset of Pandoc / MultiMarkdown extensions used by Dubhe Agent.
 // Raw HTML is never handed to markdown-it's HTML parser: tags are tokenized,
 // allow-listed, attribute-filtered, and restored only after Markdown rendering.
 const TOKEN = '\uE000TE';

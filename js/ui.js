@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.7';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.8';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.7';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.8';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -21,12 +21,12 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.7';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.7';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.7';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.7';
-import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.7';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.7';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.8';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.8';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.8';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.8';
+import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.8';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.8';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -1476,7 +1476,7 @@ export function mountUI(store, agent) {
     if (q === '/system' || q.startsWith('/system ')) {
       ddMenu.querySelectorAll('.dd-group, .dd-empty').forEach((n) => n.remove());
       const g = el('div', 'dd-group');
-      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">${ICON.system}</span><span>Teamo</span>`));
+      g.appendChild(el('div', 'dd-group-title', `<span class="sys-gear">${ICON.system}</span><span>Dubhe Agent</span>`));
       const item = el('button', 'dd-item' + (store.state.model === '__system__' ? ' active' : ''));
       item.type = 'button';
       // 简约：一行式条目（图标 + 名称），介绍信息省略
@@ -1605,7 +1605,7 @@ export function mountUI(store, agent) {
     if (sys) {
       icon = `<span class="sys-gear">${ICON.system || '⚙'}</span>`;
       name = 'system-commands';
-      prov = 'Teamo';
+      prov = 'Dubhe Agent';
     } else if (router) {
       icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
       name = 'smart-router';
@@ -2663,8 +2663,8 @@ function validateApiKey(s) {
     saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
-      <h2>TeamoAgent</h2>
-      <p>TeamoAgent · 基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
+      <h2>Dubhe Agent</h2>
+      <p>Dubhe Agent · 基于 <span class="mono">TeamoRouter</span> 网关的网页端智能体<br>模型自选 · 代码沙箱 · 对话回滚 · 工具调用循环</p>
       <div class="empty-cards">
         ${picks.map((x) => {
           const shown = x.title || (mqPanel.matches ? shortSuggest(x.text) : x.text);
@@ -3808,7 +3808,7 @@ function validateApiKey(s) {
     if (!store.state.messages.length) return toast('暂无可导出的对话');
     const active = store.state.sessions.find((s) => s.id === store.state.activeSessionId) || {};
     const data = {
-      app: 'TeamoAgent', exportedAt: new Date().toISOString(), model: store.state.model,
+      app: 'Dubhe Agent', exportedAt: new Date().toISOString(), model: store.state.model,
       imageModel: store.state.imageModel, title: active.title || '',
       checkpoints: store.state.checkpoints,
       messages: store.state.messages.map((m) => ({
@@ -3823,7 +3823,7 @@ function validateApiKey(s) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `teamo-agent-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
+    a.download = `dubhe-agent-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.json`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     toast('已导出会话 JSON', 'ok');
@@ -4147,7 +4147,7 @@ function validateApiKey(s) {
         `内容审核：${store.state.settings.contentModeration === true ? '开启（图片 fail-closed）' : '关闭'}`,
       ].join('\n');
     } else if (name === 'version') {
-      out = `Teamo ${APP_RELEASE} · 构建 ${APP_VERSION}`;
+      out = `Dubhe Agent ${APP_RELEASE} · 构建 ${APP_VERSION}`;
     } else if (name === 'env' || name === 'environment') {
       out = JSON.stringify(getCoarseBrowserEnvironment(), null, 2);
     } else if (name === 'stats') {
@@ -4255,7 +4255,7 @@ function validateApiKey(s) {
         const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), version: APP_VERSION, sessions: store.state.sessions }, null, 2)], { type: 'application/json' });
         const a = document.createElement('a');
         a.href = URL.createObjectURL(blob);
-        a.download = `teamo-sessions-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `dubhe-sessions-${new Date().toISOString().slice(0, 10)}.json`;
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 4000);
         out = `✓ 已导出 ${(store.state.sessions || []).length} 个会话（JSON，含沙箱文件清单）`;
@@ -4864,7 +4864,7 @@ function validateApiKey(s) {
     //（这正是硬刷新后仍看到旧版本号的机制）。这里直接比对并把原因说出来。
     const entryVer = (document.querySelector('meta[name="app-version"]') || {}).content || '';
     const drifted = !!entryVer && entryVer !== APP_VERSION;
-    const rel = `Teamo ${APP_RELEASE}`;
+    const rel = `Dubhe Agent ${APP_RELEASE}`;
     stampEl.textContent = drifted ? `${rel} · v${APP_VERSION} / 入口 ${entryVer}` : `${rel} · v${APP_VERSION}`;
     stampEl.title = `${rel}（构建 ${APP_VERSION}）${drifted ? `；入口 index.html 是 ${entryVer}（两者应一致）` : ''} · 若看到的不是最新改动，请按 Ctrl/Cmd + Shift + R 强制刷新`;
     if (drifted) setTimeout(() => toast(`资源缓存不一致（入口 ${entryVer}，模块 ${APP_VERSION}）：请硬刷新或用无痕窗口打开`, 'warn', 9000), 700);

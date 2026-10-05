@@ -1,7 +1,7 @@
 // ─── 移动端布局审计（真 Chrome + 真页面，开发者本地用）────────────────────
 // 用法: npm run audit:mobile            # 默认 360 / 390 / 414 三个宽度
 //       node tests/mobile-layout.mjs 320 390 430
-//       TEAMO_AUDIT_URL=https://imfufuu.github.io/TeamoAgent/ node tests/mobile-layout.mjs   # 量线上
+//       TEAMO_AUDIT_URL=https://imfufuu.github.io/dubhe-agent/ node tests/mobile-layout.mjs   # 量线上
 //
 // 为什么要有它：这个项目没有视觉审查通道（助手看不到截图），「移动端挤在一起」
 // 必须变成可计算的指标才有意义。这里用真实的 Chromium 打开真实 index.html，
@@ -106,7 +106,7 @@ const notes = [];
 const tick = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function seed(page) {
-  // TEAMO_AUDIT_URL=https://imfufuu.github.io/TeamoAgent/ 可对线上站点跑同一套测量
+  // TEAMO_AUDIT_URL=https://imfufuu.github.io/dubhe-agent/ 可对线上站点跑同一套测量
   const target = (process.env.TEAMO_AUDIT_URL || `http://127.0.0.1:${PORT}/app.html`).replace(/\/$/, '/app.html');
   await page.goto(target, { waitUntil: 'domcontentloaded' });
   await page.waitForSelector('#composer-input', { timeout: 15000 });

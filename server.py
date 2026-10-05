@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""TeamoAgent 本地服务器：静态文件 + TeamoRouter API 流式代理 + 网络工具中继。
+"""Dubhe Agent 本地服务器：静态文件 + TeamoRouter API 流式代理 + 网络工具中继。
 
 用法:  python3 server.py [port] [--port N] [--host ADDR] [--workspace DIR] [--allow-git|--no-git]
        默认端口 8787，默认仅绑定 127.0.0.1（本机可用）。
@@ -39,7 +39,7 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 UPSTREAM_CANDIDATES = [h for h in [os.environ.get("TEAMO_UPSTREAM"), "api.teamorouter.com", "api.teamorouter.cn"] if h]
 UPSTREAM_HOST = UPSTREAM_CANDIDATES[0]
 WORKSPACE = os.environ.get("TEAMO_WORKSPACE") or os.path.join(ROOT, "workspace")
-UA = "Mozilla/5.0 (X11; Linux x86_64) TeamoAgent-LocalRelay/1.0"
+UA = "Mozilla/5.0 (X11; Linux x86_64) Dubhe-Agent-LocalRelay/1.0"
 # git 执行开关：__main__ 里按 --allow-git/--no-git 与监听地址决定
 GIT_ENABLED = True
 FETCH_TIMEOUT = 25
@@ -303,7 +303,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
         if route == "/api/health":
             return self._json(200, {
-                "ok": True, "service": "teamo-agent-local-relay",
+                "ok": True, "service": "dubhe-agent-local-relay",
                 "fetch": True,
                 "git": bool(GIT_ENABLED) and shutil.which("git") is not None,
                 "workspace": WORKSPACE,
@@ -497,7 +497,7 @@ class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="TeamoAgent 本地服务器（静态文件 + TeamoRouter API 流式代理）")
+    parser = argparse.ArgumentParser(description="Dubhe Agent 本地服务器（静态文件 + TeamoRouter API 流式代理）")
     parser.add_argument("pos_port", nargs="?", type=int, default=None, help="端口（默认 8787）")
     parser.add_argument("--port", type=int, default=None, help="端口（优先于位置参数）")
     parser.add_argument("--workspace", default=None, help="网络工具与 git 的工作目录（默认 <服务器所在目录>/workspace）")
@@ -516,7 +516,7 @@ if __name__ == "__main__":
     GIT_ENABLED = not args.no_git and (loopback or args.allow_git)
     os.makedirs(WORKSPACE, exist_ok=True)
     print(
-        f"◐ TeamoAgent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})\n"
+        f"◐ Dubhe Agent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})\n"
         f"  工作区 {WORKSPACE} · /api/fetch on · /api/git {'on' if GIT_ENABLED else 'off'}\n"
         "  网页搜索/站点爬取需配置 Cloudflare Worker（本中继仅提供 /api/fetch 与 /api/git）"
     )

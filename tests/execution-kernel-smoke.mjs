@@ -38,7 +38,7 @@ const check = (name, fn) => {
   }
 };
 
-console.log(`天枢 THN 执行内核 v${EXECUTION_KERNEL_VERSION}（${EXECUTION_POLICY_VERSION}）· P0 独立验收\n`);
+console.log(`天枢2.5 执行内核 v${EXECUTION_KERNEL_VERSION}（${EXECUTION_POLICY_VERSION}）· P0 独立验收\n`);
 
 // ── 1. 验收标准：任意一次工具调用可回答「为什么调用 / 调用前状态 / 调用后发生了什么」──
 check('状态机：一次工具调用可完整回答前因后果', () => {

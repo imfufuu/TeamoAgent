@@ -401,7 +401,7 @@ function localGitRun({ command, repo, fs } = {}) {
   const base = cleanRepo(repo);
   const cwd = base ? `sandbox://${base}` : 'sandbox://';
   if (!sub) return { ok: false, error: 'run_git 需要 command，例如 "git status --short"' };
-  if (sub === '--version' || sub === 'version') return { ok: true, code: 0, cwd, text: 'git version TeamoGit 0.1 (browser embedded)', note: '内置沙箱 Git' };
+  if (sub === '--version' || sub === 'version') return { ok: true, code: 0, cwd, text: 'git version DubheGit 0.1 (browser embedded)', note: '内置沙箱 Git' };
   if (['clone', 'fetch', 'pull', 'push'].includes(sub)) {
     return { ok: false, code: 2, cwd, text: `内置浏览器 Git 当前支持沙箱内 init/status/diff/add/commit/log/branch/checkout/reset；${sub} 这类远端网络操作需要本地中继或后续配置 CORS 代理。`, note: '内置沙箱 Git' };
   }
@@ -409,7 +409,7 @@ function localGitRun({ command, repo, fs } = {}) {
   if (sub === 'init') {
     meta = meta || emptyMeta();
     writeMeta(fs, base, meta);
-    return { ok: true, code: 0, cwd, text: `Initialized empty TeamoGit repository in ${joinRepo(base, '.git') || '.git'}/`, note: '内置沙箱 Git' };
+    return { ok: true, code: 0, cwd, text: `Initialized empty DubheGit repository in ${joinRepo(base, '.git') || '.git'}/`, note: '内置沙箱 Git' };
   }
   if (!meta) return { ok: false, code: 128, cwd, text: 'fatal: not a git repository (or any of the parent directories): .git', note: '内置沙箱 Git' };
   const work = workTree(fs, base);

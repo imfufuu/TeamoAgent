@@ -33,7 +33,7 @@ const curtain = document.getElementById('curtain');
 
 const SCENES = [
   { beat: 0, x: 0, y: 36, z: 980, rx: 6, ry: -8, rz: 0, focus: 'logo', title: '' },
-  { beat: 4, x: 0, y: 0, z: 280, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'TEAMOAGENT' },
+  { beat: 4, x: 0, y: 0, z: 280, rx: 0, ry: 0, rz: 0, focus: 'logo', title: 'DUBHEAGENT' },
   { beat: 8, x: 0, y: -720, z: 320, rx: 3, ry: 3, rz: 0, focus: 'copy', title: '浏览器里的智能体' },
   { beat: 12, x: 0, y: -700, z: 260, rx: 0, ry: -2, rz: 0, focus: 'copy' },
   { beat: 16, x: 820, y: 40, z: 400, rx: 2, ry: 8, rz: 0, focus: 'sandbox', title: '沙箱隔离执行' },
@@ -63,7 +63,7 @@ const OPEN_FADE = 1.05;
 const GATE_ENTER_MS = 560;
 const hudScene = document.getElementById('hud-scene');
 const HUD_LABELS = {
-  logo: '01 / 09 · TEAMO CORE',
+  logo: '01 / 09 · DUBHE CORE',
   copy: '02 / 09 · WEB AGENT',
   sandbox: '03 / 09 · SANDBOX RUNTIME',
   files: '04 / 09 · WORKSPACE 120MB',
@@ -163,7 +163,7 @@ function applyCam(c) {
   if (hudScene) {
     hudScene.textContent = c.integrate
       ? 'CONSTELLATION · ALL SYSTEMS READY'
-      : (HUD_LABELS[c.focus] || '01 / 09 · TEAMO CORE');
+      : (HUD_LABELS[c.focus] || '01 / 09 · DUBHE CORE');
   }
   for (const shot of shots) {
     const on = shot.dataset.id === c.focus;

@@ -88,7 +88,7 @@ const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) ||
 
 // ── β 诊断日志（构建 2026.9.27.12）────────────────────────────────────────
 // 背景：图片审核超时会按设计 fail-open 放行，但全链路无可见日志——「审核很久最后图进了沙箱」
-// 完全无法归因。β 版在每个阶段打点：控制台 [Teamo·审核] 前缀 + 环形缓冲 + 全局导出。
+// 完全无法归因。β 版在每个阶段打点：控制台 [Dubhe Agent·审核] 前缀 + 环形缓冲 + 全局导出。
 // 用法：控制台执行 __teamoModDump() 复制完整时间线；__teamoModLog 为原始数组。
 const MOD_LOG_MAX = 400;
 const modLog = [];
@@ -99,8 +99,8 @@ function mlog(stage, data = {}) {
   modLog.push(entry);
   if (modLog.length > MOD_LOG_MAX) modLog.splice(0, modLog.length - MOD_LOG_MAX);
   for (const fn of [...modLogListeners]) { try { fn(entry); } catch { /* 订阅者异常不影响审核 */ } }
-  try { console.log('%c[Teamo·审核]%c ' + stage + ' ' + JSON.stringify(data), 'color:#c00;font-weight:700', 'color:inherit'); }
-  catch { try { console.log('[Teamo·审核] ' + stage, data); } catch { /* 忽略序列化失败 */ } }
+  try { console.log('%c[Dubhe Agent·审核]%c ' + stage + ' ' + JSON.stringify(data), 'color:#c00;font-weight:700', 'color:inherit'); }
+  catch { try { console.log('[Dubhe Agent·审核] ' + stage, data); } catch { /* 忽略序列化失败 */ } }
   return entry;
 }
 if (typeof globalThis !== 'undefined') {
@@ -953,7 +953,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
         if (isAbortError(err)) throw err;
         imgFail = true;
         mlog(`image#${i + 1}:nudity-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
-        if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);
+        if (!isTimeoutError(err)) console.warn('[Dubhe Agent] 本地 NudeNet 图片审核失败，继续用 NSFWJS', err);
         nudity = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: 'local:nudenet-320n' };
       }
       if (nudity.blocked) { mlog(`image#${i + 1}:nudity-blocked`, { 总耗时: ms(tImg) }); decisions.push(nudity); continue; }
@@ -976,7 +976,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
         if (isAbortError(err)) throw err;
         imgFail = true;
         mlog(`image#${i + 1}:nsfwjs-skip`, { reason: isTimeoutError(err) ? '超时' : '出错', error: String(err && err.message || err).slice(0, 160) });
-        if (!isTimeoutError(err)) console.warn('[TeamoAgent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
+        if (!isTimeoutError(err)) console.warn('[Dubhe Agent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
         nsfw = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: IMAGE_MODERATION_MODEL };
       }
       const merged = mergeDecisions(nudity, nsfw);

@@ -1,4 +1,4 @@
-// ─── P2（THN v2.5）：策略版本注册表与执行级快照 ──────────────────────────
+// ─── P2（Dubhe Helix 2.5）：策略版本注册表与执行级快照 ──────────────────────────
 // 目标（对应 P2 第 19 条）：一次执行的审计记录必须能回答「当时生效的是哪套策略」。
 // 没有这层绑定，效果退化时无法判断是模型、路由规则、提示词还是工具契约导致的差异。
 //
@@ -11,7 +11,7 @@ export const POLICY_REGISTRY_VERSION = 'policy-registry-2.5.0';
 
 // key = 审计里用的字段名；module = 拥有该版本的模块；exportName = 该模块导出的常量
 export const POLICY_SOURCES = Object.freeze({
-  routerPolicyVersion: { module: './nexus.js', exportName: 'THN_ROUTER_POLICY_VERSION', label: '路由 / 档位策略' },
+  routerPolicyVersion: { module: './nexus.js', exportName: 'DUBHE_ROUTER_POLICY_VERSION', label: '路由 / 档位策略' },
   toolPolicyVersion: { module: './execution.js', exportName: 'TOOL_CONTRACT_VERSION', label: '工具契约策略' },
   riskPolicyVersion: { module: './execution.js', exportName: 'RISK_POLICY_VERSION', label: '风险分级策略' },
   budgetPolicyVersion: { module: './execution.js', exportName: 'BUDGET_POLICY_VERSION', label: '预算治理策略' },
@@ -28,7 +28,7 @@ export const POLICY_SOURCES = Object.freeze({
 
 // 当前生效版本（静态声明；与各模块的漂移由 verifyPolicyRegistry 兜住）
 export const POLICY_VERSIONS = Object.freeze({
-  routerPolicyVersion: 'thn-router-policy-2.5.0',
+  routerPolicyVersion: 'dubhe-router-policy-2.5.0',
   toolPolicyVersion: 'tool-contract-2.4.1',
   riskPolicyVersion: 'risk-policy-2.5.0',
   budgetPolicyVersion: 'budget-policy-2.3.0',

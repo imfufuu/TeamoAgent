@@ -12,7 +12,7 @@ export const PROVIDER_ICON = {
   Grok:      { file: 'grok.svg',      mono: false, word: false, white: true }, // 白色图标 → 亮色主题反色
 };
 
-// ─── TeamoAgent 应用标识 ───────────────────────────────────────────────
+// ─── Dubhe Agent 应用标识 ───────────────────────────────────────────────
 // 几何化「轨道枢纽」：中心核心 + 三条 120° 对称平滑轨道弧 + 三个卫星节点
 // （多智能体围绕路由枢纽协作）；单色 currentColor 随主题；favicon 为
 // index.html 内联的静态双色版（黑底白图标，深浅标签页均可见）。

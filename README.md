@@ -1,6 +1,6 @@
-# ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
+# ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.6** · 构建 `2026.10.5.7` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.6** · 构建 `2026.10.5.8` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -14,7 +14,7 @@
 ## 快速开始
 
 ```bash
-cd TeamoAgent
+cd dubhe-agent
 python3 server.py                  # 默认 http://localhost:8787（仅绑定 127.0.0.1）
 python3 server.py --host 0.0.0.0   # 需要局域网访问时才显式放开（代理通道无鉴权）
 ```
@@ -22,13 +22,13 @@ python3 server.py --host 0.0.0.0   # 需要局域网访问时才显式放开（�
 打开页面 → 填入 TeamoRouter API Key（`sk-teamo-` 开头，[控制台创建](https://teamorouter.com/dashboard?tab=api-keys)）→ 选择模型 → 开始对话。
 Key 仅存于浏览器 localStorage，随请求头直发网关。
 
-## P3：编辑直播预览（天枢 THN v2.5.1）
+## P3：编辑直播预览（Dubhe Helix 2.5（天枢2.5））
 
 P3 补上「看得见 Agent 正在写什么」：写文件时折叠行显示 **Editing File(s)**，预览窗显示最近约 10 行（行号、写入模式、总行数与字符数）；流式期间节流刷新，换文件或收尾立即刷新。半截 JSON 也能逐字符安全解析，完成后优先读取已落盘内容；回合结束折叠回 Edited File(s) N，展开仍可回看。
 
 > 验收：`npm run test:p3`（半截 JSON 扫描、预览字段与 UI 冒烟）。
 
-## P2：策略演进与红队评测（天枢 THN v2.5）
+## P2：策略演进与红队评测（Dubhe Helix 2.5（天枢2.5））
 
 P0 让执行过程可解释，P1 让过程质量可度量、中断能接着干。资源预算在 P2 补齐第**七路 Token**（输入 + 输出合计，默认 20 万，实时记账；耗尽后新的工具调用会被调用前校验拦下并转带限制作答）。P2 解决的是「**这套系统自己怎么变好，以及怎么在出事前先出丑**」。
 
@@ -118,9 +118,9 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
-## P0 执行内核（天枢 THN v2.3，`js/execution.js`）
+## P0 执行内核（Dubhe Helix 2.5（天枢2.5），`js/execution.js`）
 
-方向不是继续加层级，而是把 THN 做成「执行过程本身可解释、可计量、可核验」的操作内核。三个 P0 能力全部落在同一条执行轨迹上：
+方向不是继续加层级，而是把 Dubhe Helix 2.5 做成「执行过程本身可解释、可计量、可核验」的操作内核。三个 P0 能力全部落在同一条执行轨迹上：
 
 **1. 统一执行状态机**（14 态 / 38 条合法边，`transition-table-2.3.0`）
 
@@ -306,7 +306,7 @@ npm run test:live     # = live-smoke（协议层）+ live-check（图像与工�
 覆盖：三个生图模型逐个出图、显示名 `2.5 Sunburst` 纠正后成功、非法名退回会话模型、
 `reference_paths` 图片编辑、`n=2` 多张落盘、webp/透明底魔数校验、错误文案含上游原文、
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
-`report.json` 输出到 `/tmp/teamo-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
+`report.json` 输出到 `/tmp/dubhe-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
 
 五层离线测试（DOM / app-boot / pyodide 三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
 
@@ -338,7 +338,7 @@ node tests/dom-smoke.mjs
 
 ### 在线版（GitHub Pages）
 
-**https://imfufuu.github.io/TeamoAgent/** —— 纯静态部署，浏览器直连 `api.teamorouter.com`（网关已放行 CORS）。
+**https://imfufuu.github.io/dubhe-agent/** —— 纯静态部署，浏览器直连 `api.teamorouter.com`（网关已放行 CORS）。
 Python 沙箱首次使用需从 CDN 加载 Pyodide 运行时；本地代理（server.py）在 Pages 上不存在，但不影响直连模式。
 
 ### 发布到 GitHub Pages 的步骤
@@ -377,7 +377,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 
 这些不是「凭感觉调的」：`tests/mobile-layout.mjs` 用真实 Chromium 在 320/360/390/414/768 宽度下
 量 **横向溢出 / 区域重叠 / 触控目标尺寸 / 面板是否越界**（桩网关先灌一整段带工具芯片与联网来源条的
-对话），`npm run audit:mobile` 一条命令跑完；也可以加 `TEAMO_AUDIT_URL=https://imfufuu.github.io/TeamoAgent/`
+对话），`npm run audit:mobile` 一条命令跑完；也可以加 `TEAMO_AUDIT_URL=https://imfufuu.github.io/dubhe-agent/`
 直接量线上站点。
 
 ## 说明

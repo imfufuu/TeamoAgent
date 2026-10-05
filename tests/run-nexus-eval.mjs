@@ -1,4 +1,4 @@
-// ─── 天枢 THN v2.3 独立离线基准评测与 Wilson 95% 置信区间验收脚本（npm run eval:nexus）──
+// ─── Dubhe Helix 2.5（天枢2.5） · P0 独立离线基准评测与 Wilson 95% 置信区间验收脚本（npm run eval:nexus）──
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,7 @@ const corpusPath = resolve(__dirname, 'nexus-eval-corpus.json');
 const corpusJson = JSON.parse(readFileSync(corpusPath, 'utf8'));
 
 console.log('================================================================================');
-console.log('  天枢 THN (Teamo-Hermes Nexus v2.3) · 离线基准评测、OOD 留出集与 Wilson 95% CI');
+console.log('  Dubhe Helix 2.5（天枢2.5） v2.5.0 · 离线基准评测、OOD 留出集与 Wilson 95% CI');
 console.log('================================================================================\n');
 
 // 1. 语料库完整性与样本量验证（N=120 + N=120 = 240）
@@ -96,7 +96,7 @@ assert.ok(combinedCi.halfWidth <= 0.04, `N=240 联合评测集的 95% Wilson CI 
 
 // 4. 4 位能力向量正交性与档位-工具表一致性锁验证
 const ortho = verifyCapabilityOrthogonalityMatrix();
-assert.equal(ortho.totalCombinations, 16);
+assert.equal(ortho.totalCombinations, 64, '四个主能力位与两个 Worker 子能力应覆盖 64 种组合');
 assert.equal(ortho.disjointPartitionVerified, true);
 
 // 遍历 thinking=(true/false) × reasoningLevel=('off','low','medium','high','max','ultra') 共 12 种组合，验证绝不出现 ULTRA vs dispatch_subagent 自相矛盾
@@ -140,7 +140,7 @@ for (const thinking of [true, false]) {
   }
 }
 console.log('[3] 4 位能力向量正交性与档位-工具表一致性锁（Tier-Tool Alignment Invariant）');
-console.log(`    遍历组合数 : ${ortho.totalCombinations} (2^4 全排列) + ${alignmentChecks} 种思考开关×档位组合`);
+console.log(`    遍历组合数 : ${ortho.totalCombinations} (2^6：四个核心位 + Worker search/crawl 子能力) + ${alignmentChecks} 种思考开关×档位组合`);
 console.log(`    子集不相交 : ${ortho.disjointPartitionVerified} | 档位-提示词-L2诊断-工具表 100% 对齐 : true\n`);
 
 // 5. 软归档 vs 物理清除双通道验证
@@ -163,7 +163,7 @@ console.log(`    Soft-Archive (forget) : recoverable=${afterForget.recoverable},
 console.log(`    Physical Purge (purge): recoverable=${afterPurge.recoverable}, 活跃库剩余=${afterPurge.next.length} 条, 冷备库剩余=${afterPurge.nextArchive.length} 条\n`);
 
 // 6. SHA-256 跨轮次哈希链与 Store 独立交叉审计验证
-const shaSample = sha256Hex('teamo-hermes-nexus');
+const shaSample = sha256Hex('dubhe-helix-2.5');
 assert.equal(shaSample.length, 64, 'SHA-256 摘要应为 64 位十六进制字符串');
 const rec = createFaithfulTraceRecorder({ prevTurnDigest: GENESIS_TURN_DIGEST });
 rec.record('route:full-nexus', 'full-nexus');
@@ -190,4 +190,4 @@ console.log(`    哈希算法   : ${fp.hashAlgorithm} | Turn Digest: ${fp.turnDi
 console.log(`    真实轨迹审计: passed=${auditOk.passed} | 伪造轨迹拦截: passed=${auditFake.passed} (${auditFake.discrepancies.join(', ')})\n`);
 
 console.log(formatNexusAcceptanceReport());
-console.log('\n✅ 天枢 THN v2.3 离线基准评测（N=240）与全部架构不变量校验通过。');
+console.log('\n✅ Dubhe Helix 2.5（天枢2.5） · P0 离线基准评测（N=240）与全部架构不变量校验通过。');
