@@ -10,17 +10,35 @@ function textTokens(s) {
   return cjk + Math.ceil(other / 4) + 1; // CJK ≈ 1 token/字，其余 ≈ 4 字符/token
 }
 
+// 单条消息的 token 估算（无缓存）
+function messageTokens(m) {
+  let t = 4; // 每条消息的角色/分隔开销
+  t += textTokens(m.text) + textTokens(m.content);
+  if (m.toolCalls) t += textTokens(JSON.stringify(m.toolCalls));
+  for (const a of m.attachments || []) {
+    t += a.kind === 'image' ? 1500 : textTokens(a.text) + 10;
+  }
+  return t;
+}
+
+// 按消息对象缓存估算值（WeakMap，不阻止回收）。fitBudget 二分 + compressHistory 的 while 循环
+// 会对同一批历史消息反复估算，长会话里每轮是 O(n·len) 的字符扫描；缓存后只有本轮新增 / 正在流式
+// 增长的那条消息会重算。命中条件：text / content / toolCalls / attachments 四个字段引用（或值）未变。
+const tokenCache = new WeakMap();
+function cachedMessageTokens(m) {
+  if (!m || typeof m !== 'object') return 0;
+  const hit = tokenCache.get(m);
+  if (hit && hit.text === m.text && hit.content === m.content && hit.toolCalls === m.toolCalls && hit.attachments === m.attachments
+      && hit.attLen === (m.attachments ? m.attachments.length : 0)) return hit.tokens;
+  const tokens = messageTokens(m);
+  tokenCache.set(m, { text: m.text, content: m.content, toolCalls: m.toolCalls, attachments: m.attachments, attLen: m.attachments ? m.attachments.length : 0, tokens });
+  return tokens;
+}
+
 // 内部消息格式的粗略 token 估算
 export function estimateTokens(messages) {
   let t = 0;
-  for (const m of messages || []) {
-    t += 4; // 每条消息的角色/分隔开销
-    t += textTokens(m.text) + textTokens(m.content);
-    if (m.toolCalls) t += textTokens(JSON.stringify(m.toolCalls));
-    for (const a of m.attachments || []) {
-      t += a.kind === 'image' ? 1500 : textTokens(a.text) + 10;
-    }
-  }
+  for (const m of messages || []) t += cachedMessageTokens(m);
   return t;
 }
 

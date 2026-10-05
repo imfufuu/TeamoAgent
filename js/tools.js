@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.9';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.10';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
@@ -11,12 +11,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.9';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.10';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.9';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.10';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -50,7 +50,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_cpp',
-    description: '编译并执行 C++ 代码（通过 Compiler Explorer 公共服务远程执行：g++ -O2 -std=c++20）。代码需包含 main 函数；stdout/stderr 与退出码会被捕获。注意：远程服务，需数秒网络往返。可用 path 读沙箱主文件，files/dir 附带头文件与其它源码（#include "…" 也会自动从沙箱查找），stdin / args 传给程序。适合算法验证与性能测试。',
+    description: '编译并执行 C++ 代码（通过 Compiler Explorer 公共服务远程执行：g++ -O2 -std=c++20）。⚠️ 这是唯一会把代码送出浏览器的执行路径：源码、附带文件与 stdin 会发送到 godbolt.org；用户可在设置里关闭「远程 C++」。代码需包含 main 函数；stdout/stderr 与退出码会被捕获。注意：远程服务，需数秒网络往返。可用 path 读沙箱主文件，files/dir 附带头文件与其它源码（#include "…" 也会自动从沙箱查找），stdin / args 传给程序。适合算法验证与性能测试。',
     parameters: {
       type: 'object',
       properties: {
@@ -555,8 +555,8 @@ export const TOOL_DEFS = [
 export const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
 
 /** 按沙箱开关给出本轮可用的工具定义列表（纯过滤，不改原数组） */
-export function toolsFor(sandboxEnabled) {
-  if (sandboxEnabled) return TOOL_DEFS;
+export function toolsFor(sandboxEnabled, { remoteCpp = true } = {}) {
+  if (sandboxEnabled) return remoteCpp ? TOOL_DEFS : TOOL_DEFS.filter((t) => t.name !== 'execute_cpp');
   return TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name));
 }
 
@@ -625,6 +625,9 @@ async function executeToolBody(name, args, ctx) {
   const { fs, onUi } = ctx;
   const emit = (patch) => onUi && onUi({ name, args, ...patch });
   // 兜底防线：工具列表按开关过滤过，但缓存错配或旧上下文里的工具调用仍可能打进来
+  if (name === 'execute_cpp' && ctx.remoteCpp === false) {
+    return 'execute_cpp 已被用户关闭（设置 → 远程 C++）：该工具会把代码发送到 godbolt.org 远程执行。请改用 execute_javascript / execute_python 在本地沙箱完成，或告知用户需要开启远程 C++。';
+  }
   if (ctx.sandboxEnabled === false && CODE_TOOL_NAMES.includes(name)) {
     emit({ status: 'error', error: { message: '代码沙箱已关闭' } });
     return `沙箱已关闭，${name} 未执行。请让用户打开「沙箱」开关，或改用 read_file / write_file / dispatch_subagent。`;
@@ -651,7 +654,7 @@ async function executeToolBody(name, args, ctx) {
         return formatExecResult('Python', out);
       }
       case 'execute_cpp': {
-        emit({ status: 'running', lang: 'cpp', note: '远程编译执行中…' });
+        emit({ status: 'running', lang: 'cpp', note: '远程编译执行中（代码已发送至 godbolt.org）…' });
         let code = String(args.code || '');
         const mainPath = normalizeFsPath(args.path);
         if (!code.trim() && mainPath) {

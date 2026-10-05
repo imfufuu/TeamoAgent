@@ -23,6 +23,7 @@ const RESULT_MAX_BYTES = 200 * 1024;
 const FILES_MAX_BYTES = 128 * 1024 * 1024;
 const FILES_MAX_COUNT = 5000;
 let loaded = null;
+let mirror = Object.create(null);
 const installed = new Set();
 const networkDenied = [];
 
@@ -125,8 +126,19 @@ function pkgsFromCode(code) {
 }
 
 self.addEventListener('message', async (e) => {
-  const { code, files, packages } = e.data || {};
+  const { code, files, delta, packages } = e.data || {};
   const logs = [];
+  // 增量同步：主线程只在 Worker 首次运行（或重建后）发全量 files；之后只发 delta {set, del}。
+  // mirror 是 Worker 侧对工作区的镜像，运行结束按 diff 回传 filesDelta，大工作区不再每轮往返全量。
+  if (files && typeof files === 'object') {
+    mirror = Object.create(null);
+    for (const k of Object.keys(files)) mirror[k] = String(files[k]);
+  } else if (delta && typeof delta === 'object') {
+    for (const k of Object.keys(delta.set || {})) mirror[k] = String(delta.set[k]);
+    for (const k of (Array.isArray(delta.del) ? delta.del : [])) delete mirror[k];
+  }
+  const before = mirror;
+  let stage = 'load'; // load → run：只有运行时加载失败才该让主线程把 Python 沙箱标记为不可用
   try {
     if (!loaded) {
       post({ __progress: '正在加载 Python 运行时…' });
@@ -134,6 +146,7 @@ self.addEventListener('message', async (e) => {
       loaded = await loadPyodide({ indexURL: PY_BASE });
       post({ __progress: 'Python 运行时就绪' });
     }
+    stage = 'run';
     const pyodide = loaded;
     pyodide.setStdout({ batched: (s) => pushLog(logs, 'log', s) });
     pyodide.setStderr({ batched: (s) => pushLog(logs, 'error', s) });
@@ -155,8 +168,7 @@ self.addEventListener('message', async (e) => {
       }
     }
 
-    let fs = {};
-    try { fs = JSON.parse(JSON.stringify(files || {})); } catch { fs = {}; }
+    const fs = { ...before };
     pyodide.globals.set('FILES', pyodide.toPy(fs));
     try { pyodide.globals.delete('result'); } catch { /* 无该全局时忽略 */ }
     await pyodide.runPythonAsync(code);
@@ -182,8 +194,16 @@ self.addEventListener('message', async (e) => {
         if (typeof r.destroy === 'function') r.destroy();
       }
     } catch { result = undefined; }
-    post({ ok: true, logs: flushLogs(logs), files: sanitizeFiles(outFiles, logs), result: capResult(result), installed: [...installed] });
+    const after = sanitizeFiles(outFiles, logs);
+    const set = {};
+    const del = [];
+    for (const k of Object.keys(after)) if (!(k in before) || before[k] !== after[k]) set[k] = after[k];
+    for (const k of Object.keys(before)) if (!(k in after)) del.push(k);
+    mirror = Object.create(null);
+    for (const k of Object.keys(after)) mirror[k] = after[k];
+    post({ ok: true, logs: flushLogs(logs), filesDelta: { set, del }, result: capResult(result), installed: [...installed] });
   } catch (err) {
-    post({ ok: false, logs: flushLogs(logs), files: files || {}, error: { message: String((err && err.message) || err) }, installed: [...installed] });
+    // 失败：镜像保持运行前状态，不回传任何文件变更
+    post({ ok: false, stage, logs: flushLogs(logs), filesDelta: null, error: { message: String((err && err.message) || err) }, installed: [...installed] });
   }
 });

@@ -589,6 +589,7 @@ export function buildCapabilityConstraints({
   relayOk = false,
   webEnabled = false,
   sandboxEnabled = true,
+  remoteCppEnabled = true,
   canDispatch = false,
   overrides = null,
 } = {}) {
@@ -599,7 +600,8 @@ export function buildCapabilityConstraints({
     bits: { relay: relayOk ? 1 : 0, web: webOn ? 1 : 0, sandbox: sandboxEnabled ? 1 : 0, dispatch: canDispatch ? 1 : 0 },
     capCode: `R${relayOk ? 1 : 0}·W${webOn ? 1 : 0}·S${sandboxEnabled ? 1 : 0}·D${canDispatch ? 1 : 0}`,
     web: { enabled: webOn, ...base.web, ...(ov.web || {}) },
-    sandbox: { enabled: !!sandboxEnabled, ...base.sandbox, ...(ov.sandbox || {}) },
+    // remoteCpp：execute_cpp 是唯一把代码送出浏览器（godbolt.org）的执行路径，单独一个开关
+    sandbox: { enabled: !!sandboxEnabled, remoteCpp: !!remoteCppEnabled, ...base.sandbox, ...(ov.sandbox || {}) },
     dispatch: { enabled: !!canDispatch, ...base.dispatch, ...(ov.dispatch || {}) },
     filesystem: { ...base.filesystem, ...(ov.filesystem || {}) },
   };
@@ -610,7 +612,7 @@ export function describeCapabilityConstraints(c) {
   const bits = [
     `中继=${c.bits.relay ? 'on' : 'off'}`,
     `Web=${c.web.enabled ? (c.web.allowedHosts && c.web.allowedHosts.length ? `限 ${c.web.allowedHosts.length} 个域名` : '全开放') : 'off'}`,
-    `Sandbox=${c.sandbox.enabled ? `网络${c.sandbox.network ? '允许' : '禁止'}·≤${Math.round(c.sandbox.maxRuntimeMs / 1000)}s` : 'off'}`,
+    `Sandbox=${c.sandbox.enabled ? `网络${c.sandbox.network ? '允许' : '禁止'}·≤${Math.round(c.sandbox.maxRuntimeMs / 1000)}s·远程C++${c.sandbox.remoteCpp === false ? 'off' : 'on'}` : 'off'}`,
     `Dispatch=${c.dispatch.enabled ? `并发≤${c.dispatch.maxParallelTasks}` : 'off'}`,
     `覆盖策略=${c.filesystem.writeOverwrite}`,
   ];

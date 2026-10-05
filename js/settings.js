@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.9';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.10';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
@@ -61,6 +61,7 @@ export function openSettingsModal({ store } = {}) {
   syncSeg('#set-theme', store.state.settings.theme || 'light');
   syncSeg('#set-fontsize', document.documentElement.dataset.fontsize || 'medium');
   $('#set-sandbox').checked = store.state.settings.sandboxEnabled !== false;
+  if ($('#set-cpp')) $('#set-cpp').checked = store.state.settings.remoteCppEnabled !== false;
   $('#set-web').checked = store.state.settings.webEnabled !== false;
   $('#set-fast').checked = !!store.state.settings.fastMode;
   $('#set-thinking').checked = store.state.settings.thinking !== false;
@@ -156,6 +157,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
     });
   };
   bindSw('#set-sandbox', 'sandboxEnabled');
+  if ($('#set-cpp')) bindSw('#set-cpp', 'remoteCppEnabled');
   bindSw('#set-web', 'webEnabled');
   bindSw('#set-fast', 'fastMode');
   const reasonRow = document.getElementById('set-reason-row');

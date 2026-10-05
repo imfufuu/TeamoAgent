@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.9` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.10` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -129,13 +129,15 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 - **本地工具扩容而非沙箱扩容**：CSV / 日期 / 文本 / 单位 / 二维码这类高频小任务不再触发 Pyodide 冷启动（首次 3–8 s），直接在主线程毫秒级完成；`date_calc` / `convert_units` 为纯函数，纳入 `PARALLEL_TOOLS` 并行批。
 - **子智能体权限表随工具表演进**：`subagents.js` 的 `data-analyst` / `mathematician` / `translator` / `copywriter` 等角色按需获得新工具，避免「主 Agent 会、子 Agent 不会」的能力断层。
 
-**建议下版**
+**构建 2026.10.5.10 已落地（原「建议下版」五项）**
 
-1. `batchToolCalls` 只合并*相邻*的并行安全调用；可改为基于读写集的依赖图调度（`read_file(a)` 与 `write_file(b)` 无依赖即可并行），预计多工具回合延迟再降 20–40%。
-2. `estimateTokens` 对每条消息重复 `JSON.stringify(toolCalls)`；长会话每轮 O(n) 重算，可在消息入库时缓存 `tokenEstimate` 字段。
-3. `ui.js` 已超过 5000 行，建议按「消息渲染 / 侧栏 / 沙箱面板 / 设置」拆成四个模块，便于动效与可访问性回归各自独立。
-4. Pyodide Worker 当前每次 `runPython` 复用常驻实例，但 FILES 以全量快照往返；可改为增量 diff（只传变更键），大工作区（>20 MB）时省去一次大拷贝。
-5. 远程 C++（Compiler Explorer）是唯一出网的执行路径，建议在工具描述与 UI 芯片上持续显式标注「代码会离开浏览器」，并提供一键关闭。
+1. **依赖图调度** `planToolWaves(calls)`（`js/agent.js`）：为每次调用推导路径级读写集（`toolAccessSet`），只有写-读 / 读-写 / 写-写冲突（含目录前缀、move 源、自动命名输出）才排后一波；`[read a, write b, read c]` 从 3 批串行变 1 波并行。沙箱执行 / 生图 / zip / git / 记忆 / 参数损坏仍为全局屏障，委派只与委派同波。结果按原始下标回填，`batchToolCalls` 保留作兼容。
+2. **token 估算缓存**：`estimateTokens` 以 WeakMap 按消息对象缓存，text / content / toolCalls / attachments 任一变化即失效；300 条长消息热路径从 ~173 ms 降到 <0.1 ms。
+3. **ui.js 拆分（第一刀）**：图表 / 示意图 SVG 渲染拆为 `js/quickviz.js`（504 行、纯函数、Node 可直接单测），ui.js 降到 4568 行。后续按「消息渲染 / 侧栏 / 沙箱面板 / 设置」继续拆。
+4. **Python FILES 增量同步**：常驻 Worker 持有工作区镜像，主线程只发 `diffFiles(镜像, files)`，Worker 只回传 `filesDelta {set, del}`；Worker 重建或上次失败自动退回全量；引用相同的大文件比较是 O(1)。顺带修了一个老 bug：Pyodide「不可用」判定曾用正则匹配错误文本，而用户代码回溯里天然带 `_pyodide/` 路径——任何一次异常都会禁用整个会话的 Python 沙箱，现改为只看加载阶段。
+5. **远程 C++ 开关**：设置页新增「远程 C++（Compiler Explorer）」；关闭后能力约束 `sandbox.remoteCpp=false` → `deriveToolWhitelist` 与旧路径 `toolsFor` 同步剔除 `execute_cpp`，`executeTool` 兜底拒绝；工具描述、运行芯片与 `describeCapabilityConstraints` 都明示代码会发送到 godbolt.org。
+
+**仍建议下版**：继续拆分 ui.js 的 `mountUI` 闭包（约 3200 行）；为 `planToolWaves` 增加按工具类别的并发上限（如 fetch_url ≤ 4）以免一次放出过多网络请求。
 
 ## P0 执行内核（Dubhe Helix 2.5（天枢2.5），`js/execution.js`）
 

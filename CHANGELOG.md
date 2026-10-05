@@ -2,15 +2,23 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.9
+## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.10
 
 - **新工具 ×5**：`csv_tool`、`date_calc`、`text_tool`、`convert_units`、`qr_code`（本地二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36；子智能体按角色获得相应权限；并行白名单纳入 `date_calc` / `convert_units`。
 - **沙箱安全加固**：JS Worker 执行前拆除 fetch / XHR / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache 并私有化 postMessage；Python Worker 的 fetch 仅放行 Pyodide CDN 与 PyPI；日志 / 返回值 / 文件设硬上限；主线程 `sanitizeWorkerFiles` 逐键校验路径、保护 `internal/` 与 `.git/`、超容量整体回滚；`createFS` 改为无原型对象。
 - **照片工作台重写**：对齐站点设计令牌，裁剪 / 旋转 / 翻转、六项调节、六档滤镜与自动增强，Canvas 实时预览。
 - **介绍片**：修复静音；onset 分析提取 71 个底鼓时间点（`js/home-beats.js`），脉冲 / 切镜 / 字幕按真实鼓点触发。
 - **导航与动效**：文档页顶栏参照首页重做；全站补齐进入 / 反馈 / 状态动效，尊重 `prefers-reduced-motion`；首页新增「新特性」区块与新工具芯片。
-- **命名清理**：清除旧内部代号残留，默认中继改为 `relay.dubhe.workers.dev`，旧 localStorage 键自动迁移；TeamoRouter（第三方网关）保持不变。
-- **验收**：主测试 345 项；P2 40/40、P3 10/10、分层评测、资产完整性、服务端护栏通过；沙箱对抗用例在 Chromium 实测通过。
+- **命名清理**：清除旧内部代号残留，默认中继改为 `relay.dubhe-agent.workers.dev`，旧 localStorage 键自动迁移；TeamoRouter（第三方网关）保持不变。
+- **默认中继**：`relay.dubhe-agent.workers.dev`（wrangler 实际部署地址；health / fetch / search 线上验证通过）。
+- **架构完善（构建 2026.10.5.10）**：
+  - `planToolWaves`：按路径级读写集做依赖图调度，无冲突的读写同波并行，目录前缀 / move 源 / 自动命名输出均纳入冲突判断；沙箱执行、生图、zip、git、记忆与参数损坏的调用仍为全局屏障；委派只与委派同波。
+  - `estimateTokens` 按消息对象 WeakMap 缓存（text / content / toolCalls / attachments 变化自动失效）。
+  - Python 沙箱 FILES 增量同步：常驻 Worker 持有镜像，主线程只发 `diff(镜像, files)`，Worker 只回传 `filesDelta`；失败 / 重建时自动退回全量。
+  - `quickviz.js`：图表与示意图 SVG 渲染从 ui.js 拆出为纯函数模块。
+  - 「远程 C++」独立开关（设置页）：关闭后两条工具表派生路径都不含 `execute_cpp`，`executeTool` 直接拒绝；工具描述、运行芯片与能力描述串明示代码会发送到 godbolt.org。
+- **修复**：Python 沙箱「不可用」判定改为只看加载阶段（旧正则会匹配用户代码回溯里的 `_pyodide/` 路径，任何一次异常都会禁用整个会话的 Python）。
+- **验收**：主测试 351 项；P2 40/40、P3 10/10、分层评测、资产完整性 37、服务端护栏 65 通过；DOM / P3 DOM / 应用装配冒烟（jsdom）通过；沙箱对抗用例与增量同步在 Chromium 实测通过。
 
 ## Dubhe Agent V1.6 Stable · 2026-10-05 · 构建 2026.10.5.8
 

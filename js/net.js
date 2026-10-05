@@ -23,13 +23,10 @@ let relayProbe = null;
 // 内置公共 Cloudflare Worker 中继候选。按顺序探测，第一个 200/ok 的生效。
 // 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'dubhe-relay' 覆盖。
 export const RELAY_OVERRIDE_KEY = 'dubhe-relay';
-export const DEFAULT_PUBLIC_RELAY = 'https://relay.dubhe.workers.dev';
-// 候选顺序：① 默认地址 ② worker-deploy.yml 实际发布到的账号子域（wrangler 输出 relay.dubhe-agent.workers.dev）。
-// 默认地址尚未在该 Cloudflare 账号下绑定时，② 保证线上联网能力不中断。
-export const FALLBACK_PUBLIC_RELAY = 'https://relay.dubhe-agent.workers.dev';
+// 与 .github/workflows/worker-deploy.yml（wrangler name = "relay"，账号子域 dubhe-agent）保持一致。
+export const DEFAULT_PUBLIC_RELAY = 'https://relay.dubhe-agent.workers.dev';
 const PUBLIC_RELAY_CANDIDATES = [
   DEFAULT_PUBLIC_RELAY,
-  FALLBACK_PUBLIC_RELAY,
 ];
 
 function userRelayOverride() {

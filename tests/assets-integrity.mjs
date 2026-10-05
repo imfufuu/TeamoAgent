@@ -418,7 +418,7 @@ await test('相机专用入口自动编辑，保存回用 addFiles，普通附�
   assert.match(css, /\.photo-canvas-wrap/);
 });
 await test('图表全屏查看器具有显式入口、SVG 固有尺寸和可交互缩放', () => {
-  const ui = read('../js/ui.js');
+  const ui = read('../js/ui.js') + read('../js/quickviz.js'); // 图表渲染已拆到 quickviz.js
   const css = read('../css/styles.css');
   const viewer = read('../js/lightbox.js');
   assert.match(ui, /class=\"md-chart-expand\"/);

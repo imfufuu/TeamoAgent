@@ -178,6 +178,8 @@ export function deriveToolWhitelist(ctx, allTools = []) {
     if (RELAY_DEPENDENT_TOOLS.includes(name) && !bits.relay) { dropped.push({ name, reason: 'relay-offline' }); continue; }
     if (name === 'dispatch_subagent' && !bits.dispatch) { dropped.push({ name, reason: 'capability-dispatch-off' }); continue; }
     if (SANDBOX_GATED_TOOLS.includes(name) && !bits.sandbox) { dropped.push({ name, reason: 'capability-sandbox-off' }); continue; }
+    if (name === 'execute_cpp' && ctx && ctx.capability && ctx.capability.constraints && ctx.capability.constraints.sandbox
+        && ctx.capability.constraints.sandbox.remoteCpp === false) { dropped.push({ name, reason: 'remote-cpp-off' }); continue; }
     allowed.push(tool);
   }
   return { allowed, dropped };

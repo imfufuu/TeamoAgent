@@ -328,6 +328,25 @@ export async function runJavaScript(code, fsObj) {
 
 // ── Python：常驻 Worker（Pyodide 运行时只加载一次）─────────────────────
 let pyWorker = null;
+let pySyncedWorker = null; // 上次成功同步过镜像的 Worker 实例
+let pySynced = null;       // 该 Worker 当前持有的镜像（{path: content}）
+// 只传变化：引用相同的字符串比较是 O(1)，未改动的大文件不会被扫描
+export function diffFiles(prev, next) {
+  const set = {};
+  const del = [];
+  const p = prev || {};
+  const n = next || {};
+  for (const k of Object.keys(n)) if (!(k in p) || p[k] !== n[k]) set[k] = n[k];
+  for (const k of Object.keys(p)) if (!(k in n)) del.push(k);
+  return { set, del };
+}
+export function applyDelta(base, delta) {
+  const out = { ...(base || {}) };
+  const d = delta || {};
+  for (const k of Object.keys(d.set || {})) out[k] = d.set[k];
+  for (const k of (Array.isArray(d.del) ? d.del : [])) delete out[k];
+  return out;
+}
 let pyBlobTried = false;
 
 export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
@@ -337,6 +356,19 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   const files = fsObj.export();
   const packages = [...new Set([...loadPyPkgs(), ...(Array.isArray(extraPkgs) ? extraPkgs : [])])];
   const t0 = performance.now();
+  // 增量同步：常驻 Worker 已持有上次镜像时只发 diff；Worker 重建 / 上次失败则发全量
+  // 不论全量还是增量，Worker 应用完载荷后的镜像都恰好等于 files（delta = diff(镜像, files)）
+  let usedWorker = null;
+  let sentFull = true;
+  const buildPayload = (worker) => {
+    usedWorker = worker;
+    if (worker === pySyncedWorker && pySynced) {
+      sentFull = false;
+      return { code, delta: diffFiles(pySynced, files), packages };
+    }
+    sentFull = true;
+    return { code, files, packages };
+  };
 
   const attempt = (useBlob) => new Promise((resolve) => {
     const spawn = async () => {
@@ -344,7 +376,8 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
         const res = await fetch(new URL('worker-py.js', import.meta.url));
         if (!res.ok) throw new Error(`无法获取沙箱脚本（HTTP ${res.status}）`);
         const url = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }));
-        return new Worker(url);
+        pyWorker = new Worker(url); // 常驻复用：后续 attempt(false) 直接拿到这个 blob Worker
+        return pyWorker;
       }
       if (!pyWorker) pyWorker = new Worker(new URL('worker-py.js', import.meta.url));
       return pyWorker;
@@ -367,7 +400,7 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
         finish(e.data);
       };
       worker.onerror = (e) => finish({ __workerError: e.message || '加载失败' });
-      worker.postMessage({ code, files, packages });
+      worker.postMessage(buildPayload(worker));
     }).catch((err) => resolve({ __workerError: err.message }));
   });
 
@@ -387,12 +420,32 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
     };
   }
   if (out.timedOut) pyWorker = null;
-  if (!out.ok && /importScripts|loadPyodide|Failed to fetch|pyodide|indexURL/i.test(String(out.error && out.error.message))) {
+  // 只有「运行时加载阶段」失败才标记不可用。过去用正则匹配错误文本，而 Pyodide 的 Python 回溯里
+  // 本身就带 _pyodide/ 路径——任何一次用户代码抛异常都会把整个会话的 Python 沙箱误判为坏掉。
+  const loadStageFailure = !out.ok && (out.stage === 'load'
+    || (out.stage === undefined && /importScripts|loadPyodide|indexURL/i.test(String(out.error && out.error.message)) && !/Traceback/.test(String(out.error && out.error.message))));
+  if (loadStageFailure) {
     pyodideBroken = true;
     pyWorker = null;
     out.error.message += '（已标记 Python 沙箱不可用，本次会话内请使用 execute_javascript）';
   }
-  if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
+  // 回传形态：新版 filesDelta {set, del}（相对 Worker 镜像），旧版 files 全量
+  let workerAfter = null;
+  if (out.ok && out.filesDelta && typeof out.filesDelta === 'object') {
+    workerAfter = applyDelta(files, out.filesDelta);
+  } else if (out.files && !out.timedOut) {
+    workerAfter = out.files;
+  }
+  if (workerAfter) {
+    out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, workerAfter));
+    // 记录 Worker 镜像（含被主线程拒收的条目——下一轮 diff 会把它们纠正回来）
+    pySyncedWorker = out.ok ? usedWorker : null;
+    pySynced = out.ok ? workerAfter : null;
+  } else {
+    pySyncedWorker = null;
+    pySynced = null;
+  }
+  if (sentFull && !out.ok) { pySyncedWorker = null; pySynced = null; }
   if (Array.isArray(out.installed)) savePyPkgs(out.installed.filter((n) => typeof n === 'string' && /^[A-Za-z0-9_.\-\[\]]{1,80}$/.test(n)).slice(0, 200));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }

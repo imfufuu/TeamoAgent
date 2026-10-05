@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.9';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.10';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.9';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.10';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -94,7 +94,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.9';
+} from './execution.js?v=2026.10.5.10';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.9';
+} from './recovery.js?v=2026.10.5.10';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.9';
+} from './idempotency.js?v=2026.10.5.10';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.9';
+} from './memorylife.js?v=2026.10.5.10';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.9';
+} from './trajectory.js?v=2026.10.5.10';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.9';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.9';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.10';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.10';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.9';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.9';
+} from './experiments.js?v=2026.10.5.10';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.10';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,18 +143,19 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.9';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.9';
+} from './executionContext.js?v=2026.10.5.10';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.10';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.9';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.10';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
 // 跨模块「新增具名导出」在混版缓存下会让整个模块图 link 失败（表现为页面直接白屏），
 // 而 TOOL_DEFS 是新旧两版都存在的导出，用它本地过滤最稳。
 const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
-const toolsFor = (sandboxEnabled) =>
-  sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name));
+const toolsFor = (sandboxEnabled, { remoteCpp = true } = {}) =>
+  (sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name)))
+    .filter((t) => remoteCpp || t.name !== 'execute_cpp');
 // 只在具备中继路由时可用的网页工具；搜索/爬虫还须由 Worker health 明确声明对应特性。
 const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site']);
 const RELAY_OFF_NOTE = '\n\n【工具可用性】本轮健康探测没有发现可用网页中继（没有本地中继，或 Cloudflare Worker 未通过健康检查），fetch_url / search_web / crawl_site 因此不在工具表里；'
@@ -205,18 +206,18 @@ export function copyAttachmentsToFS(fs, attachments = []) {
 
 // ─── 子智能体运行器：独立上下文的迷你工具循环（不可再委派，防递归）────
 // （导出以供 tests/live-smoke.mjs 对真实 API 验证）
-export function subagentTools(sandboxEnabled, def) {
+export function subagentTools(sandboxEnabled, def, { remoteCpp = true } = {}) {
   // 按「本轮实际可用的工具」取交集：沙箱关闭时代码执行工具不可用，
   // 但读写文件之类不执行任意代码的工具仍应留给子智能体（旧写法直接给了 null，
   // 等于一关沙箱就把所有子智能体退化成纯推理）。
-  const allow = new Set(toolsFor(sandboxEnabled).map((t) => t.name));
+  const allow = new Set(toolsFor(sandboxEnabled, { remoteCpp }).map((t) => t.name));
   if (!def.tools.length) return null;
   const list = TOOL_DEFS.filter((t) => def.tools.includes(t.name) && t.name !== 'dispatch_subagent' && allow.has(t.name));
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage, memory }) {
-  const subTools = subagentTools(sandboxEnabled, def);
+export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, remoteCpp = true, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage, memory }) {
+  const subTools = subagentTools(sandboxEnabled, def, { remoteCpp });
   const memBlock = formatMemory(memory);
   const messages = [
     { role: 'system', text: `${def.prompt}\n\n你是 Dubhe Agent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}${memBlock ? `\n\n${memBlock}` : ''}\n\n${OUTPUT_SPEC}` },
@@ -262,7 +263,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
     messages.push({ role: 'assistant', text, toolCalls: calls, ...(blocks.length ? { thinkingBlocks: blocks } : {}) });
     for (const c of calls) {
       // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
-      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, signal });
+      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, remoteCpp, signal });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: res });
     }
   }
@@ -303,6 +304,74 @@ export function batchToolCalls(calls) {
     i++;
   }
   return batches;
+}
+
+
+// ─── 依赖图调度（V1.7.1）────────────────────────────────────────────────
+// batchToolCalls 只合并「相邻」的只读调用：[read a, write b, read c] 会退化成 3 批串行。
+// planToolWaves 为每次调用推导路径级读写集，仅在真有数据依赖（写-读 / 读-写 / 写-写，
+// 含目录前缀覆盖）时才排到后一波；无依赖的写入（不同路径）也可以同波并行。
+// 看不清读写集的工具（沙箱执行 / 生图 / zip / git / 记忆 / 参数坏掉的调用）视为全局屏障。
+const ACCESS_ANY = '*';
+const strList = (v) => (typeof v === 'string' && v.trim() ? [v.trim().replace(/^\.\//, '')] : []);
+const pathList = (v) => (Array.isArray(v) ? v.flatMap(strList) : strList(v));
+export function toolAccessSet(call) {
+  const name = call && call.name;
+  const a = call && call.args && typeof call.args === 'object' ? call.args : {};
+  if (hasBadArgs(call)) return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };
+  const outOrAny = (fallbackWrites) => (strList(a.out).length ? strList(a.out) : fallbackWrites);
+  switch (name) {
+    case 'dispatch_subagent': return { reads: [ACCESS_ANY], writes: [ACCESS_ANY], dispatch: true };
+    case 'read_file': return { reads: strList(a.path).length ? strList(a.path) : [ACCESS_ANY], writes: [] };
+    case 'list_files': case 'search_files': return { reads: [ACCESS_ANY], writes: [] };
+    case 'write_file': case 'delete_file': return { reads: [], writes: strList(a.path).length ? strList(a.path) : [ACCESS_ANY] };
+    case 'copy_file': {
+      const from = strList(a.from); const to = strList(a.to);
+      if (!from.length || !to.length) return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };
+      return { reads: from, writes: a.move ? [...to, ...from] : to };
+    }
+    case 'hash': case 'codec': case 'unicode': case 'json_tool':
+      return { reads: strList(a.path), writes: [] };
+    case 'csv_tool': case 'text_tool':
+      return { reads: strList(a.path), writes: strList(a.out) };
+    case 'render_mermaid': case 'render_dot':
+      return { reads: strList(a.path), writes: outOrAny([ACCESS_ANY]) };
+    case 'diff_text': return { reads: [...strList(a.left_path), ...strList(a.right_path)], writes: [] };
+    case 'analyze_image': return { reads: [...strList(a.path), ...pathList(a.paths)], writes: [] };
+    case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
+    default:
+      if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
+      return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };
+  }
+}
+const pathsOverlap = (x, y) => x === ACCESS_ANY || y === ACCESS_ANY || x === y || x.startsWith(`${y}/`) || y.startsWith(`${x}/`);
+const setsOverlap = (xs, ys) => xs.some((x) => ys.some((y) => pathsOverlap(x, y)));
+export function toolCallsConflict(a, b) {
+  if (a.dispatch && b.dispatch) return false; // 委派之间彼此独立，沿用 DISPATCH_CONCURRENCY 并发
+  return setsOverlap(a.writes, b.reads) || setsOverlap(a.reads, b.writes) || setsOverlap(a.writes, b.writes);
+}
+// 返回 [{ kind: 'serial' | 'parallel' | 'dispatch', indices: number[] }, …]，indices 为原始下标（保持原序）。
+export function planToolWaves(calls) {
+  const list = calls || [];
+  const access = list.map(toolAccessSet);
+  const wave = new Array(list.length).fill(0);
+  for (let i = 0; i < list.length; i++) {
+    let w = 0;
+    for (let j = 0; j < i; j++) if (toolCallsConflict(access[j], access[i])) w = Math.max(w, wave[j] + 1);
+    // 委派只能与委派同波：若本波已有非委派调用（或反之），顺延一波
+    for (let j = 0; j < i; j++) if (wave[j] === w && !!access[j].dispatch !== !!access[i].dispatch) { w += 1; j = -1; }
+    wave[i] = w;
+  }
+  const waves = [];
+  const count = list.length ? Math.max(...wave) + 1 : 0;
+  for (let w = 0; w < count; w++) {
+    const indices = [];
+    for (let i = 0; i < list.length; i++) if (wave[i] === w) indices.push(i);
+    if (!indices.length) continue;
+    const kind = access[indices[0]].dispatch ? 'dispatch' : (indices.length === 1 ? 'serial' : 'parallel');
+    waves.push({ kind, indices });
+  }
+  return waves;
 }
 
 export function createAgent(store, hooks = {}) {
@@ -568,6 +637,7 @@ export function createAgent(store, hooks = {}) {
       apiKey: turn.apiKey,
       imageModel: turn.imageModel,
       sandboxEnabled: turn.sandboxEnabled,
+      remoteCpp: turn.remoteCpp !== false,
       allowDispatch: !!turn.canDispatch,
       signal: turn.signal,
       onUi: (patch) => {
@@ -584,6 +654,7 @@ export function createAgent(store, hooks = {}) {
           thinking: turn.thinking,
           reasoningLevel: turn.reasoningLevel,
           sandboxEnabled: turn.sandboxEnabled,
+          remoteCpp: turn.remoteCpp !== false,
           webEnabled: turn.webEnabled,
           imageModel: turn.imageModel,
           memory: store.state.memory,
@@ -625,7 +696,7 @@ export function createAgent(store, hooks = {}) {
     if (exec.machine.canTransition(EXECUTION_STATES.TOOL_PENDING)) {
       exec.machine.transition(EXECUTION_STATES.TOOL_PENDING, `模型请求 ${calls.length} 次工具调用`, { tools: calls.map((c) => c.name) });
     }
-    exec.machine.transition(EXECUTION_STATES.TOOL_RUNNING, `开始执行 ${calls.length} 次调用（批处理：${batchToolCalls(calls).map((b) => b.kind).join('+')}）`);
+    exec.machine.transition(EXECUTION_STATES.TOOL_RUNNING, `开始执行 ${calls.length} 次调用（依赖图调度 ${planToolWaves(calls).length} 波：${planToolWaves(calls).map((b) => `${b.kind}×${b.indices.length}`).join('+')}）`);
 
     const recordBlocked = (call, { reason, failure, risk, idempotencyKey, notes = [] }) => {
       const run = exec.machine.beginToolRun({ callId: call.id, name: call.name, args: call.args, reason, risk, idempotencyKey });
@@ -981,15 +1052,14 @@ export function createAgent(store, hooks = {}) {
       return `${String(result)}${notes}`;
     };
 
-    for (const b of batchToolCalls(calls)) {
+    for (const b of planToolWaves(calls)) {
       if (b.kind === 'serial') {
-        out[b.start] = await runOne(calls[b.start]);
+        out[b.indices[0]] = await runOne(calls[b.indices[0]]);
         continue;
       }
-      const limit = b.kind === 'dispatch' ? DISPATCH_CONCURRENCY : (b.end - b.start);
-      for (let k = b.start; k < b.end; k += limit) {
-        const group = [];
-        for (let n = k; n < Math.min(k + limit, b.end); n++) group.push(n);
+      const limit = b.kind === 'dispatch' ? DISPATCH_CONCURRENCY : b.indices.length;
+      for (let k = 0; k < b.indices.length; k += limit) {
+        const group = b.indices.slice(k, k + limit);
         exec.budgetGov.spend('parallelTasks', group.length, { batch: b.kind });
         const rs = await Promise.all(group.map((n) => runOne(calls[n])));
         group.forEach((n, m) => { out[n] = rs[m]; });
@@ -1126,7 +1196,7 @@ export function createAgent(store, hooks = {}) {
     const canDispatch = initTier.canDispatch;
     // 旧路径工具表：保留它只为**交叉验证**——真正的工具表由统一执行上下文派生（见下方 P2 段落），
     // 两条路径算出的表必须逐项一致；不一致说明有人只改了一处，当场报缺陷而不是让它悄悄生效。
-    const legacyTools = toolsFor(settings.sandboxEnabled)
+    const legacyTools = toolsFor(settings.sandboxEnabled, { remoteCpp: settings.remoteCppEnabled !== false })
       .filter((t) => {
         if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
         if (t.name === 'search_web') return relayOk && settings.webEnabled !== false && relaySupports('search');
@@ -1144,6 +1214,7 @@ export function createAgent(store, hooks = {}) {
       reasoningLevel: lv,
       canDispatch,
       sandboxEnabled: settings.sandboxEnabled,
+      remoteCpp: settings.remoteCppEnabled !== false,
       webEnabled: settings.webEnabled !== false && relayOk,
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
       subagentReports: [],
@@ -1182,6 +1253,7 @@ export function createAgent(store, hooks = {}) {
       relayOk,
       webEnabled: settings.webEnabled !== false,
       sandboxEnabled: settings.sandboxEnabled !== false,
+      remoteCppEnabled: settings.remoteCppEnabled !== false,
       canDispatch,
       overrides: {
         ...userCapabilityOverrides,

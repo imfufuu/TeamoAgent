@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.9';
+} from '../js/api.js?v=2026.10.5.10';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.9');
+const api = await import('../js/api.js?v=2026.10.5.10');
 
 let passed = 0;
 const queue = [];
@@ -2854,11 +2854,11 @@ test('relaySearch/crawl 只调用 health 声明了 search/crawl 的 Worker 路�
   await withNetFetch(async (url) => {
     seen.push(url);
     if (url === '/api/health') return jsonResponse({ ok: true, fetch: true, git: true });
-    if (url === 'https://relay.dubhe.workers.dev/api/health') return jsonResponse({ ok: true, capabilities: ['fetch', 'search', 'crawl'] });
-    if (url.startsWith('https://relay.dubhe.workers.dev/api/search?')) return jsonResponse({
+    if (url === 'https://relay.dubhe-agent.workers.dev/api/health') return jsonResponse({ ok: true, capabilities: ['fetch', 'search', 'crawl'] });
+    if (url.startsWith('https://relay.dubhe-agent.workers.dev/api/search?')) return jsonResponse({
       ok: true, query: 'climate data', provider: 'SearXNG', results: [{ title: 'Source', url: 'https://example.org', snippet: 'Summary' }],
     });
-    if (url.startsWith('https://relay.dubhe.workers.dev/api/crawl?')) return jsonResponse({
+    if (url.startsWith('https://relay.dubhe-agent.workers.dev/api/crawl?')) return jsonResponse({
       ok: true, url: 'https://docs.example.org/', max_pages: 2, max_depth: 1, chars_total: 12, pages: [{ title: 'Guide', url: 'https://docs.example.org/', depth: 0, chars: 12, text: 'Hello world!' }], errors: [],
     });
     throw new Error(`unexpected relay request ${url}`);
@@ -2872,9 +2872,9 @@ test('relaySearch/crawl 只调用 health 声明了 search/crawl 的 Worker 路�
     assert.equal(net.relaySupports('search'), true);
     assert.equal(net.relaySupports('crawl'), true);
     assert.equal(net.currentRelay().label, 'origin', 'fetch/git primary relay stays local');
-    assert.ok(seen.includes('https://relay.dubhe.workers.dev/api/health'));
-    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe.workers.dev/api/search?')));
-    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe.workers.dev/api/crawl?')));
+    assert.ok(seen.includes('https://relay.dubhe-agent.workers.dev/api/health'));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe-agent.workers.dev/api/search?')));
+    assert.ok(seen.some((x) => x.startsWith('https://relay.dubhe-agent.workers.dev/api/crawl?')));
     assert.ok(!seen.includes('/api/search') && !seen.includes('/api/crawl'), 'new routes must not be sent to old local relay');
   });
 });
@@ -3110,7 +3110,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.9');
+  const api = await import('../js/api.js?v=2026.10.5.10');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3255,7 +3255,7 @@ test('初次 Worker 探测未完成时，回合等待真实结果而不乐观开
   const calls = [];
   const relayEvents = [];
   await withNetFetch(async (url, opts) => {
-    if (url === '/api/health' || url === 'https://relay.dubhe.workers.dev/api/health') return NO_RELAY['/api/health']();
+    if (url === '/api/health' || url === 'https://relay.dubhe-agent.workers.dev/api/health') return NO_RELAY['/api/health']();
     if (url.includes('/v1/chat/completions')) {
       const body = JSON.parse(opts.body);
       calls.push({ url, body });
@@ -3287,7 +3287,7 @@ test('启动期误判离线时，实际可用的 Cloudflare Worker 会在联网�
   const relayEvents = [];
   await withNetFetch(async (url, opts) => {
     if (url === '/api/health') return NO_RELAY['/api/health']();
-    if (url === 'https://relay.dubhe.workers.dev/api/health') return jsonResponse({ ok: true, relay: 'dubhe-cf-worker', capabilities: ['fetch', 'search', 'crawl'] });
+    if (url === 'https://relay.dubhe-agent.workers.dev/api/health') return jsonResponse({ ok: true, relay: 'dubhe-cf-worker', capabilities: ['fetch', 'search', 'crawl'] });
     if (url.includes('/v1/chat/completions')) {
       const body = JSON.parse(opts.body);
       calls.push({ url, body });
@@ -4681,7 +4681,15 @@ test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
 });
 test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思维导图', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  // V1.7.1：图表 / 示意图渲染拆到 quickviz.js（纯函数、可单测），ui.js 只保留引用
+  const uiOnly = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const viz = fsp.readFileSync(new URL('../js/quickviz.js', import.meta.url), 'utf8');
+  assert.match(uiOnly, /from '\.\/quickviz\.js\?v=/);
+  const ui = uiOnly + viz;
+  const qv = await import('../js/quickviz.js');
+  assert.match(qv.renderQuickChart('bar', 'A,3\nB,5', 't'), /md-chart-bar/);
+  assert.match(qv.renderQuickDiagram('flow', 'A -> B'), /md-diagram-flow/);
+  assert.match(qv.renderQuickDiagram('mind', '- root\n  - a'), /md-diagram-mind/);
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   assert.match(ui, /CHART_ALIAS/);
@@ -5009,11 +5017,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.9');
+  assert.equal(APP_VERSION, '2026.10.5.10');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.9/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.10/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.9/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.10/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7589,6 +7597,120 @@ test('Worker 源码：JS 沙箱拆除联网/派生/存储原语并私有化 post
   for (const n of ['XMLHttpRequest', 'WebSocket', 'indexedDB', 'caches']) assert.ok(py.includes(`'${n}'`), `Python 沙箱应移除 ${n}`);
   assert.doesNotMatch(py, /self\.postMessage\(/, 'Python 沙箱不应再直接使用全局 postMessage');
   assert.match(py, /realImportScripts\(PY_BASE/);
+});
+
+group('依赖图调度：planToolWaves');
+test('planToolWaves：无依赖的读写同波并行，路径冲突（含目录前缀）才排后一波，屏障类工具单独成波', async () => {
+  const { planToolWaves, toolAccessSet } = await import('../js/agent.js');
+  const plan = (c) => planToolWaves(c).map((w) => [w.kind, w.indices]);
+  // 旧 batchToolCalls 会把这组切成 3 批串行；现在一波并行
+  assert.deepEqual(plan([{ name: 'read_file', args: { path: 'a' } }, { name: 'write_file', args: { path: 'b', content: 'x' } }, { name: 'read_file', args: { path: 'c' } }]), [['parallel', [0, 1, 2]]]);
+  // 同一路径 读→写→读 必须严格串行
+  assert.deepEqual(plan([{ name: 'read_file', args: { path: 'a' } }, { name: 'write_file', args: { path: 'a', content: 'x' } }, { name: 'read_file', args: { path: 'a' } }]), [['serial', [0]], ['serial', [1]], ['serial', [2]]]);
+  // 不同路径的两次写可并行；list_files 读全局，须等写完；沙箱执行是全局屏障；纯函数工具可提前
+  assert.deepEqual(plan([{ name: 'write_file', args: { path: 'x/a', content: '1' } }, { name: 'write_file', args: { path: 'x/b', content: '2' } }, { name: 'list_files', args: {} }, { name: 'execute_python', args: { code: '1' } }, { name: 'regex', args: { pattern: 'a', text: 'a' } }]),
+    [['parallel', [0, 1, 4]], ['serial', [2]], ['serial', [3]]]);
+  // 目录前缀：删 x 与 读 x/y 冲突；move 把源也算写
+  assert.deepEqual(plan([{ name: 'copy_file', args: { from: 'a', to: 'b', move: true } }, { name: 'read_file', args: { path: 'a' } }, { name: 'delete_file', args: { path: 'x' } }, { name: 'read_file', args: { path: 'x/y' } }]), [['parallel', [0, 2]], ['parallel', [1, 3]]]);
+  // 委派只与委派同波，且与其它调用互为屏障
+  assert.deepEqual(plan([{ name: 'dispatch_subagent', args: { agent: 'a', task: 't' } }, { name: 'dispatch_subagent', args: { agent: 'a', task: 'u' } }, { name: 'read_file', args: { path: 'a' } }]), [['dispatch', [0, 1]], ['serial', [2]]]);
+  assert.deepEqual(plan([{ name: 'read_file', args: { path: 'a' } }, { name: 'dispatch_subagent', args: { agent: 'a', task: 't' } }, { name: 'dispatch_subagent', args: { agent: 'a', task: 'u' } }]), [['serial', [0]], ['dispatch', [1, 2]]]);
+  // 参数损坏 / 缺 path 的写入 → 全局屏障，绝不与别人并行
+  assert.deepEqual(plan([{ name: 'write_file', args: { __raw: '{' } }, { name: 'read_file', args: { path: 'a' } }]), [['serial', [0]], ['serial', [1]]]);
+  assert.deepEqual(toolAccessSet({ name: 'write_file', args: {} }).writes, ['*']);
+  assert.deepEqual(toolAccessSet({ name: 'render_mermaid', args: { code: 'graph TD' } }).writes, ['*'], '自动命名输出 → 全局写');
+  assert.deepEqual(toolAccessSet({ name: 'csv_tool', args: { path: 'd.csv', out: 'o.json' } }), { reads: ['d.csv'], writes: ['o.json'] });
+  assert.deepEqual(plan([]), []);
+});
+test('Agent 主循环已改用 planToolWaves（按原始下标回填结果）', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(src, /for \(const b of planToolWaves\(calls\)\)/);
+  assert.doesNotMatch(src, /for \(const b of batchToolCalls\(calls\)\)/);
+  assert.match(src, /group\.forEach\(\(n, m\) => \{ out\[n\] = rs\[m\]; \}\)/);
+});
+
+group('V1.7.1 架构完善：远程 C++ 开关 / 增量 FILES / token 缓存 / Pyodide 误判');
+test('远程 C++ 开关：关闭后两条工具表派生路径都不含 execute_cpp，executeTool 直接拒绝', async () => {
+  const { toolsFor, TOOL_DEFS, executeTool } = await import('../js/tools.js');
+  const { subagentTools } = await import('../js/agent.js');
+  const ex = await import('../js/execution.js');
+  const ec = await import('../js/executionContext.js');
+  assert.ok(toolsFor(true).some((t) => t.name === 'execute_cpp'));
+  assert.ok(!toolsFor(true, { remoteCpp: false }).some((t) => t.name === 'execute_cpp'));
+  assert.ok(toolsFor(true, { remoteCpp: false }).some((t) => t.name === 'execute_python'), '只关 C++，本地沙箱照常');
+  const cap = ex.buildCapabilityConstraints({ relayOk: false, webEnabled: false, sandboxEnabled: true, remoteCppEnabled: false, canDispatch: false });
+  assert.equal(cap.sandbox.remoteCpp, false);
+  assert.match(ex.describeCapabilityConstraints(cap), /远程C\+\+off/);
+  const ctx = ec.createTurnExecutionContext({ turnId: 't1', sessionId: 's1', capability: cap });
+  const wl = ec.deriveToolWhitelist(ctx, TOOL_DEFS);
+  assert.ok(!wl.allowed.some((t) => t.name === 'execute_cpp'));
+  assert.ok(wl.dropped.some((d) => d.name === 'execute_cpp' && d.reason === 'remote-cpp-off'));
+  const capOn = ex.buildCapabilityConstraints({ relayOk: false, webEnabled: false, sandboxEnabled: true, canDispatch: false });
+  assert.ok(ec.deriveToolWhitelist(ec.createTurnExecutionContext({ turnId: 't2', sessionId: 's1', capability: capOn }), TOOL_DEFS).allowed.some((t) => t.name === 'execute_cpp'), '默认开启');
+  const fs = createFS();
+  const out = await executeTool('execute_cpp', { code: 'int main(){}' }, { fs, sandboxEnabled: true, remoteCpp: false, onUi: () => {} });
+  assert.match(out, /已被用户关闭/);
+  assert.match(out, /godbolt\.org/);
+  const cr = subagentTools(true, { tools: ['execute_cpp', 'execute_python', 'read_file'] }, { remoteCpp: false });
+  assert.deepEqual(cr.map((t) => t.name), ['execute_python', 'read_file']);
+  const def = TOOL_DEFS.find((t) => t.name === 'execute_cpp');
+  assert.match(def.description, /godbolt\.org/, '工具描述必须明说代码会离开浏览器');
+  const fsp = await import('node:fs');
+  const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(html, /id="set-cpp"/);
+  assert.match(html, /远程 C\+\+（Compiler Explorer）/);
+  const st = fsp.readFileSync(new URL('../js/state.js', import.meta.url), 'utf8');
+  assert.match(st, /remoteCppEnabled: true/, '默认值在 state.js 的 settings 合并处');
+});
+test('Python 沙箱增量同步：diffFiles / applyDelta 往返一致，引用相同的大文件不进 delta', async () => {
+  const { diffFiles, applyDelta } = await import('../js/sandbox.js');
+  const big = 'x'.repeat(1_000_000);
+  const prev = { 'big.txt': big, 'a.txt': '1', 'gone.txt': 'z' };
+  const next = { 'big.txt': big, 'a.txt': '2', 'new.txt': 'n' };
+  const d = diffFiles(prev, next);
+  assert.deepEqual(d, { set: { 'a.txt': '2', 'new.txt': 'n' }, del: ['gone.txt'] });
+  assert.deepEqual(applyDelta(prev, d), next);
+  assert.deepEqual(diffFiles(next, next), { set: {}, del: [] });
+  assert.deepEqual(applyDelta({}, { set: { k: 'v' } }), { k: 'v' });
+  assert.deepEqual(applyDelta({ k: 'v' }, null), { k: 'v' });
+  const fsp = await import('node:fs');
+  const py = fsp.readFileSync(new URL('../js/worker-py.js', import.meta.url), 'utf8');
+  assert.match(py, /filesDelta: \{ set, del \}/, 'Worker 回传增量');
+  assert.match(py, /else if \(delta && typeof delta === 'object'\)/, 'Worker 接收增量');
+  const sb = fsp.readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');
+  assert.match(sb, /delta: diffFiles\(pySynced, files\)/);
+  assert.match(sb, /applyDelta\(files, out\.filesDelta\)/, '镜像基准必须是本轮 files（Worker 应用载荷后的状态），不是上一轮镜像');
+});
+test('Pyodide 不可用判定只看加载阶段：用户代码的 Traceback 不再把整个会话的 Python 沙箱标坏', async () => {
+  const fsp = await import('node:fs');
+  const sb = fsp.readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');
+  const py = fsp.readFileSync(new URL('../js/worker-py.js', import.meta.url), 'utf8');
+  assert.match(py, /let stage = 'load'/); assert.match(py, /stage = 'run';/); assert.match(py, /post\(\{ ok: false, stage,/);
+  assert.match(sb, /out\.stage === 'load'/);
+  assert.doesNotMatch(sb, /\/importScripts\|loadPyodide\|Failed to fetch\|pyodide\|indexURL\/i/, '旧正则会匹配 _pyodide/ 回溯路径');
+});
+test('estimateTokens：同一消息对象重复估算走缓存，字段变化后自动失效', async () => {
+  const { estimateTokens } = await import('../js/context.js');
+  const m = { role: 'user', text: 'hello 世界' };
+  const a = estimateTokens([m]);
+  assert.equal(estimateTokens([m]), a);
+  m.text = 'hello 世界'.repeat(50);
+  const b = estimateTokens([m]);
+  assert.ok(b > a);
+  const tc = { role: 'assistant', text: '', toolCalls: [{ name: 'x', args: { a: 1 } }] };
+  const c = estimateTokens([tc]);
+  tc.toolCalls = [...tc.toolCalls, { name: 'y', args: { b: 'zzzzzzzzzz' } }];
+  assert.ok(estimateTokens([tc]) > c);
+  const att = { role: 'user', text: 'x', attachments: [] };
+  const d = estimateTokens([att]);
+  att.attachments.push({ kind: 'image' });
+  assert.equal(estimateTokens([att]), d + 1500, '原地 push 附件也要失效（按长度兜底）');
+  const msgs = Array.from({ length: 300 }, () => ({ role: 'user', text: 'ab'.repeat(5000) }));
+  estimateTokens(msgs);
+  const t0 = performance.now();
+  for (let i = 0; i < 20; i++) estimateTokens(msgs);
+  assert.ok(performance.now() - t0 < 50, '热路径 20 次 × 300 条应在 50ms 内');
 });
 
 for (const item of queue) {
