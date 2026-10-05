@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.5';
-import { createAgent } from './agent.js?v=2026.10.5.5';
-import { mountUI, toast } from './ui.js?v=2026.10.5.5';
+import { createStore } from './state.js?v=2026.10.5.6';
+import { createAgent } from './agent.js?v=2026.10.5.6';
+import { mountUI, toast } from './ui.js?v=2026.10.5.6';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.5';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.5';
-import { APP_RELEASE } from './config.js?v=2026.10.5.5';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.6';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.6';
+import { APP_RELEASE } from './config.js?v=2026.10.5.6';
 
 const store = createStore();
 // relayOk 是运行时探测结果，不复用上次持久化值；null 表示探测进行中。
@@ -137,7 +137,7 @@ if (store.hydrateBlobs) {
   store.hydrateBlobs().then((n) => { if (n) ui.afterHydrate(); }).catch(() => {});
 }
 
-console.log(`%c◐ TeamoAgent ${APP_RELEASE} 正式版`, 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
+console.log(`%c◐ TeamoAgent ${APP_RELEASE}`, 'font-weight:800;font-size:16px', '· TeamoRouter Gateway');
 
 // 审核资源离线缓存：首次下载后持久化（stale-while-revalidate），之后会话零网络直读
 try {

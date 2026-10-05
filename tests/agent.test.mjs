@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.5';
+} from '../js/api.js?v=2026.10.5.6';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.5');
+const api = await import('../js/api.js?v=2026.10.5.6');
 
 let passed = 0;
 const queue = [];
@@ -3087,7 +3087,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.5');
+  const api = await import('../js/api.js?v=2026.10.5.6');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4978,16 +4978,19 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
   }
 });
 
-group('V1.5 Stable / 桌面沙箱面板');
-test('V1.5 发布标识与构建号已同步', async () => {
+group('V1.6 Stable / 桌面沙箱面板');
+test('V1.6 Stable 发布标识与构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
-  assert.equal(APP_RELEASE, 'V1.5');
-  assert.match(APP_VERSION, /^2026\.\d+\.\d+\.\d+$/);
-  assert.match(html, /TeamoAgent V1\.5/);
-  assert.match(home, /TeamoAgent V1\.5 · 构建 2026\.\d+\.\d+\.\d+/);
+  const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
+  assert.equal(APP_RELEASE, 'V1.6 (Stable)');
+  assert.equal(APP_VERSION, '2026.10.5.6');
+  assert.match(html, /TeamoAgent V1\.6 \(Stable\)/);
+  assert.match(home, /TeamoAgent V1\.6 \(Stable\) · 构建 2026\.10\.5\.6/);
+  assert.match(docs, /class="ver-badge" title="Teamo V1\.6 \(Stable\)">V1\.6 \(Stable\)<\/span>/);
+  assert.match(docs, /V1\.6 \(Stable\).*2026\.10\.5\.6/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');

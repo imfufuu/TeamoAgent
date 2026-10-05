@@ -837,7 +837,7 @@ html.open .site { display: block; }
 .logo-mark svg { width: 21px; height: 21px; display: block; }
 .logo-text { font-weight: 500; letter-spacing: .14em; font-size: 13px; flex-shrink: 0; white-space: nowrap; color: inherit; text-decoration: none; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
-.ver { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--fg-3); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+.ver { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--fg-3); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
 .nav-spacer { flex: 1; }
 .nav-link {
   font-size: 12.5px; color: var(--fg-2); text-decoration: none; padding: 6px 10px;

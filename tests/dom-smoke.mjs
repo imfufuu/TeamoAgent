@@ -570,12 +570,12 @@ console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护�
   const cfgSrc = fs.readFileSync(path.join(ROOT, 'js/config.js'), 'utf8');
   const release = cfgMod2.APP_RELEASE;
   const navHtml = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V\d+(?:\.\d+)*'/.test(cfgSrc) && /APP_VERSION = '\d{4}\.\d+\.\d+\.\d+'/.test(cfgSrc));
-  ok('标题与 meta 标明当前正式版', htmlSrc.includes(`<title>TeamoAgent ${release} `) && htmlSrc.includes(`<meta name="app-release" content="${release}"`));
-  ok('侧栏 Logo 旁有当前版本徽章', htmlSrc.includes(`class="ver-badge" title="Teamo ${release} 正式版">${release}</span>`) && /\.ver-badge\s*\{/.test(cssText));
-  ok('底部版本戳用 APP_RELEASE 写明正式版', /Teamo \$\{APP_RELEASE\} 正式版/.test(uiSrc) && /APP_RELEASE\b/.test(uiSrc));
+  ok('config.js 分开维护发布版本与构建戳', /APP_RELEASE = 'V\d+(?:\.\d+)* \(Stable\)'/.test(cfgSrc) && /APP_VERSION = '\d{4}\.\d+\.\d+\.\d+'/.test(cfgSrc));
+  ok('标题与 meta 标明当前稳定版', htmlSrc.includes(`<title>TeamoAgent ${release} `) && htmlSrc.includes(`<meta name="app-release" content="${release}"`));
+  ok('侧栏 Logo 旁有当前版本徽章', htmlSrc.includes(`class="ver-badge" title="Teamo ${release}">${release}</span>`) && /\.ver-badge\s*\{/.test(cssText));
+  ok('底部版本戳用 APP_RELEASE 标明稳定版', /Teamo \$\{APP_RELEASE\}/.test(uiSrc) && /APP_RELEASE\b/.test(uiSrc));
   const bootSrc = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
-  ok('控制台横幅跟随当前正式版', /TeamoAgent \$\{APP_RELEASE\} 正式版/.test(bootSrc) && /import \{ APP_RELEASE \}/.test(bootSrc));
+  ok('控制台横幅跟随当前稳定版', /TeamoAgent \$\{APP_RELEASE\}/.test(bootSrc) && /import \{ APP_RELEASE \}/.test(bootSrc));
   ok('导航页提供可访问的外观切换入口', /id="theme-toggle"[^>]*>外观<\/button>/.test(navHtml));
   ok('会话/附件删除键也是 SVG', /sess-del[^>]*>\$\{ICON\.x\}/.test(uiSrc) && /attach-chip-x[^>]*>\$\{ICON\.x\}/.test(uiSrc));
   // 刷新后「对话 + 附件 + 沙箱」都要在：重数据外置到 IndexedDB
