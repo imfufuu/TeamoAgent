@@ -5,9 +5,10 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.10';
+} from '../js/api.js?v=2026.10.5.11';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
+import _fs from 'node:fs';
 import { createFS } from '../js/sandbox.js';
 import { createStore } from '../js/state.js';
 import { estimateTokens, compactMessages, truncateToolContent, contextBudgetFor } from '../js/context.js';
@@ -27,7 +28,15 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.10');
+const api = await import('../js/api.js?v=2026.10.5.11');
+// V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
+// 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
+const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
+function readUiSource() {
+  const fsp = _fs;
+  return UI_SOURCE_PARTS.map((rel) => fsp.readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
+}
+
 
 let passed = 0;
 const queue = [];
@@ -522,7 +531,7 @@ test('推理级别 Mini/Low/Medium/High/Max/Ultra 映射到各协议', async () 
   assert.equal(r.normalizeReasoningLevel('nope'), 'medium');
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.match(html, /id="think-menu"/);
   assert.match(ui, /REASONING_LEVELS/);
   assert.match(ui, /data-think/);
@@ -2660,7 +2669,7 @@ test('沙箱输出被截断只在预算不足时发生（回归：历史轮次�
 });
 test('导入会话在回合进行中必须先判忙再改 store（防半轮丢失）', async () => {
   const fsp = await import('node:fs');
-  const src = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const src = readUiSource();
   const at = src.indexOf("store.importSession(data)");
   const busy = src.lastIndexOf("if (getBusy())", at);
   assert.ok(busy > 0 && busy < at, 'getBusy 判定必须排在 importSession 之前');
@@ -2674,7 +2683,7 @@ test('死代码不再回来：zip 便捷入口 / 文件树 direct 字段 / 双�
   const tree = await import('../js/filetree.js');
   const [node] = tree.buildFileTree([{ path: 'a/b.txt', size: 3 }]);
   assert.ok(!('direct' in node), '无人读取的 direct 字段应删掉');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.ok(!/chipImages/.test(ui), '生图预览已改走正文，芯片图缓存是死代码');
   assert.ok(!/webCapFor/.test(ui), 'ui 不再读 webCapFor（恒为 null）');
 });
@@ -3110,7 +3119,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.10');
+  const api = await import('../js/api.js?v=2026.10.5.11');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3788,7 +3797,7 @@ test('Agent：Jev 挂了不能挡住聊天（fail-open）', async () => {
 });
 test('paintAssistant：光标必须叠上忙碌状态（导入后去不掉的根因）', async () => {
   const fsp = await import('node:fs');
-  const src = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const src = readUiSource();
   const paint = src.slice(src.indexOf('function paintAssistant'), src.indexOf('function webNote'));
   assert.match(paint, /const live = !m\.done && getBusy\(\)/, '历史消息缺 done 时不能只靠 !m.done 画光标');
   assert.match(paint, /live && !noOutputYet.*cursor/, '光标只在 live 时出现');
@@ -3969,7 +3978,7 @@ test('会话记录卡片不被底栏版本/用量挤扁', async () => {
 test('工具调用与深度思考无边框；思考有线性 SVG', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const { ICON } = await import('../js/icons.js');
   const chip = css.slice(css.indexOf('.chip {'), css.indexOf('.chip:hover'));
   assert.match(chip, /border:\s*none/, '工具芯片不要边框');
@@ -4002,7 +4011,7 @@ test('侧栏收起把手在顶栏文档流里，不 fixed 遮挡本轮/思考', 
 });
 test('窄屏沙箱面板自底部全屏滑入，面板内关闭键可收回', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /#panel-close/, '面板内要有关闭键');
@@ -4014,7 +4023,7 @@ test('窄屏沙箱面板自底部全屏滑入，面板内关闭键可收回', as
 });
 test('模型列表不再标「原生」；底部提示为 AI 生成免责声明', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.equal(/badge ghost">原生/.test(ui), false, 'Claude 行不应再挂「原生」标签');
   assert.match(ui, /badge hot">热门/);
   assert.match(ui, /badge cheap">低价/);
@@ -4042,7 +4051,7 @@ test('模型列表不再标「原生」；底部提示为 AI 生成免责声明'
 });
 test('glm-5.3-flash-free 从菜单隐藏；网关返回也滤掉', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.equal(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash-free'), false);
   assert.ok(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash'), '付费 flash 仍在');
   assert.match(ui, /HIDDEN_MODELS = new Set\(\['glm-5.3-flash-free'\]\)/);
@@ -4052,7 +4061,7 @@ test('glm-5.3-flash-free 从菜单隐藏；网关返回也滤掉', async () => {
 test('代码块加载 extra 语言包并覆盖主流 fence 别名', async () => {
   const fsp = await import('node:fs');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const extra = fsp.readFileSync(new URL('../assets/hljs/langs-extra.min.js', import.meta.url), 'utf8');
   assert.match(html, /assets\/hljs\/langs-extra\.min\.js/);
   assert.match(html, /assets\/hljs\/matlab\.min\.js/);
@@ -4067,7 +4076,7 @@ test('代码块加载 extra 语言包并覆盖主流 fence 别名', async () => 
 });
 test('气泡脚注耗时与相对时间；Off 不画思考过程', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.match(ui, /class=\"msg-foot mono\"/);
@@ -4189,7 +4198,7 @@ group('2026.09.22.15 布局与高亮');
 test('侧栏 860、桌面面板右侧浮层，手机面板底部浮层，开面板时藏顶栏胶囊', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.equal((css.match(/@media \(max-width: 860px\)/g) || []).length >= 2, true);
   assert.match(css, /@media \(max-width: 1180px\)/);
   assert.match(css, /#sandbox-panel\.collapsed \{ transform: translateX\(105%\); \}/);
@@ -4205,7 +4214,7 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   const fsp = await import('node:fs');
   const hl = fsp.readFileSync(new URL('../assets/hljs/dubhe.css', import.meta.url), 'utf8');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   assert.match(hl, /\.code-head/);
   assert.match(hl, /\.copy-code \{[\s\S]*opacity:\s*1/);
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
@@ -4268,7 +4277,7 @@ test('命令面板过滤与 token 构成', async () => {
 });
 test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空是危险色；占用条上限 120MB', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /chip-ok/);
@@ -4306,7 +4315,7 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
 });
 test('清空会话要二次 confirm', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const n = (ui.match(/confirm\(/g) || []).length;
   assert.ok(n >= 4, `confirm 次数 ${n}`);
 });
@@ -4538,7 +4547,7 @@ test('移动端顶栏思考胶囊从左侧露出可横滑', async () => {
 });
 test('打开会话强制滚到最新；忙时只禁删当前会话', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const rb = ui.slice(ui.indexOf('function rebuildMessages'), ui.indexOf('function attachToolResult'));
   assert.match(rb, /scrollToBottom\(true\)/);
   assert.match(ui, /getBusy\(\) && wasActive/);
@@ -4604,7 +4613,7 @@ test('会话列表按最后消息时间排序，切换会话不改变顺序', as
 }));
 test('会话记录显示时间跨度分组，UI 有今天/昨天/前天/7天内/30天内', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /function sessionSpanLabel/);
   for (const s of ['今天', '昨天', '前天', '7天内', '30天内']) assert.match(ui, new RegExp(s));
@@ -4613,7 +4622,7 @@ test('会话记录显示时间跨度分组，UI 有今天/昨天/前天/7天内/
 });
 test('居中/右对齐语法与样式已注册', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   assert.match(ui, /ALIGN_ALIAS/);
@@ -4628,7 +4637,7 @@ test('居中/右对齐语法与样式已注册', async () => {
 group('.58 选择框串联/宣传片整合/Git 内置');
 test('多题选择框合成一个框，支持逐题选择与回退清除', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(ui, /choiceHtml\(peeled\.blocks\)/, '多个 choice 必须合成一个框');
   assert.match(ui, /data-choice-count/);
@@ -4682,7 +4691,7 @@ test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
 test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思维导图', async () => {
   const fsp = await import('node:fs');
   // V1.7.1：图表 / 示意图渲染拆到 quickviz.js（纯函数、可单测），ui.js 只保留引用
-  const uiOnly = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiOnly = readUiSource();
   const viz = fsp.readFileSync(new URL('../js/quickviz.js', import.meta.url), 'utf8');
   assert.match(uiOnly, /from '\.\/quickviz\.js\?v=/);
   const ui = uiOnly + viz;
@@ -4706,7 +4715,7 @@ test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思�
 });
 test('选择框删除跳过入口', async () => {
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.equal(/data-choice-skip|choice-skip|dismissChoiceBox/.test(ui + css), false);
 });
@@ -5017,11 +5026,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.10');
+  assert.equal(APP_VERSION, '2026.10.5.11');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.10/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.11/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.10/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.11/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -5070,7 +5079,7 @@ test('.17 系统命令识别器：图标、命令集与隔离标记', async () =
   assert.ok(ICON.system && ICON.system.includes('<svg'), 'ICON.system 终端图标应存在');
   assert.ok(ICON.system.includes('stroke="currentColor"'), 'system 图标应与全局描边风格一致');
   const fsp = await import('node:fs');
-  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
   for (const cmd of ["name === 'version'", "name === 'stats'", "name === 'theme'", "name === 'cache'", "name === 'key'", "name === 'export'"]) {
     assert.ok(ui.includes(cmd), `/system 缺命令：${cmd}`);
   }
@@ -5271,7 +5280,7 @@ test('Req 5：介绍片下载完成后缓存且随时可播，进度条完成后
 
 test('Req 6：回滚到此消息时被删消息带粒子粉碎动画离开对话区', async () => {
   const fsp = await import('node:fs');
-  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiJs = readUiSource();
   const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(uiJs, /function disintegrateMessageNodes/, 'ui.js 应实现粒子粉碎动画函数');
   assert.match(uiJs, /msg-disintegrating/, '回滚应给被删消息节点标记 .msg-disintegrating');
@@ -5337,7 +5346,7 @@ test('Bug 修复：importSession 保留图片附件 dataUrl，且 SVG 预览消�
   assert.equal(imported.messages[0].attachments[0].dataUrl, 'data:image/png;base64,iVBORw0KGgo=', 'importSession 不应丢失附件 dataUrl');
 
   const fsp = await import('node:fs');
-  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiJs = readUiSource();
   assert.match(uiJs, /function sanitizeSvgRaw/, 'ui.js 应对内联 SVG 做 XSS 消毒');
   assert.match(uiJs, /(?:const|function)\s+safeImgSrc/, 'ui.js 应校验图片 src 协议');
 });
@@ -5466,7 +5475,7 @@ test('折线图渲染修复：div.md-chart-line 不向 <text> 继承粗描边，
 
 test('Explored Files 合并后空壳助手节点自动折叠，不再累加多余行间距', async () => {
   const fsp = await import('node:fs');
-  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiJs = readUiSource();
   const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(uiJs, /function syncAssistantShell/, '应有 syncAssistantShell 折叠因合并文件列表而留空的续消息壳');
   assert.match(stylesCss, /\.msg-assistant\.msg-collapsed\s*\{\s*display:\s*none\s*!important/, '空壳助手节点应 display: none 不占行距');
@@ -5563,7 +5572,7 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
   const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
   const homeJs = fsp.readFileSync(new URL('../js/home.js', import.meta.url), 'utf8');
-  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiJs = readUiSource();
   const indexHtml = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const appHtml = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const docsHtml = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
@@ -5755,7 +5764,7 @@ test('2026.9.30.7：天枢2.5 五项自演进增强（L1 轻快路径、L3 中�
 
 test('2026.9.30.7：Toast 最多堆叠 3 条、回滚小黑色高精细微粒特效、图表微交互性', async () => {
   const fsp = await import('node:fs');
-  const uiJs = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const uiJs = readUiSource();
   const stylesCss = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
 
   // Req 4: Toast 最多堆叠 3 条
@@ -7711,6 +7720,68 @@ test('estimateTokens：同一消息对象重复估算走缓存，字段变化后
   const t0 = performance.now();
   for (let i = 0; i < 20; i++) estimateTokens(msgs);
   assert.ok(performance.now() - t0 < 50, '热路径 20 次 × 300 条应在 50ms 内');
+});
+
+group('V1.7.1 续：同波按类别限流 / ui.js 拆分契约');
+test('runWithCategoryLimits：网络类 ≤ 4、本地 ≤ 8 并发，结果按原序回填，单个失败不拖累其它', async () => {
+  const { runWithCategoryLimits, plannedConcurrency, NETWORK_TOOLS, PARALLEL_LIMITS } = await import('../js/agent.js');
+  assert.deepEqual([...NETWORK_TOOLS].sort(), ['crawl_site', 'fetch_url', 'search_web']);
+  assert.deepEqual(PARALLEL_LIMITS, { network: 4, default: 8 });
+  const items = [...Array(10)].map((_, i) => ({ index: i, name: 'fetch_url' })).concat([...Array(12)].map((_, i) => ({ index: 10 + i, name: 'regex' })));
+  const active = { net: 0, loc: 0 }; const peak = { net: 0, loc: 0 };
+  const rs = await runWithCategoryLimits(items, async (n) => {
+    const c = n < 10 ? 'net' : 'loc';
+    active[c] += 1; peak[c] = Math.max(peak[c], active[c]);
+    await new Promise((r) => setTimeout(r, 3 + (n % 4)));
+    active[c] -= 1;
+    if (n === 5) throw new Error('boom');
+    return `r${n}`;
+  }).catch((e) => e);
+  assert.ok(rs instanceof Error, 'run 抛错时 Promise.all 语义保持（主循环的 runOne 自己把异常转成结果字符串）');
+  await new Promise((r) => setTimeout(r, 60)); // 让上一轮（已 reject 但仍在跑）的任务全部结束，再量峰值
+  active.net = 0; active.loc = 0; peak.net = 0; peak.loc = 0;
+  const ok = await runWithCategoryLimits(items, async (n) => { const c = n < 10 ? 'net' : 'loc'; active[c] += 1; peak[c] = Math.max(peak[c], active[c]); await new Promise((r) => setTimeout(r, 2)); active[c] -= 1; return `r${n}`; });
+  assert.ok(ok.every((r, i) => r === `r${i}`), '结果下标与 items 顺序一致');
+  assert.equal(peak.net, 4); assert.equal(peak.loc, 8);
+  assert.equal(plannedConcurrency(items.map((i) => i.name)), 12);
+  assert.equal(plannedConcurrency(['read_file', 'read_file']), 2);
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(src, /const rs = await runWithCategoryLimits\(items, \(n\) => runOne\(calls\[n\]\)\)/);
+});
+test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模块，mountUI 只保留装配调用', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  for (const [mod, fn] of [['ui-files-panel', 'installFilesPanel'], ['ui-lightbox', 'installLightbox'], ['ui-attachments', 'installAttachments'], ['quickviz', 'renderQuickChart']]) {
+    const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
+    assert.match(src, new RegExp(`export function ${fn}\\(`), `${mod}.js 应导出 ${fn}`);
+    assert.match(ui, new RegExp(`from '\\./${mod}\\.js\\?v=`), `ui.js 应以 ?v= 引入 ${mod}.js`);
+    assert.doesNotMatch(src, /from '\.\/ui\.js/, `${mod}.js 不得反向依赖 ui.js（避免循环依赖）`);
+  }
+  assert.ok(ui.split('\n').length < 4200, `ui.js 应保持在 4200 行以内（当前 ${ui.split('\n').length}）`);
+  // 拆分最容易漏的就是「原来靠 ui.js 模块作用域拿到的名字」：凡在子模块里用到的 ui.js 导入名 / 模块级助手，
+  // 必须自己 import、自己声明，或经 install*(deps) 注入——否则运行时 ReferenceError（上线前真踩过 ICON / safeImgSrc）。
+  const uiImported = [...ui.matchAll(/^import\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(',').map((x) => x.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean));
+  // $ / $$ 故意不查：正则字面量里的引号会让简易去字符串器失准；它们缺失时页面根本挂不起来，dom-smoke 必然报
+  const uiHelpers = ['el', 'esc', 'fmtSize', 'safeImgSrc', 'safeHref', 'sanitizeSvgRaw', 'highlightCode', 'toast', 'renderMarkdown', 'sandboxPath', 'headingSlug'];
+  for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'quickviz']) {
+    const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
+    const code = src.replace(/\/\/.*$/gm, '').replace(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');
+    const provided = new Set();
+    for (const m of code.matchAll(/^import\s*\{([^}]*)\}/gm)) m[1].split(',').forEach((x) => provided.add(x.trim().split(/\s+as\s+/).pop().trim()));
+    for (const m of code.matchAll(/^(?:export )?(?:const|let|function|async function)\s+([A-Za-z_$][\w$]*)/gm)) provided.add(m[1]);
+    for (const m of code.matchAll(/export function install\w+\(\{([^}]*)\}/g)) m[1].split(',').forEach((x) => provided.add(x.trim().split('=')[0].trim()));
+    const escapeRe = (x) => x.replace(/[$]/g, '\\$&');
+    for (const name of new Set([...uiImported, ...uiHelpers])) {
+      if (!name || provided.has(name)) continue;
+      const re = new RegExp(`(?<![\\w$.])${escapeRe(name)}(?![\\w$])`);
+      assert.ok(!re.test(code), `${mod}.js 使用了 ${name} 但既未 import / 声明，也未经 deps 注入`);
+    }
+  }
+  assert.match(ui, /const \{ renderFiles, openFileViewer \} = installFilesPanel\(/);
+  assert.match(ui, /const attachments = installAttachments\(/);
+  assert.match(ui, /attachments\.takePending\(\)/);
+  assert.doesNotMatch(ui, /function openFileViewer\(|function openLightbox\(|async function addFiles\(/, '旧实现不应残留在 ui.js');
 });
 
 for (const item of queue) {

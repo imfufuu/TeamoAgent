@@ -206,7 +206,8 @@ click($('#attach-btn'));
 ok('点击附件按钮展开附件菜单', $('#attach-menu')?.hidden === false && $('#attach-btn')?.getAttribute('aria-expanded') === 'true');
 click($('#attach-btn'));
 ok('再次点击附件按钮收起附件菜单', $('#attach-menu')?.hidden === true && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
-const photoEditorSource = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+const readUiSrc = () => ['js/ui.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const photoEditorSource = readUiSrc();
 ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
 const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));
 ok('照片编辑尺寸与反向拖拽裁剪范围受限', photoMath.fitPhotoSize(8000, 4000, 2048).width === 2048 && photoMath.cropRectFromDrag(90, 90, 10, 10, 100, 100)?.x === 10);
@@ -294,7 +295,7 @@ ok('文案为「快速」而非 ⚡ Fast', fast.textContent.trim() === '快速',
 for (const id of ['#thinking-toggle', '#sandbox-toggle', '#fast-toggle']) {
   ok(`${id} 三个按钮同风格（pill + pill-ico svg）`, !!$(id) && $(id).classList.contains('pill') && !!$(id).querySelector('svg.pill-ico'));
 }
-ok('整站按钮不再使用 ⚡/⬇ emoji', !/⚡|⬇/.test(html) && !/⚡|⬇/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
+ok('整站按钮不再使用 ⚡/⬇ emoji', !/⚡|⬇/.test(html) && !/⚡|⬇/.test(readUiSrc()));
 click(fast.querySelector('svg') || fast);
 ok('点击快速按钮切换 on 状态', fast.classList.contains('on') !== (store.state.settings.fastMode === false));
 store.state.settings.fastMode = false; fast.classList.remove('on');
@@ -505,8 +506,8 @@ console.log('\n⑬ 余额显示已删除');
 {
   const html2 = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
   ok('markup 里没有 balance-badge', !/balance-badge/.test(html2));
-  ok('UI 源码不再请求余额接口', !/fetchBalance|\/api\/user\/self/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
-  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  ok('UI 源码不再请求余额接口', !/fetchBalance|\/api\/user\/self/.test(readUiSrc()));
+  const uiSrc = readUiSrc();
   ok('api.js 也不再导出余额函数', !/export async function fetchBalance/.test(fs.readFileSync(path.join(ROOT, 'js/api.js'), 'utf8')) && !/refreshBalance/.test(uiSrc));
 }
 
@@ -522,7 +523,7 @@ console.log('\n⑭ 欢迎页在 y 轴居中');
 
 console.log('\n⑮ 版本漂移自检（硬刷新前就能发现缓存不一致）');
 {
-  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  const uiSrc = readUiSrc();
   ok('入口自带 app-version meta', /<meta name="app-version" content="([\d.]+)"/.test(fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8')));
   ok('UI 比对入口版本与模块版本并提示', /meta\[name="app-version"\]/.test(uiSrc) && /资源缓存不一致|缓存不一致/.test(uiSrc));
   ok('侧栏版本号仍然显示', $('#build-stamp').textContent.includes(cfgMod2.APP_VERSION), $('#build-stamp').textContent);
@@ -531,7 +532,7 @@ console.log('\n⑮ 版本漂移自检（硬刷新前就能发现缓存不一致�
 console.log('\n⑯ 移动端布局：根因修复 + 密度重排（源码级护栏）');
 {
   const css = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
-  const uiSrc = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+  const uiSrc = readUiSrc();
   // 根因：窄屏时 sidebar / panel 变 position:fixed 脱离网格，若没有命名网格区，
   // 唯一的在流子项 .main 会被自动排进第一列（--sbw 收敛为 0px）→ 主区宽度 0、内容挤成一团
   ok('网格用命名区域钉住三块', /grid-template-areas:\s*"side main panel"/.test(css));

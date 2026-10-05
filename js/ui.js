@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.10';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.11';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.10';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.11';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -21,12 +21,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.10';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.10';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.10';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.10';
-import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.10';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.10';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.11';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.11';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.11';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.11';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.11';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.11';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.11';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.11';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -143,7 +145,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.10';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.11';
 
 function sanitizeSvgRaw(raw) {
   let s = String(raw || '')
@@ -1921,230 +1923,8 @@ function validateApiKey(s) {
       t.replaceWith(span);
     }
   }, true);
-  // ── 沙箱下载：整包 ZIP / 单个文件（图片按原始二进制还原，可直接打开）──
-  const stampName = () => new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-  function saveBlob(name, blob) {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  }
-  const zipName = (path, mime) => withExtension(path.split('/').pop() || 'file', mime && mime.startsWith('image/') ? mime : '');
-  function downloadFile(path) {
-    let raw;
-    try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
-    const { bytes, mime: detectedMime } = fileBytesFromValue(raw);
-    // 优先用文件路径扩展名推断的 MIME，避免浏览器因 text/plain 把文件另存为 .txt
-    const pathMime = mimeFromPath(path);
-    const mime = (detectedMime && !detectedMime.startsWith('text/plain')) ? detectedMime : (pathMime || detectedMime || 'application/octet-stream');
-    const name = withExtension(path.split('/').pop() || 'file', detectedMime && detectedMime.startsWith('image/') ? detectedMime : '');
-    saveBlob(name, new Blob([bytes], { type: mime }));
-    toast(`已下载 ${name}（${fmtSize(bytes.length)}）`, 'ok');
-  }
-  // 打包：整包（保留目录结构）或单个目录；entries.name 即沙箱内路径
-  const zipEntriesOf = (paths) => paths.map((p) => {
-    let raw = '';
-    try { raw = agent.fs.read(p); } catch { /**/ }
-    const { bytes, mime } = fileBytesFromValue(raw);
-    return { name: withExtension(p, mime && mime.startsWith('image/') ? mime : ''), bytes };
-  });
-  let filesZippedOnce = false;
-  function saveZip(entries, base) {
-    if (!entries.length) return toast('没有可打包的文件', 'warn');
-    const blob = createZip(entries);
-    saveBlob(`${base}-${stampName()}.zip`, blob);
-    filesZippedOnce = true;
-    toast(`已打包 ${entries.length} 个文件（${fmtSize(blob.size)}）`, 'ok');
-  }
-  $('#download-zip').addEventListener('click', () => {
-    const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
-    saveZip(zipEntriesOf(wsKeys), 'dubhe-workspace');
-  });
-  $('#clear-files').addEventListener('click', () => {
-    const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
-    const n = wsKeys.length;
-    if (!n) return toast('工作区没有文件（内部缓存/OCR 会自动长期保留）');
-    if (!filesZippedOnce) {
-      if (!confirm('尚未打包 ZIP。清空后工作区文件无法恢复，仍要清空？（内部缓存/OCR 等不受影响）')) return;
-    } else if (!confirm('清空工作区里的全部文件？内部缓存/OCR 会保留。此操作不可恢复。')) return;
-    if (!confirm('再次确认：确定清空工作区文件？')) return;
-    if (typeof agent.fs.clearWorkspace === 'function') {
-      agent.fs.clearWorkspace();
-    } else {
-      agent.fs.clear();
-    }
-    store.clearFiles(); renderFiles(); toast('工作区已清空（内部文件保留）');
-  });
-
-  // 目录折叠状态：本次页面会话内记住（沙箱是路径即结构，没有真实目录节点）
-  const collapsedDirs = new Set();
-  // 图片以 data URL 存放，字符串长度会虚高 ~1/3；按 base64 反推真实字节
-  const approxBytes = (raw) => {
-    const str = String(raw || '');
-    if (str.startsWith('data:')) {
-      const comma = str.indexOf(',');
-      if (comma > 0 && /;base64/i.test(str.slice(0, comma))) return Math.max(0, Math.round((str.length - comma - 1) * 0.75));
-    }
-    return new TextEncoder().encode(str).length;
-  };
-
-  const storageQuota = SANDBOX_STORAGE_CAP; // 产品上限 120MB，不用 navigator.storage 那种 39321.6MB
-  const zipEstimateBytes = (files) => {
-    // zip.js 使用 STORE（不压缩内容），这里估算「打包后容器大小」：数据字节 + 本地头/中心目录/EOCD。
-    // 这样不必每次刷新文件树都真正 createZip / 解码所有大图。
-    const enc = new TextEncoder();
-    let n = 22;
-    for (const f of files || []) {
-      const nameLen = enc.encode(String(f.path || '').replace(/^\/+/, '').replace(/\\/g, '/')).length;
-      n += Number(f.size || 0) + 30 + nameLen + 46 + nameLen;
-    }
-    return n;
-  };
-
-  function renderFiles() {
-    const box = $('#file-list'); box.innerHTML = '';
-    const allList = agent.fs.list();
-    const allFiles = allList.map((f) => {
-      let raw = '';
-      try { raw = agent.fs.read(f.path); } catch { /**/ }
-      const str = String(raw);
-      const isSvg = /\.svg$/i.test(f.path) || (/^data:image\/svg/i.test(str)) || (/<svg[\s>]/i.test(str.slice(0, 2000)));
-      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(str), isSvg };
-    });
-    const isInternal = (p) => typeof agent.fs.isInternalPath === 'function' && agent.fs.isInternalPath(p);
-    const wsFiles = allFiles.filter((f) => !isInternal(f.path));
-    const intFiles = allFiles.filter((f) => isInternal(f.path));
-    const tree = buildFileTree(wsFiles);
-    const stat = treeStats(tree);
-    const quotaEl = $('#files-count');
-    if (quotaEl) {
-      const wsSize = stat.size;
-      const intSize = intFiles.reduce((a, f) => a + (Number(f.size) || 0), 0);
-      quotaEl.textContent = sandboxQuotaLabel(wsSize + intSize, storageQuota);
-      quotaEl.title = `工作区 ${fmtSize(wsSize)} + 内部 ${fmtSize(intSize)} · 上限 120MB`;
-    }
-    const nEl = $('#files-n');
-    if (nEl) {
-      const n = Number(stat.files) || 0;
-      const ni = intFiles.length;
-      nEl.textContent = ni ? `${n} 个文件 · 内部 ${ni}` : `${n} 个文件`;
-      nEl.title = ni ? `工作区显示 ${n} 个用户可见文件，另有 ${ni} 个内部长期文件（OCR/缓存等，不可见）` : '';
-    }
-    const zipEl = $('#files-zip');
-    if (zipEl) {
-      const z = zipEstimateBytes(wsFiles);
-      zipEl.textContent = `ZIP ≈ ${fmtSize(z)}`;
-      zipEl.title = `工作区文件打包后估算体积：${fmtSize(z)}（内部文件不打包）`;
-    }
-    if (!tree.length) { box.appendChild(el('div', 'empty-hint', '暂无文件')); return; }
-    const imageSet = new Set(wsFiles.filter((f) => f.isImage).map((f) => f.path));
-    const rows = flattenTree(tree, { isCollapsed: (p) => collapsedDirs.has(p) });
-    for (const r of rows) {
-      const closed = r.type === 'dir' && collapsedDirs.has(r.path);
-      const row = el('div', `ft-row ft-${r.type}${r.type === 'dir' ? (closed ? ' closed' : ' open') : ' file-item'}`);
-      row.style.setProperty('--d', r.depth);
-      row.dataset.path = r.path;
-      row.title = r.type === 'dir' ? `${r.path}/（点击${collapsedDirs.has(r.path) ? '展开' : '折叠'}，共 ${r.count} 个文件）` : r.path;
-      if (r.type === 'dir') {
-        row.setAttribute('role', 'button');
-        row.tabIndex = 0;
-        row.setAttribute('aria-expanded', String(!closed));
-        row.innerHTML = `<span class="ft-chev">${ICON.chevRight}</span>`
-          + `<span class="ft-ico">${closed ? ICON.folder : ICON.folderOpen}</span>`
-          + `<span class="ft-name">${esc(r.name)}</span>`
-          + `<span class="ft-meta">${Number(r.count) || 0} 个文件 · ${fmtSize(Number(r.size) || 0)}</span>`
-          + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn ft-zip" type="button" title="打包 ${esc(r.path)}/">${ICON.download}</button></span>`;
-        const toggle = () => {
-          if (collapsedDirs.has(r.path)) collapsedDirs.delete(r.path); else collapsedDirs.add(r.path);
-          renderFiles();
-        };
-        row.addEventListener('click', toggle);
-        row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
-        $('.ft-copy', row).addEventListener('click', (e) => {
-          e.stopPropagation();
-          navigator.clipboard.writeText(r.name).then(() => toast('已复制文件名', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
-        });
-        $('.ft-zip', row).addEventListener('click', (e) => {
-          e.stopPropagation();
-          saveZip(zipEntriesOf(collectPaths(r)), `dubhe-${r.name || 'folder'}`);
-        });
-      } else {
-        const fr = wsFiles.find((ff) => ff.path === r.path);
-        const isSvgFile = !!(fr && fr.isSvg);
-        row.innerHTML = `<span class="ft-sp"></span>`
-          + `<span class="ft-ico">${imageSet.has(r.path) || isSvgFile ? ICON.image : ICON.file}</span>`
-          + `<span class="ft-name file-path">${esc(r.name)}</span>`
-          + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
-        $('.ft-copy', row).addEventListener('click', (e) => {
-          e.stopPropagation();
-          navigator.clipboard.writeText(r.name).then(() => toast('已复制文件名', 'ok', 1200), () => toast('复制失败：浏览器拒绝了剪贴板权限', 'err'));
-        });
-        $('.file-dl', row).addEventListener('click', (e) => { e.stopPropagation(); downloadFile(r.path); });
-        row.addEventListener('click', () => openFileViewer(r.path));
-      }
-      box.appendChild(row);
-    }
-  }
-
-  const FV_TEXT_MAX = 1 * 1024 * 1024; // 沙箱预览：文本类文件上限 1MB（超出请下载后在本地编辑器查看）
-  function openFileViewer(path) {
-    const viewer = $('#file-viewer');
-    let raw = '';
-    try { raw = agent.fs.read(path); } catch { return toast('文件已不存在', 'err'); }
-    const rawStr = String(raw);
-    const byteLen = approxBytes(rawStr);
-    const lower = path.toLowerCase();
-    const imgSrc = /^data:image\//.test(rawStr) ? safeImgSrc(rawStr) : '';
-    // SVG 文件：如果内容是 SVG XML（不管有没有 data: 头），渲染为内联 SVG
-    let svgContent = '';
-    if (!imgSrc) {
-      if (/\.svg$/i.test(lower) || /<svg[\s>]/i.test(rawStr.slice(0, 2000))) {
-        svgContent = sanitizeSvgRaw(rawStr);
-      }
-    }
-    // 代码/文本文件扩展名白名单
-    const isCode = /\.(js|mjs|cjs|ts|jsx|tsx|py|java|c|cpp|h|hpp|cc|cxx|cs|go|rs|rb|php|swift|kt|scala|dart|m|matlab|sh|bash|zsh|ps1|bat|cmd|sql|json|jsonc|yml|yaml|toml|ini|conf|xml|html|htm|css|scss|less|md|markdown|r|jl|pyi|vue|svelte|tex|latex|lua|hs|erl|ex|exs|clj|cljs|fs|fsx|ml|mli|asm|s|vhd|v|sv|cu|sol|graphql|gql|hbs|jinja|j2|dockerfile|mk|nginx|diff|patch|log|csv|tsv|txt|text)$/i.test(lower);
-    const isTextual = isCode || /^text\//.test(lower);
-    let bodyHtml = '';
-    if (imgSrc) {
-      bodyHtml = `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>`;
-    } else if (svgContent) {
-      bodyHtml = `<div class="fv-svg">${svgContent}</div>`;
-    } else if (isTextual) {
-      if (byteLen > FV_TEXT_MAX) {
-        // 超过 1MB：不直接渲染（hljs 处理超大文本会卡主线程），只显示提示 + 下载按钮
-        bodyHtml = `<div class="fv-too-big">
-          <div class="fv-too-big-ico">⚠️</div>
-          <div class="fv-too-big-text">
-            <div>此文本文件大小为 <strong>${fmtSize(byteLen)}</strong>，超过预览上限 1MB。</div>
-            <div class="fv-too-big-sub">为避免界面卡顿，已禁用内联预览，请点击下方按钮下载后用本地编辑器查看。</div>
-          </div>
-        </div>`;
-      } else {
-        const lang = (lower.split('.').pop() || 'text');
-        bodyHtml = isCode
-          ? `<div class="fv-code"><pre><code class="hljs">${highlightCode(rawStr, lang, esc)}</code></pre></div>`
-          : `<div class="fv-code"><pre>${esc(rawStr)}</pre></div>`;
-      }
-    } else {
-      bodyHtml = `<div class="fv-too-big">
-        <div class="fv-too-big-ico">📦</div>
-        <div class="fv-too-big-text">
-          <div>二进制文件 · <strong>${fmtSize(byteLen)}</strong></div>
-          <div class="fv-too-big-sub">该文件无法在浏览器内预览，请下载后用对应程序打开。</div>
-        </div>
-      </div>`;
-    }
-    viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-size">${fmtSize(byteLen)}</span><span class="fv-actions">`
-      + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
-      + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
-      + bodyHtml;
-    viewer.classList.add('open');
-    $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
-    $('#fv-dl').addEventListener('click', () => downloadFile(path));
-  }
+  // ── 沙箱文件面板：见 ui-files-panel.js（文件树 / 下载 ZIP / 单文件 / 预览窗）──
+  const { renderFiles, openFileViewer } = installFilesPanel({ store, agent, toast, fmtSize, highlightCode, sanitizeSvgRaw, safeImgSrc });
   renderFiles();
 
   // ── 消息渲染 ──────────────────────────────────────────────────────────
@@ -3353,221 +3133,8 @@ function validateApiKey(s) {
     }
   });
 
-  // ── 附件（按钮 / 拖拽 / 粘贴）────────────────────────────────────────
-  // 图片 MIME 白名单：覆盖主流浏览器可直接显示的全部光栅/矢量格式（PNG/JPEG/GIF/WEBP/BMP/ICO/TIFF/AVIF/APNG/HEIC/HEIF/SVG）
-  // DeepSeek 视觉接口只接受 JPEG/PNG/GIF/WEBP；其它格式发图前在 analyze_image 里统一转成 PNG/JPEG。
-  const IMG_RE = /^image\/(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg\+xml)$/i;
-  const IMG_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|ico|tiff?|avif|apng|heic|heif|svg)$/i;
-  const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|tsx|jsx|py|pyi|java|c|cc|cpp|cxx|h|hpp|cs|go|rs|rb|php|swift|kt|scala|dart|m|r|jl|sh|bash|zsh|ps1|bat|cmd|json|jsonc|jsonl|csv|tsv|log|html?|css|scss|less|xml|ya?ml|toml|ini|env|conf|cfg|sql|vue|svelte|tex|latex|lua|hs|erl|exs?|clj|cljs|fsx?|ml|mli|asm|diff|patch)$/i;
-  const PDF_RE = /\.pdf$/i;
-  const ZIP_RE = /\.zip$/i;
-  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 12 * 1024 * 1024, MAX_ZIP = 12 * 1024 * 1024, MAX_FILES = 8;
-  let pending = [];
-  const attachChips = $('#attach-chips');
-  const fileInput = $('#attach-input');
-  const cameraInput = $('#camera-input');
-
-  const readAs = (mode, file) => new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(r.result);
-    r.onerror = () => reject(new Error(`读取 ${file.name} 失败`));
-    mode === 'text' ? r.readAsText(file) : r.readAsDataURL(file);
-  });
-
-  // 等比缩放图片：最长边不超过 maxLongEdge 像素，输出 JPEG（或原格式为 PNG 时 PNG）。
-  // 用于用户上传的大图（>5MB）自动压缩到合理体积，避免消耗上下文 token / 撑爆 IndexedDB。
-  // SVG（矢量）不缩放——它是文本，尺寸无意义。
-  async function downscaleImage(file, maxLongEdge = 2048, quality = 0.85) {
-    const isSvg = /svg/i.test(file.type) || /\.svg$/i.test(file.name);
-    if (isSvg) return { dataUrl: await readAs('dataURL', file), mime: 'image/svg+xml', scaled: false };
-    const bitmap = await createImageBitmap(file).catch(() => null);
-    if (!bitmap) {
-      // 兜底：浏览器不能解码就退回原文件
-      return { dataUrl: await readAs('dataURL', file), mime: file.type || 'image/png', scaled: false };
-    }
-    const origW = bitmap.width, origH = bitmap.height;
-    let { width, height } = bitmap;
-    const long = Math.max(width, height);
-    if (long <= maxLongEdge) {
-      bitmap.close?.();
-      return { dataUrl: await readAs('dataURL', file), mime: file.type || 'image/png', scaled: false };
-    }
-    const scale = maxLongEdge / long;
-    width = Math.max(1, Math.round(width * scale));
-    height = Math.max(1, Math.round(height * scale));
-    const canvas = document.createElement('canvas');
-    canvas.width = width; canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(bitmap, 0, 0, width, height);
-    bitmap.close?.();
-    // 原图是 PNG 且有透明通道 → PNG；其它一律 JPEG
-    const outMime = (file.type === 'image/png' || /\.png$/i.test(file.name)) ? 'image/png' : 'image/jpeg';
-    const dataUrl = canvas.toDataURL(outMime, quality);
-    return { dataUrl, mime: outMime, scaled: true, origW, origH, newW: width, newH: height };
-  }
-
-  async function addFiles(fileList) {
-    const files = [...(fileList || [])];
-    if (!files.length) return;
-    for (const f of files) {
-      if (pending.length >= MAX_FILES) { toast(`单次最多 ${MAX_FILES} 个附件`, 'warn'); break; }
-      try {
-        const isImageByMime = IMG_RE.test(f.type);
-        const isImageByExt = IMG_EXT_RE.test(f.name);
-        if (isImageByMime || isImageByExt) {
-          if (globalThis.__dubhePrewarmImageModeration) globalThis.__dubhePrewarmImageModeration('attachment');
-          let dataUrl, finalMime, originalSize = f.size, didScale = false;
-          if (f.size > MAX_IMG) {
-            // 自动等比缩放到最长边 2048px 再上传
-            try {
-              const r = await downscaleImage(f, 2048, 0.85);
-              dataUrl = r.dataUrl; finalMime = r.mime; didScale = r.scaled;
-              if (didScale) toast(`${f.name}：已从 ${fmtSize(originalSize)} 等比缩放到 ${r.newW}×${r.newH}`, 'ok', 2400);
-            } catch (err) {
-              toast(`${f.name}：图片缩放失败（${err.message}），已跳过`, 'err'); continue;
-            }
-          } else {
-            dataUrl = await readAs('dataURL', f);
-          }
-          // 浏览器 FileReader 对某些扩展名/未知 MIME 会给 application/octet-stream 或空 MIME，
-          // 这里按扩展名兜底修正 data: URL 的 MIME 头，保证后续预览/识图正确识别。
-          if (dataUrl && !didScale) {
-            const extMatch = /\.([a-z0-9]+)$/i.exec(f.name);
-            const ext = extMatch ? extMatch[1].toLowerCase() : '';
-            const extToMime = { png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', gif:'image/gif', webp:'image/webp', bmp:'image/bmp', ico:'image/x-icon', tif:'image/tiff', tiff:'image/tiff', avif:'image/avif', apng:'image/apng', heic:'image/heic', heif:'image/heif', svg:'image/svg+xml' };
-            const wantMime = (f.type && IMG_RE.test(f.type)) ? f.type : (extToMime[ext] || f.type || 'image/png');
-            dataUrl = dataUrl.replace(/^data:[^;]*;base64,/, `data:${wantMime};base64,`);
-            finalMime = wantMime;
-          }
-          finalMime = finalMime || (dataUrl.match(/^data:([^;]+);base64,/) || [])[1] || f.type || 'image/png';
-          // 估算缩放后的字节数（base64 → binary ≈ * 0.75）
-          const comma = dataUrl.indexOf(',');
-          const finalSize = comma > 0 && /;base64/i.test(dataUrl.slice(0, comma))
-            ? Math.round((dataUrl.length - comma - 1) * 0.75)
-            : originalSize;
-          pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: finalMime, size: finalSize, dataUrl, scaled: didScale ? true : undefined });
-        } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
-          if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
-          toast(`${f.name}：正在把每一页转成图片…`, 'ok', 2400);
-          const buf = await f.arrayBuffer();
-          const got = await pdfToImages(buf, { name: f.name });
-          if (!got.ok || !got.images.length) {
-            toast(`${f.name}：${got.error || '无法渲染 PDF'}`, 'err', 6000);
-            continue;
-          }
-          if (got.images.length && globalThis.__dubhePrewarmImageModeration) globalThis.__dubhePrewarmImageModeration('pdf');
-          for (const img of got.images) {
-            pending.push({
-              id: Math.random().toString(36).slice(2),
-              kind: 'image',
-              name: img.name,
-              mime: 'image/jpeg',
-              size: Math.round((img.dataUrl.length * 3) / 4),
-              dataUrl: img.dataUrl,
-              source: 'pdf',
-              originalName: `${f.name} · 第 ${img.page} 页`,
-            });
-          }
-          const more = got.truncated ? `（共 ${got.pages} 页，已渲染前 ${got.images.length} 页）` : `（${got.images.length} 页）`;
-          toast(`${f.name}：已转成图片${more}，发送并通过审核后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
-        } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
-          if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
-          pending.push({
-            id: Math.random().toString(36).slice(2),
-            kind: 'file',
-            name: f.name,
-            mime: f.type || 'application/zip',
-            size: f.size,
-            dataUrl: await readAs('dataURL', f),
-            source: 'zip',
-            originalName: f.name,
-          });
-          toast(`${f.name}：已添加 ZIP，发送并通过审核后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
-        } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
-          if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
-          pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
-        } else {
-          toast(`不支持的文件类型：${f.name}（支持图片、PDF、ZIP 与文本/代码文件）`, 'err');
-        }
-      } catch (err) { toast(err.message, 'err'); }
-    }
-    renderAttachChips();
-  }
-
-  function renderAttachChips() {
-    attachChips.innerHTML = '';
-    attachChips.style.display = pending.length ? '' : 'none';
-    for (const a of pending) {
-      const chip = el('div', 'attach-chip enter');
-      const imgSrc = a.kind === 'image' ? safeImgSrc(a.dataUrl) : '';
-      chip.innerHTML = (imgSrc
-        ? `<img src="${esc(imgSrc)}" alt="">`
-        : `<span class="attach-chip-ico">📄</span>`)
-        + `<span class="attach-chip-name mono">${esc(a.originalName || a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
-      $('.attach-chip-x', chip).addEventListener('click', () => {
-        pending = pending.filter((x) => x.id !== a.id);
-        renderAttachChips();
-      });
-      attachChips.appendChild(chip);
-    }
-  }
-
-  const attachWrap = $('#attach-menu-wrap');
-  const attachMenu = $('#attach-menu');
-  const attachButton = $('#attach-btn');
-  function setAttachMenuOpen(open) {
-    if (!attachMenu || !attachButton) return;
-    attachMenu.hidden = !open;
-    attachButton.setAttribute('aria-expanded', open ? 'true' : 'false');
-  }
-  attachButton?.addEventListener('click', () => setAttachMenuOpen(attachMenu?.hidden));
-  $('#attach-file-action')?.addEventListener('click', () => {
-    setAttachMenuOpen(false);
-    fileInput.click();
-  });
-  attachWrap?.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') {
-      setAttachMenuOpen(false);
-      attachButton?.focus();
-    } else if (event.key === 'ArrowDown' && attachMenu?.hidden) {
-      event.preventDefault();
-      setAttachMenuOpen(true);
-      attachMenu.querySelector('button')?.focus();
-    }
-  });
-  document.addEventListener('click', (event) => {
-    if (attachWrap && !attachWrap.contains(event.target)) setAttachMenuOpen(false);
-  });
-  fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
-  const cameraBtn = $('#camera-btn');
-  if (cameraBtn && cameraInput) {
-    cameraBtn.addEventListener('click', () => {
-      setAttachMenuOpen(false);
-      cameraInput.click();
-    });
-    cameraInput.addEventListener('change', async () => {
-      const photo = cameraInput.files && cameraInput.files[0];
-      cameraInput.value = '';
-      if (!photo) return;
-      try {
-        const edited = await openPhotoEditor(photo);
-        if (edited) await addFiles([edited]); // camera output uses the existing attachment/upload pipeline
-      } catch (error) { toast(`照片编辑器不可用：${error.message}`, 'err', 5000); }
-    });
-  }
-
-  const mainEl = $('.main');
-  ['dragenter', 'dragover'].forEach((ev) => mainEl.addEventListener(ev, (e) => { e.preventDefault(); mainEl.classList.add('drag-over'); }));
-  ['dragleave', 'drop'].forEach((ev) => mainEl.addEventListener(ev, (e) => {
-    e.preventDefault();
-    if (ev === 'dragleave' && e.relatedTarget && mainEl.contains(e.relatedTarget)) return;
-    mainEl.classList.remove('drag-over');
-  }));
-  mainEl.addEventListener('drop', (e) => addFiles(e.dataTransfer && e.dataTransfer.files));
-  composer.addEventListener('paste', (e) => {
-    const files = [...((e.clipboardData && e.clipboardData.files) || [])];
-    if (files.length) { e.preventDefault(); addFiles(files); }
-  });
+  // ── 附件：见 ui-attachments.js（按钮 / 相机 / 拖拽 / 粘贴 → addFiles；发送时 takePending()）──
+  const attachments = installAttachments({ composer, toast, safeImgSrc, fmtSize });
 
   // ── 输入区 ────────────────────────────────────────────────────────────
   function autoGrow() {
@@ -3584,7 +3151,7 @@ function validateApiKey(s) {
   });
   function doSend() {
     const text = composer.value.trim();
-    if (!text && !pending.length) return;
+    if (!text && !attachments.hasPending()) return;
     if (store.state.model === '__system__') {
       if (getBusy()) return;
       composer.value = ''; autoGrow();
@@ -3594,7 +3161,7 @@ function validateApiKey(s) {
     if (!store.state.apiKey) { openKeyModal(); toast('请先配置 TeamoRouter API Key', 'warn'); return; }
     if (getBusy()) return;
     composer.value = ''; autoGrow();
-    const atts = pending; pending = []; renderAttachChips();
+    const atts = attachments.takePending();
     agent.send(text, atts);
   }
 
@@ -4053,198 +3620,8 @@ function validateApiKey(s) {
   syncComposerPh();
   if (mqPanel.addEventListener) mqPanel.addEventListener('change', () => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
 
-  // ── 全屏预览：支持光栅图片 / SVG / 语法渲染的图表（Mermaid/Flow/Mind），缩放与拖动 ──
-  let lbState = { scale: 1, tx: 0, ty: 0, dragging: false, sx: 0, sy: 0, sTx: 0, sTy: 0 };
-  function lbApplyTransform() {
-    const stage = $('#img-lightbox-pic');
-    if (!stage) return;
-    stage.style.transform = `translate3d(${lbState.tx}px, ${lbState.ty}px, 0) scale(${lbState.scale})`;
-    const lbl = $('.lb-zoom-label', $('#img-lightbox'));
-    if (lbl) lbl.textContent = `${Math.round(lbState.scale * 100)}%`;
-  }
-  function lbReset() {
-    lbState.scale = 1; lbState.tx = 0; lbState.ty = 0;
-    lbState.dragging = false; lbState.sx = 0; lbState.sy = 0; lbState.sTx = 0; lbState.sTy = 0;
-    lbApplyTransform();
-  }
-  function lbZoomAt(factor, cx, cy) {
-    const stage = $('#img-lightbox-pic');
-    const box = $('#img-lightbox');
-    const viewport = box && box.querySelector('.img-lightbox-stage');
-    if (!stage || !viewport) return;
-    const rect = stage.getBoundingClientRect();
-    const viewRect = viewport.getBoundingClientRect();
-    const anchorX = Number.isFinite(cx) ? cx : viewRect.left + viewRect.width / 2;
-    const anchorY = Number.isFinite(cy) ? cy : viewRect.top + viewRect.height / 2;
-    const next = zoomLightboxState(lbState, factor, { x: anchorX - rect.left, y: anchorY - rect.top });
-    Object.assign(lbState, next);
-    lbApplyTransform();
-  }
-  function openLightbox(content, opts = {}) {
-    const box = $('#img-lightbox');
-    const stage = $('#img-lightbox-pic');
-    if (!box || !stage || !content) return;
-    stage.innerHTML = '';
-    if (typeof content === 'string') {
-      // 光栅图片 URL
-      const im = document.createElement('img');
-      im.src = content;
-      im.alt = opts.alt || '';
-      im.draggable = false;
-      stage.appendChild(im);
-    } else if (content instanceof Node) {
-      // 传入的 DOM（SVG / 图表容器）→ 深克隆后放入（避免移动原节点）。
-      // 视图框为 SVG 补上固有宽高，防止没有 width/height 的图表在 flex viewer 中塌成一个点。
-      const clone = content.cloneNode(true);
-      clone.removeAttribute('id');
-      const svgs = clone.matches?.('svg') ? [clone] : [...(clone.querySelectorAll?.('svg') || [])];
-      for (const svg of svgs) {
-        const vb = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
-        if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) continue;
-        const widthAttr = (svg.getAttribute('width') || '').trim();
-        const heightAttr = (svg.getAttribute('height') || '').trim();
-        if (!(Number.parseFloat(widthAttr) > 0) || /%$/.test(widthAttr)) svg.setAttribute('width', String(vb[2]));
-        if (!(Number.parseFloat(heightAttr) > 0) || /%$/.test(heightAttr)) svg.setAttribute('height', String(vb[3]));
-      }
-      stage.appendChild(clone);
-    }
-    lbReset();
-    box.hidden = false;
-  }
-  function closeLightbox() {
-    const box = $('#img-lightbox');
-    if (!box) return;
-    box.hidden = true;
-    const stage = $('#img-lightbox-pic');
-    if (stage) stage.innerHTML = '';
-  }
-  const lightbox = $('#img-lightbox');
-  if (lightbox) {
-    // 点击关闭逻辑：只在直接点到遮罩背景（img-lightbox 本体空白区域）或 × 按钮时关闭。
-    // 工具栏/stage/图片/按钮内的点击都不关闭（之前点 +/− 会冒泡到 .img-lightbox 被误判成"点空白"）。
-    lightbox.addEventListener('click', (e) => {
-      if (e.target.closest('.img-lightbox-x')) { closeLightbox(); return; }
-      // 只有点击到 lightbox 自身（而不是它的子元素：toolbar/stage/transform/img/button）才视为空白点击
-      if (e.target === lightbox) closeLightbox();
-    });
-    // 工具栏
-    const btnIn = lightbox.querySelector('.lb-zoom-in');
-    const btnOut = lightbox.querySelector('.lb-zoom-out');
-    const btnReset = lightbox.querySelector('.lb-reset');
-    if (btnIn) btnIn.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(1.25); });
-    if (btnOut) btnOut.addEventListener('click', (e) => { e.stopPropagation(); lbZoomAt(0.8); });
-    if (btnReset) btnReset.addEventListener('click', (e) => { e.stopPropagation(); lbReset(); });
-    // 拖动 + 双指缩放（Pointer Events 原生支持多点）
-    const stageWrap = lightbox.querySelector('.img-lightbox-stage');
-    const pointers = new Map(); // pointerId → {x,y}
-    let lastPinchDist = 0;
-    if (stageWrap) {
-      stageWrap.addEventListener('pointerdown', (e) => {
-        if (e.target.closest('.lb-btn') || e.target.closest('button')) return;
-        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        stageWrap.setPointerCapture?.(e.pointerId);
-        lastPinchDist = 0;
-        if (pointers.size === 1) {
-          lbState.dragging = true;
-          lbState.sx = e.clientX; lbState.sy = e.clientY;
-          lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
-        }
-      });
-      stageWrap.addEventListener('pointermove', (e) => {
-        if (!pointers.has(e.pointerId)) return;
-        pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-        if (pointers.size >= 2) {
-          // 双指缩放
-          const pts = [...pointers.values()];
-          const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
-          const dist = Math.hypot(dx, dy);
-          if (lastPinchDist > 0) {
-            const factor = dist / lastPinchDist;
-            const cx = (pts[0].x + pts[1].x) / 2;
-            const cy = (pts[0].y + pts[1].y) / 2;
-            lbZoomAt(factor, cx, cy);
-          }
-          lastPinchDist = dist;
-          lbState.dragging = false;
-        } else if (pointers.size === 1 && lbState.dragging) {
-          lbState.tx = lbState.sTx + (e.clientX - lbState.sx);
-          lbState.ty = lbState.sTy + (e.clientY - lbState.sy);
-          lbApplyTransform();
-        }
-      });
-      const endPtr = (e) => {
-        pointers.delete(e.pointerId);
-        if (pointers.size < 2) lastPinchDist = 0;
-        if (pointers.size === 1) {
-          // Seamlessly continue a pinch as a one-finger pan when the other finger lifts.
-          const remaining = [...pointers.values()][0];
-          lbState.dragging = true;
-          lbState.sx = remaining.x; lbState.sy = remaining.y;
-          lbState.sTx = lbState.tx; lbState.sTy = lbState.ty;
-        } else if (pointers.size === 0) lbState.dragging = false;
-      };
-      stageWrap.addEventListener('pointerup', endPtr);
-      stageWrap.addEventListener('pointercancel', endPtr);
-      // Pointer capture keeps drags/pinches continuous even if a finger crosses the stage edge.
-      // Wheel deltas are normalized so a high-rate trackpad feels finer than a stepped mouse wheel.
-      stageWrap.addEventListener('wheel', (e) => {
-        e.preventDefault();
-        const pageSize = stageWrap.clientHeight || window.innerHeight || 800;
-        lbZoomAt(lightboxWheelFactor(e.deltaY, e.deltaMode, pageSize), e.clientX, e.clientY);
-      }, { passive: false });
-      // 双击重置
-      stageWrap.addEventListener('dblclick', (e) => { e.preventDefault(); lbReset(); });
-    }
-  }
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && $('#img-lightbox') && !$('#img-lightbox').hidden) closeLightbox();
-    if (!$('#img-lightbox') || $('#img-lightbox').hidden) return;
-    if (e.key === '+' || e.key === '=') lbZoomAt(1.2);
-    if (e.key === '-' || e.key === '_') lbZoomAt(1 / 1.2);
-    if (e.key === '0') lbReset();
-  });
-  // 点击委派：图片 / SVG / 图表 → 全屏
-  document.addEventListener('click', (e) => {
-    if (e.target.closest('.img-lightbox')) return;
-    const expandChart = e.target.closest('.md-chart-expand');
-    if (expandChart) {
-      e.preventDefault(); e.stopPropagation();
-      const svg = expandChart.closest('.md-chart, .md-diagram')?.querySelector('.md-chart-svg');
-      if (svg) openLightbox(svg, { alt: svg.getAttribute('aria-label') || '图表' });
-      return;
-    }
-    // 1) 普通 <img>（消息正文 / 附件 / 文件预览）
-    const img = e.target.closest('img');
-    if (img && img.id !== 'img-lightbox-pic') {
-      if (img.closest('.md-body, .att-img, .fv-img, .file-viewer')) {
-        const src = img.currentSrc || img.src;
-        if (!src) return;
-        e.preventDefault();
-        openLightbox(src, { alt: img.alt });
-        return;
-      }
-    }
-    // 2) 内嵌 SVG（fv-svg 文件预览里的 SVG、消息正文中的内联 SVG）
-    const svg = e.target.closest('svg');
-    if (svg) {
-      if (svg.closest('.fv-svg, .katex-display-block, .fv-img')) {
-        // KaTeX 不要全屏（公式点击全屏意义不大且会干扰选择文本）
-        if (svg.closest('.katex *')) return;
-        e.preventDefault();
-        openLightbox(svg, {});
-        return;
-      }
-      // 3) 语法渲染的图表（Mermaid 流程图 / 思维导图）：md-chart-svg / md-diagram-svg
-      const chartSvg = svg.closest('.md-chart-svg, .md-diagram-svg');
-      if (chartSvg) {
-        // Quick charts use an explicit expand button; diagrams retain their direct-click shortcut.
-        if (chartSvg.closest('.md-chart') && !e.target.closest('.md-chart-expand')) return;
-        e.preventDefault();
-        openLightbox(chartSvg, { alt: chartSvg.getAttribute('aria-label') || '图表' });
-        return;
-      }
-    }
-  });
+  // ── 全屏预览：见 ui-lightbox.js（图片 / SVG / 图表全屏，缩放拖动，document 级事件委派）──
+  installLightbox();
 
   // 复制工具入参/出参 JSON（不触发展开）
   msgList.addEventListener('click', (e) => {

@@ -13,6 +13,8 @@ import fs from 'node:fs';
 import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
+// ui.js 已拆分：源码级断言读 UI 层整体（ui.js + ui-files-panel.js + ui-lightbox.js + quickviz.js）
+const readUi = () => ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'].map(read).join('\n');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));
 
 let passed = 0, failed = 0;
@@ -131,7 +133,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(dw, /tdw-entry/, '应有常驻快捷入口');
   assert.match(dw, /copySelected|data-act="copy"/, '应支持复制导出');
   assert.match(dw, /transformOrigin/, '关闭应有最小化动画');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const state = read('../js/state.js');
   const html = read('../app.html');
   const icons = read('../js/icons.js');
@@ -241,7 +243,7 @@ await test('P1 四个新模块随项目存在，且都以 ?v= 版本化方式被
 });
 await test('确认卡：样式类、UI 渲染、main.js 桥、agent.resolveConfirmation 四处齐备', () => {
   const css = read('../css/styles.css');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const main = read('../js/main.js');
   const agent = read('../js/agent.js');
   for (const cls of ['.confirm-card', '.confirm-title', '.confirm-body', '.confirm-actions', '.confirm-btn', '.confirm-result']) {
@@ -256,7 +258,7 @@ await test('确认卡：样式类、UI 渲染、main.js 桥、agent.resolveConfi
   assert.match(agent, /resolveConfirmation/, 'agent 应暴露 resolveConfirmation（缓存了旧 UI 时仍可用）');
 });
 await test('/guard 与 /resume 命令进入 /system 帮助与命令分支，档位默认 observe', () => {
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   assert.match(ui, /\/guard/, '/system 帮助应包含 /guard');
   assert.match(ui, /\/resume/, '/system 帮助应包含 /resume');
   assert.match(ui, /executionGuard/, '档位应写入 settings.executionGuard');
@@ -268,7 +270,7 @@ await test('/guard 与 /resume 命令进入 /system 帮助与命令分支，档�
 await test('轨迹级评测：三个负向指标进 /nexus 报告，遥测暴露执行内核字段', () => {
   const nexus = read('../js/nexus.js');
   const agent = read('../js/agent.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   for (const key of ['overRouting', 'underRouting', 'silentFailure']) {
     assert.ok(nexus.includes(key), `报告应覆盖负向指标 ${key}`);
   }
@@ -345,7 +347,7 @@ await test('故障注入：九类清单 + 五性质验收，且能一键装备�
     assert.ok(f.includes(k), `故障清单缺 ${k}`);
   }
   assert.match(read('../js/agent.js'), /armFaultInjection/, 'agent 应暴露装备入口');
-  assert.match(read('../js/ui.js'), /\/p2 fault|fault/, 'UI 应能列出/装备故障');
+  assert.match(readUi(), /\/p2 fault|fault/, 'UI 应能列出/装备故障');
 });
 await test('策略实验：默认关闭灰度、对照语义干净，样本只进实验组', () => {
   const ex = read('../js/experiments.js');
@@ -356,7 +358,7 @@ await test('策略实验：默认关闭灰度、对照语义干净，样本只�
   assert.match(agent, /appendExperimentSample/, '在线样本要落盘');
 });
 await test('/p2 面板进 /system 帮助与命令分支（策略 / 指标 / 审计 / 故障 / 实验 / 上下文）', () => {
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   assert.match(ui, /name === 'p2'/, '应有 /p2 命令分支');
   assert.match(ui, /\/p2 \[report\|policy\|fault\|exp\]/, '帮助里应列出 /p2 用法');
   assert.match(ui, /getP2ReportLines/, '报告行应由 agent 统一生成（口径单一来源）');
@@ -375,7 +377,7 @@ group('P3 编辑直播预览与已移除的自动文件删除功能');
 await test('编辑预览模块保持版本化接线', () => {
   assert.ok(exists('../js/editpreview.js'), '编辑预览模块应随项目存在');
   const agent = read('../js/agent.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   assert.match(agent, /\.\/editpreview\.js\?v=\d/, 'agent.js 应以 ?v= 导入 editpreview.js');
   assert.match(ui, /editpreview\.js\?v=\d/, 'ui.js 应以 ?v= 导入 editpreview.js');
   assert.match(ui, /paintEditFold/, '应渲染编辑文件折叠行');
@@ -387,7 +389,7 @@ await test('编辑预览模块保持版本化接线', () => {
 });
 await test('品牌图标静态、连接圈保留旋转；智能路由卡使用原生产品图标', () => {
   const css = read('../css/styles.css');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const router = read('../js/smartrouter.js');
   assert.match(css, /\.empty-logo svg \{[^}]*animation:\s*none/);
   assert.doesNotMatch(css, /halfspin/);
@@ -398,7 +400,7 @@ await test('品牌图标静态、连接圈保留旋转；智能路由卡使用�
 });
 await test('相机专用入口自动编辑，保存回用 addFiles，普通附件流程不变', () => {
   const app = read('../app.html');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const editor = read('../js/photo-editor.js');
   const css = read('../css/styles.css');
   assert.match(app, /id=\"camera-btn\"/);
@@ -418,7 +420,7 @@ await test('相机专用入口自动编辑，保存回用 addFiles，普通附�
   assert.match(css, /\.photo-canvas-wrap/);
 });
 await test('图表全屏查看器具有显式入口、SVG 固有尺寸和可交互缩放', () => {
-  const ui = read('../js/ui.js') + read('../js/quickviz.js'); // 图表渲染已拆到 quickviz.js
+  const ui = readUi(); // 图表渲染已拆到 quickviz.js
   const css = read('../css/styles.css');
   const viewer = read('../js/lightbox.js');
   assert.match(ui, /class=\"md-chart-expand\"/);
@@ -432,7 +434,7 @@ await test('图表全屏查看器具有显式入口、SVG 固有尺寸和可交�
 await test('浏览器环境读取只输出粗粒度字段，并提供显式工具与 /env 命令', () => {
   const env = read('../js/browser-env.js');
   const tools = read('../js/tools.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   assert.match(env, /getCoarseBrowserEnvironment/);
   assert.doesNotMatch(env, /document\.cookie|localStorage|sessionStorage|geolocation|navigator\.cookie/);
   assert.match(tools, /name: 'get_browser_environment'/);
@@ -442,7 +444,7 @@ await test('浏览器环境读取只输出粗粒度字段，并提供显式工�
 });
 await test('历史分页模块使用双预算并提供“更早的消息”入口', () => {
   const history = read('../js/history.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   assert.match(history, /HISTORY_WINDOW_MAX_MESSAGES/);
   assert.match(history, /HISTORY_WINDOW_MAX_CHARS/);
   assert.match(history, /splitHistoryTurns/);
@@ -453,7 +455,7 @@ await test('历史分页模块使用双预算并提供“更早的消息”入�
 await test('自动文件删除已彻底退出执行路径与用户界面', () => {
   assert.equal(exists('../js/cleanup.js'), false, '不应再打包自动删除模块');
   const agent = read('../js/agent.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const main = read('../js/main.js');
   const config = read('../js/config.js');
   const css = read('../css/styles.css');
@@ -471,7 +473,7 @@ await test('自动文件删除已彻底退出执行路径与用户界面', () =>
 await test('介绍页 / 对话页共享主题色，设置项同步外观并使用应用主题状态', () => {
   const theme = read('../js/theme.js');
   const home = read('../js/home.js');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const settings = read('../js/settings.js');
   assert.match(theme, /THEME_STORAGE_KEY = 'dubhe-theme'/);
   assert.match(home, /readThemePreference/);
@@ -511,7 +513,7 @@ await test('加载屏使用与 APP_LOGO 同构的原生产品图标，且不会�
 });
 await test('启动超时不再自动闪退；挂载成功取消计时且内联脚本 CSP 哈希同步', () => {
   const app = read('../app.html');
-  const ui = read('../js/ui.js');
+  const ui = readUi();
   const script = /<script>([\s\S]*?)<\/script>/.exec(app)?.[1] || '';
   const failure = /function forceReveal\(msg\)\s*\{([\s\S]*?)\n  \}/.exec(script)?.[1] || '';
   assert.ok(script, '启动兜底脚本应存在');

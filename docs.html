@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.10" />
+<meta name="app-version" content="2026.10.5.11" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -212,7 +212,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.10</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.11</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -223,7 +223,8 @@
           <li><span class="tag imp">IMPROVE</span><span><strong>默认中继</strong>：切换为实际部署地址 <code>relay.dubhe-agent.workers.dev</code>（健康检查、抓取、搜索均已线上验证）。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>架构完善（构建 .10）</strong>：工具调用改为<strong>依赖图调度</strong>（按路径级读写集分波，无冲突的读写同波并行，<code>[read a, write b, read c]</code> 由 3 批串行变 1 波）；<code>estimateTokens</code> 按消息对象缓存（长会话热路径 173 ms → 0.1 ms）；Python 沙箱 FILES 改为<strong>增量同步</strong>（常驻 Worker 只收发 diff）；图表 / 示意图渲染拆出 <code>quickviz.js</code>（ui.js −500 行）；新增「远程 C++」独立开关，工具描述与运行芯片明示代码会发送到 godbolt.org。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>Python 沙箱误判</strong>：过去任何一次用户代码抛异常（回溯里含 <code>_pyodide/</code> 路径）都会把整个会话的 Python 沙箱标记为「不可用」；现在只有运行时加载阶段失败才会标记。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span><strong>验收</strong>：主测试 351 项通过；DOM / P3 DOM / 应用装配冒烟（jsdom）通过；P2 内核 40/40、P3 10/10、分层评测、资产完整性与服务端护栏全部通过；沙箱对抗用例（出网、伪造结果、路径穿越、超量输出）在真实 Chromium 中验证。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>架构完善 II（构建 .11）</strong>：同一波并行调用按类别限流（网络类 <code>fetch_url / search_web / crawl_site</code> ≤ 4，本地 ≤ 8），不再一次放出十几个抓取；<code>mountUI</code> 继续拆分——文件面板（<code>ui-files-panel.js</code>）、全屏预览（<code>ui-lightbox.js</code>）、附件（<code>ui-attachments.js</code>）各自成模块并以 <code>install*(deps)</code> 注入，ui.js 从 5066 行降到 3945 行；新增「子模块不得隐式依赖 ui.js 作用域」的静态契约测试。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>验收</strong>：主测试 353 项通过；DOM / P3 DOM / 应用装配冒烟（jsdom）通过；P2 内核 40/40、P3 10/10、分层评测、资产完整性与服务端护栏全部通过；沙箱对抗用例（出网、伪造结果、路径穿越、超量输出）在真实 Chromium 中验证。</span></li>
         </ul></div>
       </div>
 
@@ -449,7 +450,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.10</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.11</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.10';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.11';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.10';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.11';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -94,7 +94,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.10';
+} from './execution.js?v=2026.10.5.11';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.10';
+} from './recovery.js?v=2026.10.5.11';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.10';
+} from './idempotency.js?v=2026.10.5.11';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.10';
+} from './memorylife.js?v=2026.10.5.11';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.10';
+} from './trajectory.js?v=2026.10.5.11';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.10';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.10';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.11';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.11';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.10';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.10';
+} from './experiments.js?v=2026.10.5.11';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.11';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +143,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.10';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.10';
+} from './executionContext.js?v=2026.10.5.11';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.11';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.10';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.11';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -350,6 +350,43 @@ export function toolCallsConflict(a, b) {
   if (a.dispatch && b.dispatch) return false; // 委派之间彼此独立，沿用 DISPATCH_CONCURRENCY 并发
   return setsOverlap(a.writes, b.reads) || setsOverlap(a.reads, b.writes) || setsOverlap(a.writes, b.writes);
 }
+// 同一波内按工具类别限流：一次放出十几个 fetch_url 会同时打满中继与目标站点（也更容易被限流），
+// 网络类 ≤ 4 并发；其余本地工具 ≤ 8。限流只影响同波内的启动时机，不改变波次与结果下标。
+export const NETWORK_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site']);
+export const PARALLEL_LIMITS = Object.freeze({ network: 4, default: 8 });
+export const toolCategoryOf = (name) => (NETWORK_TOOLS.has(name) ? 'network' : 'default');
+export function plannedConcurrency(names, limits = PARALLEL_LIMITS) {
+  const counts = {};
+  for (const n of names) { const c = toolCategoryOf(n); counts[c] = (counts[c] || 0) + 1; }
+  return Object.entries(counts).reduce((sum, [c, k]) => sum + Math.min(k, limits[c] || limits.default), 0);
+}
+export async function runWithCategoryLimits(items, run, limits = PARALLEL_LIMITS) {
+  // items: [{ index, name }]；run(index) → Promise<result>。按原序启动，每类别一个信号量；
+  // 任一任务失败不影响其它任务（run 自身负责把异常转成结果字符串）。
+  const active = {};
+  const waiters = {};
+  const acquire = (cat) => new Promise((resolve) => {
+    const cap = limits[cat] || limits.default;
+    const tryGo = () => {
+      if ((active[cat] || 0) < cap) { active[cat] = (active[cat] || 0) + 1; resolve(); return true; }
+      return false;
+    };
+    if (!tryGo()) (waiters[cat] = waiters[cat] || []).push(tryGo);
+  });
+  const release = (cat) => {
+    active[cat] = Math.max(0, (active[cat] || 0) - 1);
+    const q = waiters[cat] || [];
+    while (q.length && q[0]()) q.shift();
+  };
+  const results = new Array(items.length);
+  await Promise.all(items.map(async (it, i) => {
+    const cat = toolCategoryOf(it.name);
+    await acquire(cat);
+    try { results[i] = await run(it.index); } finally { release(cat); }
+  }));
+  return results;
+}
+
 // 返回 [{ kind: 'serial' | 'parallel' | 'dispatch', indices: number[] }, …]，indices 为原始下标（保持原序）。
 export function planToolWaves(calls) {
   const list = calls || [];
@@ -1057,13 +1094,21 @@ export function createAgent(store, hooks = {}) {
         out[b.indices[0]] = await runOne(calls[b.indices[0]]);
         continue;
       }
-      const limit = b.kind === 'dispatch' ? DISPATCH_CONCURRENCY : b.indices.length;
-      for (let k = 0; k < b.indices.length; k += limit) {
-        const group = b.indices.slice(k, k + limit);
-        exec.budgetGov.spend('parallelTasks', group.length, { batch: b.kind });
-        const rs = await Promise.all(group.map((n) => runOne(calls[n])));
-        group.forEach((n, m) => { out[n] = rs[m]; });
+      if (b.kind === 'dispatch') {
+        const limit = DISPATCH_CONCURRENCY;
+        for (let k = 0; k < b.indices.length; k += limit) {
+          const group = b.indices.slice(k, k + limit);
+          exec.budgetGov.spend('parallelTasks', group.length, { batch: b.kind });
+          const rs = await Promise.all(group.map((n) => runOne(calls[n])));
+          group.forEach((n, m) => { out[n] = rs[m]; });
+        }
+        continue;
       }
+      // parallel：整波一起下发，但按类别限流（网络 ≤ 4 / 本地 ≤ 8）
+      const items = b.indices.map((n) => ({ index: n, name: calls[n].name }));
+      exec.budgetGov.spend('parallelTasks', plannedConcurrency(items.map((it) => it.name)), { batch: b.kind });
+      const rs = await runWithCategoryLimits(items, (n) => runOne(calls[n]));
+      b.indices.forEach((n, m) => { out[n] = rs[m]; });
     }
 
     // 波次收尾：工具态必须闭环到 TOOL_SUCCEEDED / TOOL_FAILED（绝不停留在 RUNNING），
