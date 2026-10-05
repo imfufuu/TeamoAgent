@@ -307,12 +307,12 @@ console.log('\n停止生成：停下就是停下，不留「正在连接…」�
   click($('#send-btn'));
   await tick(700);
   const live = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('等待首字时使用静态原生产品 Logo（先确认前置状态）', /正在连接/.test(live.innerHTML) && !!live.querySelector('.connect-mark svg') && !live.querySelector('.connect-ring'),
+  ok('等待首字时恢复原始旋转圆环（先确认前置状态）', /正在连接/.test(live.innerHTML) && !!live.querySelector('.connect-ring') && !live.querySelector('.connect-mark'),
     live.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
   click($('#send-btn'));          // busy 时同一个按钮就是「停止」
   await tick(900);
   const after = $$('#messages .msg-assistant').slice(-1)[0];
-  ok('停止后连接提示消失', !/正在连接/.test(after.innerHTML) && !after.querySelector('.connect-mark'),
+  ok('停止后连接提示消失', !/正在连接/.test(after.innerHTML) && !after.querySelector('.connect-ring'),
     after.innerHTML.replace(/\s+/g, ' ').slice(0, 80));
   ok('停止后标出「已停止」', !!after.querySelector('.cancelled-tag'));
   ok('停止后状态是「已停止」而不是继续转圈', /已停止/.test($('#status-text').textContent), $('#status-text').textContent);

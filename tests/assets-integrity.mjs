@@ -10,6 +10,7 @@
 // 本文件把这些坑钉死：任何一处回退，立刻红灯。
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));
@@ -459,6 +460,24 @@ await test('加载屏使用与 APP_LOGO 同构的原生产品图标，且不会�
   }
   assert.match(css, /\.boot-logo svg \{[^}]*animation: none/);
   assert.doesNotMatch(css, /animation:\s*boot-spin/);
+});
+await test('启动超时不再自动闪退；挂载成功取消计时且内联脚本 CSP 哈希同步', () => {
+  const app = read('../app.html');
+  const ui = read('../js/ui.js');
+  const script = /<script>([\s\S]*?)<\/script>/.exec(app)?.[1] || '';
+  const failure = /function forceReveal\(msg\)\s*\{([\s\S]*?)\n  \}/.exec(script)?.[1] || '';
+  assert.ok(script, '启动兜底脚本应存在');
+  assert.match(script, /60000/, '慢网容忍窗口应为 60 秒');
+  assert.doesNotMatch(failure, /setTimeout|boot\.remove/, '失败提示必须留在屏幕上，不能自动闪退');
+  assert.match(script, /window\.__teamoBootGuard\s*=\s*\{\s*complete/);
+  assert.match(ui, /bootGuard\.complete\(\)/, 'UI 挂载成功时必须同步取消超时');
+  const uiObject = ui.indexOf('const ui = {');
+  const complete = ui.indexOf('bootGuard.complete()');
+  const returned = ui.indexOf('return ui;');
+  assert.ok(uiObject >= 0 && complete > uiObject && returned > complete, '关闭加载屏的回调必须在 hooks 返回前可达');
+  const digest = `sha256-${createHash('sha256').update(script).digest('base64')}`;
+  const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(app)?.[1] || '';
+  assert.ok(csp.includes(digest), `CSP 必须允许当前内联启动脚本（期望 ${digest}）`);
 });
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);

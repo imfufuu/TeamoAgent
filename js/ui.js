@@ -22,8 +22,8 @@ import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3（v2.5.1）：编辑直播预览 + 自清理面板。独立新模块 + ?v=（混版纪律）：
 // 旧 ui.js 不认识它，语义降级为「没有预览窗 / 没有清理档位」，不会白屏。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.4';
-import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.4';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.4.5';
+import { CLEANUP_MODES, normalizeCleanupPolicy } from './cleanup.js?v=2026.10.4.5';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -1485,8 +1485,8 @@ export function mountUI(store, agent) {
       name = 'system-commands';
       prov = 'Teamo';
     } else if (router) {
-      icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
-      name = '智能';
+      icon = `<span class="router-ico">${APP_LOGO}</span>`;
+      name = 'smart-router';
       prov = 'TEAMOROUTER';
     } else {
       icon = providerIcon(providerOf(store.state.model));
@@ -2708,7 +2708,7 @@ function validateApiKey(s) {
     if (state) {
       if (allDone && failed) {
         const firstFailure = children.find((chip) => chip.classList.contains('fail'));
-        state.innerHTML = '<span class="chip-fail">✗</span> failed';
+        state.innerHTML = '<span class="chip-fail">✗</span>';
         state.title = firstFailure ? String(($('.chip-state', firstFailure) || {}).title || '') : '';
         state.classList.add('bad');
       } else if (allDone && cancelled) {
@@ -2816,7 +2816,7 @@ function validateApiKey(s) {
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
     if (live && noOutputYet && !thinkOn) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
-      html += `<div class="connect-line"><span class="connect-mark" aria-hidden="true">${APP_LOGO}</span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
+      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
     }
     html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
@@ -4735,7 +4735,7 @@ function validateApiKey(s) {
   if (!store.state.apiKey) setTimeout(openKeyModal, 600);
 
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
-  return {
+  const ui = {
     setStatus,
     refreshKeyBtn: updateKeyBtn,   // main.js 解封成功后刷新按钮文案
     // 刷新页面后：外置在 IndexedDB 的重数据取回来了 → 重绘消息（附件图片、芯片里的生成图）
@@ -4924,11 +4924,17 @@ function validateApiKey(s) {
     scrollToBottom: () => scrollToBottom(true),
     syncWeb,
   };
-  // UI 挂载完成：淡出启动加载屏（避免白屏停留）
-  requestAnimationFrame(() => {
-    const boot = document.getElementById('boot-screen');
-    if (!boot) return;
-    boot.classList.add('fade-out');
-    setTimeout(() => { boot.remove(); }, 500);
-  });
+  // UI 挂载完成：同步取消启动超时，再淡出加载屏，避免慢网下先闪出误报。
+  const bootGuard = window.__teamoBootGuard;
+  if (bootGuard && typeof bootGuard.complete === 'function') {
+    bootGuard.complete();
+  } else {
+    requestAnimationFrame(() => {
+      const boot = document.getElementById('boot-screen');
+      if (!boot) return;
+      boot.classList.add('fade-out');
+      setTimeout(() => { boot.remove(); }, 500);
+    });
+  }
+  return ui;
 }

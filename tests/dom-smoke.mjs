@@ -49,6 +49,7 @@ const ok = (name, cond, extra = '') => {
 const { createStore } = await import(path.join(ROOT, 'js/state.js'));
 const { createAgent, copyAttachmentsToFS } = await import(path.join(ROOT, 'js/agent.js'));
 const { mountUI } = await import(path.join(ROOT, 'js/ui.js'));
+const { APP_LOGO } = await import(path.join(ROOT, 'js/icons.js'));
 const { createZip } = await import(path.join(ROOT, 'js/zip.js'));
 
 const store = createStore();
@@ -58,6 +59,8 @@ const lateUI = {};
 const agent = createAgent(store, {
   onUserMessage: (text, msg) => lateUI.onUserMessage && lateUI.onUserMessage(text, msg),
 });
+let bootCompletionCount = 0;
+window.__teamoBootGuard = { complete() { bootCompletionCount++; } };
 const ui = mountUI(store, agent);
 lateUI.onUserMessage = (text, msg) => ui.onUserMessage(msg);
 const $ = (s) => window.document.querySelector(s);
@@ -66,8 +69,12 @@ const click = (n) => n.dispatchEvent(new window.MouseEvent('click', { bubbles: t
 
 console.log('\n挂载与初始状态');
 ok('mountUI 返回 hooks 对象', ui && typeof ui.setStatus === 'function');
+ok('UI 挂载成功时通知启动页关闭', bootCompletionCount === 1, `调用 ${bootCompletionCount} 次`);
 ok('生图模型下拉与目录保持一致（4 项）', $('#image-model').options.length === 4, `实际 ${$('#image-model').options.length}`);
 ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
+ok('默认模型卡片显示 smart-router', $('#model-btn-name').textContent === 'smart-router', $('#model-btn-name').textContent);
+const expectedLogo = document.createElement('span'); expectedLogo.innerHTML = APP_LOGO;
+ok('模型卡片使用原生产品 Logo', $('#model-btn-icon svg')?.outerHTML === expectedLogo.querySelector('svg')?.outerHTML);
 ok('文件面板 ZIP 按钮存在', !!$('#download-zip'));
 ok('空沙箱工具栏仍显示 0.0KB/120.0MB 上限', /0\.0KB\/120\.0MB/.test($('#files-count').textContent), $('#files-count').textContent);
 
@@ -286,7 +293,7 @@ const waitMsg = store.pushMessage({ role: 'assistant', text: '', model: 'claude-
 ui.onAssistantStart(waitMsg);
 const waitWrap = window.document.querySelector(`.msg[data-id="${waitMsg.id}"]`);
 ok('显示「正在连接 claude-opus-5」', waitWrap.querySelector('.connect-line')?.textContent.includes('正在连接 claude-opus-5'), waitWrap.querySelector('.md-body')?.textContent);
-ok('对话连接提示使用原生产品 Logo 且无旋转环', !!waitWrap.querySelector('.connect-mark svg') && !waitWrap.querySelector('.connect-ring'));
+ok('首字等待提示恢复原始旋转圆环', !!waitWrap.querySelector('.connect-ring') && !waitWrap.querySelector('.connect-mark'));
 store.updateMessage(waitMsg.id, { text: '你好！', done: true });
 ui.onAssistantDone(waitMsg);
 ok('收到内容后连接动画消失', !waitWrap.querySelector('.connect-line'));
@@ -561,6 +568,7 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
         { id: 'empty-1', name: 'execute_javascript', args: { code: 'void 0' } },
         { id: 'read-1', name: 'read_file', args: { path: 'notes/source.md' } },
         { id: 'write-1', name: 'write_file', args: { path: 'notes/output.md', content: 'done' } },
+        { id: 'fail-1', name: 'fetch_url', args: { url: 'https://example.com/' } },
       ],
     },
     { id: 'ui-fold-tool-analyze', role: 'tool', toolCallId: 'analyze-1', name: 'analyze_image', content: '[识图完成] 模型 vision · 文件 uploads/screenshot.png · 全文 9 字\n' + unicodeOutput },
@@ -570,20 +578,24 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
     { id: 'ui-fold-tool-empty', role: 'tool', toolCallId: 'empty-1', name: 'execute_javascript', content: '' },
     { id: 'ui-fold-tool-read', role: 'tool', toolCallId: 'read-1', name: 'read_file', content: 'source text' },
     { id: 'ui-fold-tool-write', role: 'tool', toolCallId: 'write-1', name: 'write_file', content: 'written' },
+    { id: 'ui-fold-tool-fail', role: 'tool', toolCallId: 'fail-1', name: 'fetch_url', content: '工具执行失败：测试错误提示' },
   ];
   ui.rebuildMessages();
   const ran = $('.ran-commands');
   const explored = $('.explored-files');
   ok('其他命令进入唯一 Ran Commands 折叠行', !!ran && $$('.ran-commands').length === 1);
-  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran Commands 4', ran && ran.querySelector('.chip-name').textContent);
+  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran Commands 5', ran && ran.querySelector('.chip-name').textContent);
   ok('analyze_image 不再作为命令 chip，图片路径进入 Explored Files', !!explored
     && /uploads\/screenshot\.png/.test(explored.textContent)
     && !ran.textContent.includes('analyze_image'));
-  ok('同名多次命令在折叠内分组，所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 3
+  ok('同名多次命令在折叠内分组，所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 4
     && ran.textContent.includes(unicodeOutput) && ran.textContent.includes('second output'));
   const emptyChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'empty-1');
   ok('空字符串出参也算完成，并显示为空输出', !!emptyChip && emptyChip.classList.contains('done')
     && emptyChip.querySelector('.chip-result')?.textContent === '（空输出）');
+  const foldState = ran && ran.querySelector('.chip-state');
+  ok('失败工具仅显示红色叉号，不出现英文 failed', !!foldState && !/failed/i.test(foldState.textContent) && !!foldState.querySelector('.chip-fail'), foldState?.textContent);
+  ok('失败原因仍通过原生悬浮提示提供', /工具执行失败：测试错误提示/.test(foldState?.title || ''), foldState?.title);
   click(ran);
   ok('Ran Commands 可单独展开', ran.classList.contains('expanded'));
 }
