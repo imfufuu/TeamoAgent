@@ -1,4 +1,4 @@
-# TeamoAgent Cloudflare Relay 部署配置
+# Dubhe Agent Cloudflare Relay 部署配置
 # 用法（已装 wrangler）：
 #   cd relay && npx wrangler deploy
 name = "relay"

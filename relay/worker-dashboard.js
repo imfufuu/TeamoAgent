@@ -1,5 +1,5 @@
 /**
- * TeamoAgent 公共中继 — Cloudflare Worker（网页粘贴版，兼容在线编辑器）
+ * Dubhe Agent 公共中继 — Cloudflare Worker（网页粘贴版，兼容在线编辑器）
  * v1.5
  *
  * 端点：
@@ -10,7 +10,7 @@
  * 安全：SSRF 防护（每跳重定向校验私网/环回/链路本地）、4MB 上限、25s 超时、CORS 全开
  */
 
-const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 TeamoAgent-Relay/1.5';
+const UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 Dubhe-Agent-Relay/1.5';
 const MAX_FETCH_BYTES = 4000000;
 const FETCH_TIMEOUT_MS = 25000;
 const CORS = {
@@ -149,6 +149,7 @@ addEventListener('fetch', event => {
     return event.respondWith(new Response(null, { status: 204, headers: CORS }));
   }
   if (url.pathname === '/api/health') {
+    // Preserve the legacy health identifier for compatible clients.
     return event.respondWith(json({ ok: true, relay: 'teamo-cf-worker', version: '1.5' }));
   }
   if (url.pathname === '/api/fetch') {
@@ -179,10 +180,10 @@ addEventListener('fetch', event => {
     })());
   }
   event.respondWith(new Response(
-    'TeamoAgent Cloudflare Relay v1.5\n\n' +
+    'Dubhe Agent Cloudflare Relay v1.5\n\n' +
     '  GET  /api/health\n' +
     '  GET  /api/fetch?url=<URL>[&mode=text|raw][&max=2000000]\n\n' +
-    '部署方法：见 TeamoAgent 仓库 relay/README.md\n',
+    '部署方法：见 Dubhe Agent 仓库 relay/README.md\n',
     { status: 200, headers: Object.assign({ 'content-type': 'text/plain; charset=utf-8' }, CORS) }
   ));
 });

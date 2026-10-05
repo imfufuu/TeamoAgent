@@ -1,11 +1,11 @@
 /**
- * TeamoAgent 公共中继 — Cloudflare Worker 版本
+ * Dubhe Agent 公共中继 — Cloudflare Worker 版本
  *
  * 部署方式：
  *   1. https://dash.cloudflare.com/ → Workers & Pages → Create Worker
  *   2. 粘贴本文件全部内容 → Deploy
  *   3. 获得地址 https://<name>.<sub>.workers.dev
- *   4. 在 TeamoAgent「API Key」弹窗或 localStorage 里设置（或修改下面 DEFAULT_PUBLIC_RELAY 自带内置默认）
+ *   4. 在 Dubhe Agent「API Key」弹窗或 localStorage 里设置（或修改下面 DEFAULT_PUBLIC_RELAY 自带内置默认）
  *
  * 端点：
  *   GET /api/health                    → 版本与 capabilities
@@ -25,7 +25,7 @@
  */
 
 const WORKER_VERSION = '1.6.0';
-const UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 TeamoAgent-Relay/${WORKER_VERSION}`;
+const UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 Dubhe-Agent-Relay/${WORKER_VERSION}`;
 const MAX_FETCH_BYTES = 4_000_000;
 const MAX_SEARCH_BYTES = 600_000;
 const MAX_SEARCH_RESULTS = 10;
@@ -475,6 +475,7 @@ export default {
     }
     if (request.method !== 'GET') return json({ error: '只允许 GET 请求' }, 405);
     if (url.pathname === '/api/health') {
+      // Keep this legacy health identifier stable for clients that inspect metadata.
       return json({ ok: true, relay: 'teamo-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl'] });
     }
     if (url.pathname === '/api/search') {
@@ -532,7 +533,7 @@ export default {
     }
     // 根路径：版本页
     return new Response(
-      `TeamoAgent Cloudflare Relay v${WORKER_VERSION}\n\n` +
+      `Dubhe Agent Cloudflare Relay v${WORKER_VERSION}\n\n` +
       `  GET  /api/health\n` +
       `  GET  /api/fetch?url=<URL>[&mode=text|raw][&max=4000000]\n` +
       `  GET  /api/search?q=<query>[&limit=1..10]\n` +

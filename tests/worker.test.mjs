@@ -1,8 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import worker from '../relay/worker.js';
 
-const makeRequest = (path, method = 'GET') => new Request(`https://teamo-worker.test${path}`, { method });
+const makeRequest = (path, method = 'GET') => new Request(`https://dubhe-worker.test${path}`, { method });
 async function jsonCall(path, env = {}) {
   const response = await worker.fetch(makeRequest(path), env);
   return { response, body: await response.json() };
@@ -22,7 +23,21 @@ test('Worker health advertises versioned fetch/search/crawl capabilities', async
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
   assert.equal(body.version, '1.6.0');
+  assert.equal(body.relay, 'teamo-cf-worker', 'health identifier remains stable for compatibility');
   assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl']);
+});
+
+test('Worker root banner uses the Dubhe Agent identity', async () => {
+  const response = await worker.fetch(makeRequest('/'));
+  const text = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.6\.0/);
+});
+
+test('dashboard-compatible Worker source carries the migrated identity', () => {
+  const source = readFileSync(new URL('../relay/worker-dashboard.js', import.meta.url), 'utf8');
+  assert.match(source, /Dubhe Agent Cloudflare Relay v1\.5/);
+  assert.match(source, /relay: 'teamo-cf-worker'/);
 });
 
 test('SSRF guard rejects private, loopback, link-local, reserved, and internal host targets before fetch', async () => {
@@ -267,7 +282,7 @@ test('routes are GET-only except CORS preflight, and fetch honors caller cancell
     });
     return new Response('unexpected');
   }, async () => {
-    const request = new Request('https://teamo-worker.test/api/fetch?url=https%3A%2F%2Fpublic.example.org%2F', { signal: controller.signal });
+    const request = new Request('https://dubhe-worker.test/api/fetch?url=https%3A%2F%2Fpublic.example.org%2F', { signal: controller.signal });
     const response = await worker.fetch(request);
     assert.equal(response.status, 502);
     const body = await response.json();
