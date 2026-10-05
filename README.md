@@ -1,6 +1,6 @@
 # ◐ TeamoAgent — 基于 TeamoRouter 的网页端智能体
 
-> **Teamo V1.6 (Stable)** · 构建 `2026.10.5.6` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Teamo V1.6** · 构建 `2026.10.5.7` · [线上介绍](https://imfufuu.github.io/TeamoAgent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 

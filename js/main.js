@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.6';
-import { createAgent } from './agent.js?v=2026.10.5.6';
-import { mountUI, toast } from './ui.js?v=2026.10.5.6';
+import { createStore } from './state.js?v=2026.10.5.7';
+import { createAgent } from './agent.js?v=2026.10.5.7';
+import { mountUI, toast } from './ui.js?v=2026.10.5.7';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.6';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.6';
-import { APP_RELEASE } from './config.js?v=2026.10.5.6';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.7';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.7';
+import { APP_RELEASE } from './config.js?v=2026.10.5.7';
 
 const store = createStore();
 // relayOk 是运行时探测结果，不复用上次持久化值；null 表示探测进行中。

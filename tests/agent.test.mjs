@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.6';
+} from '../js/api.js?v=2026.10.5.7';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.6');
+const api = await import('../js/api.js?v=2026.10.5.7');
 
 let passed = 0;
 const queue = [];
@@ -820,6 +820,20 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
+test('照片编辑工作台：黑白灰界面与内联 SVG 控件图标', async () => {
+  const fs = await import('node:fs');
+  const source = fs.readFileSync(new URL('../js/photo-editor.js', import.meta.url), 'utf8');
+  const css = fs.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const photoCss = css.slice(css.indexOf('/* 本地照片编辑器'), css.indexOf('/* 拖拽提示 */'));
+  assert.match(source, /photo-editor-close[^>]*><svg[\s\S]*?<\/svg><\/button>/, '关闭控件应使用 SVG，而不是字形符号');
+  assert.doesNotMatch(source, /photo-editor-close[^>]*>×<\/button>/);
+  assert.match(source, /value="#ffffff"/, '默认画笔使用白色');
+  assert.match(photoCss, /--photo-fg:\s*#f4f4f2/);
+  assert.match(photoCss, /\.photo-tool-button\.active[^}]*background:\s*#2a2a2a/);
+  assert.match(photoCss, /\.photo-editor-foot \.photo-save[^}]*background:\s*#f0f0ee/);
+  assert.doesNotMatch(photoCss, /#ff3b30|#8bb6ff|#4778c4|#62d3a0/i, '工作台不应再使用红/蓝/绿强调色');
+});
+
 test('照片编辑器：裁剪框可按四边/四角调整并限制在图像范围内', async () => {
   const { cropRectFromDrag, resizeCropRect } = await import('../js/photo-editor.js');
   assert.deepEqual(cropRectFromDrag(80, 70, 20, 10, 100, 100), { x: 20, y: 10, width: 60, height: 60 });
@@ -3087,7 +3101,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.6');
+  const api = await import('../js/api.js?v=2026.10.5.7');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4978,19 +4992,19 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
   }
 });
 
-group('V1.6 Stable / 桌面沙箱面板');
-test('V1.6 Stable 发布标识与构建号已同步', async () => {
+group('V1.6 / 桌面沙箱面板');
+test('V1.6 发布标识与构建号已同步', async () => {
   const fsp = await import('node:fs');
   const { APP_RELEASE, APP_VERSION } = await import('../js/config.js');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
-  assert.equal(APP_RELEASE, 'V1.6 (Stable)');
-  assert.equal(APP_VERSION, '2026.10.5.6');
-  assert.match(html, /TeamoAgent V1\.6 \(Stable\)/);
-  assert.match(home, /TeamoAgent V1\.6 \(Stable\) · 构建 2026\.10\.5\.6/);
-  assert.match(docs, /class="ver-badge" title="Teamo V1\.6 \(Stable\)">V1\.6 \(Stable\)<\/span>/);
-  assert.match(docs, /V1\.6 \(Stable\).*2026\.10\.5\.6/);
+  assert.equal(APP_RELEASE, 'V1.6');
+  assert.equal(APP_VERSION, '2026.10.5.7');
+  assert.match(html, /TeamoAgent V1\.6 —/);
+  assert.match(home, /TeamoAgent V1\.6 · 构建 2026\.10\.5\.7/);
+  assert.match(docs, /class="ver-badge" title="Teamo V1\.6">V1\.6<\/span>/);
+  assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.7/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
   const fsp = await import('node:fs');
