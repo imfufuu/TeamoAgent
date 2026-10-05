@@ -60,7 +60,7 @@ const agent = createAgent(store, {
   onUserMessage: (text, msg) => lateUI.onUserMessage && lateUI.onUserMessage(text, msg),
 });
 let bootCompletionCount = 0;
-window.__teamoBootGuard = { complete() { bootCompletionCount++; } };
+window.__dubheBootGuard = { complete() { bootCompletionCount++; } };
 const ui = mountUI(store, agent);
 lateUI.onUserMessage = (text, msg) => ui.onUserMessage(msg);
 const $ = (s) => window.document.querySelector(s);
@@ -275,11 +275,11 @@ ok('单文件下载按钮是 SVG 图标（不是 emoji）', !/⬇|↓/.test($$('
 download = null; downloadName = null;
 click($$('#file-list .ft-zip').find((n) => n.closest('.ft-dir').dataset.path === 'uploads'));
 ok('目录 ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
-ok('目录 ZIP 以目录名命名', /^teamo-uploads-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
+ok('目录 ZIP 以目录名命名', /^dubhe-uploads-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
 download = null; downloadName = null;
 click($('#download-zip'));
 ok('整包 ZIP 下载触发', !!download && download.size > 100, `size=${download?.size}`);
-ok('ZIP 文件名规范', /^teamo-workspace-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
+ok('ZIP 文件名规范', /^dubhe-workspace-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.zip$/.test(downloadName || ''), String(downloadName));
 window.HTMLAnchorElement.prototype.click = origClick;
 window.URL.createObjectURL = origCreate;
 window.URL.revokeObjectURL = origRevoke;

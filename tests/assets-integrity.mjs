@@ -124,9 +124,9 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(main, /mountDebugWindow\(\)/);
   assert.match(main, /toggleDebug\(\)/);
   const dw = read('../js/debugwindow.js');
-  assert.match(dw, /__teamoDebugToggle/, 'debugwindow 应暴露 ⌘K 桥');
-  assert.match(dw, /__teamoDebugLog/, 'debugwindow 应暴露日志桥');
-  assert.match(dw, /__teamoModSubscribe/, 'debugwindow 应订阅审核日志');
+  assert.match(dw, /__dubheDebugToggle/, 'debugwindow 应暴露 ⌘K 桥');
+  assert.match(dw, /__dubheDebugLog/, 'debugwindow 应暴露日志桥');
+  assert.match(dw, /__dubheModSubscribe/, 'debugwindow 应订阅审核日志');
   assert.match(dw, /tdw-rz/, '浮窗应有四角缩放手柄');
   assert.match(dw, /tdw-entry/, '应有常驻快捷入口');
   assert.match(dw, /copySelected|data-act="copy"/, '应支持复制导出');
@@ -209,7 +209,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   // 2026.9.27.15：缩放柄只留右下角 + 清空同步环形缓冲 + 不记录复制动作
   assert.doesNotMatch(dw, /data-rz="nw"|data-rz="ne"|data-rz="sw"/, '缩放柄应只保留右下角');
   assert.match(dw, /border-bottom-right-radius:100%/, '右下角应为弧线造型');
-  assert.match(dw, /__teamoModLog\) globalThis.__teamoModLog.length = 0/, '清空应同步日志环形缓冲');
+  assert.match(dw, /__dubheModLog\) globalThis.__dubheModLog.length = 0/, '清空应同步日志环形缓冲');
   assert.doesNotMatch(dw, /debug:copy|debug:select/, '复制/全选不应写日志');
   // 中文快速通道 + 大图压缩 + 状态栏伪装 + 审核消息头部
   assert.match(read('../js/moderation.js'), /text:cjk-fastpath/, 'CJK 快速通道应存在');
@@ -220,7 +220,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(mod, /IMAGE_TURN_BUDGET_MS = 90000/, '带图回合预算应为 90s');
   assert.match(mod, /degraded/, '图像模型未就绪应标记 degraded');
   assert.match(mod, /prewarm:fetch/, '预热应逐文件上报下载进度');
-  assert.match(main, /__teamoPrewarmImageModeration && globalThis.__teamoPrewarmImageModeration\('startup'\)/, '启动应自动预热');
+  assert.match(main, /__dubhePrewarmImageModeration && globalThis.__dubhePrewarmImageModeration\('startup'\)/, '启动应自动预热');
   assert.match(main, /onModerationFailClosed/, 'main 应接 fail-closed 提示钩子');
   const agent = read('../js/agent.js');
   assert.match(agent, /turn:fail-closed/, '带图回合审核失败应 fail-closed');
@@ -252,7 +252,7 @@ await test('确认卡：样式类、UI 渲染、main.js 桥、agent.resolveConfi
   assert.match(ui, /clearConfirmCards/, '重建消息时应清理确认卡');
   assert.match(ui, /resolveConfirmation/, 'UI 应把用户决定交回 agent');
   assert.match(main, /onConfirmationRequest/, 'main.js 应桥接确认请求钩子');
-  assert.match(main, /__teamoConfirmationRequest|onConfirmationRequest/, 'main.js 应暴露混版安全桥');
+  assert.match(main, /__dubheConfirmationRequest|onConfirmationRequest/, 'main.js 应暴露混版安全桥');
   assert.match(agent, /resolveConfirmation/, 'agent 应暴露 resolveConfirmation（缓存了旧 UI 时仍可用）');
 });
 await test('/guard 与 /resume 命令进入 /system 帮助与命令分支，档位默认 observe', () => {
@@ -517,7 +517,7 @@ await test('启动超时不再自动闪退；挂载成功取消计时且内联�
   assert.ok(script, '启动兜底脚本应存在');
   assert.match(script, /60000/, '慢网容忍窗口应为 60 秒');
   assert.doesNotMatch(failure, /setTimeout|boot\.remove/, '失败提示必须留在屏幕上，不能自动闪退');
-  assert.match(script, /window\.__teamoBootGuard\s*=\s*\{\s*complete/);
+  assert.match(script, /window\.__dubheBootGuard\s*=\s*\{\s*complete/);
   assert.match(ui, /bootGuard\.complete\(\)/, 'UI 挂载成功时必须同步取消超时');
   const uiObject = ui.indexOf('const ui = {');
   const complete = ui.indexOf('bootGuard.complete()');

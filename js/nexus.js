@@ -2,7 +2,7 @@
 // 融合 Nous Research Hermes Agent 的架构思路与 Dubhe Agent 的端云协同双系统：
 //   1. System-1 / System-2 双系统认知路由（Jev 预判向量 × 自适应温度 × 零额外轮次技能直注）
 //   2. 四层缓存不变量提示词编译器（stable → context → volatile 锁死前缀缓存 + ephemeral 动态注入）
-//   3. 沙箱工作区规范自发现（自动扫描 TEAMO.md / AGENTS.md / HERMES.md / CLAUDE.md / .cursorrules）
+//   3. 沙箱工作区规范自发现（自动扫描 DUBHE.md / AGENTS.md / HERMES.md / CLAUDE.md / .cursorrules）
 //   4. 三层时序与程序性记忆内核（会话工作记忆 + 压缩前记忆刷盘 Flush + 跨会话 BM25 检索 Recall）
 //   5. 闭环自演进技能引擎（轨迹蒸馏 → 耗时/成功率遥测 → 坑点记录 → agentskills.io SKILL.md 双向编解码）
 //   6. 执行自省与防死循环护栏（Turn Recovery：重复调用检测、连续报错归因、长链路任务账本）
@@ -106,7 +106,7 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
 
 // ─── 1. 工作区上下文文件自发现（对齐 Hermes AGENTS.md / HERMES.md / CLAUDE.md）──
 export const CONTEXT_FILE_CANDIDATES = [
-  'TEAMO.md',
+  'DUBHE.md',
   'AGENTS.md',
   'HERMES.md',
   'CLAUDE.md',

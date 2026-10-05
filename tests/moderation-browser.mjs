@@ -38,7 +38,7 @@ const test = async (name, fn) => {
 
 // 合成测试图：泳装风格暖色人形色块不足以触发模型；改用真实测试图（若存在），
 // 否则退化为「管线可运行 + 良性图放行」的冒烟检查。
-const BIKINI_PATH = process.env.TEAMO_MOD_TEST_IMAGE || '/home/user/image-search/woman-in-bikini-at-the-beach-full-body-p-1.jpg';
+const BIKINI_PATH = process.env.DUBHE_MOD_TEST_IMAGE || '/home/user/image-search/woman-in-bikini-at-the-beach-full-body-p-1.jpg';
 const toDataUrl = (f, type = 'image/jpeg') => `data:${type};base64,${fs.readFileSync(f).toString('base64')}`;
 const hasBikiniFixture = fs.existsSync(BIKINI_PATH);
 // 良性图：纯程序生成的 PNG（不触发任何模型）
@@ -69,7 +69,7 @@ await new Promise((r) => setTimeout(r, 1000));
 const out = await page.evaluate(async (fixture) => {
   const mod = await import('./js/moderation.js');
   const res = {};
-  res.prewarmOk = globalThis.__teamoPrewarmImageModeration ? await globalThis.__teamoPrewarmImageModeration() : false;
+  res.prewarmOk = globalThis.__dubhePrewarmImageModeration ? await globalThis.__dubhePrewarmImageModeration() : false;
   const attach = (dataUrl, name = 't.jpg') => [{ kind: 'image', name, dataUrl }];
   res.bikini = fixture ? await mod.moderateImages({ attachments: attach(fixture) }) : null;
   res.benign = await mod.moderateImages({ attachments: attach(`data:image/png;base64,${'iVBORw0KGgoAAAANSUhEUg'}`, 'b.png') }).catch((e) => ({ error: String(e) }));
@@ -89,7 +89,7 @@ if (hasBikiniFixture) {
     assert.ok(out.bikini.score >= 0.70, `分数 ${out.bikini.score} 未达 0.70 阈值`);
   });
 } else {
-  results.push('  ⏭ 未提供 NSFW 测试图（TEAMO_MOD_TEST_IMAGE），跳过拦截正例');
+  results.push('  ⏭ 未提供 NSFW 测试图（DUBHE_MOD_TEST_IMAGE），跳过拦截正例');
 }
 
 await test('良性/生成图不误拦', async () => {

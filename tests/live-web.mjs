@@ -1,5 +1,5 @@
 // ─── 联网能力实测（真实 TeamoRouter 网关，可选）───────────────────────────
-// 用法: TEAMO_API_KEY=sk-teamo-xxx node tests/live-web.mjs
+// 用法: DUBHE_API_KEY=sk-teamo-xxx node tests/live-web.mjs
 // 没 key 就跳过（退出码 0），不干扰 npm run test:all / CI。
 //
 // 为什么单独一个文件：联网这块过去是「照文档写、靠桩验证」，而文档对不上现实——
@@ -19,13 +19,13 @@ import assert from 'node:assert/strict';
 import { streamChat, createToolCallAccumulator, __resetWebFallbackForTests } from '../js/api.js';
 import { webCapFor } from '../js/websearch.js';
 
-const KEY = process.env.TEAMO_API_KEY || '';
+const KEY = process.env.DUBHE_API_KEY || '';
 if (!KEY) {
-  console.log('⏭  tests/live-web.mjs 跳过：未设置 TEAMO_API_KEY（真实联网测试需显式提供 key）');
+  console.log('⏭  tests/live-web.mjs 跳过：未设置 DUBHE_API_KEY（真实联网测试需显式提供 key）');
   process.exit(0);
 }
 
-const WEB_MODELS = (process.env.TEAMO_WEB_MODELS || 'gpt-5.4-mini,claude-haiku-4-5').split(',').map((x) => x.trim()).filter(Boolean);
+const WEB_MODELS = (process.env.DUBHE_WEB_MODELS || 'gpt-5.4-mini,claude-haiku-4-5').split(',').map((x) => x.trim()).filter(Boolean);
 const QUESTION = '请联网查一下今天的美元兑人民币汇率中间价是多少，并给出来源链接。';
 
 let pass = 0, fail = 0;

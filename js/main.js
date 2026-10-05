@@ -18,16 +18,16 @@ store.state.settings.contentModeration = true;
 // UI 先挂载（agent hooks 需要引用 ui 方法），再创建 agent 注入 hooks
 let ui = null;
 const hooks = {
-  onStatus: (s) => { ui && ui.setStatus(s); globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('agent.status', String(s)); },
+  onStatus: (s) => { ui && ui.setStatus(s); globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('agent.status', String(s)); },
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
   onModerationFailOpen: (reason) => {
-    globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-open', reason || '超时');
-    toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __teamoModDump() 可复制完整审核日志（β）`, 'warn', 9000);
+    globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('moderation.fail-open', reason || '超时');
+    toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __dubheModDump() 可复制完整审核日志（β）`, 'warn', 9000);
   },
   onModerationFailClosed: (reason) => {
-    globalThis.__teamoDebugLog && globalThis.__teamoDebugLog('moderation.fail-closed', reason || '超时');
+    globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('moderation.fail-closed', reason || '超时');
     toast('图片审核超时，本轮已阻止（图片未进沙箱）。模型在后台继续预热，稍后重发即可', 'warn', 9000);
   },
   onAssistantStart: (m) => ui && ui.onAssistantStart(m),
@@ -101,7 +101,7 @@ try {
   });
 } catch { /* 调试浮窗异常不阻塞主应用 */ }
 // 启动即后台预热图片审核模型（不等用户加附件）——慢网络给 26MB 资源留足下载窗口
-setTimeout(() => { try { globalThis.__teamoPrewarmImageModeration && globalThis.__teamoPrewarmImageModeration('startup'); } catch { /* 忽略 */ } }, 2000);
+setTimeout(() => { try { globalThis.__dubhePrewarmImageModeration && globalThis.__dubhePrewarmImageModeration('startup'); } catch { /* 忽略 */ } }, 2000);
 // 这里不再 fs.import(state.files)：createAgent 已经用同一份 state.files 建好了 fs，
 // 再 import 一次不仅多余，还会把「挂载期间被清空的文件」重新灌回去（clearFiles 走的是
 // 同一批同步路径），表现为清空后文件又出现。

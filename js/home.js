@@ -394,7 +394,7 @@ async function prefetchAudio() {
   setExploreReady(false);
   setLoadProgress(0.02, '正在加载影片');
   loadAbort = new AbortController();
-  const src = audio.getAttribute('src') || 'assets/audio/teamo-home.mp3';
+  const src = audio.getAttribute('src') || 'assets/audio/dubhe-home.mp3';
   try {
     // 优先命中本地持久化 CacheStorage：下载过一次后随时零延迟播放
     if (typeof caches !== 'undefined') {

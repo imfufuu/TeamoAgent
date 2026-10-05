@@ -1,7 +1,7 @@
 /* 文学排版字体：仅 :::font 块启用。日常聊天仍用页面默认字体。
    楷体不得回退到 Noto Serif SC（宋），仿宋优先使用朱雀仿宋网页字体，禁止拿宋体冒充。 */
 @font-face {
-  font-family: "Teamo Serif";
+  font-family: "Dubhe Serif";
   src: url("./SourceSerif4-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
@@ -9,7 +9,7 @@
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Teamo Noto Serif";
+  font-family: "Dubhe Noto Serif";
   src: url("./NotoSerif-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
@@ -22,7 +22,7 @@
   font-synthesis: none;
 }
 .md-font-song {
-  font-family: "Noto Serif SC", "Songti SC", "STSong", "SimSun", "Teamo Serif", "Teamo Noto Serif", serif;
+  font-family: "Noto Serif SC", "Songti SC", "STSong", "SimSun", "Dubhe Serif", "Dubhe Noto Serif", serif;
 }
 .md-font-fangsong {
   font-family: "Zhuque Fangsong", "STFangsong", "FangSong", "FangSong_GB2312", "Cactus Classical Serif", serif;
@@ -36,8 +36,8 @@
   font-family: "Ma Shan Zheng", "STXingkai", "Xingkai SC", "LXGW WenKai TC", "Klee One", cursive, serif;
 }
 .md-font-serif {
-  font-family: "Teamo Serif", "Teamo Noto Serif", "Source Serif 4", "Noto Serif", "Georgia", "Times New Roman", serif;
+  font-family: "Dubhe Serif", "Dubhe Noto Serif", "Source Serif 4", "Noto Serif", "Georgia", "Times New Roman", serif;
 }
 .md-font-jp {
-  font-family: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", "Teamo Noto Serif", serif;
+  font-family: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", "Dubhe Noto Serif", serif;
 }

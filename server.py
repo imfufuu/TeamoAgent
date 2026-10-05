@@ -35,10 +35,10 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 上游候选：第一个是文档默认域名，第二个（.cn）在中国大陆网络通常更稳。
-# 逐个尝试，任一可用即透传；也可用环境变量 TEAMO_UPSTREAM 固定。
-UPSTREAM_CANDIDATES = [h for h in [os.environ.get("TEAMO_UPSTREAM"), "api.teamorouter.com", "api.teamorouter.cn"] if h]
+# 逐个尝试，任一可用即透传；也可用环境变量 DUBHE_UPSTREAM 固定。
+UPSTREAM_CANDIDATES = [h for h in [os.environ.get("DUBHE_UPSTREAM"), "api.teamorouter.com", "api.teamorouter.cn"] if h]
 UPSTREAM_HOST = UPSTREAM_CANDIDATES[0]
-WORKSPACE = os.environ.get("TEAMO_WORKSPACE") or os.path.join(ROOT, "workspace")
+WORKSPACE = os.environ.get("DUBHE_WORKSPACE") or os.path.join(ROOT, "workspace")
 UA = "Mozilla/5.0 (X11; Linux x86_64) Dubhe-Agent-LocalRelay/1.0"
 # git 执行开关：__main__ 里按 --allow-git/--no-git 与监听地址决定
 GIT_ENABLED = True

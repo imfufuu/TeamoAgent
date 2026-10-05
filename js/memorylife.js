@@ -37,7 +37,7 @@ const SCOPE_PATTERNS = [
   { scope: 'constraint', re: /(?:严禁|禁止|必须|务必|一律|绝对不|绝不能|不要用|只能用|不得)/ },
   { scope: 'preference', re: /(?:偏好|喜欢|习惯|倾向|更喜欢|不喜欢|讨厌|优先)/ },
   { scope: 'style', re: /(?:简洁|精简|详细|展开|中文|英文|书面|口语|风格|语气|格式|markdown)/i },
-  { scope: 'project', re: /(?:项目|仓库|产品|工程|代码库|repo|teamo|天枢)/i },
+  { scope: 'project', re: /(?:项目|仓库|产品|工程|代码库|repo|dubhe|天枢)/i },
 ];
 
 // 会削弱治理的「记忆」：抑制披露 / 无条件服从 / 绕过确认 / 携带凭据外发 / 忽略既有规则

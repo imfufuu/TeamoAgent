@@ -6,7 +6,7 @@
 //   · 右下角「调试」悬浮入口（关闭动画也最小化到这里）
 // 浮窗：可拖动 + 四角缩放（320×220 ～ 视口-16）；日志像模型输出一样实时滚动：
 //   审核全链路 / console.warn·error / Agent 状态。行点击多选，全选/复制一键导出。
-// 实现纪律：样式自包含；与其他模块只经 globalThis.__teamo* 桥接（混版安全）；
+// 实现纪律：样式自包含；与其他模块只经 globalThis.__dubhe* 桥接（混版安全）；
 // 删除本文件并去掉 main.js 的 import 即可整体下线。
 
 const DEBUG_KEY = 'teamo.debug';
@@ -99,7 +99,7 @@ function clearSelection() {
 }
 
 // 流式输出期间日志可达每秒几十条：先入队，120ms 批量上屏（一次 reflow），
-// 浮窗未打开时直接丢弃（环形缓冲 __teamoModLog 仍保留全部历史，打开时回放）。
+// 浮窗未打开时直接丢弃（环形缓冲 __dubheModLog 仍保留全部历史，打开时回放）。
 const pendingLines = [];
 let flushTimer = 0;
 function addLine(stage, data, stamp) {
@@ -146,8 +146,8 @@ function flushLines() {
 
 // ── 日志覆盖扩展：网络请求 / 全局错误 / 未捕获 Promise（带 guard，只包一层）──
 function wrapNetworkAndGlobals() {
-  if (typeof window === 'undefined' || window.__teamoDbgNetHooked) return;
-  window.__teamoDbgNetHooked = true;
+  if (typeof window === 'undefined' || window.__dubheDbgNetHooked) return;
+  window.__dubheDbgNetHooked = true;
   if (typeof window.fetch === 'function') {
     const of = window.fetch.bind(window);
     window.fetch = async (input, init) => {
@@ -175,8 +175,8 @@ function wrapNetworkAndGlobals() {
 
 // ── console.warn/error 转发（只包一层，保留原实现）──
 function wrapConsole() {
-  if (console.__teamoDebugWrapped) return;
-  console.__teamoDebugWrapped = true;
+  if (console.__dubheDebugWrapped) return;
+  console.__dubheDebugWrapped = true;
   const ow = console.warn.bind(console);
   const oe = console.error.bind(console);
   console.warn = (...a) => { addLine('console.warn', a.map((x) => (typeof x === 'string' ? x : x && x.message ? x.message : fmtData(x))).join(' ')); ow(...a); };
@@ -259,7 +259,7 @@ function clampPos(pos) {
 
 function buildWindow() {
   root = document.createElement('div');
-  root.id = 'teamo-debug-win';
+  root.id = 'dubhe-debug-win';
   root.className = 'tdw tdw-pop';
   root.innerHTML = `
     <style>${STYLE}</style>
@@ -274,7 +274,7 @@ function buildWindow() {
     </div>
     <div class="tdw-body" aria-live="polite"></div>
     <button type="button" class="tdw-jump" hidden>↓ 回到底部</button>
-    <div class="tdw-hint">点击行多选 · 全选/复制导出 · Ctrl+Alt+D 开关 · __teamoModDump() 控制台全文</div>
+    <div class="tdw-hint">点击行多选 · 全选/复制导出 · Ctrl+Alt+D 开关 · __dubheModDump() 控制台全文</div>
     <div class="tdw-rz" data-rz="se" title="拖拽调整大小"></div>`;
   document.body.appendChild(root);
   bodyEl = root.querySelector('.tdw-body');
@@ -355,7 +355,7 @@ function buildWindow() {
   // ── 按钮 / 行选择 ──
   root.addEventListener('click', (e) => {
     const act = e.target && e.target.dataset && e.target.dataset.act;
-    if (act === 'clear') { bodyEl.innerHTML = ''; rowCount = 0; if (countEl) countEl.textContent = '0'; if (globalThis.__teamoModLog) globalThis.__teamoModLog.length = 0; }
+    if (act === 'clear') { bodyEl.innerHTML = ''; rowCount = 0; if (countEl) countEl.textContent = '0'; if (globalThis.__dubheModLog) globalThis.__dubheModLog.length = 0; }
     if (act === 'all') {
       const rows = [...bodyEl.querySelectorAll('.tdw-row')];
       const allSel = rows.length && rows.every((r) => r.classList.contains('tdw-sel'));
@@ -372,8 +372,8 @@ function buildWindow() {
   bodyEl.addEventListener('scroll', () => { if (jumpEl) jumpEl.hidden = bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 48; });
 
   // ── 日志源 ──
-  if (typeof globalThis.__teamoModSubscribe === 'function') {
-    unsubscribe = globalThis.__teamoModSubscribe((entry) => {
+  if (typeof globalThis.__dubheModSubscribe === 'function') {
+    unsubscribe = globalThis.__dubheModSubscribe((entry) => {
       const { t, stage, ...data } = entry || {};
       addLine(String(stage || 'moderation'), data, t);
     });
@@ -390,7 +390,7 @@ export function mountDebugWindow() {
   buildWindow();
   // 回放环形缓冲里最近的日志（浮窗打开前发生的审核也有记录）
   try {
-    for (const e of (globalThis.__teamoModLog || []).slice(-120)) {
+    for (const e of (globalThis.__dubheModLog || []).slice(-120)) {
       const { t, stage, ...data } = e || {};
       addLine(String(stage || 'moderation'), data, t);
     }
@@ -438,10 +438,10 @@ export function toggleDebug() {
 
 // ── globalThis 桥（main.js / ui.js 经此调用，混版安全）──
 if (typeof globalThis !== 'undefined') {
-  globalThis.__teamoDebugToggle = toggleDebug;
-  globalThis.__teamoDebugActive = debugActive;
-  globalThis.__teamoDebugSet = (on) => {
-    const cur = !!(debugActive() && document.getElementById('teamo-debug-win'));
+  globalThis.__dubheDebugToggle = toggleDebug;
+  globalThis.__dubheDebugActive = debugActive;
+  globalThis.__dubheDebugSet = (on) => {
+    const cur = !!(debugActive() && document.getElementById('dubhe-debug-win'));
     if (on && !cur) { setDebug(true); if (entryEl) { entryEl.classList.add('on'); entryEl.style.display = ''; } mountDebugWindow(); return true; }
     if (!on) {
       const was = cur || !!root;
@@ -453,5 +453,5 @@ if (typeof globalThis !== 'undefined') {
     }
     return cur;
   };
-  globalThis.__teamoDebugLog = (stage, data) => addLine(String(stage || 'debug'), data);
+  globalThis.__dubheDebugLog = (stage, data) => addLine(String(stage || 'debug'), data);
 }

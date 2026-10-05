@@ -1217,7 +1217,7 @@
       "id": "mem-pos-052",
       "split": "ood_holdout",
       "category": "domain",
-      "text": "代码高亮主题固定使用自定义 assets/hljs/teamo.css 样式表",
+      "text": "代码高亮主题固定使用自定义 assets/hljs/dubhe.css 样式表",
       "expected": true
     },
     {

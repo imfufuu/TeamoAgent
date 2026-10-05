@@ -14,7 +14,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 
 
 def load_server():
-    spec = importlib.util.spec_from_file_location("teamo_server_under_test", ROOT / "server.py")
+    spec = importlib.util.spec_from_file_location("dubhe_server_under_test", ROOT / "server.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)  # 不会起服务：监听在 __main__ 分支里
     return mod
@@ -128,7 +128,7 @@ def main():
     src = (ROOT / "server.py").read_text(encoding="utf8")
     check("源码里没有 /api/search 路由与 handler",
           'route == "/api/search"' not in src and "def _search" not in src and "self._search" not in src)
-    check("源码不引用任何第三方搜索 key", not any(k in src for k in ("TEAMO_BRAVE_KEY", "TEAMO_TAVILY_KEY", "TEAMO_SERPER_KEY")))
+    check("源码不引用任何第三方搜索 key", not any(k in src for k in ("DUBHE_BRAVE_KEY", "DUBHE_TAVILY_KEY", "DUBHE_SERPER_KEY")))
     check("源码不再借用 r.jina.ai 抽取器", "r.jina.ai" not in src.split("只有 text / raw")[0])
     check("health 只报 fetch/git", '"fetch": True,' in src and '"providers"' not in src)
     check("fetch 的 mode 白名单只剩 text|raw", 'if mode not in ("text", "raw")' in src)

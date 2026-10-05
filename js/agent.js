@@ -2129,7 +2129,7 @@ export function createAgent(store, hooks = {}) {
       if (err && (err.name === 'AbortError' || (ctrl && ctrl.signal && ctrl.signal.aborted))) throw err;
       const reason = err && err.name === 'ModerationTimeoutError' ? '总预算超时' : '审核异常';
       const imgTurn = Array.isArray(attachments) && attachments.some((a) => a && a.kind === 'image');
-      if (typeof globalThis !== 'undefined' && globalThis.__teamoModPush) globalThis.__teamoModPush({ stage: imgTurn ? 'turn:fail-closed' : 'turn:fail-open', reason, error: String(err && err.message || err).slice(0, 220) });
+      if (typeof globalThis !== 'undefined' && globalThis.__dubheModPush) globalThis.__dubheModPush({ stage: imgTurn ? 'turn:fail-closed' : 'turn:fail-open', reason, error: String(err && err.message || err).slice(0, 220) });
       if (imgTurn) {
         // 带图回合 fail-closed：审核没跑完就不放行，图片绝不进沙箱（模型在后台继续预热，用户可重试）
         console.warn(`[Dubhe Agent] 图片审核${reason}，已 fail-closed 拦截本轮`, err);

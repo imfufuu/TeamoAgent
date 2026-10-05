@@ -445,7 +445,7 @@ export const MEMORY_GATEKEEPER_BENCHMARK = Object.freeze([
   { id: 'mem-pos-049', split: 'ood_holdout', category: 'domain', text: '图像分类 ONNX 推理输入分辨率固定保持 320x320 原生尺寸', expected: true },
   { id: 'mem-pos-050', split: 'ood_holdout', category: 'domain', text: '跨会话检索采用 BM25 词频逆文档频率加权与同义词扩展', expected: true },
   { id: 'mem-pos-051', split: 'ood_holdout', category: 'domain', text: '子智能体并发调度上限固定为每批 4 路以免触发网关限流', expected: true },
-  { id: 'mem-pos-052', split: 'ood_holdout', category: 'domain', text: '代码高亮主题固定使用自定义 assets/hljs/teamo.css 样式表', expected: true },
+  { id: 'mem-pos-052', split: 'ood_holdout', category: 'domain', text: '代码高亮主题固定使用自定义 assets/hljs/dubhe.css 样式表', expected: true },
   { id: 'mem-pos-053', split: 'ood_holdout', category: 'domain', text: '会话自动标题总结仅在首轮合规回复完成后触发一次', expected: true },
   { id: 'mem-pos-054', split: 'ood_holdout', category: 'domain', text: '所有离线评测脚本必须支持零外部依赖通过 node 直接运行', expected: true },
   { id: 'mem-pos-055', split: 'ood_holdout', category: 'domain', text: '网关主域名优先连接 teamorouter.com，网络故障时自动切换 .cn', expected: true },

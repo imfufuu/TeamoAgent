@@ -306,7 +306,7 @@ npm run test:live     # = live-smoke（协议层）+ live-check（图像与工�
 覆盖：三个生图模型逐个出图、显示名 `2.5 Sunburst` 纠正后成功、非法名退回会话模型、
 `reference_paths` 图片编辑、`n=2` 多张落盘、webp/透明底魔数校验、错误文案含上游原文、
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
-`report.json` 输出到 `/tmp/dubhe-live`（可用 `TEAMO_LIVE_OUT` 覆盖）。
+`report.json` 输出到 `/tmp/dubhe-live`（可用 `DUBHE_LIVE_OUT` 覆盖）。
 
 五层离线测试（DOM / app-boot / pyodide 三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
 
@@ -318,7 +318,7 @@ npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹�
 npm run test:pyodide  # tests/pyodide-worker.test.mjs：Node 里用薄垫片直接跑真实 js/worker-py.js
                       # （npm i -D pyodide@0.26.4）：FILES 回写 / result 捕获 / 陈旧全局
 npm run test:server   # tests/server_checks.py：中继护栏（git 白名单 / SSRF / HTML 抽取），纯 stdlib 无需 node
-npm run test:live     # 真实网关：live-smoke + live-check + live-web（TEAMO_API_KEY=… 才跑，否则跳过）
+npm run test:live     # 真实网关：live-smoke + live-check + live-web（DUBHE_API_KEY=… 才跑，否则跳过）
 npm run test:integrity # tests/assets-integrity.mjs：审核资产完整性——ORT 版本三件套 / tf 无 CSP 炸点 /
                       # 模型 format 配对 / 权重分片 4 字节对齐 / NudeNet 320 / 语义层 CJK 跳过（纯 Node）
 npm run test:browser  # tests/moderation-browser.mjs：真实 Chromium 端到端审核——NSFW 拦截 / 良性放行 /
@@ -377,7 +377,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 
 这些不是「凭感觉调的」：`tests/mobile-layout.mjs` 用真实 Chromium 在 320/360/390/414/768 宽度下
 量 **横向溢出 / 区域重叠 / 触控目标尺寸 / 面板是否越界**（桩网关先灌一整段带工具芯片与联网来源条的
-对话），`npm run audit:mobile` 一条命令跑完；也可以加 `TEAMO_AUDIT_URL=https://imfufuu.github.io/dubhe-agent/`
+对话），`npm run audit:mobile` 一条命令跑完；也可以加 `DUBHE_AUDIT_URL=https://imfufuu.github.io/dubhe-agent/`
 直接量线上站点。
 
 ## 说明

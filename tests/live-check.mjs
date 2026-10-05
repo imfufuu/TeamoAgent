@@ -1,5 +1,5 @@
 // ─── 真实网关系统测试（可选，默认跳过）─────────────────────────────────
-// 用法：TEAMO_API_KEY=sk-teamo-xxx node tests/live-check.mjs
+// 用法：DUBHE_API_KEY=sk-teamo-xxx node tests/live-check.mjs
 // 未设置 key 时直接跳过，因此不会干扰离线单测与 CI。
 //
 // 覆盖此前线上报错的两条路径：
@@ -9,12 +9,12 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
-const KEY = process.env.TEAMO_API_KEY || '';
-const CHAT_MODEL = process.env.TEAMO_CHAT_MODEL || 'claude-sonnet-5';
-const OUT_DIR = process.env.TEAMO_LIVE_OUT || '/tmp/dubhe-live';
+const KEY = process.env.DUBHE_API_KEY || '';
+const CHAT_MODEL = process.env.DUBHE_CHAT_MODEL || 'claude-sonnet-5';
+const OUT_DIR = process.env.DUBHE_LIVE_OUT || '/tmp/dubhe-live';
 
 if (!KEY) {
-  console.log('⏭  tests/live-check.mjs 跳过：未设置 TEAMO_API_KEY（真实网关测试需显式提供 key）');
+  console.log('⏭  tests/live-check.mjs 跳过：未设置 DUBHE_API_KEY（真实网关测试需显式提供 key）');
   process.exit(0);
 }
 globalThis.localStorage = { _m: new Map(), getItem(k) { return this._m.has(k) ? this._m.get(k) : null; }, setItem(k, v) { this._m.set(k, String(v)); }, removeItem(k) { this._m.delete(k); } };

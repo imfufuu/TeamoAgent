@@ -38,7 +38,7 @@ function noteSwitch(from, to) {
   lastSwitchNote = Date.now();
   try {
     if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
-      window.dispatchEvent(new CustomEvent('teamo:endpoint-switched', { detail: { from, to } }));
+      window.dispatchEvent(new CustomEvent('dubhe:endpoint-switched', { detail: { from, to } }));
     }
   } catch { /* 忽略 */ }
 }

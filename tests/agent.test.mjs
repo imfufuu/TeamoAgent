@@ -2141,7 +2141,7 @@ test('index.html 是产品介绍页并跳转到 app.html', async () => {
   assert.match(home, /id="world"/);
   assert.match(home, /class="shot"/);
   assert.match(home, /media-src 'self'/);
-  assert.match(home, /assets\/audio\/teamo-home\.mp3/);
+  assert.match(home, /assets\/audio\/dubhe-home\.mp3/);
   assert.match(home, /id="billboard"/);
   const homeCss = fsp.readFileSync(new URL('../css/home.css', import.meta.url), 'utf8');
   assert.equal(/11vw,\s*128px/.test(homeCss), false, '字幕不得铺满挡住镜头');
@@ -3153,14 +3153,14 @@ test('密封常量不含任何明文片段，且解封逻辑正确', async () =>
   assert.equal(ak.effectiveApiKey('admin-<示例别名>'), 'admin-<示例别名>');
   assert.equal(ak.effectiveApiKey('sk-teamo-plain'), 'sk-teamo-plain');
   // 有环境变量时做一次真解封（口令不进仓库：CI/本地按需给）
-  if (process.env.TEAMO_ADMIN_PW) {
-    const ok = await ak.unlockAdminKey(process.env.TEAMO_ADMIN_PW);
+  if (process.env.DUBHE_ADMIN_PW) {
+    const ok = await ak.unlockAdminKey(process.env.DUBHE_ADMIN_PW);
     assert.equal(ok.ok, true, '正确口令必须能解封');
-    const key = ak.effectiveApiKey(process.env.TEAMO_ADMIN_PW);
+    const key = ak.effectiveApiKey(process.env.DUBHE_ADMIN_PW);
     assert.match(key, /^sk-teamo-[a-z0-9]{40,}$/, '解封出来的应是真密钥');
-    assert.notEqual(key, process.env.TEAMO_ADMIN_PW, '别名必须被替换成真密钥');
+    assert.notEqual(key, process.env.DUBHE_ADMIN_PW, '别名必须被替换成真密钥');
     ak.lockAdminKey();
-    assert.equal(ak.effectiveApiKey(process.env.TEAMO_ADMIN_PW), process.env.TEAMO_ADMIN_PW, '上锁后不再替换');
+    assert.equal(ak.effectiveApiKey(process.env.DUBHE_ADMIN_PW), process.env.DUBHE_ADMIN_PW, '上锁后不再替换');
   }
 });
 
@@ -4194,7 +4194,7 @@ test('侧栏 860、桌面面板右侧浮层，手机面板底部浮层，开面�
 });
 test('代码块语言在左侧、复制始终可见；用户气泡反色链接', async () => {
   const fsp = await import('node:fs');
-  const hl = fsp.readFileSync(new URL('../assets/hljs/teamo.css', import.meta.url), 'utf8');
+  const hl = fsp.readFileSync(new URL('../assets/hljs/dubhe.css', import.meta.url), 'utf8');
   const html = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   assert.match(hl, /\.code-head/);
@@ -4306,7 +4306,7 @@ test('清空会话要二次 confirm', async () => {
 group('2026.09.22.17 用户气泡 Markdown 反色');
 test('用户气泡表格不用 --bg-soft（避免白底白字），代码块相对气泡叠色', async () => {
   const fsp = await import('node:fs');
-  const hl = fsp.readFileSync(new URL('../assets/hljs/teamo.css', import.meta.url), 'utf8');
+  const hl = fsp.readFileSync(new URL('../assets/hljs/dubhe.css', import.meta.url), 'utf8');
   assert.match(hl, /\.msg-user \.bubble\.md-body tbody tr:nth-child\(even\)/);
   assert.equal(/\.msg-user[\s\S]{0,400}nth-child\(even\)[\s\S]{0,80}var\(--bg-soft\)/.test(hl), false, '斑马纹不能再用页面底色');
   assert.match(hl, /color-mix\(in srgb, var\(--bg\)/);
@@ -4740,8 +4740,8 @@ test('内容审核策略：成人色情、公序良俗、高危犯罪与 NSFW �
 });
 test('文本审核确实执行本地模型判定，而不是只有敏感词规则', async () => {
   const mod = await import('../js/moderation.js');
-  const old = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const old = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => [{ label: 'sexual_explicit', results: [{ probabilities: [0.02, 0.98], match: true }] }] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
   };
@@ -4756,13 +4756,13 @@ test('文本审核确实执行本地模型判定，而不是只有敏感词规�
     assert.equal(zh.blocked, false);
     assert.ok((zh.parts || []).some((x) => x && x.skipped === 'cjk-unsupported'));
   } finally {
-    if (old) globalThis.__TEamoModerationTestHooks = old;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (old) globalThis.__DubheModerationTestHooks = old;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 test('发送后先显示用户气泡，再进入审核状态', async () => {
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
@@ -4786,14 +4786,14 @@ test('发送后先显示用户气泡，再进入审核状态', async () => {
     assert.equal(store.state.messages[0].transientModeration, false);
   } finally {
     globalThis.fetch = realFetch;
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
 test('图片加系统内测固定回复绕过提示会被本地审核拦截', async () => {
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
@@ -4810,15 +4810,15 @@ test('图片加系统内测固定回复绕过提示会被本地审核拦截', as
     assert.equal(store.state.messages[0].text, '该内容已被审核');
     assert.equal(agent.fs.list().some((f) => f.path === 'uploads/probe.png'), false);
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
 test('审核命中不入对话上下文；下一条消息清除提示；图片通过审核前不进沙箱', async () => {
   const realFetch2 = globalThis.fetch;
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
@@ -4837,7 +4837,7 @@ test('审核命中不入对话上下文；下一条消息清除提示；图片�
     assert.equal(store.state.messages[0].transientModeration, true);
     assert.equal(agent.fs.list().some((f) => f.path === 'uploads/blocked.png'), false);
 
-    globalThis.__TEamoModerationTestHooks = {
+    globalThis.__DubheModerationTestHooks = {
       textModel: { classify: async () => [] },
       semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
       nudityDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-nudenet' }),
@@ -4851,8 +4851,8 @@ test('审核命中不入对话上下文；下一条消息清除提示；图片�
     assert.ok(events.some((e) => e[0] === 'cleared' && e[1] === 1));
   } finally {
     globalThis.fetch = realFetch2;
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
@@ -4869,9 +4869,9 @@ test('NudeNet 裸露检测命中会直接拦截明显敏感图片', async () => 
 
 test('文本里的远程图片 URL 会下载并进入本地图片审核', async () => {
   const mod = await import('../js/moderation.js');
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  const oldHooks = globalThis.__DubheModerationTestHooks;
   const seen = [];
-  globalThis.__TEamoModerationTestHooks = {
+  globalThis.__DubheModerationTestHooks = {
     remoteImageDataUrl: async (url) => { seen.push(url); return 'data:image/png;base64,AAA'; },
     decodeImage: async () => ({ width: 32, height: 32 }),
     nudityDecision: async () => ({ blocked: true, score: 0.8, categories: ['explicit_nudity'], source: 'mock-nudenet' }),
@@ -4883,15 +4883,15 @@ test('文本里的远程图片 URL 会下载并进入本地图片审核', async 
     assert.equal(seen[0], 'https://i.postimg.cc/VN60QXGh/jie-ping-2026-09-23-21-09-42.png');
     assert.ok(r.categories.includes('explicit_nudity'));
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
 test('NudeNet 检测不被外层短超时提前 fail-open', async () => {
   const mod = await import('../js/moderation.js');
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     timeouts: { nudityDetect: 5, imageModel: 5, imageClassify: 5 },
     decodeImage: async () => ({ width: 1, height: 1 }),
     nudityDecision: async () => {
@@ -4905,17 +4905,17 @@ test('NudeNet 检测不被外层短超时提前 fail-open', async () => {
     assert.equal(r.blocked, true);
     assert.ok(r.categories.includes('explicit_nudity'));
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
 test('正常图片放行、敏感图片命中：本地图片审核路径可结束', async () => {
   const mod = await import('../js/moderation.js');
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  const oldHooks = globalThis.__DubheModerationTestHooks;
   const tinyPng = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=';
   const tinyJpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////2wBDAf//////////////////////////////////////////////////////////////////////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAEDAQE/ASP/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/ASP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAY/Al//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/Ia//2gAMAwEAAgADAAAAEP/EFBQRAQAAAAAAAAAAAAAAAAAAARD/2gAIAQMBAT8QH//EFBQRAQAAAAAAAAAAAAAAAAAAARD/2gAIAQIBAT8QH//EFBABAQAAAAAAAAAAAAAAAAAAARD/2gAIAQEAAT8QH//Z';
-  globalThis.__TEamoModerationTestHooks = {
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     decodeImage: async (dataUrl) => ({ sample: dataUrl.includes('SENSITIVE_SAMPLE') ? 'sensitive' : 'normal' }),
@@ -4938,14 +4938,14 @@ test('正常图片放行、敏感图片命中：本地图片审核路径可结�
     assert.equal(bad.blocked, true);
     assert.ok(bad.image.categories.includes('explicit_nudity'));
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 test('图片审核超时 fail-closed 拦截（2026.9.27.14 策略）：不放行、不无限审核中', async () => {
   const mod = await import('../js/moderation.js');
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     timeouts: { imageClassify: 10, imageDecode: 10, imageModel: 10, textModel: 10, textClassify: 10, semantic: 10, moderation: 50 },
     textModel: { classify: async () => [] },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
@@ -4961,14 +4961,14 @@ test('图片审核超时 fail-closed 拦截（2026.9.27.14 策略）：不放行
     const flatParts = (rows) => (rows || []).flatMap((x) => x && x.parts ? [x, ...flatParts(x.parts)] : [x]);
     assert.ok(flatParts(r.image.parts).some((x) => x && /timeout/i.test(String(x.error || ''))));
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
 test('图片/文本审核加载中可以终止，不会卡在连接/审核状态', async () => {
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
-  globalThis.__TEamoModerationTestHooks = {
+  const oldHooks = globalThis.__DubheModerationTestHooks;
+  globalThis.__DubheModerationTestHooks = {
     textModel: { classify: async () => new Promise(() => {}) },
     semanticDecision: async () => ({ blocked: false, score: 0, categories: [], source: 'mock-semantic' }),
     imageModel: { classify: async () => [] },
@@ -4987,8 +4987,8 @@ test('图片/文本审核加载中可以终止，不会卡在连接/审核状态
     assert.deepEqual(store.state.messages, []);
     assert.ok(seen.includes('moderating'));
   } finally {
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 
@@ -5199,7 +5199,7 @@ test('Req 3：全模型官方价格查询（识图与生图单独处理）与单
 
 test('Req 4：首条消息触发违规审核时会话标题先显示「未命名对话」，待下一次合规任务完成后再由 AI 总结标题', async () => {
   const realFetch2 = globalThis.fetch;
-  const oldHooks = globalThis.__TEamoModerationTestHooks;
+  const oldHooks = globalThis.__DubheModerationTestHooks;
   try {
     const store = storeNoWeb(createStore());
     store.state.apiKey = 'sk-teamo-test';
@@ -5230,8 +5230,8 @@ test('Req 4：首条消息触发违规审核时会话标题先显示「未命名
     assert.equal(store.needsTitle(), null);
   } finally {
     globalThis.fetch = realFetch2;
-    if (oldHooks) globalThis.__TEamoModerationTestHooks = oldHooks;
-    else delete globalThis.__TEamoModerationTestHooks;
+    if (oldHooks) globalThis.__DubheModerationTestHooks = oldHooks;
+    else delete globalThis.__DubheModerationTestHooks;
   }
 });
 

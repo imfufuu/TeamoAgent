@@ -5,7 +5,7 @@
 // 现在重数据外置到 IndexedDB，localStorage 只存轻量状态。
 //
 // 用法：npm run test:persist            （默认跑本地文件）
-//       TEAMO_PERSIST_URL=https://imfufuu.github.io/dubhe-agent/ npm run test:persist
+//       DUBHE_PERSIST_URL=https://imfufuu.github.io/dubhe-agent/ npm run test:persist
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -17,7 +17,7 @@ try { ({ default: puppeteer } = await import('puppeteer')); }
 catch { console.log('⏭  tests/persist.mjs 跳过：未安装 puppeteer（npm i -D puppeteer）'); process.exit(0); }
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
-const REMOTE = process.env.TEAMO_PERSIST_URL || '';
+const REMOTE = process.env.DUBHE_PERSIST_URL || '';
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml' };
 
 // ── 造一张约 60KB 的 PNG（随机像素，避免压成几百字节）──
@@ -76,7 +76,7 @@ if (!base) {
 }
 
 const png = makePng();
-const tmpDir = fs.mkdtempSync('/tmp/teamo-persist-');
+const tmpDir = fs.mkdtempSync('/tmp/dubhe-persist-');
 const pngPath = path.join(tmpDir, 'shot.png');
 const txtPath = path.join(tmpDir, 'notes.txt');
 fs.writeFileSync(pngPath, png);

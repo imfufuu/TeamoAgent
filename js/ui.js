@@ -2458,7 +2458,7 @@ function validateApiKey(s) {
   }
   $('#download-zip').addEventListener('click', () => {
     const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
-    saveZip(zipEntriesOf(wsKeys), 'teamo-workspace');
+    saveZip(zipEntriesOf(wsKeys), 'dubhe-workspace');
   });
   $('#clear-files').addEventListener('click', () => {
     const wsKeys = (typeof agent.fs.listWorkspace === 'function' ? agent.fs.listWorkspace() : agent.fs.list()).map((f) => f.path);
@@ -2566,7 +2566,7 @@ function validateApiKey(s) {
         });
         $('.ft-zip', row).addEventListener('click', (e) => {
           e.stopPropagation();
-          saveZip(zipEntriesOf(collectPaths(r)), `teamo-${r.name || 'folder'}`);
+          saveZip(zipEntriesOf(collectPaths(r)), `dubhe-${r.name || 'folder'}`);
         });
       } else {
         const fr = wsFiles.find((ff) => ff.path === r.path);
@@ -3724,7 +3724,7 @@ function validateApiKey(s) {
     toast(`网关接入点已切换：${to.replace(/^https?:\/\//, '')}（原 ${from.replace(/^https?:\/\//, '')}）`, 'ok', 3200);
   });
   // 请求期发生自动切换（直连失败→换域名）时提示一次
-  window.addEventListener('teamo:endpoint-switched', (e) => {
+  window.addEventListener('dubhe:endpoint-switched', (e) => {
     updateTransportBadge();
     const to = e && e.detail && e.detail.to ? e.detail.to.replace(/^https?:\/\//, '') : '';
     toast(`直连域名不可达，已自动切换到 ${to}`, 'warn', 5000);
@@ -3913,7 +3913,7 @@ function validateApiKey(s) {
         const isImageByMime = IMG_RE.test(f.type);
         const isImageByExt = IMG_EXT_RE.test(f.name);
         if (isImageByMime || isImageByExt) {
-          if (globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('attachment');
+          if (globalThis.__dubhePrewarmImageModeration) globalThis.__dubhePrewarmImageModeration('attachment');
           let dataUrl, finalMime, originalSize = f.size, didScale = false;
           if (f.size > MAX_IMG) {
             // 自动等比缩放到最长边 2048px 再上传
@@ -3953,7 +3953,7 @@ function validateApiKey(s) {
             toast(`${f.name}：${got.error || '无法渲染 PDF'}`, 'err', 6000);
             continue;
           }
-          if (got.images.length && globalThis.__teamoPrewarmImageModeration) globalThis.__teamoPrewarmImageModeration('pdf');
+          if (got.images.length && globalThis.__dubhePrewarmImageModeration) globalThis.__dubhePrewarmImageModeration('pdf');
           for (const img of got.images) {
             pending.push({
               id: Math.random().toString(36).slice(2),
@@ -4129,20 +4129,20 @@ function validateApiKey(s) {
       const on = /^(on|1|开|开启|open|show)$/i.test(arg);
       const off = /^(off|0|关|关闭|close|hide)$/i.test(arg);
       if (!on && !off) out = '用法：/debug on 或 /debug off';
-      else if (typeof globalThis.__teamoDebugSet !== 'function') out = '调试浮窗模块未加载（旧版本缓存），请强刷页面后重试';
+      else if (typeof globalThis.__dubheDebugSet !== 'function') out = '调试浮窗模块未加载（旧版本缓存），请强刷页面后重试';
       else {
-        const now = globalThis.__teamoDebugSet(on);
+        const now = globalThis.__dubheDebugSet(on);
         out = now ? '✓ 调试浮窗已开启：审核全链路 / console.warn·error / Agent 状态将实时上屏（Ctrl+Alt+D 可关）'
                   : '✓ 调试浮窗已关闭';
       }
     } else if (name === 'status') {
-      const log = globalThis.__teamoModLog || [];
+      const log = globalThis.__dubheModLog || [];
       const pw = [...log].reverse().find((e) => e.stage === 'prewarm:done');
       out = [
         `版本：${APP_RELEASE} · 构建 ${APP_VERSION}`,
         `当前模型：${store.state.model === '__system__' ? '（未选择，处于 /system 通道）' : store.state.model}`,
         `可用模型：${chatModels().length} 个`,
-        `调试浮窗：${globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '开启' : '关闭'}`,
+        `调试浮窗：${globalThis.__dubheDebugActive && globalThis.__dubheDebugActive() ? '开启' : '关闭'}`,
         `审核模型预热：${pw ? `已完成（NudeNet ${pw.nudenet ? '✓' : '✗'} / NSFWJS ${pw.nsfwjs ? '✓' : '✗'}${pw.toxicity != null ? ` / Toxicity ${pw.toxicity ? '✓' : '✗'}` : ''}）` : '尚未执行（发图或打开页面 2 秒后自动开始）'}`,
         `内容审核：${store.state.settings.contentModeration === true ? '开启（图片 fail-closed）' : '关闭'}`,
       ].join('\n');
@@ -4784,7 +4784,7 @@ function validateApiKey(s) {
     // P2 诊断入口（等价于输入 /p2）：命令通道是本地执行的，不受当前模型影响
     items.push({ group: '诊断', id: 'd:p2', label: 'P2 报告（策略 / 指标 / 审计三层 / 故障 / 实验 / 上下文）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2'); } });
     items.push({ group: '诊断', id: 'd:p2f', label: 'P2 故障注入（红队自测：列出可注入故障）', run: () => { if (store.state.model !== '__system__') selectModel('__system__'); handleSystemCommand('/p2 fault'); } });
-    if (globalThis.__teamoDebugToggle) items.push({ group: '操作', id: 'p:debug', label: globalThis.__teamoDebugActive && globalThis.__teamoDebugActive() ? '关闭调试浮窗（系统日志）' : '打开调试浮窗（系统日志）', kbd: '⌃⌥D', run: () => globalThis.__teamoDebugToggle() });
+    if (globalThis.__dubheDebugToggle) items.push({ group: '操作', id: 'p:debug', label: globalThis.__dubheDebugActive && globalThis.__dubheDebugActive() ? '关闭调试浮窗（系统日志）' : '打开调试浮窗（系统日志）', kbd: '⌃⌥D', run: () => globalThis.__dubheDebugToggle() });
     return items;
   }
   function paintPal() {
@@ -5051,7 +5051,7 @@ function validateApiKey(s) {
     syncWeb,
   };
   // UI 挂载完成：同步取消启动超时，再淡出加载屏，避免慢网下先闪出误报。
-  const bootGuard = window.__teamoBootGuard;
+  const bootGuard = window.__dubheBootGuard;
   if (bootGuard && typeof bootGuard.complete === 'function') {
     bootGuard.complete();
   } else {

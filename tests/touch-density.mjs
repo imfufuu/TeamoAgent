@@ -33,9 +33,9 @@ const SSE_TEXT = [
 ].join('');
 const CORS = { 'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'POST,GET,OPTIONS' };
 
-// 默认量本地文件；给出 TEAMO_TOUCH_URL 就量线上站点（部署后复测用同一条脚本）
+// 默认量本地文件；给出 DUBHE_TOUCH_URL 就量线上站点（部署后复测用同一条脚本）
 let server = null;
-let base = process.env.TEAMO_TOUCH_URL || '';
+let base = process.env.DUBHE_TOUCH_URL || '';
 if (!base) {
   server = http.createServer((q, r) => {
     const u = decodeURIComponent(String(q.url).split('?')[0]);

@@ -84,12 +84,12 @@ async function withMutedWarn(fn) {
   finally { console.warn = orig; }
 }
 
-const testHooks = () => (globalThis && globalThis.__TEamoModerationTestHooks) || {};
+const testHooks = () => (globalThis && globalThis.__DubheModerationTestHooks) || {};
 
 // ── β 诊断日志（构建 2026.9.27.12）────────────────────────────────────────
 // 背景：图片审核超时会按设计 fail-open 放行，但全链路无可见日志——「审核很久最后图进了沙箱」
 // 完全无法归因。β 版在每个阶段打点：控制台 [Dubhe Agent·审核] 前缀 + 环形缓冲 + 全局导出。
-// 用法：控制台执行 __teamoModDump() 复制完整时间线；__teamoModLog 为原始数组。
+// 用法：控制台执行 __dubheModDump() 复制完整时间线；__dubheModLog 为原始数组。
 const MOD_LOG_MAX = 400;
 const modLog = [];
 // β 浮窗订阅：debugwindow.js 注册监听器，mlog 每条同时推给浮窗实时上屏
@@ -104,10 +104,10 @@ function mlog(stage, data = {}) {
   return entry;
 }
 if (typeof globalThis !== 'undefined') {
-  globalThis.__teamoModLog = modLog;
-  globalThis.__teamoModPush = (entry) => mlog(String(entry && entry.stage || 'external'), entry || {});
-  globalThis.__teamoModSubscribe = (fn) => { if (typeof fn === 'function') { modLogListeners.add(fn); return () => modLogListeners.delete(fn); } return () => {}; };
-  globalThis.__teamoModDump = () => {
+  globalThis.__dubheModLog = modLog;
+  globalThis.__dubheModPush = (entry) => mlog(String(entry && entry.stage || 'external'), entry || {});
+  globalThis.__dubheModSubscribe = (fn) => { if (typeof fn === 'function') { modLogListeners.add(fn); return () => modLogListeners.delete(fn); } return () => {}; };
+  globalThis.__dubheModDump = () => {
     for (const e of modLog) console.log(e.t, e.stage, JSON.stringify({ ...e, t: undefined, stage: undefined }));
     console.log('共 ' + modLog.length + ' 条 · 复制上面全部内容即可反馈');
     return JSON.stringify(modLog, null, 1);
@@ -563,7 +563,7 @@ function prewarmImageModeration() {
 }
 
 if (typeof globalThis !== 'undefined') {
-  globalThis.__teamoPrewarmImageModeration = prewarmImageModeration;
+  globalThis.__dubhePrewarmImageModeration = prewarmImageModeration;
   const idle = globalThis.requestIdleCallback || ((fn) => setTimeout(fn, 2500));
   if (typeof document !== 'undefined') idle(() => prefetchImageModerationAssets());
 }

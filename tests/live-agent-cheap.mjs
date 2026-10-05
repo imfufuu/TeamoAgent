@@ -1,14 +1,14 @@
 // ─── 便宜的真网关 Agent 工具循环（预算内，不做生图矩阵）────────────────
-// TEAMO_API_KEY=sk-teamo-xxx node tests/live-agent-cheap.mjs
+// DUBHE_API_KEY=sk-teamo-xxx node tests/live-agent-cheap.mjs
 // 只用免费/最低价模型：get_current_time + write_file 各一轮。
 import assert from 'node:assert/strict';
 import { createStore } from '../js/state.js';
 import { createAgent } from '../js/agent.js';
 import { fetchModels } from '../js/api.js';
 
-const API_KEY = process.env.TEAMO_API_KEY;
+const API_KEY = process.env.DUBHE_API_KEY;
 if (!API_KEY) {
-  console.log('⏭  tests/live-agent-cheap.mjs 跳过：未设置 TEAMO_API_KEY');
+  console.log('⏭  tests/live-agent-cheap.mjs 跳过：未设置 DUBHE_API_KEY');
   process.exit(0);
 }
 
