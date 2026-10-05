@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.2';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.3';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.2';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.3';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -21,11 +21,11 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.2';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.2';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.2';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.2';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.2';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.3';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.3';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.3';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.3';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.3';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -991,16 +991,79 @@ function extractCodeFences(source, codeBlocks) {
   return out + source.slice(cursor);
 }
 
+function isEscapedMarkdownDelimiter(source, index) {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && source[i] === '\\'; i--) backslashes++;
+  return (backslashes & 1) === 1;
+}
+
+function extractInlineCodeSpans(source, inlineCodes) {
+  const text = String(source || '');
+  let out = '';
+  let cursor = 0;
+  let i = 0;
+  while (i < text.length) {
+    if (text[i] !== '`') { i++; continue; }
+    const openStart = i;
+    while (text[i] === '`') i++;
+    const runLength = i - openStart;
+    if (isEscapedMarkdownDelimiter(text, openStart)) continue;
+
+    let search = i;
+    let closeStart = -1;
+    let closeEnd = -1;
+    while (search < text.length) {
+      const candidate = text.indexOf('`', search);
+      if (candidate < 0) break;
+      let end = candidate + 1;
+      while (text[end] === '`') end++;
+      if (end - candidate === runLength && !isEscapedMarkdownDelimiter(text, candidate)) {
+        closeStart = candidate;
+        closeEnd = end;
+        break;
+      }
+      search = end;
+    }
+    if (closeStart < 0) continue;
+
+    out += text.slice(cursor, openStart);
+    const codeIndex = inlineCodes.push(text.slice(i, closeStart)) - 1;
+    out += `\uE000IC${codeIndex}\uE000`;
+    cursor = closeEnd;
+    i = closeEnd;
+  }
+  return out + text.slice(cursor);
+}
+
+function isMarkdownEscapablePunctuation(char) {
+  const code = char ? char.charCodeAt(0) : 0;
+  return (code >= 0x21 && code <= 0x2f)
+    || (code >= 0x3a && code <= 0x40)
+    || (code >= 0x5b && code <= 0x60)
+    || (code >= 0x7b && code <= 0x7e);
+}
+
+function protectFallbackEscapes(source, escapedChars) {
+  let out = '';
+  for (let i = 0; i < source.length;) {
+    if (source[i] === '\\' && isMarkdownEscapablePunctuation(source[i + 1])) {
+      const index = escapedChars.push(source[i + 1]) - 1;
+      out += `\uE000ESC${index}\uE000`;
+      i += 2;
+    } else {
+      out += source[i++];
+    }
+  }
+  return out;
+}
+
 export function renderMarkdown(src) {
   const codeBlocks = [];
   let t = extractCodeFences(String(src || ''), codeBlocks);
-  // 行内代码先剥离（.18）：`code` 里的 $…$ 不能被当数学定界符——正则/命令含 $ 锚点时
-  // 曾被 KaTeX 当数学渲染（数学模式吃空格 + 未知命令标红，产生整段乱码）
+  // 先以转义感知方式剥离成对的行内代码（.18）：其中的 $…$ 不能被当数学定界符——
+  // 正则/命令含 $ 锚点时曾被 KaTeX 当数学渲染（数学模式吃空格 + 未知命令标红，产生整段乱码）。
   const inlineCodes = [];
-  t = t.replace(/(`+)([\s\S]*?)\1/g, (_, run, code) => {
-    inlineCodes.push(code);
-    return `\uE000IC${inlineCodes.length - 1}\uE000`;
-  });
+  t = extractInlineCodeSpans(t, inlineCodes);
   // LaTeX：$$..$$ / \[..\] 块级，$..$ / \(..\) 行内；在渲染前提取，占位保护。
   // 数学段守卫：像正则/代码/自然语言的内容不当数学渲染，原文保留可读；
   // \(..\) / \[..\] 是显式定界不受守卫影响。
@@ -1209,8 +1272,10 @@ export function renderMarkdown(src) {
   }
 
   // ── 内置精简回退（markdown-it 未加载时）──
+  // 最小解析器也要遵守 CommonMark 的反斜杠转义；占位符避免被后续强调/链接正则误处理。
+  const fallbackEscapes = [];
+  t = protectFallbackEscapes(t, fallbackEscapes);
   t = esc(t);
-  t = t.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   t = t.replace(/!\[([^\]]*)\]\((sandbox:\/\/[^)]+)\)/gi, (_, alt, src) => {
     const sb = sandboxPath(src);
     return sb ? `<img src="" alt="${alt}" data-sandbox="${esc(sb)}" class="sb-img">` : '';
@@ -1230,7 +1295,8 @@ export function renderMarkdown(src) {
   t = t.replace(/\n{2,}/g, '</p><p>').replace(/^(?!<[a-z])/, '<p>').replace(/(?!>)$/, '</p>');
   t = t.replace(/<p>\s*(<(?:h\d|ul|ol|blockquote|pre))/g, '$1').replace(/(<\/(?:h\d|ul|ol|blockquote|pre)>)\s*<\/p>/g, '$1');
   const fallbackInline = (x) => esc(x).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  return restoreMath(restoreCb(mdExtensions.restore(restoreWidgets(t), fallbackInline, (x) => renderMarkdown(x))));
+  const fallbackHtml = restoreMath(restoreCb(mdExtensions.restore(restoreWidgets(t), fallbackInline, (x) => renderMarkdown(x))));
+  return fallbackHtml.replace(/\uE000ESC(\d+)\uE000/g, (_, i) => esc(fallbackEscapes[+i] || ''));
 }
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────

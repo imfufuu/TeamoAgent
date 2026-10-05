@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.2';
+} from '../js/api.js?v=2026.10.5.3';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.2');
+const api = await import('../js/api.js?v=2026.10.5.3');
 
 let passed = 0;
 const queue = [];
@@ -685,6 +685,19 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   const task = renderMarkdown('- [x] 完成\n- [ ] 待办');
   assert.ok(task.includes('type="checkbox"') && task.includes('checked'), '任务列表');
   assert.ok(renderMarkdown('~~旧~~').includes('<s>'), '删除线');
+  const highlight = renderMarkdown('==高亮（部分渲染器支持）==');
+  assert.match(highlight, /<mark class="md-highlight">高亮（部分渲染器支持）<\/mark>/, 'Pandoc 风格高亮');
+  assert.doesNotMatch(highlight, /==/);
+  const hostileHighlight = renderMarkdown('==<img src="javascript:alert(1)" onerror="alert(1)">安全==');
+  assert.match(hostileHighlight, /<mark class="md-highlight">/);
+  assert.doesNotMatch(hostileHighlight, /javascript:|onerror/i, '高亮内容仍经过 HTML 安全过滤');
+  const literalHighlight = renderMarkdown('\\==按字面显示\\==');
+  assert.match(literalHighlight, /==按字面显示==/, '转义高亮定界符');
+  assert.doesNotMatch(literalHighlight, /<mark/);
+  const escapedInline = renderMarkdown('\\*不是斜体\\*，\\`不是代码\\`。');
+  assert.match(escapedInline, /\*不是斜体\*/);
+  assert.match(escapedInline, /`不是代码`/);
+  assert.doesNotMatch(escapedInline, /<em>|<code>/, '转义后的星号/反引号不触发行内样式');
   assert.ok(renderMarkdown('---').includes('<hr'), '分割线');
   const nested = renderMarkdown('- a\n  - b');
   assert.equal((nested.match(/<ul>/g) || []).length, 2, '嵌套列表');
@@ -795,12 +808,19 @@ test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => 
   const out = renderMarkdown('**粗** 和 `code` 与 $x^2$');
   assert.ok(out.includes('<strong>粗</strong>'), '回退渲染加粗');
   assert.ok(out.includes('<code>code</code>'), '回退渲染行内代码');
+  assert.ok(renderMarkdown('==降级高亮==').includes('<mark class="md-highlight">降级高亮</mark>'), '回退渲染高亮');
+  const escapedFallback = renderMarkdown('\\*不是斜体\\*，\\`不是代码\\`。');
+  assert.ok(escapedFallback.includes('*不是斜体*'), '回退渲染保留转义星号');
+  assert.ok(escapedFallback.includes('`不是代码`'), '回退渲染保留转义反引号');
+  assert.ok(!escapedFallback.includes('<em>不是斜体</em>'));
+  assert.ok(!escapedFallback.includes('<code>不是代码</code>'));
   assert.ok(!out.includes('<script>'), '回退渲染安全');
   globalThis.markdownit = savedMd;
 });
 test('systemPrompt / 子智能体：注入输出规范', async () => {
   const { systemPrompt, OUTPUT_SPEC } = await import('../js/config.js');
   assert.ok(OUTPUT_SPEC.includes('Markdown') && OUTPUT_SPEC.includes('KaTeX'), '规范含 Markdown/KaTeX');
+  assert.ok(OUTPUT_SPEC.includes('==高亮=='), '提示词说明客户端支持的高亮语法');
   assert.match(OUTPUT_SPEC, /sandbox:\/\//);
   assert.match(OUTPUT_SPEC, /:::choice/);
   assert.match(OUTPUT_SPEC, /:::fold/);
@@ -3015,7 +3035,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.2');
+  const api = await import('../js/api.js?v=2026.10.5.3');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;

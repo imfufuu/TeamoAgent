@@ -917,6 +917,16 @@ a { color: var(--fg); }
 }
 .msg-user .att-file { color: var(--fg); }
 
+/* Pandoc 风格 ==高亮== */
+.md-body mark.md-highlight {
+  color: inherit;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 20%, transparent);
+  border-radius: .18em;
+  padding: 0 .12em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+
 /* 颜色文本 :::color <名>（:::color red … :::） */
 .md-color { color: var(--fg); }
 .md-c-red { color: #c62828; } .md-c-blue { color: #1565c0; } .md-c-green { color: #1b7f3a; }

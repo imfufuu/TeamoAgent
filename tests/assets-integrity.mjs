@@ -152,7 +152,10 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
     assert.ok(docs2.includes(tok), `docs.html 应含主页设计语言标记：${tok}`);
   }
   // 2026.9.27.18：数学守卫 / system 输出格式化 / 文档页 / 搜索清空
-  assert.match(ui, /行内代码先剥离/, '行内代码必须先于数学提取剥离');
+  assert.match(ui, /function extractInlineCodeSpans/, '行内代码提取器应感知转义定界符');
+  const inlineCodeExtractAt = ui.indexOf('t = extractInlineCodeSpans(t, inlineCodes)');
+  const mathGuardAt = ui.indexOf('const MATH_CMD');
+  assert.ok(inlineCodeExtractAt >= 0 && inlineCodeExtractAt < mathGuardAt, '行内代码必须先于数学提取剥离');
   assert.match(ui, /MATH_REJECT/, '数学段守卫应存在');
   assert.match(ui, /mathOk\(x\) \? pushMath/, '单 $ 与 $$ 提取都应过守卫');
   assert.match(ui, /uE000IC/, '行内代码应走占位恢复链');

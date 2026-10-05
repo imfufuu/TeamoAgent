@@ -393,6 +393,12 @@ function protectSuperSub(source, state) {
     .replace(/(?<!\\)~(?!~)([^\s~]+)~(?!~)/g, (whole, content) => placeholder('SUB', state.superSub.push({ tag: 'sub', content }) - 1));
 }
 
+function protectHighlights(source, state) {
+  return String(source || '').replace(/(?<![=\\])==(?!=)(?=\S)([^\n]*?\S)(?<![=\\])==(?!=)/g, (whole, content) => {
+    return placeholder('MARK', state.highlights.push(content) - 1);
+  });
+}
+
 function protectDefinitionLists(source, state) {
   const lines = String(source || '').split('\n');
   const output = [];
@@ -458,16 +464,17 @@ function protectFencedDivs(source, state) {
 
 export function prepareMarkdownExtensions(source) {
   const state = {
-    rawHtml: [], rawHtmlBlocks: new Set(), superSub: [], definitionLists: [], footnoteDefs: new Map(), footnotes: [], footnoteRefs: [], fencedDivs: [],
+    rawHtml: [], rawHtmlBlocks: new Set(), superSub: [], highlights: [], definitionLists: [], footnoteDefs: new Map(), footnotes: [], footnoteRefs: [], fencedDivs: [],
   };
   let text = protectRawHtml(source, state);
   text = extractDefinitions(text, state);
   text = protectFootnoteRefs(text, state);
   text = protectSuperSub(text, state);
+  text = protectHighlights(text, state);
   text = protectDefinitionLists(text, state);
   text = protectFencedDivs(text, state);
 
-  const tokenRe = new RegExp(`${TOKEN}(HTML|SUP|SUB|DL|FNREF|DIV)(\\d+)\\uE001`, 'g');
+  const tokenRe = new RegExp(`${TOKEN}(HTML|SUP|SUB|DL|FNREF|DIV|MARK)(\\d+)\\uE001`, 'g');
   const rawHtmlRe = new RegExp(`${TOKEN}HTML(\\d+)\\uE001`, 'g');
   function restore(html, renderInline = (x) => x, renderBlock = (x) => x) {
     let prepared = String(html || '');
@@ -488,6 +495,10 @@ export function prepareMarkdownExtensions(source) {
         if (type === 'SUP' || type === 'SUB') {
           const item = state.superSub[index];
           return item ? `<${item.tag}>${renderInline(item.content)}</${item.tag}>` : '';
+        }
+        if (type === 'MARK') {
+          const content = state.highlights[index];
+          return content == null ? '' : `<mark class="md-highlight">${expand(renderInline(content), depth + 1)}</mark>`;
         }
         if (type === 'FNREF') {
           const ref = state.footnoteRefs[index];
