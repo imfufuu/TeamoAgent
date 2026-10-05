@@ -2,7 +2,7 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.11
+## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.12
 
 - **新工具 ×5**：`csv_tool`、`date_calc`、`text_tool`、`convert_units`、`qr_code`（本地二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36；子智能体按角色获得相应权限；并行白名单纳入 `date_calc` / `convert_units`。
 - **沙箱安全加固**：JS Worker 执行前拆除 fetch / XHR / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache 并私有化 postMessage；Python Worker 的 fetch 仅放行 Pyodide CDN 与 PyPI；日志 / 返回值 / 文件设硬上限；主线程 `sanitizeWorkerFiles` 逐键校验路径、保护 `internal/` 与 `.git/`、超容量整体回滚；`createFS` 改为无原型对象。
@@ -11,12 +11,14 @@
 - **导航与动效**：文档页顶栏参照首页重做；全站补齐进入 / 反馈 / 状态动效，尊重 `prefers-reduced-motion`；首页新增「新特性」区块与新工具芯片。
 - **命名清理**：清除旧内部代号残留，默认中继改为 `relay.dubhe-agent.workers.dev`，旧 localStorage 键自动迁移；TeamoRouter（第三方网关）保持不变。
 - **默认中继**：`relay.dubhe-agent.workers.dev`（wrangler 实际部署地址；health / fetch / search 线上验证通过）。
-- **架构完善（构建 2026.10.5.11）**：
+- **架构完善（构建 2026.10.5.10）**：
   - `planToolWaves`：按路径级读写集做依赖图调度，无冲突的读写同波并行，目录前缀 / move 源 / 自动命名输出均纳入冲突判断；沙箱执行、生图、zip、git、记忆与参数损坏的调用仍为全局屏障；委派只与委派同波。
   - `estimateTokens` 按消息对象 WeakMap 缓存（text / content / toolCalls / attachments 变化自动失效）。
   - Python 沙箱 FILES 增量同步：常驻 Worker 持有镜像，主线程只发 `diff(镜像, files)`，Worker 只回传 `filesDelta`；失败 / 重建时自动退回全量。
   - `quickviz.js`：图表与示意图 SVG 渲染从 ui.js 拆出为纯函数模块。
   - 「远程 C++」独立开关（设置页）：关闭后两条工具表派生路径都不含 `execute_cpp`，`executeTool` 直接拒绝；工具描述、运行芯片与能力描述串明示代码会发送到 godbolt.org。
+- **修复：每次打开都「加载超时」（构建 2026.10.5.12）**：`app.html` 头部的 Google Fonts / jsDelivr 字体样式表由解析器插入，会阻塞其后所有脚本（含 `main.js` 模块图）执行；字体域名挂起时应用卡在加载屏直到 60 秒超时。现由启动脚本 `createElement('link')` 动态插入（不阻塞脚本），并新增资产测试禁止任何页面再出现解析器插入的跨域样式表。实测字体域名完全挂起：修复前 20 秒仍停在「正在初始化」，修复后 1.0 秒挂载。
+- **加载屏重做**：真实阶段进度（`__dubheBootGuard.stage('modules'|'kernel'|'ui')` 由 main.js 上报）、提前套用已保存主题、慢网等待秒数提示、20 秒「重新加载」/ 60 秒「清缓存后重载」（注销 Service Worker + 清 CacheStorage）、reduced-motion 静止；内联脚本 CSP 哈希同步更新。
 - **架构完善 II（构建 2026.10.5.11）**：
   - `runWithCategoryLimits`：同波并行调用按类别信号量限流（网络 ≤ 4 / 本地 ≤ 8），`plannedConcurrency` 计入预算；波次与结果下标不变。
   - `mountUI` 继续拆分：`ui-files-panel.js`（文件树 / ZIP / 单文件 / 预览窗）、`ui-lightbox.js`（全屏预览）、`ui-attachments.js`（按钮 / 相机 / 拖拽 / 粘贴 → `addFiles`，发送时 `takePending()`），均为 `install*(deps)` 注入、无反向依赖；ui.js 5066 → 3945 行。

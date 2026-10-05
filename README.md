@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.11` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.12` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -129,7 +129,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 - **本地工具扩容而非沙箱扩容**：CSV / 日期 / 文本 / 单位 / 二维码这类高频小任务不再触发 Pyodide 冷启动（首次 3–8 s），直接在主线程毫秒级完成；`date_calc` / `convert_units` 为纯函数，纳入 `PARALLEL_TOOLS` 并行批。
 - **子智能体权限表随工具表演进**：`subagents.js` 的 `data-analyst` / `mathematician` / `translator` / `copywriter` 等角色按需获得新工具，避免「主 Agent 会、子 Agent 不会」的能力断层。
 
-**构建 2026.10.5.11 已落地（原「建议下版」五项）**
+**构建 2026.10.5.10 已落地（原「建议下版」五项）**
 
 1. **依赖图调度** `planToolWaves(calls)`（`js/agent.js`）：为每次调用推导路径级读写集（`toolAccessSet`），只有写-读 / 读-写 / 写-写冲突（含目录前缀、move 源、自动命名输出）才排后一波；`[read a, write b, read c]` 从 3 批串行变 1 波并行。沙箱执行 / 生图 / zip / git / 记忆 / 参数损坏仍为全局屏障，委派只与委派同波。结果按原始下标回填，`batchToolCalls` 保留作兼容。
 2. **token 估算缓存**：`estimateTokens` 以 WeakMap 按消息对象缓存，text / content / toolCalls / attachments 任一变化即失效；300 条长消息热路径从 ~173 ms 降到 <0.1 ms。
@@ -141,6 +141,11 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 6. **同波按类别限流** `runWithCategoryLimits`：网络类（`fetch_url` / `search_web` / `crawl_site`）≤ 4 并发、本地工具 ≤ 8，每类一个信号量，按原序启动；`plannedConcurrency` 把实际峰值记入 `parallelTasks` 预算。
 7. **mountUI 第二刀**：`ui-files-panel.js`（239 行）、`ui-lightbox.js`（202 行）、`ui-attachments.js`（232 行）以 `install*(deps)` 注入，返回最小 API（`renderFiles / openFileViewer`、`openLightbox / closeLightbox`、`hasPending / takePending / addFiles`），无反向依赖 ui.js；ui.js 5066 → 3945 行，`mountUI` 闭包约 2570 行。配套静态契约测试防止「拆出去的代码隐式依赖原模块作用域」。
+
+**构建 2026.10.5.12：启动可靠性**
+
+8. **「每次打开都加载超时」根因修复**：头部跨域字体样式表改为启动脚本动态插入，不再阻塞模块脚本执行；字体域名挂起时从「60 秒后才可用」变为 1 秒内挂载。资产测试禁止回退。
+9. **加载屏重做**：真实四阶段进度、提前套用主题、慢网秒数提示、20 秒重载入口、60 秒「清缓存后重载」。
 
 **仍建议下版**：`mountUI` 剩余大块是 `/system` 命令通道（~455 行，闭包依赖 20 个，需先把「会话状态操作」抽成一个 facade 再拆）与消息渲染（~800 行）。
 

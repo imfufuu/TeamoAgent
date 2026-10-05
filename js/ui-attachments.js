@@ -3,7 +3,7 @@
 // 大小上限与芯片渲染。对外只暴露 { hasPending, takePending, addFiles }，发送逻辑取走后自动清空。
 import { pdfToImages } from './pdfpages.js';
 import { ICON } from './icons.js';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.11';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.12';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

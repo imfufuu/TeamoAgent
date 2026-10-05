@@ -9,18 +9,18 @@
      · worker 放行 self 与 blob:（sandbox.js 的 blob Worker 兜底通道）
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-5Lq5T/9qmZ6QXH22SVnnf5XENOQawdLWaaB09JHOgp8=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.5.11" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-2aRNQx83UCeoVj8pdpjU/W9jjJZYMrALbo67hvHmbeE=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
+<meta name="app-version" content="2026.10.5.12" />
 <meta name="app-release" content="V1.7" />
 <title>Dubhe Agent V1.7 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.10.5.11" />
-<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.11" />
+<link rel="stylesheet" href="css/styles.css?v=2026.10.5.12" />
+<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.12" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cactus+Classical+Serif&family=Klee+One&family=LXGW+WenKai+TC&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&display=swap" />
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@free-fonts/zhuque-fangsong@1.0.0/zhuque-fangsong.min.css" />
-<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.11" />
+<!-- 第三方字体（Google Fonts / jsDelivr）改由启动脚本动态插入：解析器插入的外链样式表会阻塞后面所有脚本执行，
+     国内或弱网下这两个域名一挂起，整个应用就卡在加载屏直到 60 秒超时（V1.7.1 修复）。 -->
+<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.12" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -31,9 +31,13 @@
 </head>
 <body>
 <!-- 启动加载屏：JS 模块还在加载/执行时展示，避免用户看到空白页面停留数秒。
+     进度按真实阶段推进（资源 → 模块 → 内核 → 界面），由 main.js / ui.js 通过 window.__dubheBootGuard 上报；
      mountUI 完成时自动淡出移除（见 ui.js mountUI 末尾）。 -->
-<div id="boot-screen" class="boot-screen" aria-label="正在加载">
-  <div class="boot-logo" aria-hidden="true">
+<div id="boot-screen" class="boot-screen" role="status" aria-live="polite" aria-label="正在加载 Dubhe Agent">
+  <div class="boot-card">
+    <div class="boot-mark">
+      <span class="boot-ring" aria-hidden="true"></span>
+      <div class="boot-logo" aria-hidden="true">
     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/>
       <path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/>
@@ -45,46 +49,106 @@
       <circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/>
     </svg>
   </div>
-  <div class="boot-title">Dubhe Agent</div>
-  <div class="boot-progress"><div class="boot-progress-bar" id="boot-bar"></div></div>
-  <div class="boot-hint" id="boot-hint">正在初始化…</div>
-  <div class="boot-err" id="boot-err" hidden></div>
+    </div>
+    <div class="boot-title">DUBHE<i>AGENT</i></div>
+    <div class="boot-sub">V1.7 · 网页端智能体</div>
+    <ol class="boot-steps" id="boot-steps" aria-hidden="true">
+      <li data-step="assets"><b></b><span>载入资源</span></li>
+      <li data-step="modules"><b></b><span>加载模块</span></li>
+      <li data-step="kernel"><b></b><span>初始化内核</span></li>
+      <li data-step="ui"><b></b><span>挂载界面</span></li>
+    </ol>
+    <div class="boot-progress"><div class="boot-progress-bar" id="boot-bar"></div></div>
+    <div class="boot-hint" id="boot-hint">正在初始化…</div>
+    <div class="boot-err" id="boot-err" hidden></div>
+    <div class="boot-actions" id="boot-actions" hidden>
+      <button type="button" id="boot-reload">重新加载</button>
+      <button type="button" id="boot-reset" title="注销 Service Worker、清空本站缓存后重新打开（不会删除会话与密钥）">清缓存后重载</button>
+    </div>
+  </div>
+  <div class="boot-foot">沙箱在本地运行 · 密钥只存浏览器</div>
 </div>
 <!-- 启动兜底：脚本在 boot-screen 之后，这样能立即拿到 boot 元素。
-     只在 ① 实际未捕获异常 ② 60 秒仍未挂载 时触发，避免 ESM 模块还在执行就误报 -->
+     ① 提前套用已保存的主题，避免深色用户先闪一下白屏
+     ② 动态插入第三方字体样式表（不阻塞脚本执行）
+     ③ 真实阶段进度 + 慢网提示；只在实际未捕获异常或 60 秒仍未挂载时才判失败 -->
 <script>(function(){
-  var boot=document.getElementById('boot-screen'), bar=document.getElementById('boot-bar'), hint=document.getElementById('boot-hint'), errBox=document.getElementById('boot-err');
-  var stages=['正在初始化…','加载模块…','启动沙箱…','挂载界面…','准备就绪'];
-  var stage=0,t=0,errorTimer=0,settled=false,revealed=false;
-  function setHint(t){ if(hint) hint.textContent=t; }
-  setHint(stages[0]);
-  var si=setInterval(function(){
-    stage=Math.min(stage+1,stages.length-2);
-    if(bar) bar.style.width=(20+stage*18)+'%';
-    setHint(stages[stage]);
-  },1800);
-  function stopTimers(){ clearTimeout(t); clearTimeout(errorTimer); clearInterval(si); }
+  var doc=document.documentElement;
+  try{
+    var th=localStorage.getItem('dubhe-theme');
+    if(!th){ var raw=localStorage.getItem('dubhe-agent-state-v1-v2')||localStorage.getItem('dubhe-agent-state-v1'); if(raw){ var st=JSON.parse(raw); th=st&&st.settings&&st.settings.theme; } }
+    if(th==='dark'||th==='light') doc.setAttribute('data-theme',th);
+  }catch(_){}
+  try{
+    ['https://fonts.googleapis.com/css2?family=Cactus+Classical+Serif&family=Klee+One&family=LXGW+WenKai+TC&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;700&family=Noto+Serif+JP:wght@400;600&family=Noto+Serif+SC:wght@400;600&display=swap',
+     'https://cdn.jsdelivr.net/npm/@free-fonts/zhuque-fangsong@1.0.0/zhuque-fangsong.min.css'].forEach(function(href){
+      var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; l.setAttribute('data-async-font','1'); document.head.appendChild(l);
+    });
+  }catch(_){}
+  var boot=document.getElementById('boot-screen'), bar=document.getElementById('boot-bar'), hint=document.getElementById('boot-hint'), errBox=document.getElementById('boot-err'), actions=document.getElementById('boot-actions'), steps=document.getElementById('boot-steps');
+  var STAGES=['assets','modules','kernel','ui'];
+  var LABEL={assets:'载入样式与资源…',modules:'加载模块…',kernel:'初始化执行内核…',ui:'挂载界面…'};
+  var WIDTH={assets:18,modules:46,kernel:72,ui:92};
+  var t0=Date.now(),cur=-1,lastAt=Date.now(),t=0,errorTimer=0,slowTimer=0,settled=false,revealed=false;
+  function setHint(s){ if(hint) hint.textContent=s; }
+  function setStage(name){
+    var i=STAGES.indexOf(name); if(i<0||settled||revealed) return;
+    if(i<=cur) return;
+    cur=i; lastAt=Date.now();
+    if(bar) bar.style.width=WIDTH[name]+'%';
+    if(steps){ var li=steps.children; for(var k=0;k<li.length;k++){ li[k].className=k<i?'done':(k===i?'active':''); } }
+    setHint(LABEL[name]);
+  }
+  function showActions(){ if(actions&&actions.hidden){ actions.hidden=false; } }
+  function stopTimers(){ clearTimeout(t); clearTimeout(errorTimer); clearInterval(slowTimer); }
   function forceReveal(msg){
     if(settled || revealed || !boot || !document.getElementById('boot-screen')) return;
     revealed=true;
     stopTimers();
     if(bar) bar.style.width='100%', bar.style.background='#d44';
+    if(boot) boot.classList.add('failed');
     setHint('加载失败');
     if(errBox){ errBox.hidden=false; errBox.textContent=msg||'启动过程出错，请强制刷新（Ctrl/Cmd+Shift+R）后重试'; }
+    showActions();
   }
   function complete(){
     if(settled) return;
     settled=true;
     stopTimers();
     if(!boot || !document.getElementById('boot-screen')) return;
+    if(bar) bar.style.width='100%';
+    if(steps){ var li=steps.children; for(var k=0;k<li.length;k++) li[k].className='done'; }
+    setHint('准备就绪');
     requestAnimationFrame(function(){
       if(!boot || !document.getElementById('boot-screen')) return;
       boot.classList.add('fade-out');
       setTimeout(function(){ try{boot.remove();}catch(e){} },500);
     });
   }
-  window.__dubheBootGuard={complete:complete};
-  t=setTimeout(function(){ forceReveal('加载超时（网络可能较慢，请强制刷新重试）'); },60000);
+  window.__dubheBootGuard={complete:complete,stage:setStage};
+  setStage('assets');
+  // 慢网提示：某个阶段停留超过 6 秒就把等待秒数说出来；超过 20 秒先给出「重新加载」入口（仍继续等待）
+  slowTimer=setInterval(function(){
+    if(settled||revealed) return;
+    var wait=Math.round((Date.now()-lastAt)/1000), total=Math.round((Date.now()-t0)/1000);
+    if(wait>=6){
+      var name=STAGES[Math.max(cur,0)];
+      var why=name==='modules'||name==='assets'?'网络较慢，脚本仍在下载':'仍在执行';
+      setHint(LABEL[name].replace('…','')+' · '+why+'（已等待 '+total+' 秒）');
+    }
+    if(total>=20) showActions();
+  },1000);
+  t=setTimeout(function(){ forceReveal('启动超过 60 秒仍未完成：多半是网络过慢或缓存了损坏的旧版本。可先「清缓存后重载」，若仍失败请检查网络后重试'); },60000);
+  var reloadBtn=document.getElementById('boot-reload'), resetBtn=document.getElementById('boot-reset');
+  if(reloadBtn) reloadBtn.addEventListener('click',function(){ location.reload(); });
+  if(resetBtn) resetBtn.addEventListener('click',function(){
+    resetBtn.disabled=true; resetBtn.textContent='正在清理…';
+    var jobs=[];
+    try{ if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations) jobs.push(navigator.serviceWorker.getRegistrations().then(function(rs){ return Promise.all(rs.map(function(r){ return r.unregister(); })); })); }catch(_){}
+    try{ if(window.caches&&caches.keys) jobs.push(caches.keys().then(function(ks){ return Promise.all(ks.map(function(k){ return caches.delete(k); })); })); }catch(_){}
+    var go=function(){ var u=new URL(location.href); u.searchParams.set('r',String(Date.now())); location.replace(u.toString()); };
+    Promise.all(jobs).then(go,go); setTimeout(go,4000);
+  });
   // 仅当错误来自我们的 js/ 目录或 app.html 自身才触发（浏览器扩展/注入脚本的错误忽略）
   window.addEventListener('error',function(e){
     try{
@@ -364,6 +428,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.10.5.11"></script>
+<script type="module" src="js/main.js?v=2026.10.5.12"></script>
 </body>
 </html>

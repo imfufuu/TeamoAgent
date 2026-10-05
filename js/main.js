@@ -1,13 +1,17 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.11';
-import { createAgent } from './agent.js?v=2026.10.5.11';
-import { mountUI, toast } from './ui.js?v=2026.10.5.11';
+import { createStore } from './state.js?v=2026.10.5.12';
+import { createAgent } from './agent.js?v=2026.10.5.12';
+import { mountUI, toast } from './ui.js?v=2026.10.5.12';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.11';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.11';
-import { APP_RELEASE } from './config.js?v=2026.10.5.11';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.12';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.12';
+import { APP_RELEASE } from './config.js?v=2026.10.5.12';
+
+// 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
+const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
+bootStage('modules');
 
 const store = createStore();
 // relayOk 是运行时探测结果，不复用上次持久化值；null 表示探测进行中。
@@ -81,8 +85,10 @@ const hooks = {
   onNeedKey: () => { window.openKeyModal && window.openKeyModal(); toast('请先配置 API Key', 'warn'); },
 };
 
+bootStage('kernel');
 const agent = createAgent(store, hooks);
 applyFontSize();
+bootStage('ui');
 ui = mountUI(store, agent);
 mountSettings(store, {
   onRelayChanged: () => { relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {}); },

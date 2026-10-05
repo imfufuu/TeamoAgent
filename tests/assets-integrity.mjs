@@ -529,6 +529,32 @@ await test('启动超时不再自动闪退；挂载成功取消计时且内联�
   const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(app)?.[1] || '';
   assert.ok(csp.includes(digest), `CSP 必须允许当前内联启动脚本（期望 ${digest}）`);
 });
+await test('启动屏（V1.7.1）：第三方字体不得以解析器外链阻塞脚本；进度按真实阶段上报；慢网/失败有操作入口', () => {
+  const app = read('../app.html');
+  const main = read('../js/main.js');
+  const css = read('../css/styles.css');
+  for (const page of ['../app.html', '../index.html', '../docs.html']) {
+    const html = read(page);
+    assert.doesNotMatch(html, /<link[^>]+rel="stylesheet"[^>]+href="https?:\/\//, `${page}：跨域样式表必须由脚本动态插入（解析器插入会阻塞后续脚本执行，弱网下卡在加载屏直到超时）`);
+    assert.doesNotMatch(html, /<link[^>]+href="https?:\/\/[^"]+"[^>]+rel="stylesheet"/, `${page}：跨域样式表必须由脚本动态插入`);
+  }
+  const script = /<script>([\s\S]*?)<\/script>/.exec(app)?.[1] || '';
+  assert.match(script, /fonts\.googleapis\.com\/css2\?family=/, '字体样式表改由启动脚本插入');
+  assert.match(script, /document\.createElement\('link'\)[\s\S]*?data-async-font/, '动态插入的 link 需带 data-async-font 标记');
+  assert.match(script, /localStorage\.getItem\('dubhe-theme'\)[\s\S]*?setAttribute\('data-theme',th\)/, '启动脚本应提前套用已保存主题');
+  assert.match(script, /window\.__dubheBootGuard\s*=\s*\{\s*complete:complete,stage:setStage\}/);
+  assert.match(script, /setStage\('assets'\)/);
+  assert.match(script, /if\(total>=20\) showActions\(\)/, '20 秒后应出现「重新加载」入口（仍继续等待）');
+  assert.match(script, /getRegistrations\(\)[\s\S]*?unregister\(\)[\s\S]*?caches\.keys\(\)[\s\S]*?caches\.delete\(k\)/, '「清缓存后重载」需注销 SW 并清空 CacheStorage');
+  assert.doesNotMatch(script, /onclick|onload=/, 'CSP 下不得使用内联事件处理器');
+  assert.equal((app.match(/<li data-step="/g) || []).length, 4, '启动屏应有 4 个真实阶段');
+  const order = ["bootStage('modules')", 'createStore()', "bootStage('kernel')", 'createAgent(store, hooks)', "bootStage('ui')", 'mountUI(store, agent)'];
+  let last = -1;
+  for (const tok of order) { const i = main.indexOf(tok); assert.ok(i > last, `main.js 阶段上报顺序错误：${tok}`); last = i; }
+  assert.match(main, /typeof g\.stage === 'function'/, '阶段上报需容忍旧版 / 测试桩的 guard 没有 stage');
+  assert.match(css, /\.boot-actions\[hidden\], \.boot-err\[hidden\] \{ display: none; \}/, 'display:flex 的容器必须显式尊重 hidden 属性');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.boot-card, \.boot-ring/, '启动屏动画需在 reduced-motion 下关闭');
+});
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);
 process.exit(failed === 0 ? 0 : 1);
