@@ -239,11 +239,9 @@ a { color: var(--fg); }
 #sidebar-toggle:hover { transform: translateX(-2px); }
 .logo-mark svg { width: 21px; height: 21px; display: block; }
 .empty-logo { display: flex; justify-content: center; }
-.empty-logo svg { width: 56px; height: 56px; display: block; animation: halfspin 8s linear infinite; transform-origin: 50% 50%; }
-/* 侧栏顶部 Logo：静态标识（此前 6s 自转会持续吸引视线，且与品牌标识定位不符）；
-   空状态里的大 Logo 仍保留极慢的转动作为欢迎页动效 */
+.empty-logo svg { width: 56px; height: 56px; display: block; animation: none; transform: none; }
+/* 产品 Logo 保持静态；等待连接时仅旋转 .connect-ring，避免将品牌标识误作加载动画。 */
 .logo-mark { font-size: var(--ui-fs-22px, 22px); display: inline-block; color: inherit; text-decoration: none; cursor: pointer; }
-@keyframes halfspin { 0%,80% { transform: rotate(0); } 100% { transform: rotate(360deg); } }
 .logo-text { font-weight: 500; letter-spacing: .14em; font-size: var(--ui-fs-13px, 13px); flex-shrink: 0; white-space: nowrap; color: inherit; text-decoration: none; }
 .logo-text i { font-style: normal; color: var(--fg-3); }
 
@@ -862,14 +860,35 @@ a { color: var(--fg); }
 .attach-chip-x svg, .attach-chip-x .ico { width: 10px; height: 10px; display: block; }
 .attach-chip-x:hover { color: var(--bg); background: var(--fg); }
 
-#attach-btn {
+#attach-btn, #camera-btn {
   width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid transparent; color: var(--fg-2);
   transition: all .22s var(--ease);
 }
-#attach-btn svg { width: 17px; height: 17px; }
-#attach-btn:hover { color: var(--fg); border-color: var(--line-2); transform: translateY(-1px); }
+#attach-btn svg, #camera-btn svg { width: 17px; height: 17px; }
+#attach-btn:hover, #camera-btn:hover { color: var(--fg); border-color: var(--line-2); transform: translateY(-1px); }
+
+/* 本地照片编辑器（仅由拍照入口打开；普通附件不经过编辑器） */
+.photo-editor-modal { position: fixed; inset: 0; z-index: 1800; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,.68); }
+.photo-editor { width: min(920px, 100%); max-height: min(92vh, 900px); display: flex; flex-direction: column; gap: 10px; padding: 14px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 90px rgba(0,0,0,.35); }
+.photo-editor-head, .photo-editor-foot, .photo-editor-toolbar { display: flex; align-items: center; gap: 8px; }
+.photo-editor-head { justify-content: space-between; }
+.photo-editor-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.photo-editor-close { width: 34px; height: 34px; border-radius: 9px; font-size: 22px; color: var(--fg-2); }
+.photo-editor-toolbar { flex-wrap: wrap; }
+.photo-editor-toolbar > button, .photo-editor-foot > button { min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); color: var(--fg-2); font-size: var(--ui-fs-12px, 12px); }
+.photo-editor-toolbar > button:hover, .photo-editor-toolbar > button.active { color: var(--fg); border-color: var(--fg-3); }
+.photo-pen-color, .photo-pen-size { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-3); font-size: var(--ui-fs-11px, 11px); }
+.photo-pen-color input { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; }
+.photo-pen-size input { width: 86px; }
+.photo-editor-hint { min-height: 18px; color: var(--fg-3); font-size: var(--ui-fs-11px, 11px); }
+.photo-stage { position: relative; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: auto; border-radius: 10px; background: repeating-conic-gradient(var(--bg-soft) 0% 25%, var(--bg) 0% 50%) 50% / 18px 18px; }
+.photo-canvas { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; touch-action: none; }
+.photo-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.photo-editor-foot { justify-content: flex-end; }
+.photo-editor-foot .photo-save { color: var(--bg); background: var(--fg); border-color: var(--fg); font-weight: 700; }
+.photo-editor-foot button:disabled { opacity: .5; cursor: not-allowed; }
 
 /* 拖拽提示 */
 .main { position: relative; }
@@ -1301,7 +1320,7 @@ a { color: var(--fg); }
   .act { min-height: 0; padding: 3px 8px; font-size: var(--ui-fs-11px, 11px); }
   .act svg { width: 12px; height: 12px; }
   .msg-actions { opacity: 1; transform: none; }
-  #attach-btn, #send-btn { width: 40px; height: 40px; }
+  #attach-btn, #camera-btn, #send-btn { width: 40px; height: 40px; }
   .pill { min-height: 40px; }
   /* 触屏层只抬到「够点得中」，不再把字号/内边距一起放大（会被中文标签换行撑成两行高按钮）*/
   .mini-btn { min-height: 40px; padding: 8px 10px; font-size: var(--ui-fs-12px, 12px); white-space: nowrap; }
@@ -1383,7 +1402,7 @@ a { color: var(--fg); }
   }
   .composer { padding: 6px 6px 6px 10px; gap: 6px; }
   #composer-input { font-size: 16px; min-height: 24px; max-height: 40vh; } /* 16px：iOS 不放大页面 */
-  #attach-btn { width: 40px; height: 40px; }
+  #attach-btn, #camera-btn { width: 40px; height: 40px; }
   #send-btn { width: 42px; height: 42px; font-size: var(--ui-fs-17px, 17px); }
   .composer-hint { font-size: var(--ui-fs-10px, 10px); line-height: 1.5; margin-top: 6px; opacity: .85;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1612,30 +1631,6 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .edit-preview .ep-foot { padding: 4px 9px 6px; font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); }
 [data-theme="dark"] .edit-preview { background: var(--bg-soft); }
 
-/* ── P3：清理痕迹（🧹 已清理 N 个临时文件）────────────────────────────── */
-.cleanup-fold {
-  border: none; background: transparent; padding: 3px 0; margin: 0;
-  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; cursor: pointer;
-  font-size: var(--ui-fs-12px, 12px); color: var(--fg-3); line-height: 1.6; width: 100%;
-  transition: color .2s var(--ease); outline: none;
-  -webkit-tap-highlight-color: transparent;
-}
-.cleanup-fold:hover { color: var(--fg-2); }
-.cleanup-fold .chip-name { color: var(--fg-3); font-weight: 500; }
-.cleanup-fold .chip-detail {
-  display: grid; grid-template-rows: 0fr; opacity: 0;
-  width: 100%; flex-basis: 100%; font-size: var(--ui-fs-11_5px, 11.5px); color: var(--fg-2);
-  padding-left: 21px; line-height: 1.65; box-sizing: border-box; overflow: hidden;
-  transition: grid-template-rows .28s var(--ease), opacity .2s var(--ease);
-}
-.cleanup-fold.expanded > .chip-detail { grid-template-rows: 1fr; opacity: 1; }
-.cleanup-fold .cleanup-report {
-  margin: 4px 0 2px; padding: 8px 10px; background: var(--bg-soft); border-radius: 8px;
-  font-family: var(--mono); font-size: var(--ui-fs-11px, 11px); line-height: 1.6; white-space: pre-wrap;
-  max-height: min(50vh, 380px); overflow: auto;
-}
-/* 顶栏 pill：只报告档位用虚线边框区分（避免「看着开着其实不删」的误解） */
-.pill.watch { border: 1px dashed currentColor; }
 
 /* ── 危险操作（清空）─────────────────────────────────────────────────── */
 .mini-btn.danger { color: #b42318; }

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.5';
-export const APP_VERSION = '2026.10.5.1';
+export const APP_VERSION = '2026.10.5.2';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -387,7 +387,6 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。工具描述里的每个字都作数：不要把 files 猜成 fileSystem / fs。',
     '- 不熟悉的 API 先探测再假设。沙箱失败后第一件事是探测环境（JS：typeof console、Object.keys(files)、typeof fetch），不要换一个名字再盲试。小步：先跑几行确认环境，再写完整逻辑。探测到的键格式本轮记住，接着用。',
     '- 多步任务先想清楚「哪几步可以并行执行」，在同一轮里一次发出多个互不依赖的工具调用，不要一步一等。',
-    '- 收尾自检（习惯）：任务做完前看一眼自己留下的文件——调试用的 tmp/、*.tmp、草稿、跑完就没人再看的数据，用 delete_file 顺手删掉；最终回答要用到的交付物（报告、图表、代码、结果表）必须保留并在回复里说明路径。内核会在回合正常结束后按规则再清一遍（只删你创建且命中临时规则的临时文件），但别把清理全甩给内核：你先删干净，用户看到的沙箱才干净。',
     allowDispatch
       ? '- 本轮可以委派子智能体（思考级别 Max/Ultra）。不需要用户点名；判断该派就派，判断不该派就直接答。'
       : '- 本轮不能委派子智能体（思考级别不是 Max/Ultra）。闲聊和普通问答直接答。',

@@ -24,7 +24,7 @@ import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js';
 // ── 0. 策略版本（一次执行的审计记录必须记录这些版本，否则无法归因退化来源）──
 export const EXECUTION_KERNEL_VERSION = '2.3.0';
 export const EXECUTION_POLICY_VERSION = 'policy-2.5.0';
-export const TOOL_CONTRACT_VERSION = 'tool-contract-2.4.0';
+export const TOOL_CONTRACT_VERSION = 'tool-contract-2.4.1';
 export const BUDGET_POLICY_VERSION = 'budget-policy-2.3.0';
 export const RISK_POLICY_VERSION = 'risk-policy-2.5.0';
 export const PROMISE_POLICY_VERSION = 'prompt-contract-2.3.0';
@@ -835,6 +835,7 @@ export const TOOL_CONTRACTS = Object.freeze({
   read_file: contract({ idempotent: true, retryPolicy: 'backoff', timeoutMs: 5000, riskLevel: 'L1' }),
   list_files: contract({ idempotent: true, retryPolicy: 'backoff', timeoutMs: 5000, riskLevel: 'L1' }),
   get_current_time: contract({ idempotent: true, timeoutMs: 2000, riskLevel: 'L0' }),
+  get_browser_environment: contract({ idempotent: true, timeoutMs: 2000, riskLevel: 'L0', note: '用户显式请求时读取有限的浏览器公开信息；不读 Cookie 或精确定位' }),
   regex: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L0' }),
   hash: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L0' }),
   codec: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L0' }),

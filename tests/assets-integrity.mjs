@@ -368,56 +368,81 @@ await test('P2 状态键齐备并做形状兜底（坏数据不能让面板与�
   assert.match(st, /P2 根级状态/, '体积估算应把 P2 状态算进去');
 });
 
-group('P3 编辑直播与文件自清理接线（预览窗 / 三档策略 / 顶栏开关 / 审计）');
-await test('P3 两个新模块随项目存在，且都以 ?v= 版本化方式被引用', () => {
-  for (const rel of ['../js/editpreview.js', '../js/cleanup.js']) assert.ok(exists(rel), `${rel} 应随项目存在`);
+group('P3 编辑直播预览与已移除的自动文件删除功能');
+await test('编辑预览模块保持版本化接线', () => {
+  assert.ok(exists('../js/editpreview.js'), '编辑预览模块应随项目存在');
   const agent = read('../js/agent.js');
-  for (const mod of ['editpreview.js', 'cleanup.js']) {
-    assert.match(agent, new RegExp(`\\./${mod.replace('.', '\\.')}\\?v=\\d`), `agent.js 应以 ?v= 导入 ${mod}`);
-  }
   const ui = read('../js/ui.js');
-  assert.match(ui, /editpreview\.js\?v=\d/, 'ui.js 应以 ?v= 导入 editpreview.js（旧 agent 时兜底解析）');
-  assert.match(ui, /cleanup\.js\?v=\d/, 'ui.js 应以 ?v= 导入 cleanup.js（档位文案单一来源）');
-});
-await test('编辑直播：折叠行直播语义 + 预览窗 + 节流刷新 + 完成后回落到 Edited Files', () => {
-  const ui = read('../js/ui.js');
-  assert.match(ui, /editFoldLabel/, '折叠行文案应由 editpreview 生成');
-  assert.match(ui, /paintEditFold/, '应有写入折叠的绘制函数');
-  assert.match(ui, /editPreviewHtml/, '应渲染预览窗');
+  assert.match(agent, /\.\/editpreview\.js\?v=\d/, 'agent.js 应以 ?v= 导入 editpreview.js');
+  assert.match(ui, /editpreview\.js\?v=\d/, 'ui.js 应以 ?v= 导入 editpreview.js');
+  assert.match(ui, /paintEditFold/, '应渲染编辑文件折叠行');
+  assert.match(ui, /editPreviewHtml/, '应渲染编辑预览窗');
   assert.match(ui, /EDIT_PREVIEW_REFRESH_MS/, '预览窗必须节流刷新');
-  assert.match(ui, /getEditPreview/, '预览优先走 agent（已落盘文件），旧内核回落纯函数');
-  assert.match(ui, /pathsOfEdits/, '流式期间路径解析要走 pathsOfEdits（半截 JSON）');
+  assert.match(agent, /getEditPreview/, 'Agent 应暴露编辑预览数据');
   const css = read('../css/styles.css');
-  for (const cls of ['.edit-preview', '.ep-line', '.ep-no', '.ep-caret']) assert.ok(css.includes(cls), `缺少预览窗样式 ${cls}`);
+  for (const cls of ['.edit-preview', '.ep-line', '.ep-no', '.ep-caret']) assert.ok(css.includes(cls), `缺少预览样式 ${cls}`);
 });
-await test('自清理：默认自动策略 + /cleanup 命令 + 清理报告渲染', () => {
+await test('品牌图标静态、连接圈保留旋转；智能路由卡使用原生产品图标', () => {
+  const css = read('../css/styles.css');
   const ui = read('../js/ui.js');
-  assert.match(ui, /CLEANUP_MODES/, '档位应来自 cleanup.js（单一来源）');
-  assert.match(ui, /name === 'cleanup'/, '应有 /cleanup 命令分支');
-  assert.match(ui, /\/cleanup \[report\|strip\|off\]/, '帮助里应列出 /cleanup 用法');
-  assert.match(ui, /paintCleanupFold/, '回复下方应渲染清理结论');
-  assert.match(ui, /onCleanup/, 'UI 应接收清理钩子');
-  assert.match(read('../js/main.js'), /onCleanup/, 'main.js 应桥接 onCleanup（旧 ui.js 静默降级）');
-  const css = read('../css/styles.css');
-  for (const cls of ['.cleanup-fold', '.cleanup-report']) assert.ok(css.includes(cls), `缺少清理样式 ${cls}`);
+  const router = read('../js/smartrouter.js');
+  assert.match(css, /\.empty-logo svg \{[^}]*animation:\s*none/);
+  assert.doesNotMatch(css, /halfspin/);
+  assert.match(css, /\.connect-ring \{[^}]*animation:\s*spin \.8s linear infinite/);
+  assert.match(ui, /icon = `<span class=\"router-ico\">\$\{ROUTER_ICON_SVG\}<\/span>`/);
+  assert.match(ui, /name = 'smart-router'/);
+  assert.match(router, /export const ROUTER_ICON_SVG/);
 });
-await test('自清理内核侧：台账 / 审计事件 / 未完成回合不删 / 提示词收尾自检', () => {
+await test('相机专用入口自动编辑，保存回用 addFiles，普通附件流程不变', () => {
+  const app = read('../app.html');
+  const ui = read('../js/ui.js');
+  const editor = read('../js/photo-editor.js');
+  const css = read('../css/styles.css');
+  assert.match(app, /id=\"camera-btn\"/);
+  assert.match(app, /id=\"camera-input\"[^>]*accept=\"image\/\*\" capture=\"environment\"/);
+  assert.match(ui, /openPhotoEditor\(photo\)/);
+  assert.match(ui, /if \(edited\) await addFiles\(\[edited\]\)/);
+  assert.match(ui, /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/);
+  for (const action of ['rotate-left', 'rotate-right', 'crop', 'draw', 'save']) assert.ok(editor.includes(`data-photo-action=\"${action}\"`), `照片编辑器缺少 ${action}`);
+  assert.match(css, /\.photo-editor-modal/);
+});
+await test('浏览器环境读取只输出粗粒度字段，并提供显式工具与 /env 命令', () => {
+  const env = read('../js/browser-env.js');
+  const tools = read('../js/tools.js');
+  const ui = read('../js/ui.js');
+  assert.match(env, /getCoarseBrowserEnvironment/);
+  assert.doesNotMatch(env, /document\.cookie|localStorage|sessionStorage|geolocation|navigator\.cookie/);
+  assert.match(tools, /name: 'get_browser_environment'/);
+  assert.match(tools, /不读取 Cookie、localStorage、IP、GPS/);
+  assert.match(ui, /name === 'env' \|\| name === 'environment'/);
+  assert.match(ui, /'\/env —— 查看粗略浏览器/);
+});
+await test('历史分页模块使用双预算并提供“更早的消息”入口', () => {
+  const history = read('../js/history.js');
+  const ui = read('../js/ui.js');
+  assert.match(history, /HISTORY_WINDOW_MAX_MESSAGES/);
+  assert.match(history, /HISTORY_WINDOW_MAX_CHARS/);
+  assert.match(history, /splitHistoryTurns/);
+  assert.match(history, /previousHistoryWindowStart/);
+  assert.match(ui, /<span>更早的消息<\/span>/);
+  assert.match(ui, /previousHistoryWindowStart/);
+});
+await test('自动文件删除已彻底退出执行路径与用户界面', () => {
+  assert.equal(exists('../js/cleanup.js'), false, '不应再打包自动删除模块');
   const agent = read('../js/agent.js');
-  assert.match(agent, /runAutoCleanup/, '内核应有自清理例程');
-  assert.match(agent, /cleanupArtifacts/, '创建台账必须落 state（权限边界）');
-  assert.match(agent, /createdPaths/, '只把「新增」文件记进台账（改动过的原件不入台账）');
-  assert.match(agent, /files-cleanup/, '清理必须写审计事件');
-  assert.match(agent, /runCleanupNow/, '应暴露按需清理（/cleanup）');
-  assert.match(agent, /getEditPreview/, '应暴露编辑预览（界面不自己解析半截 JSON）');
-  const cfg = read('../js/config.js');
-  assert.match(cfg, /收尾自检/, '系统提示词应要求模型自己收尾清理');
-  assert.match(cfg, /delete_file/, '提示词里要给出正确的清理工具名（delete_file）');
+  const ui = read('../js/ui.js');
+  const main = read('../js/main.js');
+  const config = read('../js/config.js');
+  const css = read('../css/styles.css');
+  assert.doesNotMatch(agent, /runAutoCleanup|cleanupArtifacts|files-cleanup|runCleanupNow|exec\.cleanup/);
+  assert.doesNotMatch(ui, /name === 'cleanup'|\/cleanup|自清理|cleanup-fold|onCleanup|CLEANUP_MODES/);
+  assert.doesNotMatch(main, /onCleanup/);
+  assert.doesNotMatch(config, /收尾自检|自清理/);
+  assert.doesNotMatch(css, /\.cleanup-fold|\.cleanup-report|pill\.watch/);
   const st = read('../js/state.js');
-  for (const key of ['cleanupPolicy', 'cleanupArtifacts', 'lastCleanupReport', 'cleanupHistory', 'cleanupTotals']) {
-    assert.ok(st.includes(key), `state.js 应声明 ${key}`);
-  }
-  assert.match(st, /normalizeP3State/, '应有 P3 状态兜底');
-  assert.match(st, /cleanupPolicy: 'strip'/, '默认档位为 strip（自动清理）');
+  assert.doesNotMatch(st, /cleanupPolicy: 'strip'|cleanupArtifacts:\s*\[|lastCleanupReport:\s*null/);
+  assert.match(st, /delete state\.settings\.cleanupPolicy/, '旧快照的过期策略应迁移掉');
+  assert.match(st, /delete message\.cleanup/, '旧消息标记应迁移掉');
 });
 
 await test('介绍页 / 对话页共享主题色，设置项同步外观并使用应用主题状态', () => {

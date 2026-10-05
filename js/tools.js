@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.1';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.2';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
@@ -11,10 +11,11 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.2';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.1';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.2';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -98,6 +99,11 @@ export const TOOL_DEFS = [
       type: 'object',
       properties: { timezone: { type: 'string', description: 'IANA 时区名，如 Asia/Tokyo，缺省为 Asia/Shanghai' } },
     },
+  },
+  {
+    name: 'get_browser_environment',
+    description: '仅在用户明确询问浏览器/设备环境时调用。只读取公开的粗略浏览器信息（浏览器主版本、OS 家族、语言、时区、取整后的视口、触屏/联网/减少动态效果偏好）；不读取 Cookie、localStorage、IP、GPS/精确位置、硬件序列号或设备 ID。',
+    parameters: { type: 'object', properties: {} },
   },
   {
     name: 'regex',
@@ -612,6 +618,11 @@ async function executeToolBody(name, args, ctx) {
         const msg = new Intl.DateTimeFormat('zh-CN', { dateStyle: 'full', timeStyle: 'long', timeZone: tz }).format(new Date()) + ` (${tz})`;
         emit({ status: 'ok', note: msg });
         return msg;
+      }
+      case 'get_browser_environment': {
+        const info = getCoarseBrowserEnvironment();
+        emit({ status: 'ok', note: '已读取粗略公开环境信息（未读取 Cookie 或定位）' });
+        return JSON.stringify(info, null, 2);
       }
       case 'regex': {
         emit({ status: 'running', note: '正则…' });

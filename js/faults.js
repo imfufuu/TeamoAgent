@@ -222,10 +222,10 @@ export function createFaultInjector({ plan = null, kinds = null, seed = 20261001
 
     /**
      * 清除注入残留：把 beforeTurn/afterToolCall 写进 settings 的 fault* 键全部删掉。
-     * 不清理的后果很具体——「声称有 Web」这类假声明会一直留在设置里，
-     * 之后每一轮都被判成状态分裂，红队跑一次就永久污染现场。
+     * 不复位的后果很具体——「声称有 Web」这类假声明会一直留在设置里，
+      * 之后每一轮都被判成状态分裂，红队跑一次就永久污染现场。
      */
-    cleanup(store) {
+    reset(store) {
       if (store && store.state && store.state.settings) {
         for (const k of Object.keys(store.state.settings)) {
           if (k.startsWith('fault')) delete store.state.settings[k];

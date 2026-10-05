@@ -49,7 +49,7 @@ const ok = (name, cond, extra = '') => {
 const { createStore } = await import(path.join(ROOT, 'js/state.js'));
 const { createAgent, copyAttachmentsToFS } = await import(path.join(ROOT, 'js/agent.js'));
 const { mountUI } = await import(path.join(ROOT, 'js/ui.js'));
-const { APP_LOGO } = await import(path.join(ROOT, 'js/icons.js'));
+const { ROUTER_ICON_SVG } = await import(path.join(ROOT, 'js/smartrouter.js'));
 const { createZip } = await import(path.join(ROOT, 'js/zip.js'));
 
 const store = createStore();
@@ -73,8 +73,8 @@ ok('UI 挂载成功时通知启动页关闭', bootCompletionCount === 1, `调用
 ok('生图模型下拉与目录保持一致（4 项）', $('#image-model').options.length === 4, `实际 ${$('#image-model').options.length}`);
 ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
 ok('默认模型卡片显示 smart-router', $('#model-btn-name').textContent === 'smart-router', $('#model-btn-name').textContent);
-const expectedLogo = document.createElement('span'); expectedLogo.innerHTML = APP_LOGO;
-ok('模型卡片使用原生产品 Logo', $('#model-btn-icon svg')?.outerHTML === expectedLogo.querySelector('svg')?.outerHTML);
+const expectedLogo = document.createElement('span'); expectedLogo.innerHTML = ROUTER_ICON_SVG;
+ok('模型卡片使用 TeamoRouter 原生产品图标', $('#model-btn-icon svg')?.outerHTML === expectedLogo.querySelector('svg')?.outerHTML);
 ok('文件面板 ZIP 按钮存在', !!$('#download-zip'));
 ok('空沙箱工具栏仍显示 0.0KB/120.0MB 上限', /0\.0KB\/120\.0MB/.test($('#files-count').textContent), $('#files-count').textContent);
 
@@ -131,6 +131,12 @@ ok('按钮文案随之更新', $('#model-btn-name').textContent === 'claude-opus
 ok('生图模型下拉同步 gpt-image-2.5-flare', $('#image-model').value === 'gpt-image-2.5-flare', $('#image-model').value);
 click(byTitle('B会话'));
 ok('切回会话 B 恢复 gpt-5.5', store.state.model === 'gpt-5.5', store.state.model);
+const normalModel = store.state.model;
+store.state.model = '__system__';
+ui.renderSessions();
+ok('/system 通道不让任何真实会话保留 active 选中态', $$('.sess-item.active').length === 0);
+store.state.model = normalModel;
+ui.renderSessions();
 
 console.log('\n⑧ 会话改名（Agent 自动总结不覆盖用户手改）');
 const rowB = byTitle('B会话');
@@ -163,6 +169,21 @@ ok('确认后所有会话被清空', store.state.sessions.length === 1 && $$('.s
 ok('清空后回到空状态引导语', !!$('#session-list .sess-empty-hint') && $$('#messages .empty-state').length === 1);
 ok('清空后消息数组也是空的', store.state.messages.length === 0);
 
+console.log('\n⑩ 删除任意会话后回到含任务示例的空白主页');
+store.pushMessage({ role: 'user', text: '待删除的旧会话' });
+const toDeleteId = store.state.activeSessionId;
+store.createSession();
+store.pushMessage({ role: 'user', text: '当前仍打开的会话' });
+ui.renderSessions();
+const rowToDelete = $$('.sess-item').find((n) => n.dataset.id === toDeleteId || n.querySelector('.sess-title')?.textContent === '待删除的旧会话');
+click(rowToDelete.querySelector('.sess-del'));
+ok('删除非活动会话也切到空白草稿', store.state.messages.length === 0 && !!$('#messages .empty-state'));
+ok('空白主页重新显示任务示例', $$('#messages .empty-state .suggest').length > 0);
+const preservedRow = $$('.sess-item').find((n) => n.querySelector('.sess-title')?.textContent === '当前仍打开的会话');
+click(preservedRow);
+click(preservedRow.querySelector('.sess-del'));
+ok('删除活动会话同样落到空白主页', store.state.messages.length === 0 && !!$('#messages .empty-state') && $$('#messages .empty-state .suggest').length > 0);
+
 console.log('\n③ 连接动画（状态栏 + 顶栏进度条）');
 ui.setStatus('connecting');
 ok('状态文案含「连接模型中」', $('#status-text').textContent.includes('连接模型中'), $('#status-text').textContent);
@@ -176,6 +197,14 @@ ui.setStatus('executing');
 ok('沙箱执行中提示', $('#status-text').textContent.includes('沙箱执行中'));
 ui.setStatus('done');
 ok('完成后进度条熄灭', !$('#turn-bar').classList.contains('on'));
+
+console.log('\n⑪ 拍照入口先编辑，再复用普通附件上传链路');
+const cameraInputEl = $('#camera-input');
+ok('拍照入口使用 environment capture，附件入口仍保持普通多选', !!$('#camera-btn') && cameraInputEl?.getAttribute('capture') === 'environment' && $('#attach-input')?.hasAttribute('capture') === false);
+const photoEditorSource = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
+ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
+const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));
+ok('照片编辑尺寸与反向拖拽裁剪范围受限', photoMath.fitPhotoSize(8000, 4000, 2048).width === 2048 && photoMath.cropRectFromDrag(90, 90, 10, 10, 100, 100)?.x === 10);
 
 console.log('\n④ 附件自动进 uploads/ + ⑤ 单文件 / ZIP 下载');
 const written = copyAttachmentsToFS(agent.fs, [
@@ -373,7 +402,9 @@ ui.rebuildMessages();
 console.log('\n④ 侧栏 Logo 不再自转');
 const logoRule = /\.logo-mark\s*\{[^}]*\}/.exec(cssText)?.[0] || '';
 ok('.logo-mark 无 animation', !/animation/.test(logoRule), logoRule.trim());
-ok('仅空状态大 Logo 保留慢转', /\.empty-logo svg\s*\{[^}]*animation: halfspin/.test(cssText));
+ok('产品 Logo 全部静止，只有连接环旋转', /\.empty-logo svg\s*\{[^}]*animation: none/.test(cssText)
+  && /\.connect-ring\s*\{[^}]*animation: spin/.test(cssText)
+  && !/@keyframes halfspin/.test(cssText));
 ok('index.html 侧栏 Logo 无内联动画', !/logo-mark[^>]*style="[^"]*animation/.test(html));
 
 console.log('\n③ 视图层故障不能 brick 发送');

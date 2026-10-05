@@ -1,7 +1,6 @@
 // ─── P3 DOM 冒烟（tests/p3-dom-smoke.mjs）─────────────────────────────────
-// 用 jsdom 真挂载 app.html + mountUI，验证 P3 两条诉求在界面这一层真的接上了：
+// 用 jsdom 真挂载 app.html + mountUI，验证编辑直播预览在界面这一层接通：
 //   ① 编辑直播折叠行（Editing Files）+ 预览窗（最近 N 行 / 行号 / 写入中游标 / 节流字段）
-//   ② 任务后自清理的可见面：固定 strip 策略（不提供开关）+ 回复下方的清理痕迹
 // 依赖可选：未安装 jsdom 时自动跳过（CI 不依赖本文件）。
 //   node tests/p3-dom-smoke.mjs          # 需 npm i -D jsdom
 import fs from 'node:fs';
@@ -52,13 +51,7 @@ const ui = mountUI(store, agent);
 const $ = (s) => window.document.querySelector(s);
 const $$ = (s) => [...window.document.querySelectorAll(s)];
 
-// ── ① 顶栏清理状态（当前设计：永久开启，不提供开关按钮） ──
-console.log('\n① 文件自清理（永久 strip 策略，不提供切换 pill）');
-const pill = $('#cleanup-toggle');
-ok('自清理固定为 strip 且不渲染可关闭的顶栏开关', !pill && store.state.settings.cleanupPolicy === 'strip');
-ok('能力行明确显示自清理状态', /自清理/.test($('#cap-line')?.textContent || ''), $('#cap-line')?.textContent || '缺失');
-
-// ── ② 编辑直播折叠行 + 预览窗 ──
+// ── 编辑直播折叠行 + 预览窗 ──
 console.log('\n② 编辑直播（Editing Files + 预览窗）');
 const rawCall = { id: 'call-live-1', name: 'write_file', args: { __raw: '{"path":"tmp/live.md","content":"第一行\\n第二行\\n第三行' } };
 const liveMsg = store.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: [rawCall], done: false });
@@ -89,17 +82,6 @@ ok('完成后折叠行变回 Edited File（不再直播）', /Edited File/.test(
 ok('完成后自动折叠（不占版面）', !fold2.classList.contains('expanded'));
 ok('展开后预览窗仍在（回看最后一次写入）', !!$('.edited-files .edit-preview'));
 
-// ── ③ 清理痕迹挂在回复下方 ──
-console.log('\n③ 任务后自清理的可见面');
-const cleanupBrief = { brief: '🧹 已清理 2 个临时文件（tmp/a.json、tmp/b.json，共 34 字符）', count: 2, chars: 34, at: Date.now() };
-store.updateMessage(doneMsg.id, { cleanup: cleanupBrief });
-ui.onCleanup({ ...cleanupBrief, deletedPaths: ['tmp/a.json', 'tmp/b.json'], verified: true });
-const cln = $('.cleanup-fold');
-ok('回复下方渲染清理痕迹', !!cln);
-ok('痕迹文案不含 emoji 前缀（图标走 SVG）', cln && !/🧹/.test(cln.querySelector('.chip-name').textContent), cln && cln.querySelector('.chip-name').textContent);
-ok('痕迹默认折叠（不打扰，展开才看理由）', cln && !cln.classList.contains('expanded'));
-cln.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
-ok('点击可展开看理由清单', cln.classList.contains('expanded'));
-
-console.log(`\nP3 DOM 冒烟：${failures === 0 ? '全部通过 ✅' : `${failures} 项失败 ❌`}`);
+console.log(`
+P3 DOM 冒烟：${failures === 0 ? '全部通过 ✅' : `${failures} 项失败 ❌`}`);
 process.exit(failures ? 1 : 0);

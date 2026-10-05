@@ -84,7 +84,7 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     version: '2.3.0',
     policyVersion: 'policy-2.3.0',
     versioned: Object.freeze({
-      toolContractVersion: 'tool-contract-2.4.0',
+      toolContractVersion: 'tool-contract-2.4.1',
       budgetPolicyVersion: 'budget-policy-2.3.0',
       riskPolicyVersion: 'risk-policy-2.3.0',
       promptContractVersion: 'prompt-contract-2.3.0',

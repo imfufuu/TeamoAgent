@@ -1,10 +1,9 @@
 // ─── P3 增量冒烟（THN v2.5.1）─────────────────────────────────────────────
-// 目的：把 P3 的两个新模块在**真实数据形状**上跑一遍，断言可核验的输出。
-//   · js/editpreview.js —— 编辑直播预览（流式半截 JSON → 最近 N 行预览窗）
-//   · js/cleanup.js     —— 任务后文件自清理（只删自己创建的临时文件）
+// 目的：把编辑直播预览在**真实数据形状**上跑一遍，断言可核验的输出。
+//   · js/editpreview.js —— 流式半截 JSON → 最近 N 行预览窗
 // 运行：node tests/p3-kernel-smoke.mjs
 //
-// 纪律：不 mock 被测模块；坏输入必须 fail-safe（宁可漏删，不可错删）。
+// 纪律：不 mock 被测模块；半截 JSON 与 Unicode 转义必须无损。
 
 import { strict as assert } from 'node:assert';
 import {
@@ -12,12 +11,6 @@ import {
   scanJSONString, extractEditCall, collectEdits, charCount, tailLines,
   buildEditPreview, formatEditPreviewNote, pathsOfEdits, editFoldLabel,
 } from '../js/editpreview.js';
-import {
-  CLEANUP_POLICY_VERSION, CLEANUP_MODES, SCRATCH_DIRS,
-  normalizeCleanupPolicy, cleanupPolicyOf, isScratchDir, isScratchExt, isScratchName,
-  isProtectedPath, isReferenced, planCleanup, applyCleanup, mergeArtifacts, pruneArtifacts,
-  formatCleanupBrief, formatCleanupReport, formatChars,
-} from '../js/cleanup.js';
 
 let passed = 0;
 const failures = [];
@@ -154,159 +147,6 @@ check('文案：折叠行直播显示 Editing Files，完成显示 Edited Files 
 });
 
 // ════════════════════════════════════════════════════════════════════════════
-group('二、自清理策略（cleanup.js）：三档 + 分类 + 台账 + 删除核验');
-
-check('三档策略：默认 strip；坏值回落 strip（不认识的档位不能变成「随机行为」）', () => {
-  assert.deepEqual(Object.keys(CLEANUP_MODES).sort(), ['off', 'report', 'strip']);
-  assert.equal(CLEANUP_MODES.strip.del, true);
-  assert.equal(CLEANUP_MODES.report.del, false);
-  assert.equal(CLEANUP_MODES.report.run, true, '只报告档也要扫描（否则用户看不到代价）');
-  assert.equal(CLEANUP_MODES.off.run, false);
-  assert.equal(normalizeCleanupPolicy(undefined), 'strip');
-  assert.equal(normalizeCleanupPolicy('BOGUS'), 'strip');
-  assert.equal(cleanupPolicyOf({}).id, 'strip');
-  assert.equal(cleanupPolicyOf({ cleanupPolicy: 'off' }).id, 'off');
-  assert.equal(CLEANUP_POLICY_VERSION, 'cleanup-policy-2.5.1');
-});
-
-check('临时文件分类：目录 / 后缀 / 命名三种规则，且不误伤同形词', () => {
-  assert.equal(isScratchDir('tmp/a.json'), true);
-  assert.equal(isScratchDir('a/b/scratch/x.txt'), false, '只有路径开头才算临时目录');
-  assert.ok(SCRATCH_DIRS.length >= 3);
-  assert.equal(isScratchExt('notes.tmp'), true);
-  assert.equal(isScratchExt('dump.log'), true);
-  assert.equal(isScratchExt('report.md'), false);
-  assert.equal(isScratchName('draft-notes.md'), true);
-  assert.equal(isScratchName('tmp2.md'), false, 'tmp2 不是 tmp（按分隔符切分，不做前缀匹配）');
-  assert.equal(isScratchName('report-tempest.md'), false, 'tempest 不是 temp');
-  assert.equal(isScratchName('template.md'), false, 'template 不是 temp');
-  assert.equal(isScratchName('调研草稿.md'), true, '中文按包含匹配');
-  // 路径必须能落在真实沙箱命名空间里（a/b/c 形式）
-  assert.equal(isScratchDir('./tmp/x'), true, './ 前缀不该影响判定');
-});
-
-check('受保护路径与引用判定：uploads/ 一定保留；回答/提问提到过的文件不删', () => {
-  assert.equal(isProtectedPath('uploads/pic.png'), true);
-  assert.equal(isProtectedPath('uploads/sub/deep.txt'), true);
-  assert.equal(isProtectedPath('outputs/chart.svg'), false);
-  assert.equal(isReferenced('outputs/final-report.md', ['见 outputs/final-report.md，结论如下']), true);
-  assert.equal(isReferenced('outputs/final-report.md', ['报告已生成：final-report.md']), true, '只写文件名也算引用');
-  assert.equal(isReferenced('outputs/final-report.md', ['生成了 outputs/final-report']), true, '不带扩展名也算');
-  assert.equal(isReferenced('outputs/final-report.md', ['无关内容']), false);
-});
-
-// 一个「像真的」回合：Agent 自己写了交付物，也留了临时产物，中途还改了用户原件
-const FILES = {
-  'uploads/用户原始数据.csv': 'a,b\n1,2',
-  'outputs/report.md': '# 报告\n结论如上',
-  'tmp/debug.json': '{"step":1}',
-  'scratch/try.py': 'print(1)',
-  'notes.draft': '草稿',
-  'empty-probe.txt': '',
-  'src/main.js': 'console.log(1)',
-  'outputs/chart.svg': '<svg/>',
-};
-const LEDGER = [
-  { path: 'outputs/report.md' }, { path: 'tmp/debug.json' }, { path: 'scratch/try.py' },
-  { path: 'notes.draft' }, { path: 'empty-probe.txt' }, { path: 'uploads/用户原始数据.csv' },
-];
-
-check('planCleanup：只删「台账内 + 命中临时规则 + 未被引用」的文件', () => {
-  const plan = planCleanup({
-    files: FILES, artifacts: LEDGER,
-    answerText: '报告已生成：outputs/report.md（图表见 outputs/chart.svg）',
-    userText: '帮我做一份数据报告',
-  });
-  const deleted = plan.deletes.map((d) => d.path).sort();
-  assert.deepEqual(deleted, ['empty-probe.txt', 'notes.draft', 'scratch/try.py', 'tmp/debug.json'], JSON.stringify(deleted));
-  assert.equal(plan.scanned, Object.keys(FILES).length);
-  assert.equal(plan.ledgerSize, LEDGER.length);
-  const ruleOf = (p) => (plan.deletes.find((d) => d.path === p) || {}).rule;
-  assert.equal(ruleOf('tmp/debug.json'), 'scratch-dir');
-  assert.equal(ruleOf('scratch/try.py'), 'scratch-dir');
-  assert.equal(ruleOf('notes.draft'), 'scratch-ext');
-  assert.equal(ruleOf('empty-probe.txt'), 'empty-agent-file');
-  // 保留项必须有理由，而不是悄悄放过
-  const keepOf = (p) => (plan.keeps.find((k) => k.path === p) || {}).rule;
-  assert.equal(keepOf('uploads/用户原始数据.csv'), 'protectedPath', '用户原件永远不能进删除集合');
-  assert.equal(keepOf('outputs/report.md'), 'referencedInAnswer', '回答里点名的交付物是交付物，不是垃圾');
-  assert.equal(keepOf('outputs/chart.svg'), 'notAgentCreated', '没台账 = 不是本 Agent 创建 = 不碰');
-  assert.equal(keepOf('src/main.js'), 'notAgentCreated');
-  assert.equal(plan.deletes.every((d) => d.reason && d.reason.length), true, '每次删除都要给理由');
-  assert.equal(plan.deletes.every((d) => 'preview' in d), true, '支持「删前看一眼」');
-});
-
-check('planCleanup：单轮上限截断为 deferred，不会一口气删光', () => {
-  const files = {}; const artifacts = [];
-  for (let i = 0; i < 30; i++) { files[`tmp/f${i}.json`] = 'x'; artifacts.push({ path: `tmp/f${i}.json` }); }
-  const plan = planCleanup({ files, artifacts, maxDeletes: 24 });
-  assert.equal(plan.deletes.length, 24);
-  assert.equal(plan.deferred.length, 6);
-  assert.ok(plan.deferred[0].reason.includes('下一轮'));
-});
-
-check('planCleanup：enabled=false（只报告档）仍给出「本来会删什么」', () => {
-  const plan = planCleanup({ files: FILES, artifacts: LEDGER, answerText: '', userText: '', enabled: false });
-  assert.equal(plan.enabled, false);
-  assert.equal(plan.wouldDelete, plan.deletes.length);
-  assert.ok(plan.deletes.length > 0, '关闭删除 ≠ 关闭检查：用户要看得到代价');
-});
-
-check('applyCleanup：删除后必须核验；核验不过 / remove 抛错都要如实报', () => {
-  const files = { 'tmp/a.json': '{}', 'tmp/b.json': '{}' };
-  const store = { ...files };
-  const plan = planCleanup({ files, artifacts: [{ path: 'tmp/a.json' }, { path: 'tmp/b.json' }] });
-  assert.equal(plan.deletes.length, 2);
-  const okRun = applyCleanup({ plan, io: { remove: (p) => { delete store[p]; }, exists: (p) => p in store } });
-  assert.equal(okRun.ok, true);
-  assert.equal(okRun.verified, true);
-  assert.equal(okRun.deleted.length, 2);
-  assert.deepEqual(Object.keys(store), []);
-  // 说删了却还在（例如被别的路径拦下）→ 不能报成功
-  const liars = applyCleanup({ plan, io: { remove: () => {}, exists: () => true } });
-  assert.equal(liars.verified, false);
-  assert.equal(liars.ok, false);
-  assert.equal(liars.survivors.length, 2);
-  // remove 抛错 → failed 清单里如实记录，而不是静默跳过
-  const broken = applyCleanup({ plan, io: { remove: () => { throw new Error('EPERM'); } } });
-  assert.equal(broken.ok, false);
-  assert.equal(broken.failed.length, 2);
-  assert.ok(broken.failed[0].error.includes('EPERM'));
-  // 没有计划 / 没有 io：不能装作清理过
-  assert.equal(applyCleanup({ plan: null, io: {} }).skipped, true);
-});
-
-check('台账：去重 + 限容 + 瘦身（删干净的不再挂着）', () => {
-  const merged = mergeArtifacts(
-    [{ path: 'a.md', chars: 10 }, { path: 'b.md', chars: 20 }],
-    [{ path: 'b.md', chars: 30, tool: 'write_file' }, { path: './c.md' }],
-    { at: 1700000000000, turnId: 't1' },
-  );
-  assert.equal(merged.length, 3, '同路径合并，不重复记');
-  assert.equal(merged.find((x) => x.path === 'b.md').chars, 30, '同一文件的新信息覆盖旧信息');
-  assert.equal(merged.find((x) => x.path === 'c.md').path, 'c.md', './ 前缀要归一化');
-  const capped = mergeArtifacts([], Array.from({ length: 260 }, (_, i) => ({ path: `f${i}` })), { max: 200 });
-  assert.equal(capped.length, 200);
-  assert.equal(capped[capped.length - 1].path, 'f259', '限容保留最新');
-  const pruned = pruneArtifacts(merged, { 'a.md': 'x', 'c.md': 'y' });
-  assert.deepEqual(pruned.map((x) => x.path), ['a.md', 'c.md'], '已被删除的文件不应留在台账里');
-  assert.deepEqual(mergeArtifacts(undefined, undefined), []);
-  assert.deepEqual(pruneArtifacts(null, {}), []);
-});
-
-check('报告格式化：简要 / 详情 / 字符数都如实（含「只报告不删」与核验失败）', () => {
-  assert.equal(formatChars(999), '999 字符');
-  assert.equal(formatChars(1500), '1.5K 字符');
-  assert.equal(formatChars(1200000), '1.20M 字符');
-  const plan = planCleanup({ files: FILES, artifacts: LEDGER, answerText: '', userText: '' });
-  const brief = formatCleanupBrief({ deleted: plan.deletes.map((d) => ({ path: d.path })), deletedChars: plan.deleteChars });
-  assert.ok(brief.startsWith('🧹') && brief.includes('4'), brief);
-  const dry = formatCleanupReport({ ...plan, enabled: false }, null);
-  assert.ok(dry.includes('只报告不删') || dry.includes('自动清理已关闭'), dry);
-  const survivors = formatCleanupReport(plan, { deleted: plan.deletes.map((d) => ({ ...d })), deletedChars: plan.deleteChars, verified: false, survivors: ['tmp/debug.json'], failed: [] });
-  assert.ok(survivors.includes('仍在文件系统里'), '核验失败必须出现在报告里');
-  assert.ok(formatCleanupReport(plan, null).includes(CLEANUP_POLICY_VERSION));
-});
 
 // ────────────────────────────────────────────────────────────────────────────
 const total = passed + failures.length;

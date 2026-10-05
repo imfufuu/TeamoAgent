@@ -29,7 +29,7 @@ export const POLICY_SOURCES = Object.freeze({
 // 当前生效版本（静态声明；与各模块的漂移由 verifyPolicyRegistry 兜住）
 export const POLICY_VERSIONS = Object.freeze({
   routerPolicyVersion: 'thn-router-policy-2.5.0',
-  toolPolicyVersion: 'tool-contract-2.4.0',
+  toolPolicyVersion: 'tool-contract-2.4.1',
   riskPolicyVersion: 'risk-policy-2.5.0',
   budgetPolicyVersion: 'budget-policy-2.3.0',
   promptContractVersion: 'prompt-contract-2.3.0',

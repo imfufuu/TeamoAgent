@@ -484,8 +484,8 @@ check('注入残留必须清干净（假声明留在设置里会污染之后每�
   const injector = createFaultInjector({ kinds: ['capability-mask-mismatch', 'authorization-revoked-midway', 'artifact-modified-externally'], seed: 5 });
   injector.beforeTurn(store);
   assert.ok(Object.keys(store.state.settings).some((k) => k.startsWith('fault')), '准备阶段应写入注入标记');
-  injector.cleanup(store);
-  assert.deepEqual(Object.keys(store.state.settings).filter((k) => k.startsWith('fault')), [], '清理后不得残留任何 fault* 键');
+  injector.reset(store);
+  assert.deepEqual(Object.keys(store.state.settings).filter((k) => k.startsWith('fault')), [], '复位后不得残留任何 fault* 键');
 });
 check('覆盖矩阵按「每类故障 × 五性质」统计（一眼看出哪类没被真正验证过）', () => {
   const matrix = buildFaultCoverageMatrix([

@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.1';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.2';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -61,7 +61,7 @@ import {
   recordRouteLatencySample,
   evaluateNexusAcceptanceMetrics,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.1';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.2';
 // ─── P0 执行内核（THN v2.3）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -93,7 +93,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.1';
+} from './execution.js?v=2026.10.5.2';
 // ─── P1（THN v2.4）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -103,36 +103,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.1';
+} from './recovery.js?v=2026.10.5.2';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.1';
+} from './idempotency.js?v=2026.10.5.2';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.1';
+} from './memorylife.js?v=2026.10.5.2';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.1';
+} from './trajectory.js?v=2026.10.5.2';
 
 // ─── P2（THN v2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.1';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.1';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.2';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.2';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.1';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.1';
+} from './experiments.js?v=2026.10.5.2';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.2';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -142,15 +142,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.1';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.1';
-// P3（v2.5.1）：编辑直播预览 + 任务后自清理。两个都是独立新模块，旧版 agent.js 不 import 它们，
-// 因此旧缓存组合下不会因缺导出白屏（混版纪律）。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.1';
-import {
-  planCleanup, applyCleanup, mergeArtifacts, pruneArtifacts, cleanupPolicyOf,
-  formatCleanupBrief, formatCleanupReport, formatChars,
-} from './cleanup.js?v=2026.10.5.1';
+} from './executionContext.js?v=2026.10.5.2';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.2';
+// P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.2';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -946,10 +941,6 @@ export function createAgent(store, hooks = {}) {
       for (const f of delta.added.concat(delta.changed)) {
         if (!exec.artifacts.some((a) => a.path === f.path)) exec.artifacts.push({ path: f.path, step: call.name });
       }
-      // P3：只把**新增**文件记进自清理台账（改动过的用户原件不在其中，从源头上不可能被自清理删掉）
-      for (const f of delta.added) {
-        if (!exec.createdPaths.includes(f.path)) exec.createdPaths.push(f.path);
-      }
       exec.changedPaths.push(...delta.touched);
 
       // ⑥ 结果回喂模型：失败归类 + 恢复路径 + 副作用不确定的硬提示（禁止盲目重试）
@@ -1195,14 +1186,11 @@ export function createAgent(store, hooks = {}) {
       completedSteps: [],
       artifacts: [],
       changedPaths: [],
-      // P3：本 Agent **创建**（而非仅仅修改）的文件——自清理的权限边界只认这个清单
-      createdPaths: [],
       trajectory: null,
       faultInjector: null,
       faultArmedKinds: [],
       auditReconcile: null,
       metrics: null,
-      cleanup: null,
     };
 
     // ── P2：策略版本快照（一次执行必须能回答「当时生效的是哪套策略」）──
@@ -1841,30 +1829,6 @@ export function createAgent(store, hooks = {}) {
         emit('onFsChange');
       }
 
-      // ── P3 收尾：任务完成后自清理（习惯 = 内核行为，不是提示词里的希望）──
-      // 时机：所有工具波次都跑完、记忆写入也处理完之后，**早于**检查点/审计对账写入——
-      // 这样检查点里的产物清单与审计摘要反映的是清理后的真实状态，下一轮不会因「文件凭空消失」报漂移。
-      if (status === 'done') {
-        try {
-          const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.done && !m.transientModeration);
-          exec.cleanup = runAutoCleanup({
-            answerText: (lastAssistant && lastAssistant.text) || '',
-            userText: (exec.execCtx && exec.execCtx.userIntent) || '',
-            createdPaths: exec.createdPaths,
-            machine: exec.machine,
-            msgId: lastAssistant ? lastAssistant.id : '',
-          });
-        } catch (err) {
-          exec.cleanup = { error: String((err && err.message) || err).slice(0, 160) };
-        }
-      } else if (exec.createdPaths.length) {
-        // 未正常结束（中止/出错）不做删除：半成品可能是用户想接着跑的东西，台账照样记下，交由用户决定
-        store.state.cleanupArtifacts = mergeArtifacts(
-          Array.isArray(store.state.cleanupArtifacts) ? store.state.cleanupArtifacts : [],
-          exec.createdPaths.map((p) => ({ path: p })), { at: Date.now() },
-        );
-      }
-
       // ── P0 执行内核收尾：状态轨迹 / 预算账本 / 审计摘要落盘（刷新后可判断任务处于哪个阶段）──
       if (!exec.machine.isTerminal) {
         exec.machine.transition(EXECUTION_STATES.INTERRUPTED,
@@ -1984,7 +1948,7 @@ export function createAgent(store, hooks = {}) {
         };
         store.state.faultHistory = [...(Array.isArray(store.state.faultHistory) ? store.state.faultHistory : []), ...faultResult.cards].slice(-24);
         // 注入是「一次性」的：验收完立刻清残留（假声明留在设置里会污染之后每一轮）
-        exec.faultInjector.cleanup(store);
+        exec.faultInjector.reset(store);
         exec.machine.audit.record('fault-verification', {
           injected: [...new Set(exec.faultInjector.log
             .filter((l) => l.phase !== 'arm')
@@ -2085,14 +2049,6 @@ export function createAgent(store, hooks = {}) {
           reason: exec.experiment.reason,
         } : null,
         fault: exec.faultReport ? { ok: exec.faultReport.ok, summary: exec.faultReport.summary } : null,
-        // P3：任务后自清理的结论（删了几个 / 保留了几个受保护文件 / 是否核验通过）
-        cleanup: exec.cleanup ? {
-          policy: exec.cleanup.policy,
-          deleted: exec.cleanup.deletedCount,
-          chars: exec.cleanup.deletedChars,
-          keptProtected: (exec.cleanup.keptProtected || []).length,
-          verified: exec.cleanup.verified,
-        } : null,
       };
       recordRouteLatencySample({
         fastPath: !!(nexusState.profile && nexusState.profile.fastPath),
@@ -2188,105 +2144,6 @@ export function createAgent(store, hooks = {}) {
     store.notify();
   }
 
-  // ── P3（v2.5.1）：任务完成后的文件自清理 ────────────────────────────────
-  // 「养成习惯」不能只写在提示词里：模型会忘、会被预算截断、也可能压根没意识到自己留了垃圾。
-  // 所以内核在回合正常收尾时按规则过一遍文件系统，并把「删了什么 / 留了什么 / 为什么」记账。
-  // 三条硬约束（优先级从高到低）：
-  //   ① 只删本 Agent 自己创建的文件（cleanupArtifacts 台账是权限边界；用户原件永远不在台账里）；
-  //   ② 受保护路径（uploads/）与回答/提问引用到的文件一律保留；
-  //   ③ 命中临时规则（临时目录 / 临时后缀 / 临时命名 / 空文件）才删，其余保留并给出理由。
-  const runAutoCleanup = ({
-    answerText = '', userText = '', createdPaths = [], machine = null, msgId = '', force = false, dryRun = false,
-  } = {}) => {
-    const policy = cleanupPolicyOf(store.state.settings || {});
-    // 台账先记：记账 ≠ 删除。即使当前档位是 off / 只报告，也要知道「这些文件是本 Agent 创建的」——
-    // 否则用户事后改成自动清理时，之前攒下的临时文件会因为没有台账而永远清不掉。
-    const files = fs.export();
-    const ledger = mergeArtifacts(
-      Array.isArray(store.state.cleanupArtifacts) ? store.state.cleanupArtifacts : [],
-      (createdPaths || []).map((p) => ({ path: p })),
-      { at: Date.now() },
-    );
-    if (!policy.run && !force) {
-      store.state.cleanupArtifacts = pruneArtifacts(ledger, files);
-      return { skipped: true, policy: policy.id, reason: `自动清理已关闭（当前档位 off，可用 /cleanup strip 开启）`, at: Date.now() };
-    }
-    const plan = planCleanup({
-      files,
-      artifacts: ledger,
-      answerText,
-      userText,
-      protectedPaths: ['uploads/'],
-      allowedPaths: [],
-      enabled: policy.del && !dryRun,
-    });
-    const doDelete = policy.del && !dryRun;
-    const applied = doDelete && plan.deletes.length
-      ? applyCleanup({
-        plan,
-        io: {
-          remove: (p) => fs.remove(p),
-          // createFS 没有 exists()：用 list() 反查，删完必须核验（说删了却还在 = 缺陷，不是成功）
-          exists: (p) => fs.list().some((f) => f.path === p),
-        },
-      })
-      : null;
-    if (applied && applied.deleted.length) {
-      syncFS();
-      const live = fs.export();
-      // 台账同步瘦身：删干净的文件不再挂着（下轮扫描的成本与噪声都更低）
-      store.state.cleanupArtifacts = pruneArtifacts(ledger, live);
-    } else {
-      store.state.cleanupArtifacts = pruneArtifacts(ledger, files);
-    }
-    const brief = applied && applied.deleted.length ? formatCleanupBrief(applied) : '';
-    const deletedPaths = applied ? applied.deleted.map((d) => d.path) : [];
-    const result = {
-      policyVersion: plan.policyVersion,
-      policy: policy.id,
-      policyLabel: policy.label,
-      enabled: !!policy.del,
-      dryRun: !!dryRun,
-      scanned: plan.scanned,
-      ledgerSize: plan.ledgerSize,
-      wouldDelete: plan.wouldDelete,
-      deferred: plan.deferred.length,
-      deletedCount: deletedPaths.length,
-      deletedChars: applied ? applied.deletedChars : 0,
-      verified: applied ? applied.verified : true,
-      failed: applied ? applied.failed.map((f) => f.path) : [],
-      deletedPaths,
-      keptProtected: (plan.keeps || []).filter((k) => k.rule === 'protectedPath' || k.rule === 'referencedInAnswer').map((k) => ({ path: k.path, rule: k.rule, reason: k.reason })),
-      plan: { policyVersion: plan.policyVersion, at: plan.at, deletes: plan.deletes.map((d) => ({ path: d.path, rule: d.rule, ruleLabel: d.ruleLabel, reason: d.reason, chars: d.chars })), deferred: plan.deferred.length, keeps: (plan.keeps || []).slice(0, 40) },
-      applied: applied ? { deleted: applied.deleted.map((d) => ({ path: d.path, rule: d.rule, chars: d.chars })), deletedChars: applied.deletedChars, verified: applied.verified, survivors: applied.survivors, failed: applied.failed.map((f) => f.path) } : null,
-      brief,
-      at: Date.now(),
-    };
-    store.state.lastCleanupReport = result;
-    if (applied && applied.deleted.length) {
-      store.state.cleanupHistory = [...(Array.isArray(store.state.cleanupHistory) ? store.state.cleanupHistory : []), {
-        at: result.at, policy: policy.id, count: deletedPaths.length, chars: result.deletedChars, paths: deletedPaths.slice(0, 12),
-      }].slice(-24);
-      const t = store.state.cleanupTotals && typeof store.state.cleanupTotals === 'object' ? store.state.cleanupTotals : { runs: 0, deleted: 0, chars: 0 };
-      store.state.cleanupTotals = { runs: t.runs + 1, deleted: t.deleted + deletedPaths.length, chars: t.chars + result.deletedChars, lastAt: result.at };
-    }
-    // 审计：清理是一次真实的文件系统副作用，删除与「保留了什么」都要留痕（可复核）
-    if (machine && (deletedPaths.length || plan.keeps.some((k) => k.rule === 'protectedPath'))) {
-      machine.audit.record('files-cleanup', {
-        policy: policy.id,
-        deleted: deletedPaths.slice(0, 24),
-        deletedCount: deletedPaths.length,
-        deletedChars: result.deletedChars,
-        keptProtected: result.keptProtected.length,
-        deferred: result.deferred,
-        verified: result.verified,
-      });
-    }
-    if (brief && msgId) store.updateMessage(msgId, { cleanup: { brief, count: deletedPaths.length, chars: result.deletedChars, at: result.at } });
-    if (brief) emit('onCleanup', result);
-    return result;
-  };
-
   // 取某条消息的编辑预览（界面只拿结果渲染，不再自己解析半截 JSON）。
   // 已落盘的内容优先从 fs 读回：那才是「文件现在长什么样」，而不是模型当时想写什么。
   const getEditPreview = (toolCalls = [], { preferDisk = true } = {}) => {
@@ -2306,42 +2163,10 @@ export function createAgent(store, hooks = {}) {
 
   return {
     getStatus: () => status,
-    // P3 API：编辑预览 / 自清理（UI 与测试共用；旧 UI 不调用也不会影响任何行为）
+    // P3 API：编辑预览（界面不解析半截 JSON）
     getEditPreview,
     getEditPreviewNote: (toolCalls) => formatEditPreviewNote(getEditPreview(toolCalls)),
     getEditPaths: (toolCalls) => pathsOfEdits(toolCalls),
-    runCleanupNow: (opts = {}) => runAutoCleanup({ force: true, ...opts }),
-    getCleanupReport: () => store.state.lastCleanupReport || null,
-    getCleanupReportLines: () => {
-      const lines = ['【P3 · 文件自清理】'];
-      const policy = cleanupPolicyOf(store.state.settings || {});
-      lines.push(`  - 档位：${policy.label}（${policy.id}）—— ${policy.hint}`);
-      const r = store.state.lastCleanupReport;
-      if (!r) lines.push('  - 本会话还没有清理记录（完成一轮任务后写入，或输入 /cleanup 立即检查）');
-      else {
-        lines.push(`  - 最近一次：${new Date(r.at).toLocaleString()}，扫描 ${r.scanned} 个文件（台账 ${r.ledgerSize} 条）`);
-        lines.push(`      删除 ${r.deletedCount} 个 / ${formatChars(r.deletedChars)}${r.enabled ? (r.verified ? '，删除后已核验' : '，⚠ 有文件未被真正删除') : '（只报告不删）'}`);
-        if (r.deferred) lines.push(`      超出单轮上限、留待下一轮：${r.deferred} 个`);
-        if (r.keptProtected.length) lines.push(`      明确保留：${r.keptProtected.map((k) => `${k.path}（${k.reason}）`).join('、')}`);
-      }
-      const totals = store.state.cleanupTotals;
-      if (totals && totals.runs) lines.push(`  - 累计：${totals.runs} 轮清理，删除 ${totals.deleted} 个文件 / ${formatChars(totals.chars)}`);
-      const hist = Array.isArray(store.state.cleanupHistory) ? store.state.cleanupHistory.slice(-5) : [];
-      for (const h of hist) lines.push(`      · ${new Date(h.at).toLocaleString()} 删除 ${h.count} 个：${h.paths.join('、')}`);
-      lines.push('  - 边界：只删本 Agent 创建且命中临时规则的文件；uploads/ 等受保护路径与被回答引用的交付物永不删除');
-      return lines;
-    },
-    // 详细报告（/cleanup report）
-    formatCleanupDetail: () => {
-      const r = store.state.lastCleanupReport;
-      if (!r) return '【文件清理】本会话还没有清理记录';
-      const planLike = {
-        policyVersion: r.policyVersion, scanned: r.scanned, ledgerSize: r.ledgerSize,
-        deletes: (r.plan && r.plan.deletes) || [], deferred: new Array(r.deferred || 0).fill(null),
-        keeps: (r.plan && r.plan.keeps) || [], enabled: r.enabled, deleteChars: (r.applied && r.applied.deletedChars) || 0,
-      };
-      return formatCleanupReport(planLike, r.applied ? { deleted: r.applied.deleted, deletedChars: r.applied.deletedChars, verified: r.applied.verified, survivors: r.applied.survivors, failed: r.applied.failed.map((p) => ({ path: p })) } : null);
-    },
     // P1 交互确认：UI 把用户决定回传到当前回合的确认闸门（无活动闸门时返回可解释的失败）
     resolveConfirmation: (key, decision, reason = '') => {
       if (!activeGate) return { ok: false, reason: '当前没有等待确认的高风险操作' };

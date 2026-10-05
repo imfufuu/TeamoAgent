@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.2.15" />
-<meta name="app-release" content="V1.4" />
+<meta name="app-version" content="2026.10.5.2" />
+<meta name="app-release" content="V1.5" />
 <meta name="robots" content="noindex" />
-<title>文档 · TeamoAgent V1.4</title>
+<title>文档 · TeamoAgent V1.5</title>
 <style>
   /* 主题变量经 @property 注册（与主页一致）→ 切换外观时颜色插值平滑过渡 */
   @property --bg { syntax: "<color>"; inherits: true; initial-value: #f6f4ef; }
@@ -155,7 +155,7 @@
     <span class="logo-mark"><svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-opacity="0.18" stroke-width="1.3"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" fill="none" stroke="currentColor" stroke-opacity="0.55" stroke-width="2.2" stroke-linecap="round"/><circle cx="16" cy="16" r="2.7" fill="currentColor"/><circle cx="16.000" cy="24.000" r="1.8" fill="currentColor"/><circle cx="9.072" cy="12.000" r="1.8" fill="currentColor"/><circle cx="22.928" cy="12.000" r="1.8" fill="currentColor"/></svg></span>
     <span class="logo-text">TEAMO<i>AGENT</i></span>
   </a>
-  <span class="ver-badge" title="Teamo V1.4 正式版">V1.4</span>
+  <span class="ver-badge" title="Teamo V1.5 正式版">V1.4</span>
   <span class="nav-spacer"></span>
   <a class="nav-link" href="#changelog" data-page="changelog">更新日志</a>
   <a class="nav-link" href="#agreement" data-page="agreement">用户协议</a>
@@ -167,9 +167,9 @@
 
 <main>
   <section class="hero">
-    <p class="kicker">Documentation · V1.4 + THN v2.5 策略演进与红队评测</p>
+    <p class="kicker">Documentation · V1.5 + THN v2.5 策略演进与红队评测</p>
     <h1>更新日志与协议。</h1>
-    <p class="lede">从远古构建到 V1.4 的主要更新——修了什么、加了什么；以及使用本应用前应当了解的协议与隐私约定。完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
+    <p class="lede">从远古构建到 V1.5 的主要更新——修了什么、加了什么；以及使用本应用前应当了解的协议与隐私约定。完整逐条记录见仓库 <code>CHANGELOG.md</code>。</p>
   </section>
 
   <!-- ══════════════ 第 1 页：更新日志 ══════════════ -->
@@ -180,13 +180,22 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5.1 编辑直播与文件自清理（P3）</span><span class="ver-build">2026.10.2.15</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-02</span></div>
+        <div class="ver-head"><span class="ver-name">V1.5 · 渲染、会话与图像工作流</span><span class="ver-build">2026.10.5.2</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag fix">FIX</span><span><strong>彻底撤销任务后自动删除</strong>：执行路径、自动删除模块、策略/台账/报告、界面状态与回复标记、系统命令均移除；旧会话中的过期字段仅在迁移时丢弃，不会触碰任何工作区文件。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>Markdown 常用扩展与安全 HTML</strong>：支持脚注、定义列表、上/下标、属性与 fenced div 子集；允许白名单格式化属性，危险标签、事件属性及不安全 CSS 仍会清除。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>会话与历史浏览</strong>：系统命令界面不再选中会话；删除任一会话后回到含任务示例的空主页；历史按完整用户轮次、消息数与字符数分页，并提供「更早的消息」。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>拍照编辑与显式环境查询</strong>：新拍摄入口先进入图像编辑器，保存后仍走原有附件上传流程；<code>/system /env</code> 与 <code>get_browser_environment</code> 只在显式调用时返回粗略浏览器信息，不读取 Cookie、存储或精确位置。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>Unicode 与代码展示回归</strong>：覆盖中文、全角标点、emoji、LaTeX 反斜杠、代码围栏及星号/反引号/竖线边界；复制代码从渲染缓存取源码。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>验收与工具策略</strong>：主测试 332 项通过；新增浏览器环境查询工具的只读执行契约，工具契约覆盖 31/31；<code>npm run test:p3</code> 只保留编辑预览及 UI 回归。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.4 · THN v2.5.1 编辑直播预览（P3）</span><span class="ver-build">2026.10.2.15</span><span class="ver-date">2026-10-02</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>编辑直播预览（<code>js/editpreview.js</code>）</strong>：写文件时折叠行从静态的「Edited Files N」升级为直播语义——写入期间显示 <strong>Editing File(s)</strong>，下方预览窗显示最近写入的 <strong>~10 行</strong>（真实行号 + 写入模式 + 总行数 + 字符数），流式期间每 <strong>2.5 秒</strong>节流刷新、换文件与收尾立即刷新，写入中的行末带游标。流式参数是<strong>半截 JSON</strong>（<code>JSON.parse</code> 必然失败），预览用 <code>scanJSONString</code> 按转义规则逐字符扫键值——没写完也能看到内容在长；预览只取尾部（4000 字符 / 单行 240 字符），长文件不拖卡渲染；完成后优先从<strong>已落盘文件</strong>读回，折叠回「Edited File(s) N」后展开仍可回看。</span></li>
-          <li><span class="tag add">ADD</span><span><strong>任务后文件自清理（<code>js/cleanup.js</code>）</strong>：回合<strong>正常结束</strong>后内核主动过一遍文件系统，删掉<strong>自己创建</strong>的临时产物（临时目录 / 临时后缀 / 临时命名 / 空文件），默认开启。三条硬约束：① 只删有创建台账（<code>cleanupArtifacts</code>）的文件——用户上传的原件永远不台账，因此永远不在可删集合里；② <code>uploads/</code> 等受保护路径与被<strong>回答或提问引用</strong>的交付物一律保留；③ 每次删除与保留都要给出理由（no silent decision）。删除后用 <code>list()</code> 反查核验（<code>createFS</code> 没有 <code>exists()</code>）——说删了却还在会如实报「未真正删除」。中止 / 出错<strong>不删</strong>：半成品可能是用户要接着跑的东西。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span><strong>三档策略与随手可查</strong>：<code>strip</code> 自动清理（默认）/ <code>report</code> 只报告不删 / <code>off</code> 关闭；顶栏新增「清理」开关（右键循环档位，只报告档用虚线边框区分，避免「看着开着其实不删」的误解）；<code>/cleanup</code> 立即检查一次、<code>/cleanup why</code> 看完整理由清单、命令面板两个入口；每次清理写 <code>files-cleanup</code> 审计事件（删了哪些 / 数量 / 字符数 / 保留了多少受保护文件 / 是否核验通过），结论同时挂在当轮回复下方（🧹 已清理 N 个临时文件，展开看理由）。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span><strong>习惯的后半段写进提示词</strong>：系统提示词新增「收尾自检」规则——交付物（报告 / 图表 / 代码 / 结果表）必须保留并在回复里说明路径，调试产物用 <code>delete_file</code> 顺手清掉；内核负责兜底再清一遍，但不让模型把清理全甩给内核。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span><strong>P3 验收</strong>：新增 <code>tests/p3-kernel-smoke.mjs</code>（纯函数级：半截 JSON 扫描 / 预览窗字段 / 三档策略 / 台账去重与瘦身 / 受保护路径与引用判定 / 删除核验 / 报告格式化），接入 <code>npm run test:p3</code> 与 CI；<code>assets-integrity</code> 补 P3 接线钉子（新模块存在 + <code>?v=</code> 引用 + 直播折叠与清理钩子接线）。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>P3 编辑预览验收</strong>：保留半截 JSON 扫描、预览字段与 UI 冒烟；历史上的自动文件清理功能已在 2026.10.5.2 完全撤销，不再提供其执行逻辑、策略、状态或命令。</span></li>
         </ul></div>
       </div>
 
@@ -447,7 +456,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.4 · 构建 2026.10.2.15</span>
+  <span>TeamoAgent V1.5 · 构建 2026.10.5.2</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.1';
+} from '../js/api.js?v=2026.10.5.2';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.1');
+const api = await import('../js/api.js?v=2026.10.5.2');
 
 let passed = 0;
 const queue = [];
@@ -266,10 +266,10 @@ test('工具 schema 双格式转换', () => {
 });
 
 group('Markdown 渲染（UI）');
-test('HTML 转义防 XSS', () => {
+test('危险 HTML 标签/事件属性与脚本内容被安全清理', () => {
   const html = renderMarkdown('<script>alert(1)</script> 与 <img onerror=x>');
-  assert.ok(!html.includes('<script>'));
-  assert.ok(html.includes('&lt;script&gt;'));
+  assert.doesNotMatch(html, /<script|alert\\(1\\)|onerror/i);
+  assert.match(html, /与/);
 });
 test('代码块 / 行内代码 / 加粗', () => {
   const html = renderMarkdown('用 `pip install` 安装：\n```python\nprint("hi")\n```');
@@ -619,6 +619,38 @@ test('importSession：非法数据返回 null 且不改变状态', () => {
   assert.equal(store.state.sessions.length, before);
 });
 
+group('长历史分页：完整轮次 + 消息数/字数双限');
+test('首屏从完整用户轮次边界开始，工具结果计入字数', async () => {
+  const { historyWindowStart, previousHistoryWindowStart, splitHistoryTurns } = await import('../js/history.js');
+  const messages = [
+    { role: 'user', text: '问题一' }, { role: 'assistant', text: '答复一' },
+    { role: 'tool', content: '工具结果' },
+    { role: 'user', text: '问题二' }, { role: 'assistant', text: '答复二' },
+    { role: 'user', text: '问题三' }, { role: 'assistant', text: '答复三' },
+    { role: 'user', text: '问题四' }, { role: 'assistant', text: '答复四' },
+  ];
+  const start = historyWindowStart(messages, 4, 1000);
+  assert.equal(start, 5, '最近 4 条可见消息正好是完整的两轮');
+  assert.equal(messages[start].role, 'user');
+  assert.equal(splitHistoryTurns(messages).length, 4);
+  const previous = previousHistoryWindowStart(messages, start, 4, 1000);
+  assert.equal(previous, 0, '更早一段继续向前加载时从完整轮次起点开始');
+  assert.equal(messages[previous].role, 'user');
+});
+test('字符预算也以完整轮次为界；最新单轮超限仍整体保留', async () => {
+  const { historyWindowStart } = await import('../js/history.js');
+  const messages = [
+    { role: 'user', text: 'old question' }, { role: 'assistant', text: 'short answer' },
+    { role: 'user', text: 'q'.repeat(20) }, { role: 'assistant', text: 'a'.repeat(80) },
+    { role: 'tool', content: 'x'.repeat(40) },
+    { role: 'user', text: 'new question' }, { role: 'assistant', text: 'new answer' },
+  ];
+  const start = historyWindowStart(messages, 60, 100);
+  assert.equal(start, 5, '中间整轮加 tool 输出后超字数预算，应只显示最新轮');
+  const oversized = [{ role: 'user', text: 'Q'.repeat(300) }, { role: 'assistant', text: 'A'.repeat(300) }];
+  assert.equal(historyWindowStart(oversized, 60, 100), 0, '最新一轮超限也不能拆开或丢掉');
+});
+
 group('多模态标识');
 test('supportsVision：对话通道一律纯文本', async () => {
   const { supportsVision, isImageModel } = await import('../js/config.js');
@@ -675,9 +707,34 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   const pre = renderMarkdown('```python\nprint(1)\n```');
   assert.ok(pre.includes('data-lang="python"') && pre.includes('copy-code'), '围栏代码块');
   assert.ok(!/<p><pre/.test(pre), '代码块不包 p');
+  const attrCode = renderMarkdown('```js {#snippet .compact}\nconst x = 1;\n```');
+  assert.match(attrCode, /id=\"snippet\"/);
+  assert.match(attrCode, /class=\"code-block compact\"/);
+  assert.doesNotMatch(attrCode, /<p><div/);
   // 公式：行内 + 块级
   assert.ok(renderMarkdown('行内 $a^2$ 结束').includes('class="katex"'), '行内公式');
   assert.ok(renderMarkdown('$$\frac{a}{b}$$').includes('katex-display'), '块级公式');
+  const pandoc = renderMarkdown('# 标题 {#custom-title .wide style="text-align:center;color:#123456;position:fixed"}\n\nterm\n: definition\n\n上标 x^2^ 与水 H~2~O。\n\n注释[^n]。\n\n[^n]: 脚注内容');
+  assert.match(pandoc, /<h1 id="custom-title" class="wide" style="text-align:center;color:#123456">标题<\/h1>/);
+  assert.match(pandoc, /<dl class="md-definition-list"><dt>term<\/dt><dd><p>definition<\/p>/);
+  assert.match(pandoc, /x<sup>2<\/sup> 与水 H<sub>2<\/sub>O/);
+  assert.match(pandoc, /class="md-footnote-ref"/);
+  assert.match(pandoc, /class="md-footnotes"/);
+  const div = renderMarkdown('::: {.note #box style="text-align:center;color:blue;position:absolute"}\n**安全排版**\n:::');
+  assert.match(div, /<div id="box" class="md-fenced-div note" style="text-align:center;color:blue">/);
+  assert.match(div, /<strong>安全排版<\/strong>/);
+  assert.doesNotMatch(div, /<p><div/);
+  const safeHtml = renderMarkdown('<div class="card" style="text-align:center;background-color:#fff;position:fixed;background-image:url(javascript:alert(1))" onclick="alert(1)">安全 <b>HTML</b></div>');
+  assert.match(safeHtml, /<div class="card" style="text-align:center;background-color:#fff">安全 <b>HTML<\/b><\/div>/);
+  assert.doesNotMatch(safeHtml, /onclick|position:|background-image|javascript:/i);
+  const unicode = renderMarkdown('中文，全角标点！Emoji 😀😺；行内代码 `\\frac{a}{b}`，行内公式 $\\frac{1}{2}$。\n\n```tex\n\\frac{1}{2}\n```');
+  assert.match(unicode, /中文，全角标点！Emoji 😀😺/);
+  assert.match(unicode, /<code>\\frac\{a\}\{b\}<\/code>/);
+  assert.match(unicode, /class="katex/);
+  assert.match(unicode, /<code class="hljs">\\frac\{1\}\{2\}<\/code>/);
+  const literal = renderMarkdown('普通段落 a|b 和未配对星号 * ** 应按字面显示。');
+  assert.match(literal, /a\|b/);
+  assert.match(literal, /未配对星号 \* \*\*/);
   const sbImg = renderMarkdown('看图 ![示例](sandbox://outputs/example.png)');
   assert.match(sbImg, /data-sandbox="outputs\/example\.png"/, '沙箱图占位');
   assert.equal(/src=["']sandbox:/i.test(sbImg), false, 'sandbox:// 不得进 img src');
@@ -2089,9 +2146,33 @@ test('toolsFor：关闭沙箱只摘掉三个代码执行工具', async () => {
   const on = toolsFor(true).map((t) => t.name);
   assert.deepEqual(on, TOOL_DEFS.map((t) => t.name), '开启时应是全部工具');
   for (const n of CODE_TOOL_NAMES) assert.ok(!off.includes(n), `${n} 应被关掉`);
-  for (const n of ['write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'search_files', 'diff_text', 'json_tool', 'dispatch_subagent', 'generate_image', 'get_current_time', 'analyze_image', 'remember']) {
+  for (const n of ['write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'search_files', 'diff_text', 'json_tool', 'dispatch_subagent', 'generate_image', 'get_current_time', 'get_browser_environment', 'analyze_image', 'remember']) {
     assert.ok(off.includes(n), `${n} 与代码执行无关，关沙箱也要可用`);
   }
+});
+test('浏览器环境查询只返回粗略公开信息，不触碰 cookie / storage / geolocation', async () => {
+  const { getCoarseBrowserEnvironment } = await import('../js/browser-env.js');
+  let forbiddenReads = 0;
+  const navigator = {
+    userAgent: 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36',
+    platform: 'Linux armv8l', language: 'zh-CN', languages: ['zh-CN', 'en-US'], maxTouchPoints: 5, onLine: true,
+  };
+  for (const key of ['cookie', 'geolocation', 'storage']) Object.defineProperty(navigator, key, { get() { forbiddenReads++; throw new Error(`禁止读取 ${key}`); } });
+  const window = { innerWidth: 390, innerHeight: 812, matchMedia: () => ({ matches: true }) };
+  Object.defineProperty(window, 'localStorage', { get() { forbiddenReads++; throw new Error('禁止读取 localStorage'); } });
+  const info = getCoarseBrowserEnvironment({ navigator, window, Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: 'Asia/Tokyo' }) }) } });
+  assert.equal(info.browser, 'Chrome');
+  assert.equal(info.browserMajor, 131);
+  assert.equal(info.osFamily, 'Android');
+  assert.equal(info.formFactor, '手机');
+  assert.equal(info.viewportApprox, '400 × 800（约，取整到 100 px）');
+  assert.equal(info.timeZone, 'Asia/Tokyo');
+  assert.deepEqual(info.languages, ['zh-CN', 'en-US']);
+  assert.equal(forbiddenReads, 0);
+  assert.equal('userAgent' in info, false);
+  assert.equal('ip' in info || 'latitude' in info || 'longitude' in info, false);
+  const tool = TOOL_DEFS.find((x) => x.name === 'get_browser_environment');
+  assert.ok(tool && /不读取 Cookie/.test(tool.description));
 });
 test('executeTool：沙箱关闭时拒绝执行代码（未显式关闭的旧调用方不受影响）', async () => {
   const r = await executeTool('execute_javascript', { code: '1+1' }, { fs: createFS(), sandboxEnabled: false });
@@ -2934,7 +3015,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.1');
+  const api = await import('../js/api.js?v=2026.10.5.2');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -6124,7 +6205,7 @@ test('2026.10.1.12：P0-3 能力掩码升级为「能力 + 约束」——域名
   assert.equal(ex.checkCapabilityConstraints({ name: 'list_files', args: {}, capabilities: open }).constraintId, 'no-constraint');
 });
 
-test('2026.10.1.12：P0-4 工具契约层——28 个工具契约全覆盖、调用前后校验、失败分类与幂等键', async () => {
+test('2026.10.1.12：P0-4 工具契约层——31 个工具契约全覆盖、调用前后校验、失败分类与幂等键', async () => {
   const ex = await import('../js/execution.js');
   const { TOOL_DEFS } = await import('../js/tools.js');
 
@@ -7106,133 +7187,49 @@ test('2026.10.2.14：P2-4 端到端——注入「工具返回空值」，调用
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// P3（THN v2.5.1）：编辑直播预览 / 任务后文件自清理
-// 同样是**真跑一轮**：mock 模型写完文件后，断言磁盘上真的少了一个临时文件、
-// 交付物还在、台账与审计都留了痕。
+// Retired automatic file-prune regression: existing sandbox data must survive a normal turn.
 // ══════════════════════════════════════════════════════════════════════════
-queue.push({ group: '2026.10.2.15 天枢 THN v2.5.1 · P3 编辑直播预览与文件自清理（写入台账 / 三档策略 / 删除核验）' });
-
-test('2026.10.2.15：P3-1 端到端——交付物保留、临时文件被清掉，且台账 / 审计 / 回复痕迹三处对得上', async () => {
-  const calls = [];
-  mockFetch([
-    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'outputs/report.md', content: '# 结论\n- 数据没问题' })),
-    openaiTextTurn('报告已生成：outputs/report.md（结论如上）。'),
-  ], calls);
-  try {
-    const store = storeNoWeb(createStore());
-    // 上轮遗留的、有台账记录的临时文件：当前回合应由清理器真实删除并核验。
-    store.state.files['tmp/debug.json'] = '{"step":1}';
-    store.state.cleanupArtifacts = [{ path: 'tmp/debug.json', at: Date.now() }];
-    store.state.apiKey = 'sk-teamo-test';
-    store.state.model = 'gpt-5.6-sol';
-    const agent = createAgent(store, {});
-    await agent.send('帮我看下数据，生成一份报告');
-
-    // ① 结果：临时文件被删、交付物还在（回答里点名的文件是交付物，不是垃圾）
-    assert.equal('tmp/debug.json' in store.state.files, false, '自己写的临时文件应在回合结束后被清掉');
-    assert.equal('outputs/report.md' in store.state.files, true, '被回答引用的交付物必须保留');
-    assert.match(store.state.files['outputs/report.md'], /结论/);
-
-    // ② 清理报告：删除数量 / 字符数 / 核验通过 / 保留理由都在（no silent decision）
-    const rep = store.state.lastCleanupReport;
-    assert.ok(rep, '必须落一份清理报告');
-    assert.equal(rep.deletedCount, 1, JSON.stringify(rep.deletedPaths));
-    assert.deepEqual(rep.deletedPaths, ['tmp/debug.json']);
-    assert.equal(rep.verified, true, '删除后必须核验（createFS 没有 exists，用 list() 反查）');
-    assert.equal(rep.policy, 'strip');
-    assert.equal(rep.keptProtected.some((k) => k.path === 'outputs/report.md'), true, '保留也要有理由');
-    assert.ok(store.state.cleanupTotals.runs >= 1 && store.state.cleanupTotals.deleted >= 1);
-
-    // ③ 台账瘦身：删掉的离开台账，交付物留着（下轮不再重复扫描已消失的路径）
-    const ledgerPaths = (store.state.cleanupArtifacts || []).map((a) => a.path);
-    assert.equal(ledgerPaths.includes('tmp/debug.json'), false);
-    assert.equal(ledgerPaths.includes('outputs/report.md'), true);
-
-    // ④ 审计：新增的 files-cleanup 事件不得破坏对账（完备性仍要通过）
-    const rec = store.state.lastExecutionRecord;
-    assert.equal(rec.auditReconcile.integrityOk, true, '链式哈希必须自洽');
-    assert.equal(rec.auditReconcile.completenessOk, true, '清理事件也要能被对账覆盖，不能凭空多一个事件');
-    assert.equal(store.state.lastNexusTelemetry.cleanup.deleted, 1, '遥测要暴露清理结论');
-
-    // ⑤ 回复痕迹 + 清理报告行（/cleanup 的数据源）
-    const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && m.done && m.cleanup);
-    assert.ok(last, '清理结论要挂在当轮回复上（用户看得到，不是只在控制台）');
-    assert.equal(last.cleanup.count, 1);
-    const lines = agent.getCleanupReportLines().join('\n');
-    assert.match(lines, /文件自清理/);
-    assert.match(lines, /uploads\//, '报告必须说清边界');
-    assert.match(agent.formatCleanupDetail(), /tmp\/debug\.json/, '详细报告要点名删了什么');
-  } finally { globalThis.fetch = realFetch; }
-});
-
-test('2026.10.2.15：P3-2 端到端——只报告档不删任何文件；关闭档连检查都不做', async () => {
-  const runTurn = async (policy) => {
-    const calls = [];
-    mockFetch([
-      openaiTextTurn('已检查当前工作区。'),
-    ], calls);
-    const store = storeNoWeb(createStore());
-    store.state.files['tmp/keep.json'] = '{}';
-    store.state.cleanupArtifacts = [{ path: 'tmp/keep.json', at: Date.now() }];
-    store.state.apiKey = 'sk-teamo-test';
-    store.state.model = 'gpt-5.6-sol';
-    store.state.settings.cleanupPolicy = policy;
-    const agent = createAgent(store, {});
-    await agent.send('写个临时文件');
-    return { store, agent };
+test('旧快照中的清理策略/台账/回复痕迹迁移掉，但不碰用户文件', () => {
+  const hadLS = Object.prototype.hasOwnProperty.call(globalThis, 'localStorage');
+  const oldLS = globalThis.localStorage;
+  const legacy = {
+    settings: { cleanupPolicy: 'strip', webEnabled: false },
+    cleanupArtifacts: ['tmp/old.tmp'], lastCleanupReport: { deleted: ['tmp/old.tmp'] },
+    cleanupHistory: [{ path: 'tmp/old.tmp' }], cleanupTotals: { deleted: 1 },
+    sessions: [{ id: 'legacy-session', title: '旧会话', model: 'gpt-5.6-sol', files: { 'tmp/user-data.json': '{"keep":true}' },
+      messages: [{ id: 'legacy-message', role: 'assistant', text: '历史答复', cleanup: { deleted: ['tmp/old.tmp'] } }] }],
+    activeSessionId: 'legacy-session', model: 'gpt-5.6-sol', files: {},
+  };
+  globalThis.localStorage = {
+    getItem: (key) => key === `${cfg.STORAGE_KEY}-v2` ? JSON.stringify(legacy) : null,
+    setItem() {}, removeItem() {},
   };
   try {
-    // report：扫描照做、清单照给，但一个文件都不动
-    const report = await runTurn('report');
-    assert.equal('tmp/keep.json' in report.store.state.files, true, '只报告档不得删除任何文件');
-    assert.equal(report.store.state.lastCleanupReport.deletedCount, 0);
-    assert.equal(report.store.state.lastCleanupReport.wouldDelete, 1, '不删也要让用户看到「本来会删什么」');
-    assert.equal(report.store.state.lastCleanupReport.enabled, false);
-    assert.match(report.agent.formatCleanupDetail(), /只报告不删|自动清理已关闭/);
-
-    // off：不检查、不清理，也不留清理痕迹（用户明确说了别动）
-    const off = await runTurn('off');
-    assert.equal('tmp/keep.json' in off.store.state.files, true);
-    assert.equal(off.store.state.lastCleanupReport, null, '关闭档不该产生清理报告');
-    assert.equal(off.store.state.cleanupTotals, null);
-
-    // 手动触发（/cleanup report）：旧档位为 off 时也要能按需检查，dryRun 明示「未删除」
-    const manual = off.agent.runCleanupNow({ dryRun: true });
-    assert.equal(manual.dryRun, true);
-    assert.equal(manual.deletedCount, 0);
-    assert.equal(manual.wouldDelete, 1);
-    assert.equal('tmp/keep.json' in off.store.state.files, true);
-  } finally { globalThis.fetch = realFetch; }
+    const migrated = createStore();
+    assert.equal(migrated.state.files['tmp/user-data.json'], '{"keep":true}');
+    for (const key of ['cleanupArtifacts', 'lastCleanupReport', 'cleanupHistory', 'cleanupTotals']) assert.equal(key in migrated.state, false);
+    assert.equal('cleanupPolicy' in migrated.state.settings, false);
+    assert.equal('cleanup' in migrated.state.messages[0], false);
+    assert.equal('cleanup' in migrated.state.sessions[0].messages[0], false);
+  } finally {
+    if (hadLS) globalThis.localStorage = oldLS;
+    else delete globalThis.localStorage;
+  }
 });
-
-test('2026.10.2.15：P3-3 端到端——uploads/ 原件与「未被引用的交付物」都不动；中止的回合不删半成品', async () => {
+test('正常任务不会因临时路径名删除既有文件', async () => {
   const calls = [];
-  mockFetch([
-    openaiToolTurn('c1', 'write_file', JSON.stringify({ path: 'uploads/agent-note.csv', content: 'a,b\n1,2' })),
-    openaiToolTurn('c2', 'write_file', JSON.stringify({ path: 'tmp/half-done.txt', content: '半成品' })),
-    openaiTextTurn('已处理完毕，原件保留：uploads/agent-note.csv。'),
-  ], calls);
+  mockFetch([openaiTextTurn('检查完成。')], calls);
   try {
     const store = storeNoWeb(createStore());
+    store.state.files['tmp/debug.json'] = '{"step":1}';
     store.state.apiKey = 'sk-teamo-test';
     store.state.model = 'gpt-5.6-sol';
     const agent = createAgent(store, {});
-    await agent.send('处理一下数据');
-
-    // 受保护路径：即使是 Agent 自己创建的，也不在可删集合里
-    assert.equal('uploads/agent-note.csv' in store.state.files, true, 'uploads/ 下的文件永不自动删除');
-    assert.equal('tmp/half-done.txt' in store.state.files, false, '普通临时文件照常清理');
-    const rep = store.state.lastCleanupReport;
-    assert.equal(rep.keptProtected.some((k) => k.path === 'uploads/agent-note.csv' && k.rule === 'protectedPath'), true, JSON.stringify(rep.keptProtected));
-
-    // 编辑预览：界面拿到的是**已落盘**的内容，不是模型当时想写的（避免预览与文件不一致）
-    const live = agent.getEditPreview([{ id: 'l1', name: 'write_file', args: { __raw: '{"path":"outputs/x.md","content":"第一行\\n第' } }]);
-    assert.equal(live.status, 'streaming', '半截 JSON 也要能给出直播预览（路径通常先到）');
-    assert.equal(live.path, 'outputs/x.md');
-    const disk = agent.getEditPreview([{ id: 'd1', name: 'write_file', args: { path: 'uploads/agent-note.csv', content: '模型当时想写的内容' } }]);
-    assert.equal(disk.fromDisk, true, '文件已落盘 → 预览从磁盘读回');
-    assert.match(disk.lines.map((l) => l.text).join('\n'), /a,b/, '预览窗显示的必须是文件现在的样子');
-    assert.equal(agent.getEditPreview([]), null, '没有写入就不该有预览窗');
+    await agent.send('只检查，不要修改文件');
+    assert.equal(store.state.files['tmp/debug.json'], '{"step":1}', '正常回合不得因临时路径名删除既有文件');
+    assert.equal('runCleanupNow' in agent, false);
+    assert.equal('cleanupArtifacts' in store.state, false);
+    assert.equal('cleanupPolicy' in store.state.settings, false);
   } finally { globalThis.fetch = realFetch; }
 });
 
