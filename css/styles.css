@@ -679,6 +679,9 @@ a { color: var(--fg); }
 .md-body del { color: var(--fg-3); }
 .md-body li > ul, .md-body li > ol { margin: .15em 0; }
 .md-body li input[type="checkbox"] { margin-right: 6px; accent-color: var(--fg); vertical-align: -1px; }
+.md-body sub { vertical-align: sub; font-size: .75em; line-height: 0; }
+.md-body sup { vertical-align: super; font-size: .75em; line-height: 0; }
+.md-body s, .md-body del { text-decoration-line: line-through; }
 .md-body code { font-family: var(--mono); font-size: .86em; background: var(--bg-hover); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
 .md-body pre {
   position: relative; margin: .7em 0; padding: 14px 16px; background: var(--bg-soft);
@@ -860,14 +863,30 @@ a { color: var(--fg); }
 .attach-chip-x svg, .attach-chip-x .ico { width: 10px; height: 10px; display: block; }
 .attach-chip-x:hover { color: var(--bg); background: var(--fg); }
 
-#attach-btn, #camera-btn {
+.attach-menu-wrap { position: relative; z-index: 20; flex: 0 0 auto; }
+#attach-btn {
   width: 34px; height: 34px; border-radius: 9px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   border: 1px solid transparent; color: var(--fg-2);
   transition: all .22s var(--ease);
 }
-#attach-btn svg, #camera-btn svg { width: 17px; height: 17px; }
-#attach-btn:hover, #camera-btn:hover { color: var(--fg); border-color: var(--line-2); transform: translateY(-1px); }
+#attach-btn svg { width: 17px; height: 17px; }
+#attach-btn:hover, #attach-btn[aria-expanded="true"] { color: var(--fg); border-color: var(--line-2); transform: translateY(-1px); }
+.attach-menu[hidden] { display: none !important; }
+.attach-menu {
+  position: absolute; left: 0; bottom: calc(100% + 9px); z-index: 30;
+  display: flex; flex-direction: column; gap: 3px; width: max-content; min-width: 176px; padding: 6px;
+  border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg);
+  box-shadow: var(--shadow-lg); animation: fadeUp .14s var(--ease) both;
+}
+.attach-menu-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px;
+  border: 0; border-radius: 8px; color: var(--fg-2); background: transparent; text-align: left;
+  font: inherit; font-size: var(--ui-fs-13px, 13px); cursor: pointer; transition: background .16s ease, color .16s ease;
+}
+.attach-menu-item:hover, .attach-menu-item:focus-visible { color: var(--fg); background: var(--bg-hover); }
+.attach-menu-item svg { flex: 0 0 auto; width: 17px; height: 17px; }
+
 
 /* 本地照片编辑器（仅由拍照入口打开；普通附件不经过编辑器） */
 .photo-editor-modal { position: fixed; inset: 0; z-index: 1800; display: flex; align-items: center; justify-content: center; padding: 18px; background: rgba(0,0,0,.68); }
@@ -879,13 +898,16 @@ a { color: var(--fg); }
 .photo-editor-toolbar { flex-wrap: wrap; }
 .photo-editor-toolbar > button, .photo-editor-foot > button { min-height: 34px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); color: var(--fg-2); font-size: var(--ui-fs-12px, 12px); }
 .photo-editor-toolbar > button:hover, .photo-editor-toolbar > button.active { color: var(--fg); border-color: var(--fg-3); }
+.photo-editor-toolbar > button:disabled { opacity: .48; cursor: not-allowed; }
+.photo-editor-toolbar > button[hidden] { display: none !important; }
 .photo-pen-color, .photo-pen-size { display: inline-flex; align-items: center; gap: 5px; color: var(--fg-3); font-size: var(--ui-fs-11px, 11px); }
 .photo-pen-color input { width: 28px; height: 28px; padding: 0; border: 0; background: transparent; }
 .photo-pen-size input { width: 86px; }
 .photo-editor-hint { min-height: 18px; color: var(--fg-3); font-size: var(--ui-fs-11px, 11px); }
 .photo-stage { position: relative; min-height: 180px; display: flex; align-items: center; justify-content: center; overflow: auto; border-radius: 10px; background: repeating-conic-gradient(var(--bg-soft) 0% 25%, var(--bg) 0% 50%) 50% / 18px 18px; }
+.photo-canvas-wrap { position: relative; display: block; flex: 0 0 auto; width: fit-content; max-width: 100%; max-height: 62vh; line-height: 0; }
 .photo-canvas { display: block; max-width: 100%; max-height: 62vh; width: auto; height: auto; touch-action: none; }
-.photo-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.photo-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; pointer-events: none; }
 .photo-editor-foot { justify-content: flex-end; }
 .photo-editor-foot .photo-save { color: var(--bg); background: var(--fg); border-color: var(--fg); font-weight: 700; }
 .photo-editor-foot button:disabled { opacity: .5; cursor: not-allowed; }
@@ -920,6 +942,7 @@ a { color: var(--fg); }
 /* Pandoc 风格 ==高亮== */
 .md-body mark.md-highlight {
   color: inherit;
+  background: rgba(79, 70, 229, .16);
   background: color-mix(in srgb, var(--accent, #4f46e5) 20%, transparent);
   border-radius: .18em;
   padding: 0 .12em;
@@ -1191,44 +1214,45 @@ a { color: var(--fg); }
 .mem-card .mem-list { max-height: 240px; padding: 8px 12px 12px; }
 .img-lightbox {
   position: fixed; inset: 0; z-index: 120;
-  background: rgba(8, 8, 8, .85);
+  background: rgba(8, 8, 8, .88);
   display: flex; flex-direction: column; align-items: stretch; justify-content: stretch;
 }
 .img-lightbox[hidden] { display: none !important; }
 .img-lightbox-stage {
-  flex: 1; overflow: hidden; display: flex; align-items: center; justify-content: center;
-  cursor: grab; position: relative;
-  touch-action: none; /* 阻止浏览器默认 pinch 滚动，由 JS 自己处理双指 */
-  user-select: none; -webkit-user-select: none;
+  flex: 1; min-width: 0; min-height: 0; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  cursor: grab; position: relative; z-index: 0;
+  touch-action: none; user-select: none; -webkit-user-select: none;
 }
 .img-lightbox-stage:active { cursor: grabbing; }
 .lb-transform {
   transform-origin: 0 0; transition: transform .08s ease-out;
-  will-change: transform;
-  display: flex; align-items: center; justify-content: center;
+  will-change: transform; display: flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: max-content; height: max-content; max-width: 100%; max-height: 100%;
 }
-.lb-transform img { max-width: min(92vw, 1400px); max-height: 88vh; object-fit: contain; border-radius: 10px; box-shadow: var(--shadow-lg); display: block; user-select: none; -webkit-user-drag: none; }
-.lb-transform svg { max-width: min(92vw, 1600px); max-height: 88vh; height: auto; display: block; background: var(--bg); border-radius: 10px; box-shadow: var(--shadow-lg); }
+.lb-transform img { max-width: min(92vw, 1400px); max-height: min(82vh, 900px); object-fit: contain; border-radius: 10px; box-shadow: var(--shadow-lg); display: block; user-select: none; -webkit-user-drag: none; }
+.lb-transform svg { display: block; width: auto; height: auto; max-width: min(92vw, 1600px); max-height: min(82vh, 900px); background: var(--bg); border-radius: 10px; box-shadow: var(--shadow-lg); }
 .lb-transform .md-chart, .lb-transform .md-diagram { margin: 0; }
-.lb-transform .md-chart-svg, .lb-transform .md-diagram-svg { width: auto; max-width: none; background: var(--bg); }
+.lb-transform .md-chart-svg, .lb-transform .md-diagram-svg { width: auto; height: auto; max-width: min(92vw, 1600px); max-height: min(82vh, 900px); background: var(--bg); }
 .img-lightbox-toolbar {
-  position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 14px; left: 50%; z-index: 5; transform: translateX(-50%);
   display: flex; align-items: center; gap: 6px;
-  background: rgba(20,20,20,.7); backdrop-filter: blur(8px);
-  border: 1px solid rgba(255,255,255,.12); border-radius: 10px; padding: 4px;
-  color: #fff;
+  background: rgba(20,20,20,.82); backdrop-filter: blur(8px);
+  border: 1px solid rgba(255,255,255,.18); border-radius: 10px; padding: 4px;
+  color: #fff; pointer-events: auto;
 }
 .lb-btn {
-  background: transparent; color: #fff; border: 0; min-width: 30px; height: 28px;
-  border-radius: 6px; font-size: var(--ui-fs-15px, 15px); cursor: pointer; padding: 0 8px;
+  position: relative; z-index: 1; background: transparent; color: #fff; border: 0;
+  min-width: 36px; height: 32px; border-radius: 6px; font-size: var(--ui-fs-15px, 15px);
+  cursor: pointer; padding: 0 8px; touch-action: manipulation;
 }
-.lb-btn:hover { background: rgba(255,255,255,.12); }
-.lb-zoom-label { font-size: var(--ui-fs-12px, 12px); color: rgba(255,255,255,.7); padding: 0 6px; min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.lb-btn:hover, .lb-btn:focus-visible { background: rgba(255,255,255,.18); }
+.lb-zoom-label { font-size: var(--ui-fs-12px, 12px); color: rgba(255,255,255,.86); padding: 0 6px; min-width: 50px; text-align: center; font-variant-numeric: tabular-nums; }
 .img-lightbox-x {
-  position: absolute; top: 14px; right: 16px; font-size: var(--ui-fs-22px, 22px); line-height: 1;
-  color: #fff; padding: 6px 10px; border-radius: 8px; background: transparent; border: 0; cursor: pointer; z-index: 2;
+  position: absolute; top: 14px; right: 16px; z-index: 6; font-size: var(--ui-fs-22px, 22px); line-height: 1;
+  color: #fff; padding: 6px 10px; border-radius: 8px; background: rgba(20,20,20,.55); border: 0; cursor: pointer;
 }
-.img-lightbox-x:hover { background: rgba(255,255,255,.12); }
+.img-lightbox-x:hover { background: rgba(255,255,255,.18); }
 
 /* ── 弹窗 ────────────────────────────────────────────────────────────── */
 .modal {
@@ -1330,7 +1354,7 @@ a { color: var(--fg); }
   .act { min-height: 0; padding: 3px 8px; font-size: var(--ui-fs-11px, 11px); }
   .act svg { width: 12px; height: 12px; }
   .msg-actions { opacity: 1; transform: none; }
-  #attach-btn, #camera-btn, #send-btn { width: 40px; height: 40px; }
+  #attach-btn, #send-btn { width: 40px; height: 40px; }
   .pill { min-height: 40px; }
   /* 触屏层只抬到「够点得中」，不再把字号/内边距一起放大（会被中文标签换行撑成两行高按钮）*/
   .mini-btn { min-height: 40px; padding: 8px 10px; font-size: var(--ui-fs-12px, 12px); white-space: nowrap; }
@@ -1412,7 +1436,7 @@ a { color: var(--fg); }
   }
   .composer { padding: 6px 6px 6px 10px; gap: 6px; }
   #composer-input { font-size: 16px; min-height: 24px; max-height: 40vh; } /* 16px：iOS 不放大页面 */
-  #attach-btn, #camera-btn { width: 40px; height: 40px; }
+  #attach-btn { width: 40px; height: 40px; }
   #send-btn { width: 42px; height: 42px; font-size: var(--ui-fs-17px, 17px); }
   .composer-hint { font-size: var(--ui-fs-10px, 10px); line-height: 1.5; margin-top: 6px; opacity: .85;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1468,6 +1492,17 @@ a { color: var(--fg); }
 .md-align-right { text-align: right; }
 .md-align-center > *, .md-align-right > * { text-align: inherit; }
 .md-chart, .md-diagram { position: relative; margin: 12px 0; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.md-chart-expand {
+  position: absolute; top: 9px; right: 9px; z-index: 3;
+  display: grid; place-items: center; width: 34px; height: 34px; padding: 0;
+  border: 1px solid var(--line-2); border-radius: 9px; color: var(--fg-2);
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  opacity: .86; cursor: zoom-in; transition: opacity .18s ease, color .18s ease, transform .18s ease;
+}
+.md-chart-expand:hover, .md-chart-expand:focus-visible { opacity: 1; color: var(--fg); transform: scale(1.04); }
+.md-chart-expand svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: none) { .md-chart-expand { opacity: 1; } }
+
 .md-chart-svg {
   display: block; width: min(720px, 100%); height: auto;
   background: var(--bg-soft); border: 1px solid var(--line); border-radius: 14px;

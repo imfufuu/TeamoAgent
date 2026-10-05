@@ -200,11 +200,17 @@ ok('完成后进度条熄灭', !$('#turn-bar').classList.contains('on'));
 
 console.log('\n⑪ 拍照入口先编辑，再复用普通附件上传链路');
 const cameraInputEl = $('#camera-input');
-ok('拍照入口使用 environment capture，附件入口仍保持普通多选', !!$('#camera-btn') && cameraInputEl?.getAttribute('capture') === 'environment' && $('#attach-input')?.hasAttribute('capture') === false);
+ok('相机入口收纳在附件菜单中且使用 environment capture', !!$('#camera-btn') && $('#attach-menu')?.contains($('#camera-btn')) && cameraInputEl?.getAttribute('capture') === 'environment' && $('#attach-input')?.hasAttribute('capture') === false);
+ok('附件按钮可打开附件/拍照菜单', !!$('#attach-menu')?.hidden && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
+click($('#attach-btn'));
+ok('点击附件按钮展开附件菜单', $('#attach-menu')?.hidden === false && $('#attach-btn')?.getAttribute('aria-expanded') === 'true');
+click($('#attach-btn'));
+ok('再次点击附件按钮收起附件菜单', $('#attach-menu')?.hidden === true && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
 const photoEditorSource = fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8');
 ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
 const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));
 ok('照片编辑尺寸与反向拖拽裁剪范围受限', photoMath.fitPhotoSize(8000, 4000, 2048).width === 2048 && photoMath.cropRectFromDrag(90, 90, 10, 10, 100, 100)?.x === 10);
+ok('四边裁剪手柄可独立调整裁剪边界', photoMath.resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 'w', { x: 10, y: 40 }, 100, 100)?.width === 70 && photoMath.resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 's', { x: 50, y: 80 }, 100, 100)?.height === 60);
 
 console.log('\n④ 附件自动进 uploads/ + ⑤ 单文件 / ZIP 下载');
 const written = copyAttachmentsToFS(agent.fs, [

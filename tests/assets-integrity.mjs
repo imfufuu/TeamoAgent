@@ -402,12 +402,32 @@ await test('相机专用入口自动编辑，保存回用 addFiles，普通附�
   const editor = read('../js/photo-editor.js');
   const css = read('../css/styles.css');
   assert.match(app, /id=\"camera-btn\"/);
+  assert.match(app, /id=\"attach-menu-wrap\"[\s\S]*id=\"attach-menu\"[\s\S]*id=\"camera-btn\"[\s\S]*role=\"menuitem\"/);
+  assert.match(ui, /setAttachMenuOpen/);
+  assert.match(css, /\.attach-menu-wrap/);
+  assert.match(css, /\.attach-menu-item/);
   assert.match(app, /id=\"camera-input\"[^>]*accept=\"image\/\*\" capture=\"environment\"/);
   assert.match(ui, /openPhotoEditor\(photo\)/);
   assert.match(ui, /if \(edited\) await addFiles\(\[edited\]\)/);
   assert.match(ui, /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/);
-  for (const action of ['rotate-left', 'rotate-right', 'crop', 'draw', 'save']) assert.ok(editor.includes(`data-photo-action=\"${action}\"`), `照片编辑器缺少 ${action}`);
+  for (const action of ['undo', 'rotate-left', 'rotate-right', 'crop', 'apply-crop', 'cancel-crop', 'draw', 'save']) assert.ok(editor.includes(`data-photo-action=\"${action}\"`), `照片编辑器缺少 ${action}`);
+  assert.match(editor, /MAX_UNDO_ENTRIES/);
+  assert.match(editor, /pushUndoSnapshot/);
+  assert.match(editor, /resizeCropRect/);
   assert.match(css, /\.photo-editor-modal/);
+  assert.match(css, /\.photo-canvas-wrap/);
+});
+await test('图表全屏查看器具有显式入口、SVG 固有尺寸和可交互缩放', () => {
+  const ui = read('../js/ui.js');
+  const css = read('../css/styles.css');
+  const viewer = read('../js/lightbox.js');
+  assert.match(ui, /class=\"md-chart-expand\"/);
+  assert.match(ui, /width=\"\$\{w\}\" height=\"\$\{h\}\"/);
+  assert.match(ui, /zoomLightboxState\(lbState, factor/);
+  assert.match(ui, /setAttribute\('width', String\(vb\[2\]\)\)/);
+  assert.match(viewer, /LIGHTBOX_MIN_SCALE = 0\.25/);
+  assert.match(viewer, /LIGHTBOX_MAX_SCALE = 8/);
+  assert.match(css, /\.img-lightbox-toolbar[\s\S]*?z-index:\s*5/);
 });
 await test('浏览器环境读取只输出粗粒度字段，并提供显式工具与 /env 命令', () => {
   const env = read('../js/browser-env.js');

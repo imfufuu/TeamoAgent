@@ -1,6 +1,6 @@
 // 识图工具专用通道：对话模型全部按纯文本发送，图片只走 deepseek-v4-flash-vision-exp。
 // 独立文件，避免给 api.js 新增具名导出（Pages 混版缓存会白屏）。
-import { authHeaders } from './api.js?v=2026.10.5.3';
+import { authHeaders } from './api.js?v=2026.10.5.4';
 import { gatewayBase, otherGatewayBase, setGatewayBase, isNetworkError } from './endpoint.js';
 
 export const VISION_TOOL_MODEL = 'deepseek-v4-flash-vision-exp';

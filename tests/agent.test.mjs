@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.3';
+} from '../js/api.js?v=2026.10.5.4';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import { createFS } from '../js/sandbox.js';
@@ -27,7 +27,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.3');
+const api = await import('../js/api.js?v=2026.10.5.4');
 
 let passed = 0;
 const queue = [];
@@ -684,10 +684,17 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   // 任务列表 / 删除线 / 分割线 / 嵌套列表 / 引用
   const task = renderMarkdown('- [x] 完成\n- [ ] 待办');
   assert.ok(task.includes('type="checkbox"') && task.includes('checked'), '任务列表');
-  assert.ok(renderMarkdown('~~旧~~').includes('<s>'), '删除线');
+  assert.ok(renderMarkdown('~~旧~~').includes('<s>'), '标准删除线');
+  assert.match(renderMarkdown('~~删除线~'), /<s>删除线<\/s>/, '兼容单右波浪号的删除线输入');
+  assert.match(renderMarkdown('\\~~按字面显示~~'), /~~按字面显示~~/, '不修复被反斜杠转义的删除线定界符');
   const highlight = renderMarkdown('==高亮（部分渲染器支持）==');
   assert.match(highlight, /<mark class="md-highlight">高亮（部分渲染器支持）<\/mark>/, 'Pandoc 风格高亮');
   assert.doesNotMatch(highlight, /==/);
+  const nestedInlineCode = renderMarkdown('==`IC0`==、下标 H~`2`~O、上标 x^`2`^');
+  assert.match(nestedInlineCode, /<mark class="md-highlight"><code>IC0<\/code><\/mark>/, '高亮中的行内代码应恢复');
+  assert.match(nestedInlineCode, /<sub><code>2<\/code><\/sub>O/, '下标中的行内代码应恢复');
+  assert.match(nestedInlineCode, /<sup><code>2<\/code><\/sup>/, '上标中的行内代码应恢复');
+  assert.doesNotMatch(nestedInlineCode, /\uE000IC\d+\uE000/, '不得泄漏行内代码占位符');
   const hostileHighlight = renderMarkdown('==<img src="javascript:alert(1)" onerror="alert(1)">安全==');
   assert.match(hostileHighlight, /<mark class="md-highlight">/);
   assert.doesNotMatch(hostileHighlight, /javascript:|onerror/i, '高亮内容仍经过 HTML 安全过滤');
@@ -784,7 +791,8 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(righted, /md-align md-align-right/);
   const chart = renderMarkdown(':::chart bar 月销量\n一月, 12\n二月, 18\n:::');
   assert.match(chart, /class="md-chart md-chart-bar"/);
-  assert.match(chart, /<svg/);
+  assert.match(chart, /class="md-chart-expand"[^>]*aria-label="全屏查看图表"/);
+  assert.match(chart, /<svg viewBox="0 0 \d+ \d+" width="\d+" height="\d+"/);
   assert.match(chart, /月销量/);
   const stChart = renderMarkdown(':::st 匀速直线运动\n0, 0\n1, 5\n2, 10\n:::');
   assert.match(stChart, /md-chart-st/);
@@ -800,6 +808,29 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   const mid = renderMarkdown(':::choice 不该出现\n- A\n:::\n后面还有字');
   assert.equal(mid.includes('choice-box'), false, '选择框不在文末则不渲染');
 });
+test('照片编辑器：裁剪框可按四边/四角调整并限制在图像范围内', async () => {
+  const { cropRectFromDrag, resizeCropRect } = await import('../js/photo-editor.js');
+  assert.deepEqual(cropRectFromDrag(80, 70, 20, 10, 100, 100), { x: 20, y: 10, width: 60, height: 60 });
+  assert.deepEqual(resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 'w', { x: 10, y: 40 }, 100, 100), { x: 10, y: 20, width: 70, height: 40 });
+  assert.deepEqual(resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 's', { x: 50, y: 80 }, 100, 100), { x: 20, y: 20, width: 60, height: 60 });
+  assert.deepEqual(resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 'nw', { x: -50, y: 0 }, 100, 100), { x: 0, y: 0, width: 80, height: 60 });
+  assert.equal(resizeCropRect({ x: 20, y: 20, width: 60, height: 40 }, 'bad', { x: 0, y: 0 }, 100, 100), null);
+});
+
+test('图表查看器缩放：以指针位置为锚点并限制缩放范围', async () => {
+  const { zoomLightboxState, LIGHTBOX_MIN_SCALE, LIGHTBOX_MAX_SCALE } = await import('../js/lightbox.js');
+  const zoomed = zoomLightboxState({ scale: 1, tx: 0, ty: 0 }, 2, { x: 120, y: 80 });
+  assert.deepEqual(zoomed, { scale: 2, tx: -120, ty: -80 }, '缩放时保持锚点位置');
+  const maxed = zoomLightboxState(zoomed, 100, { x: 120, y: 80 });
+  assert.equal(maxed.scale, LIGHTBOX_MAX_SCALE, '最大缩放应限幅');
+  const mined = zoomLightboxState({ scale: 1, tx: 3, ty: 4 }, 0.001, { x: 10, y: 20 });
+  assert.equal(mined.scale, LIGHTBOX_MIN_SCALE, '最小缩放应限幅');
+  assert.ok(Number.isFinite(mined.tx) && Number.isFinite(mined.ty));
+  const css = (await import('node:fs')).readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.img-lightbox-toolbar\s*\{[^}]*z-index:\s*5/);
+  assert.match(css, /\.img-lightbox-stage\s*\{[^}]*z-index:\s*0/);
+});
+
 test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => {
   const savedMd = globalThis.markdownit;
   globalThis.markdownit = undefined;
@@ -809,11 +840,16 @@ test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => 
   assert.ok(out.includes('<strong>粗</strong>'), '回退渲染加粗');
   assert.ok(out.includes('<code>code</code>'), '回退渲染行内代码');
   assert.ok(renderMarkdown('==降级高亮==').includes('<mark class="md-highlight">降级高亮</mark>'), '回退渲染高亮');
+  assert.ok(renderMarkdown('~~降级删除线~').includes('<s>降级删除线</s>'), '回退渲染兼容单右波浪号删除线');
   const escapedFallback = renderMarkdown('\\*不是斜体\\*，\\`不是代码\\`。');
   assert.ok(escapedFallback.includes('*不是斜体*'), '回退渲染保留转义星号');
   assert.ok(escapedFallback.includes('`不是代码`'), '回退渲染保留转义反引号');
   assert.ok(!escapedFallback.includes('<em>不是斜体</em>'));
   assert.ok(!escapedFallback.includes('<code>不是代码</code>'));
+  const nestedFallback = renderMarkdown('==`IC0`== 与 H~`2`~O');
+  assert.ok(nestedFallback.includes('<mark class="md-highlight"><code>IC0</code></mark>'), '回退路径恢复高亮中的行内代码');
+  assert.ok(nestedFallback.includes('<sub><code>2</code></sub>O'), '回退路径恢复下标中的行内代码');
+  assert.ok(!/\uE000IC\d+\uE000/.test(nestedFallback), '回退路径不得泄漏行内代码占位符');
   assert.ok(!out.includes('<script>'), '回退渲染安全');
   globalThis.markdownit = savedMd;
 });
@@ -3035,7 +3071,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.3');
+  const api = await import('../js/api.js?v=2026.10.5.4');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5212,7 +5248,7 @@ test('对话区图表修复：CSS 定义 --accent/--sans/--warn 且思维导图�
   - 符号与数值计算 / SQLite
 :::`;
   const html = renderMarkdown(md);
-  const vb = /viewBox="0 0 (\d+) (\d+)"/.exec(html);
+  const vb = /<svg viewBox="0 0 (\d+) (\d+)" width="\d+" height="\d+" role="img"/.exec(html);
   assert.ok(vb, '应输出有效 viewBox');
   const w = Number(vb[1]), h = Number(vb[2]);
   const rects = [...html.matchAll(/<rect x="([^"]+)" y="([^"]+)" width="([^"]+)" height="([^"]+)"/g)].map((m) => ({

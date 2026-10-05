@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.3';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.4';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.3';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.4';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -21,11 +21,12 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.3';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.3';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.3';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.3';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.3';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.4';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.4';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.4';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.4';
+import { zoomLightboxState } from './lightbox.js?v=2026.10.5.4';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.4';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -368,7 +369,7 @@ function renderQuickChart(kind, body, title = '') {
       });
     }
   }
-  return `<div class="md-chart md-chart-${kind}"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg">${inner}</svg><div class="md-chart-tooltip" hidden></div></div>`;
+  return `<div class="md-chart md-chart-${kind}"><button type="button" class="md-chart-expand" title="全屏查看图表" aria-label="全屏查看图表"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg></button><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg">${inner}</svg><div class="md-chart-tooltip" hidden></div></div>`;
 }
 
 const DIAGRAM_ALIAS = {
@@ -518,7 +519,7 @@ function renderFlowDiagram(body, title = '') {
     const fill = `md-diagram-node-${i % 6}`;
     inner += `<g class="md-diagram-node ${fill}"><rect x="${p.x.toFixed(1)}" y="${p.y.toFixed(1)}" width="${p.w.toFixed(1)}" height="${p.h}" rx="14"/><text x="${(p.x + p.w / 2).toFixed(1)}" y="${(p.y + p.h / 2 + 5).toFixed(1)}" text-anchor="middle">${esc(nodeMeta[n].disp)}</text></g>`;
   });
-  return `<div class="md-diagram md-diagram-flow"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
+  return `<div class="md-diagram md-diagram-flow"><button type="button" class="md-chart-expand" title="全屏查看图表" aria-label="全屏查看图表"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg></button><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(label)}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
 }
 function parseMindTree(body, title = '') {
   const lines = String(body || '').split('\n').filter((x) => x.trim() && !x.trim().startsWith('#'));
@@ -625,7 +626,7 @@ function renderMindDiagram(body, title = '') {
     const cy = it.y + shiftY;
     inner += `<g class="md-mind-node ${it.cls}"><rect x="${(cx - it.w / 2).toFixed(1)}" y="${(cy - it.h / 2).toFixed(1)}" width="${it.w.toFixed(1)}" height="${it.h}" rx="${Math.min(22, it.h / 2)}"/><text x="${cx.toFixed(1)}" y="${(cy + 4.5).toFixed(1)}" text-anchor="middle">${esc(it.disp)}</text></g>`;
   }
-  return `<div class="md-diagram md-diagram-mind"><svg viewBox="0 0 ${w} ${h}" role="img" aria-label="${esc(title || tree.label || '思维导图')}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
+  return `<div class="md-diagram md-diagram-mind"><button type="button" class="md-chart-expand" title="全屏查看图表" aria-label="全屏查看图表"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5"/></svg></button><svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" aria-label="${esc(title || tree.label || '思维导图')}" class="md-chart-svg md-diagram-svg">${inner}</svg></div>`;
 }
 function renderQuickDiagram(kind, body, title = '') {
   return kind === 'mind' ? renderMindDiagram(body, title) : renderFlowDiagram(body, title);
@@ -1210,6 +1211,7 @@ export function renderMarkdown(src) {
     if (!m) return '';
     return mathHtml(m.html, m.display, !!m.open);
   });
+  const restoreInlineCodeTokens = (html) => String(html || '').replace(/\uE000IC(\d+)\uE000/g, (_, i) => `<code>${esc(inlineCodes[+i] || '')}</code>`);
   const restoreWidgets = (html) => {
     const foldAt = (_, i) => {
       const f = folds[+i];
@@ -1265,6 +1267,7 @@ export function renderMarkdown(src) {
     let html = md.render(t);
     html = restoreWidgets(html);
     html = mdExtensions.restore(html, (x) => md.renderInline(x), (x) => renderMarkdown(x));
+    html = restoreInlineCodeTokens(html);
     html = restoreCb(html);
     html = restoreMath(html);
     // 独占一段的代码块去掉外层 <p>，避免 <p><pre> 嵌套
@@ -1286,6 +1289,7 @@ export function renderMarkdown(src) {
     return `<h${n} id="${esc(id)}">${title}</h${n}>`;
   });
   t = t.replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>');
+  t = t.replace(/~~([^~]+?)~~/g, '<s>$1</s>');
   t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   t = t.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>');
   t = t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
@@ -1294,8 +1298,8 @@ export function renderMarkdown(src) {
   t = t.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, (m) => '\n<ol>' + m.trim().split('\n').map((l) => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('') + '</ol>');
   t = t.replace(/\n{2,}/g, '</p><p>').replace(/^(?!<[a-z])/, '<p>').replace(/(?!>)$/, '</p>');
   t = t.replace(/<p>\s*(<(?:h\d|ul|ol|blockquote|pre))/g, '$1').replace(/(<\/(?:h\d|ul|ol|blockquote|pre)>)\s*<\/p>/g, '$1');
-  const fallbackInline = (x) => esc(x).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
-  const fallbackHtml = restoreMath(restoreCb(mdExtensions.restore(restoreWidgets(t), fallbackInline, (x) => renderMarkdown(x))));
+  const fallbackInline = (x) => esc(x).replace(/~~([^~]+?)~~/g, '<s>$1</s>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  const fallbackHtml = restoreInlineCodeTokens(restoreMath(restoreCb(mdExtensions.restore(restoreWidgets(t), fallbackInline, (x) => renderMarkdown(x)))));
   return fallbackHtml.replace(/\uE000ESC(\d+)\uE000/g, (_, i) => esc(fallbackEscapes[+i] || ''));
 }
 
@@ -3978,11 +3982,39 @@ function validateApiKey(s) {
     }
   }
 
-  $('#attach-btn').addEventListener('click', () => fileInput.click());
+  const attachWrap = $('#attach-menu-wrap');
+  const attachMenu = $('#attach-menu');
+  const attachButton = $('#attach-btn');
+  function setAttachMenuOpen(open) {
+    if (!attachMenu || !attachButton) return;
+    attachMenu.hidden = !open;
+    attachButton.setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  attachButton?.addEventListener('click', () => setAttachMenuOpen(attachMenu?.hidden));
+  $('#attach-file-action')?.addEventListener('click', () => {
+    setAttachMenuOpen(false);
+    fileInput.click();
+  });
+  attachWrap?.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      setAttachMenuOpen(false);
+      attachButton?.focus();
+    } else if (event.key === 'ArrowDown' && attachMenu?.hidden) {
+      event.preventDefault();
+      setAttachMenuOpen(true);
+      attachMenu.querySelector('button')?.focus();
+    }
+  });
+  document.addEventListener('click', (event) => {
+    if (attachWrap && !attachWrap.contains(event.target)) setAttachMenuOpen(false);
+  });
   fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
   const cameraBtn = $('#camera-btn');
   if (cameraBtn && cameraInput) {
-    cameraBtn.addEventListener('click', () => cameraInput.click());
+    cameraBtn.addEventListener('click', () => {
+      setAttachMenuOpen(false);
+      cameraInput.click();
+    });
     cameraInput.addEventListener('change', async () => {
       const photo = cameraInput.files && cameraInput.files[0];
       cameraInput.value = '';
@@ -4499,15 +4531,15 @@ function validateApiKey(s) {
   }
   function lbZoomAt(factor, cx, cy) {
     const stage = $('#img-lightbox-pic');
-    if (!stage) return;
+    const box = $('#img-lightbox');
+    const viewport = box && box.querySelector('.img-lightbox-stage');
+    if (!stage || !viewport) return;
     const rect = stage.getBoundingClientRect();
-    const px = cx != null ? cx - rect.left : rect.width / 2;
-    const py = cy != null ? cy - rect.top : rect.height / 2;
-    const newScale = Math.min(10, Math.max(0.2, lbState.scale * factor));
-    const k = newScale / lbState.scale;
-    lbState.tx -= (px - lbState.tx) * (k - 1);
-    lbState.ty -= (py - lbState.ty) * (k - 1);
-    lbState.scale = newScale;
+    const viewRect = viewport.getBoundingClientRect();
+    const anchorX = Number.isFinite(cx) ? cx : viewRect.left + viewRect.width / 2;
+    const anchorY = Number.isFinite(cy) ? cy : viewRect.top + viewRect.height / 2;
+    const next = zoomLightboxState(lbState, factor, { x: anchorX - rect.left, y: anchorY - rect.top });
+    Object.assign(lbState, next);
     lbApplyTransform();
   }
   function openLightbox(content, opts = {}) {
@@ -4523,9 +4555,19 @@ function validateApiKey(s) {
       im.draggable = false;
       stage.appendChild(im);
     } else if (content instanceof Node) {
-      // 传入的 DOM（SVG / 图表容器）→ 深克隆后放入（避免移动原节点）
+      // 传入的 DOM（SVG / 图表容器）→ 深克隆后放入（避免移动原节点）。
+      // 视图框为 SVG 补上固有宽高，防止没有 width/height 的图表在 flex viewer 中塌成一个点。
       const clone = content.cloneNode(true);
       clone.removeAttribute('id');
+      const svgs = clone.matches?.('svg') ? [clone] : [...(clone.querySelectorAll?.('svg') || [])];
+      for (const svg of svgs) {
+        const vb = (svg.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+        if (vb.length !== 4 || !vb.every(Number.isFinite) || vb[2] <= 0 || vb[3] <= 0) continue;
+        const widthAttr = (svg.getAttribute('width') || '').trim();
+        const heightAttr = (svg.getAttribute('height') || '').trim();
+        if (!(Number.parseFloat(widthAttr) > 0) || /%$/.test(widthAttr)) svg.setAttribute('width', String(vb[2]));
+        if (!(Number.parseFloat(heightAttr) > 0) || /%$/.test(heightAttr)) svg.setAttribute('height', String(vb[3]));
+      }
       stage.appendChild(clone);
     }
     lbReset();
@@ -4620,6 +4662,13 @@ function validateApiKey(s) {
   // 点击委派：图片 / SVG / 图表 → 全屏
   document.addEventListener('click', (e) => {
     if (e.target.closest('.img-lightbox')) return;
+    const expandChart = e.target.closest('.md-chart-expand');
+    if (expandChart) {
+      e.preventDefault(); e.stopPropagation();
+      const svg = expandChart.closest('.md-chart, .md-diagram')?.querySelector('.md-chart-svg');
+      if (svg) openLightbox(svg, { alt: svg.getAttribute('aria-label') || '图表' });
+      return;
+    }
     // 1) 普通 <img>（消息正文 / 附件 / 文件预览）
     const img = e.target.closest('img');
     if (img && img.id !== 'img-lightbox-pic') {
@@ -4644,8 +4693,10 @@ function validateApiKey(s) {
       // 3) 语法渲染的图表（Mermaid 流程图 / 思维导图）：md-chart-svg / md-diagram-svg
       const chartSvg = svg.closest('.md-chart-svg, .md-diagram-svg');
       if (chartSvg) {
+        // Quick charts use an explicit expand button; diagrams retain their direct-click shortcut.
+        if (chartSvg.closest('.md-chart') && !e.target.closest('.md-chart-expand')) return;
         e.preventDefault();
-        openLightbox(chartSvg, {});
+        openLightbox(chartSvg, { alt: chartSvg.getAttribute('aria-label') || '图表' });
         return;
       }
     }

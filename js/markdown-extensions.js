@@ -462,11 +462,22 @@ function protectFencedDivs(source, state) {
   return root.join('\n');
 }
 
+function normalizeLenientStrikethrough(source) {
+  // Commonly mistyped Markdown with two opening tildes and one closing tilde
+  // should still read as strikethrough. Code spans are already tokenized by the
+  // caller; escaped delimiters and valid ~~...~~ pairs are left untouched.
+  return String(source || '').replace(/(?<![~\\])~~(?!~)([^~\n]*?\S[^~\n]*)(?<![~\\])~(?!~)/g, (_whole, content) => {
+    const edges = /^(\s*)([\s\S]*?\S)(\s*)$/.exec(content);
+    return edges ? `${edges[1]}~~${edges[2]}~~${edges[3]}` : _whole;
+  });
+}
+
 export function prepareMarkdownExtensions(source) {
   const state = {
     rawHtml: [], rawHtmlBlocks: new Set(), superSub: [], highlights: [], definitionLists: [], footnoteDefs: new Map(), footnotes: [], footnoteRefs: [], fencedDivs: [],
   };
   let text = protectRawHtml(source, state);
+  text = normalizeLenientStrikethrough(text);
   text = extractDefinitions(text, state);
   text = protectFootnoteRefs(text, state);
   text = protectSuperSub(text, state);

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.3" />
+<meta name="app-version" content="2026.10.5.4" />
 <meta name="app-release" content="V1.5" />
 <meta name="robots" content="noindex" />
 <title>文档 · TeamoAgent V1.5</title>
@@ -180,7 +180,16 @@
     <div class="timeline">
 
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.5 · Markdown 转义与高亮修复</span><span class="ver-build">2026.10.5.3</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.5 · Markdown、图表与照片交互修复</span><span class="ver-build">2026.10.5.4</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag fix">FIX</span><span><strong>修复嵌套 Markdown 占位符泄漏</strong>：高亮、下标或上标中的行内代码会在扩展展开后正确恢复，不再显示私用区 <code>IC0</code> 标记；同时兼容单波浪号闭合的删除线输入，保留转义定界符按字面显示。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>图表与 SVG 查看器</strong>：图表和流程/思维导图增加明确的展开入口；SVG 补足固有尺寸，查看器缩放以指针为锚点并限制 25%–800%，工具栏保持在画布上层。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>附件与照片编辑</strong>：相机入口移至附件菜单；照片编辑器支持撤销、八点裁剪框的四边/四角拖拽，以及应用或取消裁剪。</span></li>
+        </ul></div>
+      </div>
+
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.5 · Markdown 转义与高亮修复</span><span class="ver-build">2026.10.5.3</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>修正转义反引号</strong>：Markdown 预处理器现在只提取未转义、成对的行内代码定界符；被反斜杠转义的星号与反引号按字面显示，完整 Markdown 与无 markdown-it 的降级渲染路径均有回归。</span></li>
           <li><span class="tag add">ADD</span><span><strong>支持 ==高亮==</strong>：加入 Pandoc 风格高亮语法，输出主题适配的安全 <code>&lt;mark&gt;</code>；转义定界符仍显示为普通文本，既有危险 HTML 与属性过滤不变。</span></li>
@@ -465,7 +474,7 @@
 </main>
 
 <footer>
-  <span>TeamoAgent V1.5 · 构建 2026.10.5.3</span>
+  <span>TeamoAgent V1.5 · 构建 2026.10.5.4</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/TeamoAgent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
