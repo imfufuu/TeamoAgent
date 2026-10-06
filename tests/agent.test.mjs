@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.14';
+} from '../js/api.js?v=2026.10.5.15';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.14');
+const api = await import('../js/api.js?v=2026.10.5.15');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3119,7 +3119,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.14');
+  const api = await import('../js/api.js?v=2026.10.5.15');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3148,13 +3148,66 @@ test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', as
   }
 });
 
-group('管理员密钥：源码里没有明文，口令拉伸后解封');
+group('管理员密钥：源码里没有明文，口令 scrypt 拉伸后解封，带 14 天有效期');
+test('scrypt 纯 JS 实现与 Node 原生 scrypt 逐字节一致（N=2^16 · r=8 · p=1）', async () => {
+  const crypto = await import('node:crypto');
+  const ak = await import('../js/adminkey.js');
+  assert.deepEqual({ ...ak.SCRYPT_PARAMS }, { N: 65536, r: 8, p: 1, dkLen: 64 });
+  const pw = Buffer.from('admin-Ab12Cd34', 'utf8');
+  const salt = crypto.randomBytes(16);
+  // 小参数快速比对 + 正式参数各一次
+  for (const params of [{ N: 1024, r: 8, p: 1, dkLen: 64 }, { N: 2048, r: 4, p: 2, dkLen: 48 }, ak.SCRYPT_PARAMS]) {
+    const t0 = performance.now();
+    const ours = Buffer.from(await ak.scrypt(pw, salt, params));
+    const ms = performance.now() - t0;
+    const ref = crypto.scryptSync(pw, salt, params.dkLen, { N: params.N, r: params.r, p: params.p, maxmem: 512 * 1024 * 1024 });
+    assert.ok(ours.equals(ref), `scrypt 不一致：${JSON.stringify(params)}`);
+    if (params.N === 65536) assert.ok(ms < 5000, `正式参数校验应在数秒内完成（实测 ${Math.round(ms)}ms）`);
+  }
+});
+test('密封 / 解封往返：错口令拒绝、篡改密文或有效期被 HMAC 拦下、到期后口令正确也拒绝', async () => {
+  const ak = await import('../js/adminkey.js');
+  const pw = 'admin-Zz9Yy8Xx';
+  const key = 'sk-' + 'teamo-' + 'f'.repeat(48);
+  const params = { N: 1024, r: 8, p: 1, dkLen: 64 };   // 小参数让测试快；算法路径与正式一致
+  const iat = Date.UTC(2026, 9, 6);
+  const b = await ak.sealAdmin(pw, { key, iat, days: 14, params });
+  assert.equal(b.exp - iat, 14 * 86400000, '默认有效期 14 天');
+  assert.equal(b.sealed.includes('sk-'), false);
+  const bundle = { salt: b.salt, sealed: b.sealed, tag: b.tag, params };
+  // 正确口令、未过期
+  const ok = await ak.unlockAdminKey(pw, { bundle, now: iat + 1000 });
+  assert.equal(ok.ok, true); assert.equal(ok.exp, b.exp);
+  assert.equal(ak.effectiveApiKey(pw), key);
+  assert.equal(ak.adminExpiresAt(), b.exp);
+  ak.lockAdminKey();
+  // 错口令
+  const bad = await ak.unlockAdminKey('admin-Zz9Yy8Xy', { bundle, now: iat + 1000 });
+  assert.equal(bad.reason, 'bad-password'); assert.equal(ak.adminUnlocked(), false);
+  // 到期后：口令正确也拒绝，且不留下解封状态
+  const late = await ak.unlockAdminKey(pw, { bundle, now: b.exp + 1 });
+  assert.equal(late.ok, false); assert.equal(late.reason, 'expired'); assert.equal(ak.adminUnlocked(), false);
+  assert.equal(ak.effectiveApiKey(pw), pw, '过期后别名原样透传，不会换成真密钥');
+  // 篡改密文（试图改有效期）：TAG 不匹配 → 当作错口令拒绝
+  const raw = Buffer.from(b.sealed, 'base64'); raw[raw.length - 3] ^= 0x01;
+  const tam = await ak.unlockAdminKey(pw, { bundle: { ...bundle, sealed: raw.toString('base64') }, now: iat + 1000 });
+  assert.equal(tam.ok, false); assert.equal(tam.reason, 'bad-password');
+  // 篡改 TAG 同样拒绝
+  const tagRaw = Buffer.from(b.tag, 'base64'); tagRaw[0] ^= 0x80;
+  const tam2 = await ak.unlockAdminKey(pw, { bundle: { ...bundle, tag: tagRaw.toString('base64') }, now: iat + 1000 });
+  assert.equal(tam2.ok, false);
+  // 内置常量已是密封好的正式值（不再是占位符）
+  const src = (await import('node:fs')).readFileSync(new URL('../js/adminkey.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /__SALT__|__SEALED__|__TAG__/, '正式常量必须已替换');
+  assert.match(src, /const SALT = '[A-Za-z0-9+/=]{20,}'/);
+  assert.match(src, /const TAG = '[A-Za-z0-9+/=]{40,}'/);
+});
 test('密封常量不含任何明文片段，且解封逻辑正确', async () => {
   const src = (await import('node:fs')).readFileSync(new URL('../js/adminkey.js', import.meta.url), 'utf8');
   // 源码里既不能有密钥明文，也不能有口令明文（注释里的示例也算）
   assert.equal(/sk-teamo-[a-z0-9]{8,}/.test(src), false, '源码里不能出现任何形如 sk-teamo-… 的密钥');
   // 真口令同样不能出现在这个测试文件里：用运行时拼出来的片段去查，避免自证式泄漏
-  const needles = ['29' + '3846', 'admin-2' + '93', 'k9' + 'M2x7', 'admin-k' + '9M2'];
+  const needles = ['29' + '3846', 'admin-2' + '93', 'k9' + 'M2x7', 'admin-k' + '9M2', '2de26' + '350c9', 'cf207' + 'c9dd'];
   assert.equal(needles.some((n) => src.includes(n)), false, '源码里不能出现口令明文');
   const self = (await import('node:fs')).readFileSync(new URL(import.meta.url), 'utf8');
   assert.equal(needles.some((n) => self.includes(n)), false, '测试文件里也不能出现口令明文');
@@ -3166,6 +3219,9 @@ test('密封常量不含任何明文片段，且解封逻辑正确', async () =>
   const bad = await ak.unlockAdminKey('admin-wrong-password');
   assert.equal(bad.ok, false);
   assert.equal(bad.reason, 'bad-password');
+  // 口令格式：admin-{8 位数字/字母}
+  assert.equal(ak.ADMIN_PASSWORD_BODY, 8);
+  if (process.env.DUBHE_ADMIN_PW) assert.match(process.env.DUBHE_ADMIN_PW, /^admin-[A-Za-z0-9]{8}$/);
   assert.equal(ak.adminUnlocked(), false);
   // 未解封时别名原样透传（绝不会把半截密钥发出去）
   assert.equal(ak.effectiveApiKey('admin-<示例别名>'), 'admin-<示例别名>');
@@ -5049,11 +5105,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.14');
+  assert.equal(APP_VERSION, '2026.10.5.15');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.14/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.15/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.14/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.15/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {

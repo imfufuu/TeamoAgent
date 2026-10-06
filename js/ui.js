@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.14';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.15';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.14';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.15';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -13,21 +13,21 @@ import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY } from './
 import { autoTitle } from './titler.js';
 import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
-import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
+import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias, adminExpiresAt } from './adminkey.js';
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.14';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.14';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.14';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.14';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.14';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.14';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.14';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.14';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.15';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.15';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.15';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.15';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.15';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.15';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.15';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.15';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.14';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.15';
 
 function sanitizeSvgRaw(raw) {
   let s = String(raw || '')
@@ -1384,6 +1384,12 @@ export function mountUI(store, agent) {
       else if (!e.shiftKey && idx === focusables.length - 1) { e.preventDefault(); focusables[0].focus(); }
     }
   });
+const fmtAdminExp = (ms) => {
+  const d = new Date(Number(ms) || 0);
+  if (!Number.isFinite(d.getTime()) || !ms) return '未知时间';
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 /** API Key 格式校验：
  *  - 空值允许（清除 key）
  *  - admin- 开头的管理员别名直接放行（isAdminAlias 另作口令校验）
@@ -1406,14 +1412,17 @@ function validateApiKey(s) {
     if (!chk.ok) { toast('Key 格式错误：' + chk.reason, 'err', 5000); keyInput.focus(); keyInput.select(); return; }
     // 管理员别名：先用口令解封（解不开就拒绝保存，避免存进去一把用不了的 key）
     if (isAdminAlias(typed)) {
+      toast('正在校验管理员口令…', 'ok', 1500);
       const r = await unlockAdminKey(typed);
       if (!r.ok) {
-        return toast(r.reason === 'bad-password' ? '管理员口令不正确（admin- 开头的密钥会被当作管理员口令）' : '管理员密钥不可用',
-          'err', 5200);
+        const why = r.reason === 'bad-password' ? '管理员口令不正确（admin- 开头的密钥会被当作管理员口令）'
+          : r.reason === 'expired' ? `管理员密钥已于 ${fmtAdminExp(r.exp)} 过期：口令正确也无法再使用，请联系管理员换发`
+            : '管理员密钥不可用';
+        return toast(why, 'err', 6000);
       }
       store.state.apiKey = typed; store.notify();
       closeKeyModal();
-      toast('管理员密钥已启用：请求会用管理员密钥发出（明文密钥不落盘、不上屏）', 'ok', 4200);
+      toast(`管理员密钥已启用（有效期至 ${fmtAdminExp(r.exp)}）：请求会用管理员密钥发出，明文不落盘、不上屏`, 'ok', 5200);
       updateKeyBtn(); updateTransportBadge();
       return;
     }
@@ -1430,7 +1439,7 @@ function validateApiKey(s) {
     b.textContent = admin ? '管理员' : 'API Key';
     b.classList.toggle('admin-mode', admin);
     b.title = admin
-      ? (adminUnlocked() ? '管理员密钥已启用（请求使用管理员密钥，明文不落盘）' : '管理员密钥未解封：点开重新输入口令')
+      ? (adminUnlocked() ? `管理员密钥已启用（有效期至 ${fmtAdminExp(adminExpiresAt())}，明文不落盘）` : '管理员密钥未解封或已过期：点开重新输入口令')
       : '填入 TeamoRouter API Key（或管理员口令）';
   }
   updateKeyBtn();

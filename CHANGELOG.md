@@ -2,7 +2,7 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.14
+## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.15
 
 - **新工具 ×5**：`csv_tool`、`date_calc`、`text_tool`、`convert_units`、`qr_code`（本地二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36；子智能体按角色获得相应权限；并行白名单纳入 `date_calc` / `convert_units`。
 - **沙箱安全加固**：JS Worker 执行前拆除 fetch / XHR / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache 并私有化 postMessage；Python Worker 的 fetch 仅放行 Pyodide CDN 与 PyPI；日志 / 返回值 / 文件设硬上限；主线程 `sanitizeWorkerFiles` 逐键校验路径、保护 `internal/` 与 `.git/`、超容量整体回滚；`createFS` 改为无原型对象。
@@ -19,6 +19,7 @@
   - 「远程 C++」独立开关（设置页）：关闭后两条工具表派生路径都不含 `execute_cpp`，`executeTool` 直接拒绝；工具描述、运行芯片与能力描述串明示代码会发送到 godbolt.org。
 - **修复：每次打开都「加载超时」（构建 2026.10.5.12）**：`app.html` 头部的 Google Fonts / jsDelivr 字体样式表由解析器插入，会阻塞其后所有脚本（含 `main.js` 模块图）执行；字体域名挂起时应用卡在加载屏直到 60 秒超时。现由启动脚本 `createElement('link')` 动态插入（不阻塞脚本），并新增资产测试禁止任何页面再出现解析器插入的跨域样式表。实测字体域名完全挂起：修复前 20 秒仍停在「正在初始化」，修复后 1.0 秒挂载。
 - **加载屏重做**：真实阶段进度（`__dubheBootGuard.stage('modules'|'kernel'|'ui')` 由 main.js 上报）、提前套用已保存主题、慢网等待秒数提示、20 秒「重新加载」/ 60 秒「清缓存后重载」（注销 Service Worker + 清 CacheStorage）、reduced-motion 静止；内联脚本 CSP 哈希同步更新。
+- **管理员密钥换发与加固（构建 2026.10.5.15）**：口令 `admin-{8 位数字/字母}`；口令派生改为 scrypt（N=2^16 · r=8 · p=1，64 MiB 内存困难，桌面校验约 0.3–0.8 秒）；管理员密钥与 14 天有效期一起加密存放并带 HMAC-SHA256 校验（先校验后解密，篡改密文 / 有效期即拒绝）；过期后口令正确也无法解封，已解封会话到期即停止替换；`tools/seal-admin.mjs --gen` 生成随机口令并密封，纯 JS scrypt 与 Node 原生实现逐字节比对测试。
 - **PDF 工具与体验细节（构建 2026.10.5.13 / .14）**：
   - 新工具 `analyze_pdf`：PDF 原样入沙箱 `uploads/`，工具提取全部文本层后把页图整批一次上传识图模型（≤ 8 页一批，`first_page / pages` 分段），返回合并全文并写入 `internal/ocr/`；附件不再在发送前逐页转图；归入 Explored File(s)；文件面板可预览 PDF 页图。
   - Ran Commands 显示 `✓ 成功 / ✗ 失败 · 耗时`（含调用前被拦截），状态随消息持久化；同轮连续命令折叠合并为一块。

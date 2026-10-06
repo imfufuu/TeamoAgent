@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.14';
-import { createAgent } from './agent.js?v=2026.10.5.14';
-import { mountUI, toast } from './ui.js?v=2026.10.5.14';
+import { createStore } from './state.js?v=2026.10.5.15';
+import { createAgent } from './agent.js?v=2026.10.5.15';
+import { mountUI, toast } from './ui.js?v=2026.10.5.15';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.14';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.14';
-import { APP_RELEASE } from './config.js?v=2026.10.5.14';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.15';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.15';
+import { APP_RELEASE } from './config.js?v=2026.10.5.15';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
@@ -124,7 +124,7 @@ relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) 
 // 刷新后如果存的还是管理员别名，重新解封一次（口令就是别名本身，不需要再问用户）
 if (isAdminAlias(store.state.apiKey)) {
   unlockAdminKey(store.state.apiKey).then((r) => {
-    if (!r.ok) toast('管理员密钥未解封：请在 API Key 里重新输入口令', 'warn', 5000);
+    if (!r.ok) toast(r.reason === 'expired' ? '管理员密钥已过期：口令正确也无法再使用，请联系管理员换发' : '管理员密钥未解封：请在 API Key 里重新输入口令', 'warn', 6000);
     else if (ui && ui.refreshKeyBtn) ui.refreshKeyBtn();
   }).catch(() => {});
 }
