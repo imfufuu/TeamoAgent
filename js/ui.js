@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.15';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.16';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.15';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.16';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.15';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.15';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.15';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.15';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.15';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.15';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.15';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.15';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.16';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.16';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.16';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.16';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.16';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.16';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.16';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.16';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.15';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.16';
 
 function sanitizeSvgRaw(raw) {
   let s = String(raw || '')
@@ -844,6 +844,7 @@ export function toast(msg, type = 'info', ms = 2600) {
 // ── 主 UI ───────────────────────────────────────────────────────────────
 function fmtSpan(ms) {
   const n = Math.max(0, Math.round(Number(ms) || 0));
+  if (n < 1) return '<1ms';
   if (n < 1000) return n + 'ms';
   if (n < 60000) return (n / 1000).toFixed(n < 10000 ? 1 : 0) + 's';
   const min = Math.floor(n / 60000);
@@ -2144,21 +2145,18 @@ function validateApiKey(s) {
       }
     }
     const timeHtml = totalMs > 0 ? ` <span class="chip-time">${fmtSpan(totalMs)}</span>` : '';
+    // 折叠头只是「菜单」：不写成功 / 失败，只给总耗时（成败在展开后的每条命令上各自标注；失败数放进 title）
     const state = $('.chip-state', fold);
     if (state) {
-      if (allDone && failed) {
-        const firstFailure = children.find((chip) => chip.classList.contains('fail'));
-        state.innerHTML = `<span class="chip-fail">✗ ${total > 1 ? `${failedCount}/${total} 失败` : '失败'}</span>${timeHtml}`;
-        state.title = firstFailure ? String(($('.chip-state', firstFailure) || {}).title || '') : '';
-        state.classList.add('bad');
-      } else if (allDone && cancelled) {
-        state.textContent = '已停止'; state.title = ''; state.classList.remove('bad');
+      state.classList.remove('bad');
+      if (allDone && cancelled) {
+        state.textContent = '已停止'; state.title = '';
       } else if (allDone) {
-        state.innerHTML = `<span class="chip-ok">✓ ${total > 1 ? '全部成功' : '成功'}</span>${timeHtml}`;
-        state.title = totalMs > 0 ? `总耗时 ${fmtSpan(totalMs)}` : ''; state.classList.remove('bad');
+        state.innerHTML = timeHtml.trim();
+        state.title = `${total} 条命令${failedCount ? ` · ${failedCount} 条失败` : ''}${totalMs > 0 ? ` · 总耗时 ${fmtSpan(totalMs)}` : ''}`;
       } else {
         state.textContent = settled ? `执行中 ${settled}/${total}` : '执行中…';
-        state.title = ''; state.classList.remove('bad');
+        state.title = '';
       }
     }
     if (fold._userToggle == null) fold.classList.toggle('expanded', getBusy() && !allDone);
@@ -2451,12 +2449,21 @@ function validateApiKey(s) {
         child._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name }));
         child._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
         for (const id of ids) {
+          const t = g.items.find((x) => String(x && x.id) === id) || {};
           const tm = resultById.get(id);
           if (tm) {
             const body = String(tm.content == null ? '' : tm.content);
             child._outs[id] = body;
             const previous = child._toolStates[id] || {};
-            child._toolStates[id] = { ...previous, status: previous.status === 'error' || toolResultFailed(body) ? 'error' : 'ok' };
+            child._toolStates[id] = {
+              ...previous,
+              status: previous.status === 'error' || t.status === 'error' || toolResultFailed(body) ? 'error' : 'ok',
+              note: previous.note || t.errorNote || '',
+              durationMs: Number.isFinite(Number(previous.durationMs)) ? previous.durationMs : (Number.isFinite(Number(t.durationMs)) ? Number(t.durationMs) : undefined),
+            };
+          } else if (t.status || Number.isFinite(Number(t.durationMs))) {
+            const previous = child._toolStates[id] || {};
+            if (!previous.status) child._toolStates[id] = { ...previous, status: t.status || undefined, note: previous.note || t.errorNote || '', durationMs: Number.isFinite(Number(previous.durationMs)) ? previous.durationMs : Number(t.durationMs) };
           }
         }
         if (m.cancelled) {
@@ -2978,9 +2985,12 @@ function validateApiKey(s) {
     if (!chip._toolStates) chip._toolStates = {};
     chip._outs[id] = body; // 空字符串也是已收到的出参，不能被当成「结果还没回来」
     const previous = chip._toolStates[id] || {};
+    const kernelErr = toolMsg.status === 'error';
     chip._toolStates[id] = {
       ...previous,
-      status: previous.status === 'error' || toolResultFailed(body) ? 'error' : 'ok',
+      status: previous.status === 'error' || kernelErr || toolResultFailed(body) ? 'error' : 'ok',
+      note: previous.note || toolMsg.errorNote || '',
+      durationMs: Number.isFinite(Number(toolMsg.durationMs)) ? Number(toolMsg.durationMs) : previous.durationMs,
     };
     syncToolChip(chip);
     renderToolChipDetail(chip);
@@ -3979,8 +3989,9 @@ function validateApiKey(s) {
       renderFiles();
       updateStats();
       renderMemory();
-      // 同步回填对话流中的工具芯片（成功 ✓ / 失败红点 + 展开详情）
-      attachToolResult({ toolCallId: call.id, content: result });
+      // 同步回填对话流中的工具芯片（成功 ✓ / 失败红点 + 耗时 + 展开详情）；
+      // 耗时与成败以内核写回 call 的结论为准（所有工具都有，不依赖工具自己是否上报 durationMs）
+      attachToolResult({ toolCallId: call.id, content: result, status: call.status, durationMs: call.durationMs, errorNote: call.errorNote });
     },
     // 用户点了「停止」：Agent 已把那条消息标成 cancelled+done，但视图不会自己重画 ——
     // 停止前若首字还没到，屏上会一直留着「正在连接 xxx，等待首个响应…」和转圈。

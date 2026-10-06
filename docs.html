@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.15" />
+<meta name="app-version" content="2026.10.5.16" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -212,7 +212,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.15</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.16</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -228,7 +228,7 @@
           <li><span class="tag imp">IMPROVE</span><span><strong>架构完善 II（构建 .11）</strong>：同一波并行调用按类别限流（网络类 <code>fetch_url / search_web / crawl_site</code> ≤ 4，本地 ≤ 8），不再一次放出十几个抓取；<code>mountUI</code> 继续拆分——文件面板（<code>ui-files-panel.js</code>）、全屏预览（<code>ui-lightbox.js</code>）、附件（<code>ui-attachments.js</code>）各自成模块并以 <code>install*(deps)</code> 注入，ui.js 从 5066 行降到 3945 行；新增「子模块不得隐式依赖 ui.js 作用域」的静态契约测试。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>管理员密钥加固（构建 .15）</strong>：口令 <code>admin-{8 位数字/字母}</code> 经 <strong>scrypt</strong>（N=2^16 · r=8 · p=1，64 MiB 内存困难）派生加密与校验密钥；管理员密钥与 <strong>14 天有效期</strong>一起加密存放并带 HMAC-SHA256 校验——口令错、密文或有效期被改、或已过期都无法解封，已解封的会话到期即停止替换；桌面校验约 0.3–0.8 秒。</span></li>
           <li><span class="tag add">ADD</span><span><strong><code>analyze_pdf</code>（构建 .13）</strong>：PDF 原样写入沙箱 <code>uploads/</code>，工具先用 pdf.js 提取全部文本层，再把页面渲染成图<strong>整批一次上传</strong>给识图模型（≤ 8 页一批，<code>first_page / pages</code> 分段），返回「视觉识别 + 文本层」合并全文并落盘 <code>internal/ocr/</code>；与 <code>analyze_image</code> 一样归入 Explored File(s)；文件面板可直接预览 PDF 页图。工具总数 37。</span></li>
-          <li><span class="tag imp">IMPROVE</span><span><strong>运行反馈</strong>：Ran Commands 逐条与汇总显示 <code>✓ 成功 / ✗ 失败 · 耗时</code>（含调用前被内核拦截的调用），同一轮连续命令合并为一块折叠；智能路由芯片点击可查看任务类型 / 难度 / 服务商 / 实际模型；加载屏按 Resource Timing 实时推进模块进度条（文字不随计数刷新，不闪）且各阶段至少停留 110ms。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>运行反馈</strong>：Ran Commands 折叠头只显示总耗时（它只是菜单），展开后每条命令显示 <code>✓ 成功 / ✗ 失败 · 耗时</code>（以执行内核结论为准，所有工具都有，含调用前被拦截的调用），同一轮连续命令合并为一块折叠；智能路由芯片点击可查看任务类型 / 难度 / 服务商 / 实际模型；加载屏按 Resource Timing 实时推进模块进度条（文字不随计数刷新，不闪）且各阶段至少停留 110ms。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>图片编辑器与显示</strong>：旋转 / 画笔改为 rAF 合流重绘不再卡顿，旋转图标方向修正，进入裁剪默认全图选区；矢量图按自身比例显示（竖图不再被拉宽）；空对话再点「新建」只提示「已在新对话中」；沙箱为空时给出说明与插画；任务示例扩至 39 条；徽标 / 折叠清单 / 文件树 / 弹层 / 下拉补齐动效。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>验收</strong>：主测试 356 项通过；DOM / P3 DOM / 应用装配冒烟（jsdom）通过；P2 内核 40/40、P3 10/10、分层评测、资产完整性与服务端护栏全部通过；沙箱对抗用例（出网、伪造结果、路径穿越、超量输出）在真实 Chromium 中验证。</span></li>
         </ul></div>
@@ -456,7 +456,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.15</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.16</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

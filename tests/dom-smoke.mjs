@@ -631,9 +631,14 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
   const emptyChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'empty-1');
   ok('空字符串出参也算完成，并显示为空输出', !!emptyChip && emptyChip.classList.contains('done')
     && emptyChip.querySelector('.chip-result')?.textContent === '（空输出）');
-  const foldState = ran && ran.querySelector('.chip-state');
-  ok('失败工具仅显示红色叉号，不出现英文 failed', !!foldState && !/failed/i.test(foldState.textContent) && !!foldState.querySelector('.chip-fail'), foldState?.textContent);
-  ok('失败原因仍通过原生悬浮提示提供', /工具执行失败：测试错误提示/.test(foldState?.title || ''), foldState?.title);
+  const foldState = ran && ran.querySelector(':scope > .chip-state');
+  ok('折叠头只是菜单：不写成功 / 失败，失败数只进 title', !!foldState && !/成功|失败|failed/i.test(foldState.textContent) && /1 条失败/.test(foldState.title), foldState?.textContent + ' | ' + foldState?.title);
+  const failChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'fail-1');
+  const failState = failChip && failChip.querySelector('.chip-state');
+  ok('失败命令行显示中文「✗ 失败」，不出现英文 failed', !!failState && /✗ 失败/.test(failState.textContent) && !/failed/i.test(failState.textContent) && !!failState.querySelector('.chip-fail'), failState?.textContent);
+  ok('失败原因仍通过原生悬浮提示提供', /工具执行失败：测试错误提示/.test(failState?.title || ''), failState?.title);
+  const okChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'copy-1');
+  ok('成功命令行显示中文「✓ 成功」', !!okChip && /✓ 成功/.test(okChip.querySelector('.chip-state').textContent), okChip?.querySelector('.chip-state')?.textContent);
   click(ran);
   ok('Ran Commands 可单独展开', ran.classList.contains('expanded'));
 }
