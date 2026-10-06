@@ -41,7 +41,7 @@ export const BUNDLED_SKILLS = [
     match: (plan, text) => /图表|统计图|折线图|柱状图|饼图|散点图|s[-－—–]?t|位移[-－—–]?时间|路程[-－—–]?时间|流程图|思维导图|脑图|架构图|Mermaid|Graphviz|DOT|SVG|chart|flowchart|mind\s*map|diagram/i.test(String(text || '')),
     body: [
       '## Skill: structured-diagrams',
-      '- 统计图、折线图、柱状图、饼图、散点图、物理 s-t 图：直接用 Markdown 快捷语法 ```:::chart line 标题``` / ```:::chart st 标题``` 等，或写 SVG 文件后用 sandbox:// 嵌入。',
+      '- 统计图（柱状 / 条形 / 折线 / 面积 / 饼 / 环形 / 堆叠 / 直方 / 箱线 / 散点 / 气泡 / 漏斗 / 桑基 / 地图）：直接用 Markdown 快捷语法 ```:::chart line 标题``` / ```:::chart sankey 标题``` / ```:::chart map 标题``` 等，位移-时间等物理关系图用 line 或 scatter；或写 SVG 文件后用 sandbox:// 嵌入。',
       '- 流程图：优先用 :::flow 简短语法；复杂流程/时序图调用 render_mermaid 生成 SVG。',
       '- 思维导图：用 :::mind；架构图/依赖图调用 render_dot 或写 SVG。禁止为这些任务调用 generate_image。',
     ].join('\n'),

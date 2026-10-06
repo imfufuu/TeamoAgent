@@ -219,7 +219,7 @@ export function formatPlanNote(answers, { webEnabled, sandboxEnabled, thinking, 
     lines.push('- 本题大概率不需要实时检索。不要为了检索而检索；没有新事实要核实时直接答。');
   }
   if (route === 'image' || (image != null && image >= 0.6)) {
-    lines.push('- 只有用户要照片/插画/海报/图标等栅格画面时才调用 generate_image；统计图、物理 s-t 图、流程图、思维导图、架构图必须用 SVG / Mermaid / DOT / :::chart / :::flow / :::mind，禁止走生图模型。');
+    lines.push('- 只有用户要照片/插画/海报/图标等栅格画面时才调用 generate_image；统计图、物理关系图、流程图、思维导图、架构图必须用 SVG / Mermaid / DOT / :::chart / :::flow / :::mind，禁止走生图模型。');
   }
   if (code != null && code >= 0.6) {
     lines.push(sandboxEnabled === false

@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.16` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.17` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -122,6 +122,14 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
 
+**构建 2026.10.5.17：14 类快捷统计图 / 工具芯片纯图标 / 路由器 LOGO**
+
+16. **`:::chart` 扩展为 14 类统计图**（`js/quickviz.js`，仍是纯函数、零依赖、Node 可单测）：柱状 `bar` / 条形 `barh` / 折线 `line` / 面积 `area` / 饼 `pie` / 环形 `donut` / 堆叠柱状 `stacked` / 堆叠面积 `stacked-area` / 直方 `histogram`（自动「好看」组距或 `bins=N`）/ 箱线 `boxplot`（四分位 + 1.5 IQR 离群点）/ 散点 `scatter` / 气泡 `bubble`（面积映射大小）/ 漏斗 `funnel`（整体占比 + 相邻步转化率）/ 桑基 `sankey`（最长路径分层 + 重心排序，带环保护）/ 地图 `map`。中英文别名均可直接写在 `:::` 后（如 `:::桑基图 能源流向`）。多系列用表头行「维度, 系列A, 系列B」驱动，自动分组 / 多线 / 堆叠并生成图例；所有图元都带 `data-chart-*` 供统一悬浮提示与键盘聚焦。专用的物理 s-t 语法（`st` / 位移时间图）移除，改用 `line` / `scatter` 表达。
+17. **地图**：内置 `assets/geo/world.json`（217 国 / 地区，82 KB）与 `assets/geo/china.json`（34 省级，70 KB；由 ECharts 压缩坐标解码后 Douglas-Peucker 简化），渲染函数同步输出占位，ui.js 用 MutationObserver 发现后按需拉取（Service Worker 缓存），等距圆柱 / 中纬压缩投影 → 单色渐变分级着色 + 图例 + 未匹配地区计数；省份名自动选中国地图，国家名选世界地图，标题里写 `china` / `world` 可强制；别名表覆盖「江苏省 / 美国 / UK / 台湾」等常见写法。
+18. **工具芯片**：每条命令只显示 `✓` / `✗` 图标 + 耗时（`role="img"` 带无障碍名称），失败态只有图标加粗、耗时常规字重；`.chip-state` 改 inline-flex 居中，折叠头「2.8s」不再相对标题行下沉。
+19. **smart-router 图标**按 TeamoRouter 产品 LOGO 原稿重绘为粗体版（外环 2.1 全实色、轨道弧 2.6、卫星点 r=2.1、核心 r=3.1），不再沿用顶栏淡色 APP_LOGO 的透明度。
+20. **自主优化**：条形图右侧直接标数值、堆叠柱顶标合计、直方图角标 `n / 组数 / 组距`、环形图环心显示合计、漏斗显示相邻步转化率、气泡只给最大 8 个标注避免拥挤、刻度改为 1/2/2.5/5×10ⁿ 的「好看」刻度（不再出现 12.5 / 37.5 这类半值）、每类图空数据时给出该类型自己的示例格式、新图元动效全部纳入 `prefers-reduced-motion` 静止、系统提示词改为完整的类型 / 数据格式速查。
+
 对 `agent.js → execution.js → tools.js → sandbox.js` 主链做了一次只读评审，结论分「本版已改」与「建议下版」两栏，不夸大：
 
 **本版已改**
@@ -135,7 +143,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 1. **依赖图调度** `planToolWaves(calls)`（`js/agent.js`）：为每次调用推导路径级读写集（`toolAccessSet`），只有写-读 / 读-写 / 写-写冲突（含目录前缀、move 源、自动命名输出）才排后一波；`[read a, write b, read c]` 从 3 批串行变 1 波并行。沙箱执行 / 生图 / zip / git / 记忆 / 参数损坏仍为全局屏障，委派只与委派同波。结果按原始下标回填，`batchToolCalls` 保留作兼容。
 2. **token 估算缓存**：`estimateTokens` 以 WeakMap 按消息对象缓存，text / content / toolCalls / attachments 任一变化即失效；300 条长消息热路径从 ~173 ms 降到 <0.1 ms。
-3. **ui.js 拆分（第一刀）**：图表 / 示意图 SVG 渲染拆为 `js/quickviz.js`（504 行、纯函数、Node 可直接单测），ui.js 降到 4568 行。后续按「消息渲染 / 侧栏 / 沙箱面板 / 设置」继续拆。
+3. **ui.js 拆分（第一刀）**：图表 / 示意图 SVG 渲染拆为 `js/quickviz.js`（纯函数、Node 可直接单测；.17 扩至 14 类统计图），ui.js 降到 4568 行。后续按「消息渲染 / 侧栏 / 沙箱面板 / 设置」继续拆。
 4. **Python FILES 增量同步**：常驻 Worker 持有工作区镜像，主线程只发 `diffFiles(镜像, files)`，Worker 只回传 `filesDelta {set, del}`；Worker 重建或上次失败自动退回全量；引用相同的大文件比较是 O(1)。顺带修了一个老 bug：Pyodide「不可用」判定曾用正则匹配错误文本，而用户代码回溯里天然带 `_pyodide/` 路径——任何一次异常都会禁用整个会话的 Python 沙箱，现改为只看加载阶段。
 5. **远程 C++ 开关**：设置页新增「远程 C++（Compiler Explorer）」；关闭后能力约束 `sandbox.remoteCpp=false` → `deriveToolWhitelist` 与旧路径 `toolsFor` 同步剔除 `execute_cpp`，`executeTool` 兜底拒绝；工具描述、运行芯片与 `describeCapabilityConstraints` 都明示代码会发送到 godbolt.org。
 
@@ -152,7 +160,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **构建 2026.10.5.13 / .14：PDF 工具与体验细节**
 
 10. **`analyze_pdf` 新工具**（工具总数 37）：PDF 不再在发送前逐页转图，而是原样写入 `uploads/*.pdf`；工具先用 pdf.js 文本层提取全部内嵌文字，再把页面渲染成图**整批一次上传**给识图模型（≤ 8 页一批，`first_page / pages` 分段读长文档），返回「视觉识别 + 文本层」合并全文并落盘 `internal/ocr/`；界面上与 `analyze_image` 一样归入 Explored File(s)；沙箱文件面板可直接预览 PDF 页图。
-11. **Ran Commands 状态**（.16 定稿）：折叠头只是菜单，只显示总耗时（失败数放 title）；展开后每条命令显示 `✓ 成功 / ✗ 失败 · 耗时`——成败与耗时以执行内核写回的结论为准，所有工具都有（不再依赖工具自己上报），含调用前被内核拦截的调用，并随消息持久化；同一轮内连续产生的命令折叠合并为一块，绝不出现两个相邻的 Ran Commands。
+11. **Ran Commands 状态**（.16 定稿，.17 去文字）：折叠头只是菜单，只显示总耗时（失败数放 title）；展开后每条命令只显示 `✓ / ✗ 图标 + 耗时`（不出现中文「成功 / 失败」字样，失败原因在悬浮提示里，耗时不加粗、与标题行居中对齐）——成败与耗时以执行内核写回的结论为准，所有工具都有（不再依赖工具自己上报），含调用前被内核拦截的调用，并随消息持久化；同一轮内连续产生的命令折叠合并为一块，绝不出现两个相邻的 Ran Commands。
 12. **智能路由芯片**：点击「路由到的服务商」弹出任务类型 / 难度 / 服务商 / 实际模型的小面板。
 13. **加载屏**：模块下载期间用 Resource Timing 实时推进进度条（文字保持「加载模块…」不闪，.14 修正），各阶段至少停留 110ms，不再从「载入资源」直接跳到「准备就绪」。
 14. **图片编辑器**：旋转 / 画笔改为 rAF 合流重绘不再卡顿，旋转图标方向修正，进入裁剪时默认全图选区。

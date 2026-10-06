@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.16';
+} from '../js/api.js?v=2026.10.5.17';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.16');
+const api = await import('../js/api.js?v=2026.10.5.17');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -809,11 +809,10 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   assert.match(chart, /class="md-chart-expand"[^>]*aria-label="全屏查看图表"/);
   assert.match(chart, /<svg viewBox="0 0 \d+ \d+" width="\d+" height="\d+"/);
   assert.match(chart, /月销量/);
+  // 2026.10.5.17：专用 s-t 图语法已移除，:::st 不再是图表围栏；位移-时间关系直接用折线 / 散点表达
   const stChart = renderMarkdown(':::st 匀速直线运动\n0, 0\n1, 5\n2, 10\n:::');
-  assert.match(stChart, /md-chart-st/);
-  assert.match(stChart, /t \/ s/);
-  assert.match(stChart, /s \/ m/);
-  assert.doesNotMatch(stChart, /md-chart-scatter/);
+  assert.doesNotMatch(stChart, /md-chart-st/);
+  assert.doesNotMatch(stChart, /class="md-chart /);
   const linePoints = renderMarkdown(':::chart line 采样趋势\n一月, 10\n二月, 12\n:::');
   const scatterPoints = renderMarkdown(':::chart scatter 位置\nA, 0, 1\nB, 1, 3\n:::');
   assert.equal((linePoints.match(/class="md-chart-hit-area"/g) || []).length, 2, '折线图每个数据点都应有独立的扩大命中层');
@@ -3119,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.16');
+  const api = await import('../js/api.js?v=2026.10.5.17');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4767,7 +4766,7 @@ test('宣传片支持暂停，但最后五秒收束不可暂停', async () => {
   assert.match(js, /e\.key\.toLowerCase\(\) === 'p'/);
   assert.match(css, /html\.paused \.film-pause/);
 });
-test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思维导图', async () => {
+test('快捷 SVG 图表语法覆盖 14 类统计图与流程/思维导图', async () => {
   const fsp = await import('node:fs');
   // V1.7.1：图表 / 示意图渲染拆到 quickviz.js（纯函数、可单测），ui.js 只保留引用
   const uiOnly = readUiSource();
@@ -4781,14 +4780,17 @@ test('快捷 SVG 图表语法覆盖柱状/折线/物理 s-t/饼图与流程/思�
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   assert.match(ui, /CHART_ALIAS/);
-  for (const kw of ['bar', 'line', 'scatter', 'st', 'pie', '柱状图', '折线图', '散点图', '饼图']) assert.match(ui, new RegExp(kw));
+  for (const kw of ['bar', 'barh', 'line', 'area', 'scatter', 'bubble', 'pie', 'donut', 'stacked', 'histogram', 'boxplot', 'funnel', 'sankey', 'map', '柱状图', '条形图', '折线图', '面积图', '散点图', '气泡图', '饼图', '环形图', '堆叠图', '直方图', '箱线图', '漏斗图', '桑基图', '地图']) assert.match(ui, new RegExp(kw));
+  assert.doesNotMatch(viz, /'位移时间图'|md-chart-st/, 's-t 专用语法已移除');
   assert.match(ui, /renderQuickChart/);
   assert.match(css, /\.md-chart-svg/);
   assert.match(css, /\.md-diagram/);
   assert.match(ui, /renderQuickDiagram/);
   assert.match(ui, /md-diagram-flow/);
   assert.match(ui, /md-diagram-mind/);
-  assert.match(cfg, /:::chart bar\|line\|scatter\|st\|pie/);
+  assert.match(cfg, /:::chart <类型> 标题/);
+  for (const kw of ['bar 柱状图', 'barh 条形图', 'line 折线图', 'area 面积图', 'pie 饼图', 'donut 环形图', 'stacked 堆叠柱状图', 'stacked-area 堆叠面积图', 'histogram 直方图', 'boxplot 箱线图', 'scatter 散点图', 'bubble 气泡图', 'funnel 漏斗图', 'sankey 桑基图', 'map 地图']) assert.match(cfg, new RegExp(kw));
+  assert.doesNotMatch(cfg, /物理 s-t 图/);
   assert.match(cfg, /:::flow/);
   assert.match(cfg, /:::mind/);
 });
@@ -5105,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.16');
+  assert.equal(APP_VERSION, '2026.10.5.17');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.16/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.17/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.16/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.17/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7862,6 +7864,170 @@ test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模�
   assert.match(ui, /const attachments = installAttachments\(/);
   assert.match(ui, /attachments\.takePending\(\)/);
   assert.doesNotMatch(ui, /function openFileViewer\(|function openLightbox\(|async function addFiles\(/, '旧实现不应残留在 ui.js');
+});
+
+group('2026.10.5.17：14 类快捷统计图 / 工具芯片纯图标状态 / 路由器产品 LOGO');
+test('图表别名表：15 种类型全部可达，s-t 专用别名已移除', async () => {
+  const qv = await import('../js/quickviz.js');
+  const kinds = new Set(Object.values(qv.CHART_ALIAS));
+  for (const k of ['bar', 'barh', 'line', 'area', 'pie', 'donut', 'stacked', 'stackedarea', 'histogram', 'boxplot', 'scatter', 'bubble', 'funnel', 'sankey', 'map']) assert.ok(kinds.has(k), `缺少 ${k}`);
+  for (const alias of ['柱状图', '条形图', '折线图', '面积图', '饼图', '环形图', '堆叠图', '堆叠面积图', '直方图', '箱线图', '散点图', '气泡图', '漏斗图', '桑基图', '地图', 'histogram', 'boxplot', 'sankey', 'donut', 'stacked-area']) assert.ok(qv.CHART_ALIAS[alias], `别名 ${alias} 应存在`);
+  for (const gone of ['st', 's-t', '位移时间图', '路程时间图']) assert.equal(qv.CHART_ALIAS[gone], undefined, `${gone} 应已移除`);
+  assert.equal(qv.CHART_KIND_LABEL.sankey, '桑基图');
+  assert.ok(Array.isArray(qv.CHART_DIRECT_ALIASES) && qv.CHART_DIRECT_ALIASES.includes('桑基图') && !qv.CHART_DIRECT_ALIASES.includes('map'), '直接别名表应含中文全称且排除 map 这类易撞词');
+});
+test('柱状图 / 条形图：单系列逐柱配色，多系列表头驱动分组 + 图例', async () => {
+  const single = renderMarkdown(':::chart bar 月销量\n一月, 12\n二月, 18\n:::');
+  assert.match(single, /class="md-chart md-chart-bar"/);
+  assert.equal((single.match(/class="md-chart-bar"/g) || []).length, 2);
+  assert.doesNotMatch(single, /md-chart-legend-item/);
+  const grouped = renderMarkdown(':::chart bar 季度对比\n季度, 产品A, 产品B\nQ1, 10, 20\nQ2, 14, 16\n:::');
+  assert.equal((grouped.match(/class="md-chart-bar"/g) || []).length, 4, '2 行 × 2 系列 = 4 根柱');
+  assert.equal((grouped.match(/md-chart-legend-item/g) || []).length, 2, '多系列应有图例');
+  assert.match(grouped, /data-chart-label="产品B · Q2"/);
+  assert.match(grouped, /季度<\/text>/, '表头首列作为 x 轴名称');
+  const barh = renderMarkdown(':::条形图 区域营收\n华东, 120\n华南, 98\n:::');
+  assert.match(barh, /class="md-chart md-chart-barh"/);
+  assert.match(barh, /text-anchor="end" stroke="none" class="md-chart-tick">华东</);
+  assert.match(barh, /data-chart-val="120"/);
+});
+test('折线 / 面积 / 堆叠面积 / 堆叠柱状：多系列与堆叠累加', async () => {
+  const line2 = renderMarkdown(':::chart line 趋势\n月份, 移动端, 桌面端\n一月, 10, 20\n二月, 15, 18\n:::');
+  assert.equal((line2.match(/<polyline /g) || []).length, 2, '两条折线');
+  assert.equal((line2.match(/class="md-chart-hit-area"/g) || []).length, 4, '每个系列每个点都有命中层');
+  assert.doesNotMatch(line2, /polygon/, '多系列普通折线不画面积');
+  const area = renderMarkdown(':::chart area 累计\n一月, 100\n二月, 160\n:::');
+  assert.match(area, /class="md-chart md-chart-area"/);
+  assert.match(area, /<polygon points="[^"]+" class="md-chart-area"/);
+  const sa = renderMarkdown(':::chart stacked-area 来源\n月份, A, B\n一月, 10, 20\n二月, 15, 18\n:::');
+  assert.match(sa, /md-chart-stackedarea/);
+  assert.equal((sa.match(/<polygon /g) || []).length, 2);
+  const st = renderMarkdown(':::chart stacked 季度\n季度, A, B, C\nQ1, 10, 20, 5\nQ2, 14, 16, 8\n:::');
+  assert.match(st, /class="md-chart md-chart-stacked"/);
+  assert.equal((st.match(/class="md-chart-bar"/g) || []).length, 6);
+  assert.match(st, /data-chart-pct="29%"/, '堆叠段带占比（10/35）');
+  assert.match(st, />35<\/text>/, '柱顶标注合计');
+  const stSingle = renderMarkdown(':::chart stacked 单系列\nA, 1\nB, 2\n:::');
+  assert.match(stSingle, /md-chart-bar"/, '单系列堆叠退化为普通柱状，不报错');
+});
+test('饼图 / 环形图 / 漏斗图：占比、合计与转化率', async () => {
+  const pie = renderMarkdown(':::chart pie 占比\nA, 40\nB, 30\nC, 20\nD, 10\n:::');
+  assert.equal((pie.match(/class="md-chart-slice"/g) || []).length, 4);
+  assert.match(pie, /data-chart-pct="40%"/);
+  const donut = renderMarkdown(':::环形图 渠道\n搜索, 45\n社交, 25\n直接访问, 30\n:::');
+  assert.match(donut, /class="md-chart md-chart-donut"/);
+  assert.match(donut, /class="md-chart-donut-total">100</, '环心显示合计');
+  assert.doesNotMatch(donut, /M 360 210 L/, '环形扇区不从圆心起笔');
+  const full = renderMarkdown(':::chart donut 单项\n唯一, 5\n:::');
+  assert.match(full, /fill-rule="evenodd"/, '单项 100% 环形用 evenodd 挖空');
+  const funnel = renderMarkdown(':::chart funnel 转化\n访问, 1000\n注册, 420\n下单, 120\n:::');
+  assert.match(funnel, /class="md-chart md-chart-funnel"/);
+  assert.equal((funnel.match(/md-chart-funnel-step/g) || []).length, 3);
+  assert.match(funnel, /data-chart-pct="42%"/);
+  assert.match(funnel, /较上一步 29%/, '显示相邻步转化率（120/420）');
+});
+test('直方图：自动分箱 + bins= 选项；箱线图：四分位 / 1.5IQR 离群点', async () => {
+  const qv = await import('../js/quickviz.js');
+  const nums = '55, 62, 67, 70, 71, 73, 75, 76, 78, 80, 81, 82, 83, 85, 86, 88, 90, 92, 95, 99';
+  const auto = renderMarkdown(`:::chart histogram 成绩\n${nums}\n:::`);
+  assert.match(auto, /class="md-chart md-chart-histogram"/);
+  assert.match(auto, /n=20 · \d+ 组 · 组距/);
+  const eight = renderMarkdown(`:::直方图 成绩 bins=8\n${nums}\n:::`);
+  assert.equal((eight.match(/class="md-chart-bar"/g) || []).length, 8, 'bins=8 严格分 8 组');
+  assert.match(eight, /aria-label="成绩"/, '选项不进入标题');
+  const st = qv.boxStats([12, 15, 11, 19, 14, 40]);
+  assert.equal(st.med, 14.5);
+  assert.deepEqual(st.outliers, [40]);
+  assert.equal(st.hi, 19, '上须止于围栏内最大值');
+  const box = renderMarkdown(':::chart boxplot 分布\n甲组, 12, 15, 11, 19, 14, 40\n乙组, 22, 25, 21, 29, 24\n:::');
+  assert.match(box, /class="md-chart md-chart-boxplot"/);
+  assert.equal((box.match(/class="md-chart-box"/g) || []).length, 2);
+  assert.equal((box.match(/md-chart-box-outlier/g) || []).length, 1);
+  assert.match(box, /data-chart-val="中位数 14\.5 · Q1 12\.5 · Q3 18 · 范围 11–40 · n=6"/);
+});
+test('散点图 / 气泡图：数值 x 轴刻度、面积映射大小、系列列可选', async () => {
+  const scatter = renderMarkdown(':::chart scatter 身高体重\n170, 65\n160, 50\nC, 180, 80\n:::');
+  assert.equal((scatter.match(/class="md-chart-hit-area"/g) || []).length, 3);
+  assert.match(scatter, /data-chart-label="C" data-chart-val="\(180, 80\)"/);
+  const bubble = renderMarkdown(':::气泡图 城市\n北京, 12, 30, 80\n上海, 20, 25, 95\n广州, 8, 18, 10\n:::');
+  assert.match(bubble, /class="md-chart md-chart-bubble"/);
+  const radii = [...bubble.matchAll(/class="md-chart-bubble"/g)].length;
+  assert.equal(radii, 3);
+  const rOf = (name) => Number(new RegExp(`r="([\\d.]+)" fill="#[0-9a-f]{6}" data-chart-label="${name}"`).exec(bubble)[1]);
+  assert.ok(rOf('上海') > rOf('北京') && rOf('北京') > rOf('广州'), '气泡半径随大小单调');
+  assert.match(bubble, /data-chart-val="\(12, 30\) · 大小 80"/);
+  const series = renderMarkdown(':::chart scatter 分组\nA, 1, 2, 甲\nB, 2, 3, 乙\n:::');
+  assert.equal((series.match(/md-chart-legend-item/g) || []).length, 2, '第四列作为系列名并生成图例');
+});
+test('桑基图：箭头 / 逗号两种写法，分层布局与流量宽度', async () => {
+  const qv = await import('../js/quickviz.js');
+  const md = ':::chart sankey 能源流向\n煤炭 -> 发电, 50\n天然气 -> 发电, 20\n发电, 工业, 40\n发电 → 居民 30\n:::';
+  const html = renderMarkdown(md);
+  assert.match(html, /class="md-chart md-chart-sankey"/);
+  assert.equal((html.match(/class="md-chart-sankey-link"/g) || []).length, 4);
+  assert.equal((html.match(/class="md-chart-sankey-node"/g) || []).length, 5);
+  assert.match(html, /data-chart-label="煤炭 → 发电"/);
+  const lay = qv.layoutSankey([{ source: 'A', target: 'B', value: 2 }, { source: 'B', target: 'C', value: 1 }, { source: 'A', target: 'C', value: 1 }], 400, 200);
+  const by = Object.fromEntries(lay.nodes.map((n) => [n.name, n]));
+  assert.equal(lay.layers, 3);
+  assert.ok(by.A.x0 < by.B.x0 && by.B.x0 < by.C.x0, '按最长路径分层从左到右');
+  assert.ok(Math.abs(by.A.h / by.C.h - 1.5) < 1e-6, 'A 流出 3 与 C 流入 2 高度成 3:2');
+  const cyc = qv.layoutSankey([{ source: 'X', target: 'Y', value: 1 }, { source: 'Y', target: 'X', value: 1 }], 400, 200);
+  assert.equal(cyc.nodes.length, 2, '环不致死循环');
+});
+test('地图：同步输出占位 + data-map / data-rows，省份自动选中国；renderGeoMapSvg 用内置边界着色', async () => {
+  const fsp = await import('node:fs');
+  const qv = await import('../js/quickviz.js');
+  const cn = renderMarkdown(':::chart map 各省销量\n广东, 126\n江苏省, 98\n:::');
+  assert.match(cn, /class="md-chart md-chart-map" data-map="china" data-map-title="各省销量" data-rows="/);
+  assert.match(cn, /md-chart-map-loading/);
+  const world = renderMarkdown(':::地图 GDP\nChina, 18\n美国, 27\n:::');
+  assert.match(world, /data-map="world"/);
+  const forced = renderMarkdown(':::chart map 指定 world\n广东, 1\n:::');
+  assert.match(forced, /data-map="world" data-map-title="指定"/, '标题里的 world / china 关键字强制地图并从标题剔除');
+  const china = JSON.parse(fsp.readFileSync(new URL('../assets/geo/china.json', import.meta.url), 'utf8'));
+  const worldGeo = JSON.parse(fsp.readFileSync(new URL('../assets/geo/world.json', import.meta.url), 'utf8'));
+  assert.equal(china.features.length, 34);
+  assert.ok(worldGeo.features.length >= 200);
+  assert.equal(china.aliases['江苏省'], '江苏');
+  assert.equal(worldGeo.aliases['美国'], 'United States');
+  for (const f of [...china.features, ...worldGeo.features]) assert.ok(f.r.every((ring) => ring.length >= 3 && ring.every((p) => p.length === 2)), `${f.n} 环格式`);
+  const svg = qv.renderGeoMapSvg(china, [['广东', 126], ['江苏省', 98], ['火星', 1]], '各省销量', 'china');
+  assert.match(svg, /^<svg viewBox="0 0 720 392" width="720" height="392"/);
+  assert.equal((svg.match(/class="md-chart-region"/g) || []).length, 2, '两个有数据的省份');
+  assert.equal((svg.match(/md-chart-region-empty/g) || []).length, 32);
+  assert.match(svg, /data-chart-label="广东" data-chart-val="126"/);
+  assert.match(svg, /1 个地区未匹配到边界/);
+  assert.match(svg, /md-chart-map-label[^>]*>广东</, '中国地图给有数据省份加名称标签');
+  const wsvg = qv.renderGeoMapSvg(worldGeo, [['美国', 27], ['China', 18]], 'GDP', 'world');
+  assert.match(wsvg, /data-chart-label="United States" data-chart-val="27"/);
+  assert.match(wsvg, /data-chart-label="China" data-chart-val="18"/);
+  assert.ok(wsvg.length < 400 * 1024, '世界地图 SVG 控制在 400 KB 内');
+  const ui = readUiSource();
+  assert.match(ui, /function hydrateGeoMaps/);
+  assert.match(ui, /assets\/geo\/\$\{id\}\.json\?v=\$\{APP_VERSION\}/);
+  assert.match(ui, /new MutationObserver\(/);
+  const sw = fsp.readFileSync(new URL('../sw.js', import.meta.url), 'utf8');
+  assert.match(sw, /assets\/geo/, 'Service Worker 覆盖地理边界缓存');
+});
+test('工具芯片：每条命令只显示 ✓ / ✗ 图标 + 耗时（无中文成功 / 失败字样），失败态耗时不加粗，折叠头耗时居中对齐', async () => {
+  const fsp = await import('node:fs');
+  const ui = readUiSource();
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(ui, /<span class="chip-fail" role="img" aria-label="失败" title="\$\{esc\(errTxt\)\}">✗<\/span>/);
+  assert.match(ui, /<span class="chip-ok" role="img" aria-label="成功">✓<\/span>/);
+  assert.doesNotMatch(ui, />✗ 失败<|>✓ 成功</, '不得再出现中文成功 / 失败字样');
+  assert.match(css, /\.chip-state\.bad \.chip-time \{ font-weight: 400; \}/);
+  assert.match(css, /\.chip-state\.bad \{ font-weight: 400; \}/);
+  assert.match(css, /\.chip-state \{[^}]*display: inline-flex; align-items: center; gap: 5px/s);
+});
+test('smart-router 图标与 TeamoRouter 产品 LOGO 一致（粗实线外环 + 三段弧 + 三卫星点 + 实心核心）', async () => {
+  const { ROUTER_ICON_SVG } = await import('../js/smartrouter.js');
+  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="13\.2" stroke="currentColor" stroke-width="2\.1"\/>/, '外环加粗且全实色');
+  assert.doesNotMatch(ROUTER_ICON_SVG, /stroke-opacity/, '不再带淡色透明度');
+  assert.equal((ROUTER_ICON_SVG.match(/stroke-width="2\.6"/g) || []).length, 3, '三段轨道弧');
+  assert.equal((ROUTER_ICON_SVG.match(/r="2\.1" fill="currentColor"/g) || []).length, 3, '三个卫星点');
+  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3\.1" fill="currentColor"\/>/, '实心核心');
 });
 
 for (const item of queue) {

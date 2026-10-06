@@ -744,9 +744,13 @@ a { color: var(--fg); }
 .chip-state {
   color: var(--fg-3); font-family: var(--mono);
   max-width: 58%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* 图标 + 耗时横向居中对齐：耗时字号比芯片正文小，用 inline-flex 取代基线对齐，避免「2.8s」看起来下沉 */
+  display: inline-flex; align-items: center; gap: 5px; line-height: 1.2;
 }
 .chip.running .chip-state { color: var(--fg-2); font-family: var(--font); }
-.chip-state.bad { font-weight: 700; }
+/* 失败态只把 ✗ 图标加粗（.chip-fail 自带 700），耗时保持常规字重 */
+.chip-state.bad { font-weight: 400; }
+.chip-state.bad .chip-time { font-weight: 400; }
 .chip-detail {
   display: grid; grid-template-rows: 0fr; opacity: 0;
   width: 100%; flex-basis: 100%; font-size: var(--ui-fs-11_5px, 11.5px); color: var(--fg-2);
@@ -1682,11 +1686,8 @@ a { color: var(--fg); }
 .md-chart-axis-label { font-family: var(--sans); font-size: var(--ui-fs-11_5px, 11.5px); fill: var(--fg-2); stroke: none; }
 div.md-chart-line { stroke: none; fill: initial; }
 polygon.md-chart-area { fill: color-mix(in srgb, var(--accent, #4f46e5) 10%, transparent); stroke: none; pointer-events: none; transition: fill .22s ease; }
-polygon.md-chart-st-area { fill: color-mix(in srgb, #0ea5e9 10%, transparent); }
 .md-chart:hover polygon.md-chart-area { fill: color-mix(in srgb, var(--accent, #4f46e5) 15%, transparent); }
-.md-chart:hover polygon.md-chart-st-area { fill: color-mix(in srgb, #0ea5e9 15%, transparent); }
 polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; transition: stroke-width .2s ease; }
-.md-chart-st-line { stroke: #0ea5e9; }
 .md-chart-dot { fill: var(--bg); stroke: #4f46e5; stroke: var(--accent, #4f46e5); stroke-width: 2.2; }
 .md-chart-bar, .md-chart-slice, .md-chart-point, .md-chart-dot {
   opacity: .92;
@@ -1723,6 +1724,33 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .md-flow-node:hover, .md-mind-node:hover {
   opacity: .94;
 }
+/* 2026.10.5.17：新增图类（条形 / 面积 / 环形 / 堆叠 / 直方 / 箱线 / 气泡 / 漏斗 / 桑基 / 地图） */
+.md-chart-legend { fill: var(--fg-2); font-family: var(--sans); }
+.md-chart-donut-total { font-family: var(--sans); font-size: var(--ui-fs-20px, 20px); font-weight: 700; fill: var(--fg); }
+.md-chart-box { cursor: pointer; outline: none; transition: opacity .16s ease; }
+.md-chart-box-rect { fill: color-mix(in srgb, currentColor 22%, transparent); stroke: currentColor; stroke-width: 1.8; transition: fill .16s ease; }
+.md-chart-box:hover .md-chart-box-rect, .md-chart-box.is-active .md-chart-box-rect, .md-chart-box:focus-visible .md-chart-box-rect { fill: color-mix(in srgb, currentColor 40%, transparent); }
+.md-chart-box-whisker { stroke: currentColor; stroke-width: 1.4; opacity: .8; }
+.md-chart-box-median { stroke: currentColor; stroke-width: 2.6; stroke-linecap: round; }
+.md-chart-box-outlier { fill: var(--bg); stroke: currentColor; stroke-width: 1.6; }
+.md-chart-bubble { opacity: .72; cursor: pointer; outline: none; stroke: var(--bg); stroke-width: 1.2; transition: opacity .16s ease, stroke-width .16s ease; }
+.md-chart-bubble:hover, .md-chart-bubble:focus-visible, .md-chart-bubble.is-active { opacity: .95; stroke-width: 2; }
+.md-chart-svg:has(.md-chart-bubble:hover, .md-chart-bubble.is-active) .md-chart-bubble:not(:hover):not(.is-active) { opacity: .4; }
+.md-chart-funnel-value { font-family: var(--mono); font-size: var(--ui-fs-12px, 12px); font-weight: 650; fill: #fff; }
+.md-chart-sankey-link { fill: none; opacity: .32; cursor: pointer; outline: none; transition: opacity .16s ease; }
+.md-chart-sankey-link:hover, .md-chart-sankey-link:focus-visible, .md-chart-sankey-link.is-active { opacity: .7; }
+.md-chart-svg:has(.md-chart-sankey-link:hover, .md-chart-sankey-link.is-active) .md-chart-sankey-link:not(:hover):not(.is-active) { opacity: .14; }
+.md-chart-sankey-node { opacity: .95; cursor: pointer; outline: none; transition: opacity .16s ease; }
+.md-chart-sankey-node:hover, .md-chart-sankey-node.is-active { opacity: 1; filter: drop-shadow(0 0 3px rgba(103, 149, 232, .4)); }
+.md-chart-region { stroke: var(--bg); stroke-width: .6; cursor: pointer; outline: none; transition: opacity .16s ease, stroke-width .16s ease; }
+.md-chart-region-empty { cursor: default; }
+.md-chart-region:hover, .md-chart-region:focus-visible, .md-chart-region.is-active { stroke: var(--fg); stroke-width: 1; }
+.md-chart-svg:has(.md-chart-region:hover, .md-chart-region.is-active) .md-chart-region:not(:hover):not(.is-active):not(.md-chart-region-empty) { opacity: .62; }
+.md-chart-map-label { font-family: var(--sans); font-size: var(--ui-fs-9px, 9px); fill: var(--fg); opacity: .78; paint-order: stroke; stroke: var(--bg); stroke-width: 2px; stroke-linejoin: round; }
+.md-chart-map-loading { animation: mdChartPulse 1.4s ease-in-out infinite; }
+.md-chart-map[data-map-state="ready"] .md-chart-svg { animation: mdChartFadeIn .36s ease; }
+@keyframes mdChartPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+@keyframes mdChartFadeIn { from { opacity: 0; } to { opacity: 1; } }
 .md-chart-tooltip {
   position: absolute; left: 50%; top: 36px; z-index: 14;
   pointer-events: none; white-space: nowrap;
@@ -2156,7 +2184,7 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 /* 成功 / 失败徽标出现时弹一下；失败再轻轻抖一下提醒 */
 .chip-state .chip-ok, .chip-state .chip-fail { display: inline-block; animation: badgeIn .34s var(--ease-spring) both; }
 .chip-state .chip-fail { animation: badgeIn .34s var(--ease-spring) both, shake .4s var(--ease) .34s; }
-.chip-state .chip-time { display: inline-block; animation: chipIn .3s var(--ease-out) both .08s; }
+.chip-state .chip-time { display: inline-block; line-height: 1; animation: chipIn .3s var(--ease-out) both .08s; }
 /* 命令 / 文件折叠：展开箭头旋转，清单项错落进入 */
 .ran-commands > .chip-ico, .md-fold > .chip-ico, .edited-files > .chip-ico, .explored-files > .chip-ico { transition: transform .26s var(--ease-spring), color .2s var(--ease); }
 .ran-commands.done.expanded > .chip-ico, .md-fold.expanded > .chip-ico { transform: rotate(90deg); }
@@ -2198,4 +2226,5 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   .edited-files.expanded .fold-inner li, .explored-files.expanded .fold-inner li, .ft-row, .tok-pop:not([hidden]), .tok-pop .tok-row,
   #model-menu .dd-item, .boot-steps li.done b, .att-row .att-img, .att-row .att-file, .fv-pdf-page { animation: none !important; }
   .ran-commands > .chip-ico, .md-fold > .chip-ico, .ft-row, .router-chip, .photo-tool-button { transition: none !important; }
+  .md-chart-map-loading, .md-chart-map[data-map-state="ready"] .md-chart-svg { animation: none !important; }
 }

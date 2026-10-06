@@ -635,10 +635,10 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
   ok('折叠头只是菜单：不写成功 / 失败，失败数只进 title', !!foldState && !/成功|失败|failed/i.test(foldState.textContent) && /1 条失败/.test(foldState.title), foldState?.textContent + ' | ' + foldState?.title);
   const failChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'fail-1');
   const failState = failChip && failChip.querySelector('.chip-state');
-  ok('失败命令行显示中文「✗ 失败」，不出现英文 failed', !!failState && /✗ 失败/.test(failState.textContent) && !/failed/i.test(failState.textContent) && !!failState.querySelector('.chip-fail'), failState?.textContent);
+  ok('失败命令行只显示 ✗ 图标 + 耗时，不出现中文「失败」或英文 failed', !!failState && /✗/.test(failState.textContent) && !/成功|失败|failed/i.test(failState.textContent) && !!failState.querySelector('.chip-fail') && failState.querySelector('.chip-fail').getAttribute('aria-label') === '失败', failState?.textContent);
   ok('失败原因仍通过原生悬浮提示提供', /工具执行失败：测试错误提示/.test(failState?.title || ''), failState?.title);
   const okChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'copy-1');
-  ok('成功命令行显示中文「✓ 成功」', !!okChip && /✓ 成功/.test(okChip.querySelector('.chip-state').textContent), okChip?.querySelector('.chip-state')?.textContent);
+  ok('成功命令行只显示 ✓ 图标 + 耗时，不出现中文「成功」', !!okChip && /✓/.test(okChip.querySelector('.chip-state').textContent) && !/成功|失败/.test(okChip.querySelector('.chip-state').textContent) && !!okChip.querySelector('.chip-state .chip-ok'), okChip?.querySelector('.chip-state')?.textContent);
   click(ran);
   ok('Ran Commands 可单独展开', ran.classList.contains('expanded'));
 }

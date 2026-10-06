@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.16';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.17';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.16';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.17';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.16';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.16';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.16';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.16';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.16';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.16';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.16';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.16';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.17';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.17';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.17';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.17';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.17';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.17';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.17';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.17';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,9 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.16';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.17';
+// :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
+const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
 function sanitizeSvgRaw(raw) {
   let s = String(raw || '')
@@ -658,7 +660,8 @@ export function renderMarkdown(src) {
     return `\n\n\uE000ALIGN${aligns.length - 1}\uE000\n\n`;
   });
   const charts = [];
-  t = t.replace(/^:::(?:chart[ \t]+([^\n]+)|(bar|bars|line|scatter|scat|st|s-t|s–t|s—t|pie|柱状图|柱状|条形图|折线图|折线|趋势图|散点图|散点|位移时间图|位移-时间图|路程时间图|路程-时间图|饼图|饼|环形图)[ \t]*([^\n]*))\n([\s\S]*?)^:::[ \t]*$/gm, (_, info, direct, restTitle, body) => {
+  // 直接别名（:::bar / :::柱状图 / :::桑基图 …）与 :::chart <kind> 两种写法；别名表来自 quickviz.js，长别名优先匹配
+  t = t.replace(CHART_FENCE_RE, (_, info, direct, restTitle, body) => {
     const spec = parseChartInfo(info || restTitle || '', direct ? String(direct).toLowerCase() : '');
     charts.push({ ...spec, body });
     return `\n\n\uE000CHART${charts.length - 1}\uE000\n\n`;
@@ -2145,7 +2148,7 @@ function validateApiKey(s) {
       }
     }
     const timeHtml = totalMs > 0 ? ` <span class="chip-time">${fmtSpan(totalMs)}</span>` : '';
-    // 折叠头只是「菜单」：不写成功 / 失败，只给总耗时（成败在展开后的每条命令上各自标注；失败数放进 title）
+    // 折叠头只是「菜单」：不写成功 / 失败，只给总耗时（成败在展开后的每条命令上以 ✓ / ✗ 图标标注，不出现中文字样；失败数放进 title）
     const state = $('.chip-state', fold);
     if (state) {
       state.classList.remove('bad');
@@ -2195,11 +2198,11 @@ function validateApiKey(s) {
         const item = chip._toolStates[failId] || {};
         const errTxt = String(item.note || chip._outs[failId] || '工具失败').slice(0, 400);
         const durF = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
-        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗ 失败</span>${durF > 0 ? ` <span class="chip-time">${fmtSpan(durF)}</span>` : ''}`;
+        state.innerHTML = `<span class="chip-fail" role="img" aria-label="失败" title="${esc(errTxt)}">✗</span>${durF > 0 ? `<span class="chip-time">${fmtSpan(durF)}</span>` : ''}`;
         state.title = errTxt; state.classList.add('bad');
       } else if (allDone) {
         const dur = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
-        state.innerHTML = `<span class="chip-ok">✓ 成功</span>${dur > 0 ? ` <span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
+        state.innerHTML = `<span class="chip-ok" role="img" aria-label="成功">✓</span>${dur > 0 ? `<span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
         state.title = ''; state.classList.remove('bad');
       } else {
         state.textContent = running ? (running.note || '执行中…') : (settled ? `${settled}/${ids.length}` : '…');
@@ -3508,6 +3511,40 @@ function validateApiKey(s) {
     const answers = readChoiceAnswers(box);
     const qs = $$('.choice-qblock', box).map((b, i) => (($('.choice-q', b) || {}).textContent || `问题 ${i + 1}`).trim());
     return answers.map((a, i) => `${qs[i] || `问题 ${i + 1}`}：${a}`).join('\n');
+  }
+  // :::chart map — 地理边界按需拉取（assets/geo/world|china.json，约 70–80 KB），拿到后用 renderGeoMapSvg 替换占位 <svg>
+  const GEO_CACHE = new Map();
+  const loadGeo = (id) => {
+    if (!GEO_CACHE.has(id)) {
+      GEO_CACHE.set(id, fetch(`assets/geo/${id}.json?v=${APP_VERSION}`).then((r) => (r.ok ? r.json() : Promise.reject(new Error(`geo ${id} ${r.status}`)))).catch((err) => { GEO_CACHE.delete(id); throw err; }));
+    }
+    return GEO_CACHE.get(id);
+  };
+  function hydrateGeoMaps(root) {
+    if (typeof fetch !== 'function' || !root) return;
+    for (const box of $$('.md-chart-map[data-map]:not([data-map-state])', root)) {
+      box.dataset.mapState = 'loading';
+      let rows = [];
+      try { rows = JSON.parse(box.dataset.rows || '[]'); } catch { rows = []; }
+      const mapId = box.dataset.map === 'china' ? 'china' : 'world';
+      loadGeo(mapId).then((geo) => {
+        const svg = box.querySelector('.md-chart-svg');
+        if (!svg || !box.isConnected) { delete box.dataset.mapState; return; }
+        svg.outerHTML = renderGeoMapSvg(geo, rows, box.dataset.mapTitle || '地图', mapId);
+        box.dataset.mapState = 'ready';
+      }).catch(() => {
+        box.dataset.mapState = 'error';
+        const t = box.querySelector('.md-chart-map-loading');
+        if (t) t.textContent = '地图边界加载失败，稍后重试';
+      });
+    }
+  }
+  if (typeof MutationObserver === 'function') {
+    let geoTick = 0;
+    new MutationObserver(() => {
+      if (geoTick) return;
+      geoTick = requestAnimationFrame(() => { geoTick = 0; hydrateGeoMaps(msgList); });
+    }).observe(msgList, { childList: true, subtree: true });
   }
   // 复制代码块按钮（事件委托）
   msgList.addEventListener('click', (e) => {

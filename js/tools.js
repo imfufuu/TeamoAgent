@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.16';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.17';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
@@ -12,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.16';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.17';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.16';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.17';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -172,7 +172,7 @@ export const TOOL_DEFS = [
     name: 'generate_image',
     description:
       '调用文生图模型生成图片。不要传 model：一律用用户在模型菜单选定的生图模型（会话 runtime 会写明当前 ID）。' +
-      '禁止把统计图/折线图/柱状图/饼图/s-t 图/流程图/思维导图/架构图交给本工具；这些必须用 :::chart / :::flow / :::mind、render_mermaid、render_dot 或 SVG。' +
+      '禁止把统计图/折线图/柱状图/饼图/桑基图/地图/流程图/思维导图/架构图交给本工具；这些必须用 :::chart / :::flow / :::mind、render_mermaid、render_dot 或 SVG。' +
       'GPT Image 走 POST /v1/images/generations；给了 reference_paths 则走 /v1/images/edits。' +
       'gemini-3.1-flash-image（Nano Banana 2）走 Gemini 原生 generateContent，不要发到 /v1/images/*。' +
       '若传入 reference_paths（沙箱内图片路径，如用户附件 uploads/xx.png），则进入「图片编辑」模式，按 prompt 指令修改原图。' +
@@ -885,7 +885,7 @@ async function executeToolBody(name, args, ctx) {
         const prompt = String(args.prompt || '').trim();
         if (!prompt) return 'generate_image 缺少 prompt 参数。';
         if (looksStructuredDiagramPrompt(prompt)) {
-          const msg = '已拦截：统计图/物理 s-t 图/流程图/思维导图/架构图应使用 SVG、Mermaid、DOT 或 Markdown 快捷图表（:::chart / :::flow / :::mind），不能调用生图模型。';
+          const msg = '已拦截：统计图/物理关系图/流程图/思维导图/架构图应使用 SVG、Mermaid、DOT 或 Markdown 快捷图表（:::chart / :::flow / :::mind），不能调用生图模型。';
           emit({ status: 'error', error: { message: msg } });
           return `generate_image 拒绝执行：${msg}`;
         }
