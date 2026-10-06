@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.17';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.18';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.17';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.18';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -94,7 +94,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.17';
+} from './execution.js?v=2026.10.5.18';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.17';
+} from './recovery.js?v=2026.10.5.18';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.17';
+} from './idempotency.js?v=2026.10.5.18';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.17';
+} from './memorylife.js?v=2026.10.5.18';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.17';
+} from './trajectory.js?v=2026.10.5.18';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.17';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.17';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.18';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.18';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.17';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.17';
+} from './experiments.js?v=2026.10.5.18';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.18';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +143,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.17';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.17';
+} from './executionContext.js?v=2026.10.5.18';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.18';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.17';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.18';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -216,7 +216,7 @@ export function subagentTools(sandboxEnabled, def, { remoteCpp = true } = {}) {
   return list.length ? list : null;
 }
 
-export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, remoteCpp = true, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, onSubagentUsage, memory }) {
+export async function runSubagent(def, task, { apiKey, model, thinking, reasoningLevel, sandboxEnabled, remoteCpp = true, webEnabled, fs, signal, onThinkingFallback, onWebFallback, imageModel, visionModel, videoModel, onSubagentUsage, memory }) {
   const subTools = subagentTools(sandboxEnabled, def, { remoteCpp });
   const memBlock = formatMemory(memory);
   const messages = [
@@ -263,7 +263,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
     messages.push({ role: 'assistant', text, toolCalls: calls, ...(blocks.length ? { thinkingBlocks: blocks } : {}) });
     for (const c of calls) {
       // imageModel 要透传：否则子智能体出图会绕开用户在模型菜单里选定的生图模型
-      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, sandboxEnabled, remoteCpp, signal });
+      const res = await executeTool(c.name, c.args, { fs, onUi: () => {}, apiKey, imageModel: imageModel || null, visionModel: visionModel || null, videoModel: videoModel || null, sandboxEnabled, remoteCpp, signal });
       messages.push({ role: 'tool', toolCallId: c.id, name: c.name, content: res });
     }
   }
@@ -339,6 +339,7 @@ export function toolAccessSet(call) {
     case 'diff_text': return { reads: [...strList(a.left_path), ...strList(a.right_path)], writes: [] };
     case 'analyze_image': return { reads: [...strList(a.path), ...pathList(a.paths)], writes: [] };
     case 'analyze_pdf': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
+    case 'analyze_video': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
     default:
       if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
@@ -674,6 +675,8 @@ export function createAgent(store, hooks = {}) {
       },
       apiKey: turn.apiKey,
       imageModel: turn.imageModel,
+      visionModel: turn.visionModel,
+      videoModel: turn.videoModel,
       sandboxEnabled: turn.sandboxEnabled,
       remoteCpp: turn.remoteCpp !== false,
       allowDispatch: !!turn.canDispatch,
@@ -695,6 +698,8 @@ export function createAgent(store, hooks = {}) {
           remoteCpp: turn.remoteCpp !== false,
           webEnabled: turn.webEnabled,
           imageModel: turn.imageModel,
+          visionModel: turn.visionModel,
+          videoModel: turn.videoModel,
           memory: store.state.memory,
           onThinkingFallback: (m) => emit('onThinkingFallback', m),
           onWebFallback: (m, why) => emit('onWebFallback', m, why),
@@ -1271,6 +1276,9 @@ export function createAgent(store, hooks = {}) {
       remoteCpp: settings.remoteCppEnabled !== false,
       webEnabled: settings.webEnabled !== false && relayOk,
       imageModel: store.state.imageModel || DEFAULT_IMAGE_MODEL,
+      // 识图 / 视频识别模型：设置页「多模态模型」全局生效（不随会话）
+      visionModel: settings.visionModel || null,
+      videoModel: settings.videoModel || null,
       subagentReports: [],
     };
     let iterations = 0;
@@ -1882,7 +1890,7 @@ export function createAgent(store, hooks = {}) {
             ? 'pyodide-wasm'
             : call.name === 'execute_javascript'
               ? 'worker-8ms'
-              : (call.name === 'dispatch_subagent' || call.name === 'generate_image' || call.name === 'analyze_image' || call.name === 'analyze_pdf')
+              : (call.name === 'dispatch_subagent' || call.name === 'generate_image' || call.name === 'analyze_image' || call.name === 'analyze_pdf' || call.name === 'analyze_video')
                 ? 'gateway-api'
                 : 'browser-0ms';
           telemetry.recordTool(call.name, Math.round(waveMs / Math.max(1, toolCalls.length)), { engine, ok: !isErr });

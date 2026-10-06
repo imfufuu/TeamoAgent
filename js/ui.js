@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.17';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.18';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.17';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.18';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.17';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.17';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.17';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.17';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.17';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.17';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.17';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.17';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.18';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.18';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.18';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.18';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.18';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.18';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.18';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.18';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.17';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.18';
 // :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
 const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
@@ -246,7 +246,8 @@ function renderAttachments(atts) {
         ? `<button type="button" class="att-img" title="${esc(a.name)}"><img src="${src}" alt="${esc(a.name)}"></button>`
         : `<span class="att-file mono" title="内容未持久化">🖼 ${esc(a.name)}（已省略）</span>`;
     }
-    return `<span class="att-file mono" title="${esc(a.name)}">📄 ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
+    const isVideo = a.source === 'video' || /^video\//i.test(String(a.mime || '')) || /\.(mp4|webm|mov|m4v)$/i.test(String(a.name || ''));
+    return `<span class="att-file mono" title="${esc(a.name)}">${isVideo ? '🎬' : '📄'} ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
   }).join('');
   return `<div class="att-row">${items}</div>`;
 }
@@ -879,7 +880,7 @@ function fmtAgo(ts) {
 }
 
 // 这些工具不进 Ran Commands，而是各自的文件折叠（Explored / Edited File(s)）
-const FILE_FOLD_TOOLS = new Set(['write_file', 'read_file', 'analyze_image', 'analyze_pdf']);
+const FILE_FOLD_TOOLS = new Set(['write_file', 'read_file', 'analyze_image', 'analyze_pdf', 'analyze_video']);
 
 export function mountUI(store, agent) {
   const msgList = $('#messages');
@@ -961,7 +962,7 @@ export function mountUI(store, agent) {
   const ddMenu = $('#model-menu');
   const ddSearch = $('#model-search');
   // 网关仍可能返回已下线的福利档；本地兜底表删了也不够，这里再挡一层。
-  const HIDDEN_MODELS = new Set(['glm-5.3-flash-free']);
+  const HIDDEN_MODELS = new Set(['glm-5.3-flash-free', 'deepseek-v4-flash-free', 'deepseek-flash-free']); // 后两者已从 FALLBACK_MODELS 删除，这里兜底防网关 /v1/models 再塞回来
   // 对话模型列表：过滤掉生图模型（只能由主智能体通过 generate_image 工具调用，
   // 直接选中会绕过工具循环、破坏 Agent 特性；网关 /v1/models 里带它们时也照样隐藏）
   function mergedModels() {
@@ -2558,7 +2559,28 @@ function validateApiKey(s) {
       }
       return [...new Set(out)];
     };
-    const pathsOfExplored = (msg) => [...new Set([...pathsOf(msg, 'read_file'), ...pathsOfAnalyze(msg), ...pathsOfAnalyzePdf(msg)])];
+    // analyze_video：同 analyze_pdf，优先从结果头部回读真实文件名
+    const pathsOfAnalyzeVideo = (msg) => {
+      const out = [];
+      for (const call of (msg && msg.toolCalls || [])) {
+        if (call.name !== 'analyze_video') continue;
+        const args = call.args && typeof call.args === 'object' ? call.args : {};
+        const toolMsg = (store.state.messages || []).find((x) => x.role === 'tool' && String(x.toolCallId) === String(call.id));
+        const result = String(toolMsg && toolMsg.content != null ? toolMsg.content : '');
+        const found = /^\[视频识别完成\] 模型 \S+ · 文件 (.*?) · /.exec(result);
+        let path = found ? found[1].trim() : (args.path ? String(args.path) : decodeRawJsonString(String(args.__raw || ''), 'path'));
+        if (!path) {
+          try {
+            const vids = (agent && agent.fs && typeof agent.fs.list === 'function' ? agent.fs.list() : [])
+              .map((f) => String(f && f.path || '')).filter((p) => /\.(mp4|webm|mov|m4v)$/i.test(p));
+            if (vids.length) path = vids[vids.length - 1];
+          } catch { /* noop */ }
+        }
+        if (path) out.push(path);
+      }
+      return [...new Set(out)];
+    };
+    const pathsOfExplored = (msg) => [...new Set([...pathsOf(msg, 'read_file'), ...pathsOfAnalyze(msg), ...pathsOfAnalyzePdf(msg), ...pathsOfAnalyzeVideo(msg)])];
     // P3：写文件类的路径要走 editpreview —— 流式期间 args 是半截 JSON（{__raw}），
     // 只有它能从「还没写完的文本」里把 path 扫出来，否则直播行会一直空着直到整段写完。
     const pathsOfEdit = (msg) => {
@@ -2746,15 +2768,17 @@ function validateApiKey(s) {
             quality: args.quality || 'auto',
             count: Number(args.n) || 1,
           });
-        } else if (tc.name === 'analyze_image' || tc.name === 'analyze_pdf') {
+        } else if (tc.name === 'analyze_image' || tc.name === 'analyze_pdf' || tc.name === 'analyze_video') {
           const tm = msgs.find((x) => x.role === 'tool' && x.toolCallId === tc.id);
-          const outChars = tm && tm.content ? String(tm.content).length : 600;
-          const shot = tc.name === 'analyze_pdf' ? Number((/识图 (\d+) 页/.exec(String(tm && tm.content || '')) || [])[1] || 0) : 1;
+          const content = String(tm && tm.content || '');
+          const outChars = content.length || 600;
+          const shot = tc.name === 'analyze_pdf' ? Number((/识图 (\d+) 页/.exec(content) || [])[1] || 0) : 1;
           if (!shot) continue;
+          const mFound = /^\[(?:识图|视频识别|PDF 分析)完成\].*?模型 (\S+)/.exec(content);
           toolCosts.push({
             kind: 'vision',
-            model: 'deepseek-v4-flash-vision-exp',
-            usage: { input: 1600 * shot, output: Math.max(120, Math.ceil(outChars / 2)) },
+            model: mFound ? mFound[1] : (tc.name === 'analyze_video' ? 'gemini-3.8-flash' : 'deepseek-v4-flash-vision-exp'),
+            usage: { input: tc.name === 'analyze_video' ? 4200 : 1600 * shot, output: Math.max(120, Math.ceil(outChars / 2)) },
             imageCount: shot,
           });
         }

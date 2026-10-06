@@ -170,7 +170,7 @@ export function createStore(onChange) {
     models: [],
     // webEnabled：联网开关。控制模型原生联网格式与已探测到的 Worker 搜索/抓取工具；
     // fetch_url/search_web/crawl_site 仍须存在相应 relay capability 才会进入工具表。
-    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true },
+    settings: { sandboxEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true, visionModel: 'deepseek-v4-flash-vision-exp', videoModel: 'gemini-3.8-flash' },
     sessions: [newSession()],
     activeSessionId: null,
     // 根级字段 = 活动会话的实时引用（由 hydrate/commit 同步，其余代码零改动）
@@ -411,7 +411,7 @@ export function createStore(onChange) {
       const parsed = JSON.parse(raw);
       Object.assign(state, parsed);
       // 旧快照里没有的开关要补上默认值（整块 settings 被 parsed 覆盖时不能留下 undefined）
-      state.settings = Object.assign({ sandboxEnabled: true, remoteCppEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true }, state.settings || {});
+      state.settings = Object.assign({ sandboxEnabled: true, remoteCppEnabled: true, fastMode: false, theme: 'light', thinking: true, reasoningLevel: 'medium', webEnabled: true, jevEnabled: true, visionModel: 'deepseek-v4-flash-vision-exp', videoModel: 'gemini-3.8-flash' }, state.settings || {});
       state.memory = pruneMemoryFacts(Array.isArray(state.memory) ? state.memory : []);
       state.learnedSkills = pruneLearnedSkills(Array.isArray(state.learnedSkills) ? state.learnedSkills : []);
       normalizeP1State(); // 旧快照没有这些键 → 补默认；坏形状 → 丢弃而不是带着跑

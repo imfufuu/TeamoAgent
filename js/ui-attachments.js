@@ -2,7 +2,7 @@
 // 按钮 / 相机 / 拖拽 / 粘贴 四个入口 → 统一 addFiles：图片缩放与 MIME 白名单、文本 / PDF（原样入沙箱，交给 analyze_pdf）/ ZIP（解包进沙箱）、
 // 大小上限与芯片渲染。对外只暴露 { hasPending, takePending, addFiles }，发送逻辑取走后自动清空。
 import { ICON } from './icons.js';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.17';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.18';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -17,11 +17,27 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
   const TEXT_RE = /\.(txt|md|markdown|js|mjs|cjs|ts|tsx|jsx|py|pyi|java|c|cc|cpp|cxx|h|hpp|cs|go|rs|rb|php|swift|kt|scala|dart|m|r|jl|sh|bash|zsh|ps1|bat|cmd|json|jsonc|jsonl|csv|tsv|log|html?|css|scss|less|xml|ya?ml|toml|ini|env|conf|cfg|sql|vue|svelte|tex|latex|lua|hs|erl|exs?|clj|cljs|fsx?|ml|mli|asm|diff|patch)$/i;
   const PDF_RE = /\.pdf$/i;
   const ZIP_RE = /\.zip$/i;
-  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 12 * 1024 * 1024, MAX_ZIP = 12 * 1024 * 1024, MAX_FILES = 8;
+  // 视频：原样进沙箱 uploads/，由 Agent 调用 analyze_video（Gemini 视频理解）；16MB ≈ 手机 1080p 30–60 秒
+  const VIDEO_RE = /\.(mp4|webm|mov|m4v)$/i;
+  const VIDEO_MIME_RE = /^video\/(mp4|webm|quicktime|x-m4v)$/i;
+  const MAX_IMG = 5 * 1024 * 1024, MAX_TEXT = 512 * 1024, MAX_PDF = 12 * 1024 * 1024, MAX_ZIP = 12 * 1024 * 1024, MAX_VIDEO = 16 * 1024 * 1024, MAX_FILES = 8;
   let pending = [];
   const attachChips = $('#attach-chips');
   const fileInput = $('#attach-input');
   const cameraInput = $('#camera-input');
+
+  // 读视频时长（只解元数据，不解码画面）：失败就当 0，不影响上传
+  const probeVideoDuration = (file) => new Promise((resolve) => {
+    if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return resolve(0);
+    const v = document.createElement('video');
+    const url = URL.createObjectURL(file);
+    const done = (d) => { try { URL.revokeObjectURL(url); } catch { /* noop */ } resolve(Number.isFinite(d) && d > 0 ? d : 0); };
+    const timer = setTimeout(() => done(0), 4000);
+    v.preload = 'metadata';
+    v.onloadedmetadata = () => { clearTimeout(timer); done(v.duration); };
+    v.onerror = () => { clearTimeout(timer); done(0); };
+    v.src = url;
+  });
 
   const readAs = (mode, file) => new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -123,6 +139,24 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
             originalName: f.name,
           });
           toast(`${f.name}：已作为 PDF 附件加入${pages ? `（约 ${pages} 页）` : ''}，发送后 Agent 会调用 analyze_pdf 识别`, 'ok', 4200);
+        } else if (VIDEO_RE.test(f.name) || VIDEO_MIME_RE.test(f.type)) {
+          if (f.size > MAX_VIDEO) { toast(`${f.name}：视频超过 16MB，请裁剪或压缩后再传`, 'err'); continue; }
+          const ext = (f.name.toLowerCase().split('.').pop() || 'mp4');
+          const mime = VIDEO_MIME_RE.test(f.type) ? f.type : (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'm4v' ? 'video/x-m4v' : 'video/mp4');
+          let durationSec = 0;
+          try { durationSec = await probeVideoDuration(f); } catch { durationSec = 0; }
+          pending.push({
+            id: Math.random().toString(36).slice(2),
+            kind: 'file',
+            name: f.name,
+            mime,
+            size: f.size,
+            dataUrl: String(await readAs('dataURL', f)).replace(/^data:[^;]*;base64,/, `data:${mime};base64,`),
+            source: 'video',
+            durationSec: durationSec || undefined,
+            originalName: f.name,
+          });
+          toast(`${f.name}：已作为视频附件加入${durationSec ? `（约 ${Math.round(durationSec)} 秒）` : ''}，发送后 Agent 会调用 analyze_video 识别`, 'ok', 4200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
           pending.push({
@@ -140,7 +174,7 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });
         } else {
-          toast(`不支持的文件类型：${f.name}（支持图片、PDF、ZIP 与文本/代码文件）`, 'err');
+          toast(`不支持的文件类型：${f.name}（支持图片、视频 mp4/webm/mov、PDF、ZIP 与文本/代码文件）`, 'err');
         }
       } catch (err) { toast(err.message, 'err'); }
     }
@@ -155,7 +189,7 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
       const imgSrc = a.kind === 'image' ? safeImgSrc(a.dataUrl) : '';
       chip.innerHTML = (imgSrc
         ? `<img src="${esc(imgSrc)}" alt="">`
-        : `<span class="attach-chip-ico">📄</span>`)
+        : `<span class="attach-chip-ico">${a.source === 'video' ? '🎬' : '📄'}</span>`)
         + `<span class="attach-chip-name mono">${esc(a.originalName || a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
       $('.attach-chip-x', chip).addEventListener('click', () => {
         pending = pending.filter((x) => x.id !== a.id);

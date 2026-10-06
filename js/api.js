@@ -321,6 +321,10 @@ function attachmentNote(a) {
     const pages = a.pages ? `，约 ${a.pages} 页` : '';
     return `【PDF 附件「${a.name}」已原样写入沙箱 uploads/${a.name}${pages}。对话模型不能直接读 PDF，请调用 analyze_pdf 工具（会提取文本层并整批识图）。】`;
   }
+  if (a.source === 'video' || /^video\//i.test(String(a.mime || '')) || /\.(mp4|webm|mov|m4v)$/i.test(String(a.name || ''))) {
+    const dur = a.durationSec ? `，约 ${Math.round(a.durationSec)} 秒` : '';
+    return `【视频附件「${a.name}」已原样写入沙箱 uploads/${a.name}${dur}。对话模型不能直接看视频，请调用 analyze_video 工具（视频识别模型会描述画面、转录字幕与语音）。】`;
+  }
   if (a.source === 'zip' || /\.zip$/i.test(String(a.name || ''))) {
     return `【ZIP 附件「${a.name}」已写入沙箱 uploads/${a.name}，需要里面的文件时调用 unzip_file。】`;
   }

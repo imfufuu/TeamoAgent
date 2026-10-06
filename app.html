@@ -9,18 +9,18 @@
      · worker 放行 self 与 blob:（sandbox.js 的 blob Worker 兜底通道）
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-gFwJ7f9UdMHKb08jKJkXd4re+Cw1BK/anoFNH9fzLd4=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.5.17" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-gxjHFd7bUfG2jJJ4QvYraycFX9+zCx9/yvFo3FmcXJA=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
+<meta name="app-version" content="2026.10.5.18" />
 <meta name="app-release" content="V1.7" />
 <title>Dubhe Agent V1.7 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.10.5.17" />
-<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.17" />
+<link rel="stylesheet" href="css/styles.css?v=2026.10.5.18" />
+<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.18" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <!-- 第三方字体（Google Fonts / jsDelivr）改由启动脚本动态插入：解析器插入的外链样式表会阻塞后面所有脚本执行，
      国内或弱网下这两个域名一挂起，整个应用就卡在加载屏直到 60 秒超时（V1.7.1 修复）。 -->
-<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.17" />
+<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.18" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -60,6 +60,7 @@
     </ol>
     <div class="boot-progress"><div class="boot-progress-bar" id="boot-bar"></div></div>
     <div class="boot-hint" id="boot-hint">正在初始化…</div>
+    <div class="boot-net mono" id="boot-net" aria-live="off"></div>
     <div class="boot-err" id="boot-err" hidden></div>
     <div class="boot-actions" id="boot-actions" hidden>
       <button type="button" id="boot-reload">重新加载</button>
@@ -85,7 +86,7 @@
       var l=document.createElement('link'); l.rel='stylesheet'; l.href=href; l.setAttribute('data-async-font','1'); document.head.appendChild(l);
     });
   }catch(_){}
-  var boot=document.getElementById('boot-screen'), bar=document.getElementById('boot-bar'), hint=document.getElementById('boot-hint'), errBox=document.getElementById('boot-err'), actions=document.getElementById('boot-actions'), steps=document.getElementById('boot-steps');
+  var boot=document.getElementById('boot-screen'), bar=document.getElementById('boot-bar'), hint=document.getElementById('boot-hint'), net=document.getElementById('boot-net'), errBox=document.getElementById('boot-err'), actions=document.getElementById('boot-actions'), steps=document.getElementById('boot-steps');
   var STAGES=['assets','modules','kernel','ui'];
   var LABEL={assets:'载入样式与资源…',modules:'加载模块…',kernel:'初始化执行内核…',ui:'挂载界面…'};
   var WIDTH={assets:18,modules:46,kernel:72,ui:92};
@@ -119,7 +120,40 @@
   // ES 模块图要等全部脚本下载完才会执行 main.js，期间没人上报阶段。
   // 用 Resource Timing 数一数 js/ 下已到达的脚本：第一个到达就进入「加载模块」，之后按数量把进度条推到下一阶段前。
   var MODULES_EXPECTED=70, modSeen={}, modCount=0;
+  // 网络明细行：当前拉取的文件 + 下载速度 + 累计体积。只统计同源静态资源（js/css/assets/fonts），
+  // transferSize=0 的是本地缓存命中，不计速度。速度 = 累计字节 / 从首个资源开始到最近一个响应结束的时间。
+  var netSeen={}, netFiles=0, netCached=0, netBytes=0, netStart=-1, netEnd=0, netLast='', netTimer=0, netShown='';
+  function fmtBytes(b){ return b>=1048576?(b/1048576).toFixed(b>=10485760?0:1)+' MB':b>=1024?Math.round(b/1024)+' KB':Math.round(b)+' B'; }
+  function fmtSpeed(bps){ return bps>=1048576?(bps/1048576).toFixed(1)+' MB/s':Math.max(1,Math.round(bps/1024))+' KB/s'; }
+  function paintNet(){
+    netTimer=0;
+    if(!net||revealed||settled) return;
+    var s='';
+    if(netBytes>0){
+      var sec=Math.max(0.05,(netEnd-netStart)/1000);
+      s='↓ '+netLast+' · '+fmtSpeed(netBytes/sec)+' · 已下载 '+fmtBytes(netBytes)+' / '+netFiles+' 个文件'+(netCached?'（'+netCached+' 个来自缓存）':'');
+    }else if(netCached>0){
+      s='资源来自本地缓存 · '+netCached+' 个文件'+(netLast?' · '+netLast:'');
+    }
+    if(s&&s!==netShown){ netShown=s; net.textContent=s; }
+  }
+  function noteNet(entry){
+    var n=entry&&entry.name||''; if(!n||netSeen[n]) return;
+    if(!/\/(js|css|assets|fonts|vendor)\/[^?#]+\.(m?js|css|wasm|woff2?|ttf|otf|json|png|svg|webp|jpe?g)(\?|#|$)/i.test(n)) return;
+    if(n.indexOf(location.origin)!==0) return;
+    netSeen[n]=1;
+    var size=Number(entry.transferSize||0), st=Number(entry.startTime||0), en=Number(entry.responseEnd||0);
+    netLast=n.replace(/[?#].*$/,'').split('/').pop();
+    if(size>0){
+      netFiles++; netBytes+=size;
+      if(netStart<0||st<netStart) netStart=st;
+      if(en>netEnd) netEnd=en;
+    }else netCached++;
+    // 一秒内能到几十个资源，合并到 120ms 刷一次，免得文字抖
+    if(!netTimer) netTimer=setTimeout(paintNet,120);
+  }
   function noteResource(entry){
+    try{ noteNet(entry); }catch(_){}
     try{
       var n=entry&&entry.name||''; if(!/\/js\/[^?]+\.js(\?|$)/.test(n)||modSeen[n]) return;
       modSeen[n]=1; modCount++;
@@ -151,6 +185,7 @@
     setWidth(100);
     if(steps){ var li=steps.children; for(var k=0;k<li.length;k++) li[k].className='done'; }
     setHint('准备就绪');
+    try{ if(net&&netBytes>0) net.textContent='已下载 '+fmtBytes(netBytes)+' / '+netFiles+' 个文件 · 用时 '+((Date.now()-t0)/1000).toFixed(1)+' 秒'; }catch(_){}
     requestAnimationFrame(function(){
       if(!boot || !document.getElementById('boot-screen')) return;
       boot.classList.add('fade-out');
@@ -180,7 +215,7 @@
     var wait=Math.round((Date.now()-lastAt)/1000), total=Math.round((Date.now()-t0)/1000);
     if(wait>=6){
       var name=STAGES[Math.max(cur,0)];
-      var why=name==='modules'||name==='assets'?'网络较慢，脚本仍在下载':'仍在执行';
+      var why=name==='modules'||name==='assets'?('网络较慢，'+(netLast?'正在拉取 '+netLast:'脚本仍在下载')):'仍在执行';
       setHint(LABEL[name].replace('…','')+' · '+why+'（已等待 '+total+' 秒）');
     }
     if(total>=20) showActions();
@@ -315,7 +350,7 @@
           </div>
         </div>
         <input id="camera-input" type="file" hidden accept="image/*" capture="environment" aria-label="拍摄照片" />
-        <input id="attach-input" type="file" multiple hidden accept="image/*,application/pdf,.pdf,application/zip,.zip,.txt,.md,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.hpp,.cc,.cxx,.cs,.go,.rs,.rb,.php,.swift,.kt,.scala,.dart,.m,.r,.jl,.sh,.bash,.zsh,.ps1,.bat,.cmd,.json,.jsonc,.csv,.log,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.env,.conf,.sql,.vue,.svelte,.tex,.latex,.lua,.hs,.erl,.ex,.exs,.clj,.cljs,.fs,.fsx,.ml,.mli,.asm,.diff,.patch,.svg,.bmp,.ico,.tiff,.tif,.avif,.heic,.heif,.apng" />
+        <input id="attach-input" type="file" multiple hidden accept="image/*,video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v,application/pdf,.pdf,application/zip,.zip,.txt,.md,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.java,.c,.cpp,.h,.hpp,.cc,.cxx,.cs,.go,.rs,.rb,.php,.swift,.kt,.scala,.dart,.m,.r,.jl,.sh,.bash,.zsh,.ps1,.bat,.cmd,.json,.jsonc,.csv,.log,.html,.htm,.css,.scss,.less,.xml,.yaml,.yml,.toml,.ini,.env,.conf,.sql,.vue,.svelte,.tex,.latex,.lua,.hs,.erl,.ex,.exs,.clj,.cljs,.fs,.fsx,.ml,.mli,.asm,.diff,.patch,.svg,.bmp,.ico,.tiff,.tif,.avif,.heic,.heif,.apng" />
         <textarea id="composer-input" rows="1" aria-label="消息输入框" placeholder="输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…"></textarea>
         <button id="send-btn" type="button" title="发送 (Enter)" aria-label="发送"><span id="send-ico">↑</span></button>
       </div>
@@ -455,6 +490,19 @@
       </section>
 
       <section class="set-sec">
+        <h4>多模态模型</h4>
+        <div class="set-row">
+          <div class="set-lbl"><div class="set-title">识图模型</div><div class="set-sub">analyze_image / analyze_pdf 页图用；只列几个有代表性的档位</div></div>
+          <div class="set-ctl"><select id="set-vision-model" class="set-select" aria-label="识图模型"></select></div>
+        </div>
+        <div class="set-row">
+          <div class="set-lbl"><div class="set-title">视频识别模型</div><div class="set-sub">analyze_video 用；网关里只有 Gemini 系能真正收到视频</div></div>
+          <div class="set-ctl"><select id="set-video-model" class="set-select" aria-label="视频识别模型"></select></div>
+        </div>
+        <div class="set-row"><div class="set-lbl"><div class="set-sub" id="set-mm-note">—</div></div></div>
+      </section>
+
+      <section class="set-sec">
         <h4>关于</h4>
         <div class="set-about">
           <div class="set-about-row"><span>版本</span><b id="set-about-ver">—</b></div>
@@ -475,6 +523,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.10.5.17"></script>
+<script type="module" src="js/main.js?v=2026.10.5.18"></script>
 </body>
 </html>

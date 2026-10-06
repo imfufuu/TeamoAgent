@@ -23,7 +23,7 @@ const DIFFICULTY = { EASY: 'easy', MEDIUM: 'medium', HARD: 'hard' };
 // 选模原则（简化启发式）：
 //   - 代码任务（含多文件/调试/沙箱执行）→ Anthropic Claude 系（Sonnet / Opus 视难度）
 //   - 数学/推理/复杂分析 → OpenAI GPT 或 DeepSeek（高难度用 Sol/Opus 级别）
-//   - 多语言闲聊/快速问答 → 免费/低价档（deepseek-flash-free、gemini-flash、glm-flash）
+//   - 多语言闲聊/快速问答 → 低价档（deepseek-v4-flash、gemini-flash、glm-flash）
 //   - 生图 / 识图 相关 → 不改变生图模型，对话仍选普通模型
 //   - 简单问题 → 低价快速模型
 
@@ -102,9 +102,9 @@ function pickRealModel(category, difficulty, availableModels) {
 
     case TASK_CATEGORY.CHAT:
     default:
-      // 简单闲聊优先选支持 thinking/reasoning 的中档模型，避免免费档把思考链路砍掉
-      // （deepseek-v4-flash-free 不返回可见思考正文 → 导致「思考过程」一直显示「已思考」而没有内容）
-      return pick(['claude-sonnet-5', 'deepseek-v4-flash', 'gemini-3.8-flash', 'gpt-6-luna', 'glm-5.3-flash', 'deepseek-v4-flash-free']);
+      // 简单闲聊优先选支持 thinking/reasoning 的中档模型（DeepSeek 免费档已下架：不返回可见思考正文，
+      // 会让「思考过程」一直显示「已思考」而没有内容）
+      return pick(['claude-sonnet-5', 'deepseek-v4-flash', 'gemini-3.8-flash', 'gpt-6-luna', 'glm-5.3-flash']);
   }
 }
 
@@ -157,6 +157,6 @@ export function isSmartRouter(modelId) {
 
 // 路由器徽章的图标 & 显示名
 // 路由器图标 = TeamoRouter 产品 LOGO（粗实线外环 + 三段轨道弧 + 三个卫星点 + 实心核心）。
-// 2026.10.5.17：按产品 LOGO 原稿重绘为「粗体」版本——外环 2.0 全实色、轨道弧 2.6、卫星点 r=2.1、核心 r=3.1，
+// 2026.10.5.18：按产品 LOGO 原稿重绘为「粗体」版本——外环 2.0 全实色、轨道弧 2.6、卫星点 r=2.1、核心 r=3.1，
 // 不再沿用顶栏淡色 APP_LOGO 的 18% / 55% 透明度，避免在 pill / 下拉里看起来与产品 LOGO 不一致。
 export const ROUTER_ICON_SVG = '<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13.2" stroke="currentColor" stroke-width="2.1"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="3.1" fill="currentColor"/><circle cx="16.000" cy="24.000" r="2.1" fill="currentColor"/><circle cx="9.072" cy="12.000" r="2.1" fill="currentColor"/><circle cx="22.928" cy="12.000" r="2.1" fill="currentColor"/></svg>';

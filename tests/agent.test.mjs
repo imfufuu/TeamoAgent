@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.17';
+} from '../js/api.js?v=2026.10.5.18';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.17');
+const api = await import('../js/api.js?v=2026.10.5.18');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.17');
+  const api = await import('../js/api.js?v=2026.10.5.18');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4132,7 +4132,7 @@ test('glm-5.3-flash-free 从菜单隐藏；网关返回也滤掉', async () => {
   const ui = readUiSource();
   assert.equal(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash-free'), false);
   assert.ok(cfg.FALLBACK_MODELS.some((m) => m.id === 'glm-5.3-flash'), '付费 flash 仍在');
-  assert.match(ui, /HIDDEN_MODELS = new Set\(\['glm-5.3-flash-free'\]\)/);
+  assert.match(ui, /HIDDEN_MODELS = new Set\(\['glm-5.3-flash-free', 'deepseek-v4-flash-free', 'deepseek-flash-free'\]\)/);
   assert.match(ui, /HIDDEN_MODELS\.has\(id\)/);
   assert.match(ui, /HIDDEN_MODELS\.has\(store\.state\.model\)/);
 });
@@ -4307,7 +4307,7 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(ep, /Edited Files/i, '完成后显示 Edited Files N');
   assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
   assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
-  assert.match(ui, /FILE_FOLD_TOOLS = new Set\(\['write_file', 'read_file', 'analyze_image', 'analyze_pdf'\]\)/, '文件读写与识图从命令芯片组移出');
+  assert.match(ui, /FILE_FOLD_TOOLS = new Set\(\['write_file', 'read_file', 'analyze_image', 'analyze_pdf', 'analyze_video'\]\)/, '文件读写与识图从命令芯片组移出');
   assert.match(ui, /pathsOfAnalyze/, 'analyze_image 路径合并到 Explored Files');
   assert.match(ui, /Ran Commands \${total}/, '其余命令统一折叠到 Ran Commands');
   assert.match(ui, /tool-call-chip/, '命令输出仍可逐项展开查看');
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.17');
+  assert.equal(APP_VERSION, '2026.10.5.18');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.17/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.18/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.17/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.18/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -5715,13 +5715,13 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
 
 group('2026.9.30.7 40模型全支持与热度版本排序 / 长期记忆自动生效 / 天枢2.5自演进增强 / 黑粒回滚与图表微交互');
 
-test('2026.9.30.7：支持全部 40 个可用对话模型，且按热度与版本优先级排序', async () => {
+test('2026.9.30.7：支持全部固定对话模型（2026.10.5.18 起下架 DeepSeek 两个免费档 → 38 个），且按热度与版本优先级排序', async () => {
   const expected40 = [
     'claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-fable-5', 'claude-sonnet-5',
     'claude-opus-4-8', 'claude-opus-4-7', 'claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5',
     'gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4', 'gpt-5.4-mini',
     'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.5-flash-lite', 'gemini-3.1-pro-preview',
-    'deepseek-flash', 'deepseek-flash-free', 'deepseek-v4-pro', 'deepseek-v4-flash', 'deepseek-v4-flash-free',
+    'deepseek-flash', 'deepseek-v4-pro', 'deepseek-v4-flash',
     'kimi-k3', 'kimi-k3[1M]',
     'glm-5.3-flash', 'glm-5.3', 'glm-5.2',
     'grok-4.6',
@@ -5732,7 +5732,8 @@ test('2026.9.30.7：支持全部 40 个可用对话模型，且按热度与版�
     assert.ok(fallbackIds.has(id), `FALLBACK_MODELS 缺少模型：${id}`);
   }
   const chatModels = cfg.FALLBACK_MODELS.filter((m) => m.id !== cfg.SMART_ROUTER_ID && !cfg.isImageModel(m.id));
-  assert.equal(chatModels.length, 40, '排除智能路由、识图/生图专用模型后应恰好包含 40 个固定对话模型');
+  assert.equal(chatModels.length, 38, '排除智能路由、识图/生图专用模型后应恰好包含 38 个固定对话模型（DeepSeek 免费档已下架）');
+  assert.ok(!fallbackIds.has('deepseek-v4-flash-free') && !fallbackIds.has('deepseek-flash-free'), 'DeepSeek 两个免费模型必须下架');
 
   // Claude 与 GPT 新模型热度与组内版本优先级排序验证
   const anthropic = cfg.FALLBACK_MODELS.filter((m) => m.provider === 'Anthropic');
@@ -8028,6 +8029,141 @@ test('smart-router 图标与 TeamoRouter 产品 LOGO 一致（粗实线外环 + 
   assert.equal((ROUTER_ICON_SVG.match(/stroke-width="2\.6"/g) || []).length, 3, '三段轨道弧');
   assert.equal((ROUTER_ICON_SVG.match(/r="2\.1" fill="currentColor"/g) || []).length, 3, '三个卫星点');
   assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3\.1" fill="currentColor"\/>/, '实心核心');
+});
+
+group('2026.10.5.18：下架 DeepSeek 免费档 / analyze_video 视频识别 / 设置页识图·视频模型 / 启动屏网络明细');
+
+test('DeepSeek 两个免费模型从所有入口消失：FALLBACK_MODELS、价目表、智能路由候选、UI 兜底隐藏', async () => {
+  const fsp = await import('node:fs');
+  const pricing = await import('../js/pricing.js');
+  const router = fsp.readFileSync(new URL('../js/smartrouter.js', import.meta.url), 'utf8');
+  for (const id of ['deepseek-v4-flash-free', 'deepseek-flash-free']) {
+    assert.ok(!cfg.FALLBACK_MODELS.some((m) => m.id === id), `${id} 仍在 FALLBACK_MODELS`);
+    assert.equal(pricing.MODEL_PRICING[id], undefined, `${id} 仍在价目表`);
+    assert.ok(!router.includes(`'${id}'`), `${id} 仍在智能路由候选`);
+  }
+  assert.match(readUiSource(), /HIDDEN_MODELS = new Set\(\['glm-5.3-flash-free', 'deepseek-v4-flash-free', 'deepseek-flash-free'\]\)/);
+});
+
+test('识图 / 视频识别模型表：只给少数有特点的档位，默认值合法，resolve 对未知 id 回退默认', () => {
+  assert.ok(cfg.VISION_MODELS.length >= 3 && cfg.VISION_MODELS.length <= 6, '识图档位 3–6 个');
+  assert.ok(cfg.VIDEO_MODELS.length >= 2 && cfg.VIDEO_MODELS.length <= 5, '视频档位 2–5 个');
+  assert.ok(cfg.VISION_MODELS.some((m) => m.id === cfg.DEFAULT_VISION_MODEL));
+  assert.ok(cfg.VIDEO_MODELS.some((m) => m.id === cfg.DEFAULT_VIDEO_MODEL));
+  assert.equal(cfg.DEFAULT_VISION_MODEL, 'deepseek-v4-flash-vision-exp', '识图默认仍是实验价 DeepSeek');
+  assert.ok(cfg.VIDEO_MODELS.every((m) => /^gemini-/.test(m.id)), '网关只有 Gemini 系真正收到视频，视频档位不得混入其它家族');
+  for (const m of [...cfg.VISION_MODELS, ...cfg.VIDEO_MODELS]) {
+    assert.ok(m.label && m.tag && m.note, `${m.id} 需要 label + tag + note（便宜 / 均衡 / 效果好）`);
+  }
+  assert.equal(cfg.resolveVisionModel('nope'), cfg.DEFAULT_VISION_MODEL);
+  assert.equal(cfg.resolveVisionModel(undefined), cfg.DEFAULT_VISION_MODEL);
+  assert.equal(cfg.resolveVideoModel('claude-sonnet-5-5'), cfg.DEFAULT_VIDEO_MODEL, '非 Gemini 不允许当视频模型');
+  assert.equal(cfg.resolveVisionModel('gemini-3.1-pro-preview'), 'gemini-3.1-pro-preview');
+  assert.equal(cfg.resolveVideoModel('gemini-3.5-flash-lite'), 'gemini-3.5-flash-lite');
+});
+
+test('设置页「多模态模型」：两个下拉 + 默认值进 state + settings.js 绑定并透传到工具 ctx', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const settings = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  const state = fsp.readFileSync(new URL('../js/state.js', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(app, /<h4>多模态模型<\/h4>/);
+  assert.match(app, /<select id="set-vision-model" class="set-select"/);
+  assert.match(app, /<select id="set-video-model" class="set-select"/);
+  assert.match(settings, /bindModelSelect\('#set-vision-model', 'visionModel', resolveVisionModel\)/);
+  assert.match(settings, /bindModelSelect\('#set-video-model', 'videoModel', resolveVideoModel\)/);
+  assert.match(settings, /function syncMultimodalSelects\(store\)/);
+  assert.equal((state.match(/visionModel: 'deepseek-v4-flash-vision-exp', videoModel: 'gemini-3.8-flash'/g) || []).length, 2, '初始 state 与旧快照补默认两处都要有');
+  assert.match(agent, /visionModel: settings\.visionModel \|\| null,\s*videoModel: settings\.videoModel \|\| null,/);
+  assert.match(agent, /visionModel: turn\.visionModel,\s*videoModel: turn\.videoModel,\s*sandboxEnabled: turn\.sandboxEnabled,/, '主回合工具 ctx 透传');
+  assert.match(agent, /visionModel: visionModel \|\| null, videoModel: videoModel \|\| null/, '子智能体工具 ctx 透传');
+});
+
+test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径（照搬 analyze_image）', async () => {
+  const fsp = await import('node:fs');
+  const { TOOL_DEFS, executeTool } = await import('../js/tools.js');
+  const ex = await import('../js/execution.js');
+  const def = TOOL_DEFS.find((t) => t.name === 'analyze_video');
+  assert.ok(def, '缺少 analyze_video 工具');
+  assert.match(def.description, /mp4\|webm\|mov\|m4v/);
+  assert.match(def.description, /不要传 model/);
+  assert.match(def.description, /16MB/);
+  assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'prompt']);
+  assert.equal(TOOL_DEFS.length, 38, '工具总数 37 → 38');
+  const c = ex.getToolContract('analyze_video');
+  assert.equal(c.sideEffect, 'remote');
+  assert.equal(c.external, true);
+  assert.ok(c.timeoutMs >= 180000, '视频上行 + 推理超时放宽到 ≥ 3 分钟');
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.match(tools, /case 'analyze_video': \{/);
+  assert.match(tools, /const VIDEO_EXT_RE = \/\\\.\(mp4\|webm\|mov\|m4v\)\$\/i;/);
+  assert.match(tools, /const VIDEO_MAX_BYTES = 16 \* 1024 \* 1024;/);
+  assert.match(tools, /\[视频识别完成\] 模型 \$\{videoModel\} · 文件 \$\{path\} · 全文 \$\{text\.length\} 字已写入 \$\{outPath\}/);
+  assert.match(tools, /kind: 'vision',\s*model: videoModel,/, '计费事件带真实模型');
+  // analyze_image / analyze_pdf 改读 ctx.visionModel
+  assert.match(tools, /const visionModel = resolveVisionModel\(ctx\.visionModel\);/);
+  assert.ok(!/model: VISION_TOOL_MODEL,/.test(tools), 'analyze_image/analyze_pdf 不得再写死默认识图模型');
+  const vision = fsp.readFileSync(new URL('../js/vision.js', import.meta.url), 'utf8');
+  assert.match(vision, /export async function analyzeVideo\(\{ apiKey, prompt, dataUrl, filename, model, signal, onUsage, durationSec = 0 \}\)/);
+  assert.match(vision, /\{ type: 'file', file: \{ filename: String\(filename \|\| 'video\.mp4'\), file_data: fileData \} \}/, '网关唯一真正把视频喂给 Gemini 的写法是 file 部件');
+  assert.ok(!/type: 'video_url'/.test(vision), 'video_url 部件会被网关静默丢弃，不得使用');
+  assert.match(vision, /export async function analyzeImage\(\{ apiKey, prompt, dataUrl, dataUrls, model, signal, onUsage \}\)/);
+  // 执行路径：无 key / 无视频 / 非视频 data URL / 超限
+  const fs = createFS();
+  assert.match(await executeTool('analyze_video', {}, { fs, onUi: () => {} }), /未配置 TeamoRouter API Key/);
+  assert.match(await executeTool('analyze_video', {}, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /沙箱里还没有视频/);
+  fs.write('uploads/a.mp4', 'hello');
+  assert.match(await executeTool('analyze_video', { path: 'uploads/a.mp4' }, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /不是视频 data URL/);
+  fs.write('uploads/big.mp4', 'data:video/mp4;base64,' + 'A'.repeat(Math.ceil(17 * 1024 * 1024 / 0.75)));
+  assert.match(await executeTool('analyze_video', { path: 'uploads/big.mp4' }, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /超过 16MB 上限/);
+  assert.match(await executeTool('analyze_video', { path: 'uploads/none.mp4' }, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /找不到 uploads\/none\.mp4/);
+  // 其余触点
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(agent, /case 'analyze_video': return \{ reads: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\], writes: \[\] \};/);
+  for (const [file, re] of [
+    ['../js/context.js', /m\.name === 'analyze_video'/],
+    ['../js/trajectory.js', /'analyze_pdf', 'analyze_video'\]/],
+    ['../js/temperature.js', /n === 'analyze_video'/],
+    ['../js/nexus.js', /'analyze_video'/],
+    ['../js/config.js', /- analyze_video：分析沙箱中的视频/],
+    ['../js/api.js', /请调用 analyze_video 工具/],
+    ['../js/ui-attachments.js', /source: 'video'/],
+    ['../js/ui-attachments.js', /MAX_VIDEO = 16 \* 1024 \* 1024/],
+    ['../app.html', /accept="image\/\*,video\/mp4,video\/webm,video\/quicktime,\.mp4,\.webm,\.mov,\.m4v,/],
+  ]) assert.match(fsp.readFileSync(new URL(file, import.meta.url), 'utf8'), re, `${file} 缺少 analyze_video 触点`);
+  assert.match(readUiSource(), /const pathsOfAnalyzeVideo = \(msg\) =>/);
+});
+
+test('视频识别模型可估价：estimateVisionCost 对 Gemini / Claude 回落到对话价目表而不是一律按 DeepSeek 实验价', async () => {
+  const pricing = await import('../js/pricing.js');
+  const g = pricing.estimateVisionCost({ model: 'gemini-3.8-flash', inputTokens: 4200, outputTokens: 500 });
+  const d = pricing.estimateVisionCost({ model: 'deepseek-v4-flash-vision-exp', inputTokens: 4200, outputTokens: 500 });
+  assert.equal(g.model, 'gemini-3.8-flash');
+  assert.ok(g.costUsd > d.costUsd, 'Gemini 3.8 Flash 官方价高于 DeepSeek 实验价');
+  const p = pricing.estimateVisionCost({ model: 'gemini-3.1-pro-preview', inputTokens: 4200, outputTokens: 500 });
+  assert.ok(p.costUsd > g.costUsd);
+});
+
+test('启动屏网络明细：显示当前拉取文件名与下载速度，合并刷新防闪烁，CSP 哈希同步', async () => {
+  const fsp = await import('node:fs');
+  const { createHash } = await import('node:crypto');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(app, /<div class="boot-net mono" id="boot-net" aria-live="off"><\/div>/);
+  const script = /<script>([\s\S]*?)<\/script>/.exec(app)?.[1] || '';
+  assert.match(script, /function noteNet\(entry\)/);
+  assert.match(script, /entry\.transferSize/, '速度按 Resource Timing 的 transferSize 计');
+  assert.match(script, /netLast=n\.replace\(\/\[\?#\]\.\*\$\/,''\)\.split\('\/'\)\.pop\(\);/, '只显示文件名');
+  assert.match(script, /fmtSpeed\(netBytes\/sec\)/);
+  assert.match(script, /if\(!netTimer\) netTimer=setTimeout\(paintNet,120\);/, '120ms 合并刷新');
+  assert.match(script, /'资源来自本地缓存 · '/, '全缓存命中时不显示 0 速度');
+  assert.match(script, /正在拉取 '\+netLast/, '慢网提示带上当前文件');
+  assert.match(script, /'已下载 '\+fmtBytes\(netBytes\)\+' \/ '\+netFiles\+' 个文件 · 用时 '/, '就绪时给出总量与用时');
+  assert.match(css, /\.boot-net \{[^}]*white-space: nowrap;[^}]*\}/);
+  assert.match(css, /\.boot-net:empty \{ opacity: 0; \}/);
+  const digest = `sha256-${createHash('sha256').update(script).digest('base64')}`;
+  assert.ok(app.includes(digest), `CSP 哈希需与内联启动脚本同步（期望 ${digest}）`);
 });
 
 for (const item of queue) {

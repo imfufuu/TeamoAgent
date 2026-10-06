@@ -64,7 +64,7 @@ await test('GET /v1/models 实时模型列表', async () => {
   return `${models.length} 个模型，家族: ${fams.join('/')}`;
 });
 
-const freeModel = models.find((m) => m === 'deepseek-flash-free') || models.find((m) => m.endsWith('-free')) || models[0];
+const freeModel = models.find((m) => m.endsWith('-free')) || models[0];
 const claudeModel = models.find((m) => m === 'claude-haiku-4-5') || models.find((m) => m.startsWith('claude'));
 console.log(`\n选用: 免费模型=${freeModel} | Claude=${claudeModel}\n`);
 

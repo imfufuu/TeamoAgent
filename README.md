@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.17` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.18` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -117,10 +117,17 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
 `fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site`（新版 Worker + 联网开关）、`run_git`（本地中继 `workspace/` 内 git）。
-另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image`，以及 V1.7 新增的 `csv_tool`（CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON）/ `date_calc`（日期差、加减、工作日、时区）/ `text_tool`（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）/ `convert_units`（长度、质量、温度、速度、面积、体积、数据、时间）/ `qr_code`（本地二维码 SVG，Version 1–20，写入 `outputs/`），全部在 `js/utiltools.js`，纯本地、零依赖。
+另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image` / `analyze_video`，以及 V1.7 新增的 `csv_tool`（CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON）/ `date_calc`（日期差、加减、工作日、时区）/ `text_tool`（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）/ `convert_units`（长度、质量、温度、速度、面积、体积、数据、时间）/ `qr_code`（本地二维码 SVG，Version 1–20，写入 `outputs/`），全部在 `js/utiltools.js`，纯本地、零依赖。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.18：analyze_video / 设置页识图·视频模型 / 下架 DeepSeek 免费档 / 加载屏网络明细**
+
+20. **`analyze_video` 新工具**（工具总数 38）：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 `uploads/`，工具逻辑照搬 `analyze_image`：读 data URL → 以 OpenAI 兼容接口的 `file` 部件交给 Gemini → 全文写入 `internal/ocr/{文件名}.video.md` 并上报 usage 计费。`video_url` 部件会被网关静默丢弃、非 Gemini 模型会剥掉视频，所以视频档位只收录实测能收到视频的 Gemini。
+21. **设置页「多模态模型」**：识图模型与视频识别模型可选，只列几个有特点的档位（默认·最便宜 / 便宜·极快 / 均衡 / 效果最好 / 文档·代码截图），全局生效并透传到主回合与子智能体。
+22. **下架 DeepSeek 免费档**：`deepseek-v4-flash-free`、`deepseek-flash-free` 从模型表 / 价目表 / 路由候选删除并在 UI 兜底隐藏；固定对话模型 38 个。
+23. **加载屏网络明细**：显示正在拉取的文件、下载速度与累计体积（Resource Timing，120 ms 合并刷新），慢网提示带文件名。
 
 **构建 2026.10.5.17：14 类快捷统计图 / 工具芯片纯图标 / 路由器 LOGO**
 

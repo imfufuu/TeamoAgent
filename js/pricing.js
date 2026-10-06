@@ -42,11 +42,9 @@ export const MODEL_PRICING = {
 
   // DeepSeek
   'deepseek-flash':           { input: 0.3,   output: 1.2,   cachedInput: 0.006 },
-  'deepseek-flash-free':      { input: 0.3,   output: 1.2,   cachedInput: 0.006, freeTier: true },
   'deepseek-v4-pro':          { input: 1.32,  output: 3.96,  cachedInput: 0.044 },
   'deepseek-v4-pro-260425':   { input: 1.74,  output: 3.48,  cachedInput: 0.145 },
   'deepseek-v4-flash':        { input: 0.44,  output: 1.32,  cachedInput: 0.014 },
-  'deepseek-v4-flash-free':   { input: 0.44,  output: 1.32,  cachedInput: 0.014, freeTier: true },
 
   // Zhipu GLM
   'glm-5.3':                  { input: 1.4,   output: 4.4,   cachedInput: 0.26 },
@@ -223,7 +221,9 @@ export function estimateVisionCost({
   textChars = 0,
 } = {}) {
   const { base } = normalizeModelKey(model);
-  const p = VISION_MODEL_PRICING[base] || VISION_MODEL_PRICING[VISION_MODEL_ID];
+  // 识图 / 视频识别模型可在设置里换成 Gemini / Claude：没有专表时用对话价目表（同一模型的多模态输入按文本 token 计）
+  const p = VISION_MODEL_PRICING[base]
+    || (MODEL_PRICING[base] ? { ...MODEL_PRICING[base], id: base, label: base, defaultTokensPerImage: 1100 } : VISION_MODEL_PRICING[VISION_MODEL_ID]);
   const imgs = Math.max(1, Number(imageCount) || 1);
   const hasExact = (Number(inputTokens) > 0) || (Number(outputTokens) > 0);
   const inTok = hasExact
@@ -482,11 +482,20 @@ export function summarizeTurnCost(arg1, opts = {}) {
         visionItems.push(vc);
         continue;
       }
+      if (tc.name === 'analyze_video' && (!tm || /^\[视频识别完成\]/.test(tContent))) {
+        // 没拿到 usage 时按「1 分钟视频 ≈ 4200 tok」保守估一段 1 分钟
+        const mFound = /^\[视频识别完成\] 模型 (\S+)/.exec(tContent);
+        const vc = estimateVisionCost({ model: mFound ? mFound[1] : 'gemini-3.8-flash', inputTokens: 4200, outputTokens: Math.max(200, Math.ceil((tContent.length || 600) * 0.85)), imageCount: 1 });
+        visionCostUsd += vc.costUsd;
+        visionItems.push(vc);
+        continue;
+      }
       if (tc.name === 'analyze_image' && (!tm || /^\[识图完成\]/.test(tContent))) {
         const args = tc.args || {};
         const count = Array.isArray(args.paths) && args.paths.length ? args.paths.length : 1;
+        const mFound = /^\[识图完成\] 模型 (\S+)/.exec(tContent);
         const vc = estimateVisionCost({
-          model: VISION_MODEL_ID,
+          model: mFound ? mFound[1] : VISION_MODEL_ID,
           imageCount: count,
           textChars: tContent.length || 600,
         });
@@ -538,7 +547,8 @@ export function summarizeTurnCost(arg1, opts = {}) {
   }
   if (visionItems.length) {
     const imgs = visionItems.reduce((s, x) => s + (Number(x.imageCount) || 1), 0);
-    tooltipLines.push(`· 识图模型（${VISION_MODEL_ID}）：${formatUsd(visionCostUsd)}（共 ${imgs} 张 · ${visionItems[0].rateLabel || '官方价 输入 $0.44/M · 输出 $1.32/M'}）`);
+    const vModels = [...new Set(visionItems.map((x) => x.model || VISION_MODEL_ID))].join(' / ');
+    tooltipLines.push(`· 识图/视频模型（${vModels}）：${formatUsd(visionCostUsd)}（共 ${imgs} 项 · ${visionItems[0].rateLabel || '官方价 输入 $0.44/M · 输出 $1.32/M'}）`);
   }
   if (imageItems.length) {
     const imgs = imageItems.reduce((s, x) => s + (Number(x.count) || 1), 0);

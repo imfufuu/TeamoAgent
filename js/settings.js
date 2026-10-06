@@ -1,5 +1,5 @@
-// 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.17';
+// 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.18';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
@@ -53,6 +53,35 @@ async function relayCheck() {
   } catch (e) { return '探测失败：' + (e.message || e); }
 }
 
+function fillModelSelect(el, list, current) {
+  if (!el) return;
+  if (el.options.length !== list.length) {
+    el.innerHTML = '';
+    for (const m of list) {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.label} · ${m.tag}`;
+      opt.title = `${m.id} · ${m.note}`;
+      el.appendChild(opt);
+    }
+  }
+  el.value = current;
+}
+
+function syncMultimodalSelects(store) {
+  const settings = (store && store.state && store.state.settings) || {};
+  const vision = resolveVisionModel(settings.visionModel);
+  const video = resolveVideoModel(settings.videoModel);
+  fillModelSelect($('#set-vision-model'), VISION_MODELS, vision);
+  fillModelSelect($('#set-video-model'), VIDEO_MODELS, video);
+  const note = $('#set-mm-note');
+  if (note) {
+    const vi = VISION_MODELS.find((m) => m.id === vision) || {};
+    const vd = VIDEO_MODELS.find((m) => m.id === video) || {};
+    note.textContent = `识图 ${vision}：${vi.note || ''}｜视频 ${video}：${vd.note || ''}。按实际 token 计费，换模型立即生效。`;
+  }
+}
+
 export function openSettingsModal({ store } = {}) {
   const m = $('#settings-modal');
   if (!m) return;
@@ -66,6 +95,7 @@ export function openSettingsModal({ store } = {}) {
   $('#set-fast').checked = !!store.state.settings.fastMode;
   $('#set-thinking').checked = store.state.settings.thinking !== false;
   syncSeg('#set-reason', store.state.settings.reasoningLevel || 'medium');
+  syncMultimodalSelects(store);
   $('#set-about-ver').textContent = APP_RELEASE;
   $('#set-about-build').textContent = APP_VERSION;
   const rel = currentRelay();
@@ -169,6 +199,18 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
     store.state.settings.reasoningLevel = v;
     store.notify();
   });
+
+  // 识图 / 视频识别模型：全局设置（不随会话），analyze_image / analyze_pdf / analyze_video 读取
+  const bindModelSelect = (id, key, resolve) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('change', () => {
+      store.state.settings[key] = resolve(el.value);
+      store.notify();
+      syncMultimodalSelects(store);
+    });
+  };
+  bindModelSelect('#set-vision-model', 'visionModel', resolveVisionModel);
+  bindModelSelect('#set-video-model', 'videoModel', resolveVideoModel);
 
   $('#set-clear-chat').addEventListener('click', () => {
     if (!confirm('确认清空当前会话的所有消息与文件？此操作不可撤销。')) return;

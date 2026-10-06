@@ -35,7 +35,7 @@ await step('GET /v1/models', async () => {
   assert.ok(models.length > 3, `仅 ${models.length} 个`);
   return `${models.length} 个`;
 });
-const model = models.find((m) => m === 'deepseek-flash-free')
+const model = models.find((m) => m === 'glm-5.3-flash')
   || models.find((m) => m.endsWith('-free'))
   || models.find((m) => m === 'gpt-5.4-mini')
   || models[0];

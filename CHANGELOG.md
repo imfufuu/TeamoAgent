@@ -2,8 +2,12 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-05 · 构建 2026.10.5.17
+## Dubhe Agent V1.7 Stable · 2026-10-06 · 构建 2026.10.5.18
 
+- **`analyze_video` 视频识别（构建 2026.10.5.18）**：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 `uploads/`，工具逻辑照搬 `analyze_image`：读 data URL → 走 OpenAI 兼容接口的 `file` 部件交给 Gemini → 全文写入 `internal/ocr/{文件名}.video.md` 并回传计费 usage。`video_url` 部件会被网关静默丢弃、非 Gemini 模型会剥掉视频部件，因此视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。
+- **设置页「多模态模型」**：识图模型（`analyze_image` / `analyze_pdf` 页图）与视频识别模型可选，只给几个有特点的档位（默认·最便宜 / 便宜·极快 / 均衡 / 效果最好 / 文档·代码截图），全局生效、写入 `settings.visionModel / videoModel`，透传到主回合与子智能体的工具 ctx；费用估算按所选模型取价。
+- **下架 DeepSeek 免费档**：`deepseek-v4-flash-free`、`deepseek-flash-free` 从模型表、价目表、智能路由候选中删除，UI 兜底隐藏（网关 `/v1/models` 再返回也不显示）；固定对话模型 40 → 38。
+- **加载屏网络明细**：进度文字下方新增一行「↓ 当前文件 · 下载速度 · 已下载体积 / 文件数」，按 Resource Timing `transferSize` 统计、120 ms 合并刷新；全部缓存命中时显示「资源来自本地缓存」，慢网提示带上正在拉取的文件名，就绪时给出总量与用时。
 - **新工具 ×5**：`csv_tool`、`date_calc`、`text_tool`、`convert_units`、`qr_code`（本地二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36；子智能体按角色获得相应权限；并行白名单纳入 `date_calc` / `convert_units`。
 - **沙箱安全加固**：JS Worker 执行前拆除 fetch / XHR / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache 并私有化 postMessage；Python Worker 的 fetch 仅放行 Pyodide CDN 与 PyPI；日志 / 返回值 / 文件设硬上限；主线程 `sanitizeWorkerFiles` 逐键校验路径、保护 `internal/` 与 `.git/`、超容量整体回滚；`createFS` 改为无原型对象。
 - **照片工作台重写**：对齐站点设计令牌，裁剪 / 旋转 / 翻转、六项调节、六档滤镜与自动增强，Canvas 实时预览。

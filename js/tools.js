@@ -1,10 +1,10 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.17';
-import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.18';
+import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
-import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
+import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js';
 import { fetchPage, gitRun, relaySearch, relayCrawl } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
@@ -12,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.17';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.18';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.17';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.18';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -203,7 +203,7 @@ export const TOOL_DEFS = [
     name: 'analyze_image',
     description:
       '分析一张或多张图片（OCR、描述画面、读图表）。对话模型本身是纯文本，不能直接看图：必须调用本工具。' +
-      `内部固定使用 ${VISION_TOOL_MODEL}，不要把该模型当对话模型选。` +
+      `内部使用用户在设置里选定的识图模型（默认 ${VISION_TOOL_MODEL}），不要传 model，也不要把它当对话模型选。` +
       'path 指向沙箱内图片（用户附件在 uploads/，生图在 outputs/）；paths / prefix 可批量。' +
       '文件名形如 foo-p01.jpg、foo-p02.jpg 的 PDF 页图会自动整批 OCR。' +
       '也可以不传 path 而分析用户本轮刚上传的图。' +
@@ -219,10 +219,26 @@ export const TOOL_DEFS = [
     },
   },
   {
+    name: 'analyze_video',
+    description:
+      '分析沙箱中的一段视频（用户上传的视频原样存放在 uploads/*.mp4|webm|mov|m4v）：按时间顺序描述画面与动作、转录字幕 / 屏幕文字 / 可听清的语音、概括主题。' +
+      '对话模型本身是纯文本，不能直接看视频：必须调用本工具。' +
+      `内部使用用户在设置里选定的视频识别模型（Gemini 系，默认 ${VIDEO_TOOL_MODEL}），不要传 model；也不要试图把视频拆帧后逐张 analyze_image。` +
+      'path 省略时自动取用户最近上传的视频。单个视频 ≤ 16MB、建议 ≤ 3 分钟；更长的请让用户裁剪。' +
+      '返回完整结果（不截成摘要）；全文同时写入沙箱 internal/ocr/{文件名}.video.md，可用 read_file 再读。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '沙箱视频路径，如 uploads/clip.mp4；省略=最近上传的视频' },
+        prompt: { type: 'string', description: '分析要求，如「逐字转录字幕」「描述 0:10 前后发生了什么」「这是什么运动」；缺省为全面描述 + 转录' },
+      },
+    },
+  },
+  {
     name: 'analyze_pdf',
     description:
       '分析沙箱中的 PDF（用户上传的 PDF 原样存放在 uploads/*.pdf）。对话模型不能直接读 PDF：必须调用本工具。' +
-      '流程：① 用 pdf.js 提取全部内嵌文本层；② 把页面渲染成图片，整批一次性上传给 ' + VISION_TOOL_MODEL + ' 识图（表格、公式、扫描件也能读）；③ 返回「文本层 + 视觉识别」合并结果。' +
+      '流程：① 用 pdf.js 提取全部内嵌文本层；② 把页面渲染成图片，整批一次性上传给设置里选定的识图模型（默认 ' + VISION_TOOL_MODEL + '）识图（表格、公式、扫描件也能读）；③ 返回「文本层 + 视觉识别」合并结果。' +
       '不要用 read_file 读 PDF（那是 base64），也不要逐页调 analyze_image。' +
       'path 省略时自动取用户最近上传的 PDF。pages 可限制识图页数（默认前 8 页；文本层始终提取全部）。' +
       '返回全文，不截成摘要；同时写入沙箱 internal/ocr/{文件名}.ocr.md，可用 read_file 再读。',
@@ -1004,6 +1020,7 @@ async function executeToolBody(name, args, ctx) {
         const paths = collectAnalyzePaths(fs, args, listImgs);
         if (paths.error) return paths.error;
         const prompt = String(args.prompt || '').trim();
+        const visionModel = resolveVisionModel(ctx.visionModel);
         try {
           const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
           const chunks = [];
@@ -1016,7 +1033,7 @@ async function executeToolBody(name, args, ctx) {
             if (!/^data:image\//i.test(dataUrl) && !/^https?:\/\//i.test(dataUrl)) {
               return `analyze_image 失败：${path} 不是图片 data URL（当前是文本文件？）。`;
             }
-            emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · ${i + 1}/${paths.length} · ${path}）…` });
+            emit({ status: 'running', note: `识图中（${visionModel} · ${i + 1}/${paths.length} · ${path}）…` });
             const pagePrompt = paths.length > 1
               ? `${prompt || '请完整分析这张图片：按阅读顺序转录全部可见文字。'}\n这是第 ${i + 1}/${paths.length} 页（${path}）。`
               : prompt;
@@ -1024,6 +1041,7 @@ async function executeToolBody(name, args, ctx) {
               apiKey: ctx.apiKey,
               prompt: pagePrompt,
               dataUrl,
+              model: visionModel,
               signal: ctx.signal,
               onUsage: (u) => {
                 if (u) {
@@ -1046,19 +1064,91 @@ async function executeToolBody(name, args, ctx) {
             fsChange: true,
             billing: {
               kind: 'vision',
-              model: VISION_TOOL_MODEL,
+              model: visionModel,
               usage: { input: visionIn, output: visionOut },
               imageCount: paths.length,
             },
           });
-          return `[识图完成] 模型 ${VISION_TOOL_MODEL} · 文件 ${paths.join('、')} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
+          return `[识图完成] 模型 ${visionModel} · 文件 ${paths.join('、')} · 全文 ${text.length} 字已写入 ${ocrPath}\n\n${text}`;
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });
           return `analyze_image 失败：${err.message}`;
         }
       }
+      case 'analyze_video': {
+        // 逻辑照搬 analyze_image：取路径 → 读 data URL → 交给视频识别模型 → 全文落盘 internal/ocr/*.video.md → 计费事件
+        if (!ctx.apiKey) {
+          emit({ status: 'error', error: { message: '未配置 API Key' } });
+          return '未配置 TeamoRouter API Key，无法调用视频识别模型。';
+        }
+        const listVideos = () => fs.list().filter((f) => VIDEO_EXT_RE.test(f.path)).map((f) => f.path);
+        let path = normalizeFsPath(args.path || '');
+        if (!path) {
+          const vids = listVideos();
+          if (vids.length === 1) path = vids[0];
+          else if (!vids.length) return 'analyze_video 缺少 path：沙箱里还没有视频（用户上传会进 uploads/，支持 mp4/webm/mov/m4v）。';
+          else path = vids[vids.length - 1];
+        }
+        let dataUrl = '';
+        try { dataUrl = fs.read(path); } catch { return `analyze_video 失败：找不到 ${path}（现有视频：${listVideos().join('、') || '无'}）`; }
+        if (!/^data:video\//i.test(dataUrl)) {
+          if (/^data:/i.test(dataUrl) && VIDEO_EXT_RE.test(path)) {
+            // 浏览器偶尔给 application/octet-stream，按扩展名纠正 MIME
+            dataUrl = dataUrl.replace(/^data:[^;]*;base64,/, `data:${videoMimeOf(path)};base64,`);
+          } else {
+            return `analyze_video 失败：${path} 不是视频 data URL（当前是文本文件？只支持用户上传的 mp4/webm/mov/m4v）。`;
+          }
+        }
+        const bytes = Math.round((dataUrl.length - dataUrl.indexOf(',') - 1) * 0.75);
+        if (bytes > VIDEO_MAX_BYTES) {
+          return `analyze_video 失败：${path} 约 ${(bytes / 1024 / 1024).toFixed(1)} MB，超过 16MB 上限。请让用户裁剪或压缩后再上传。`;
+        }
+        const prompt = String(args.prompt || '').trim();
+        const videoModel = resolveVideoModel(ctx.videoModel);
+        try {
+          const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+          let vIn = 0;
+          let vOut = 0;
+          emit({ status: 'running', note: `视频识别中（${videoModel} · ${path} · ${(bytes / 1024 / 1024).toFixed(1)} MB）…` });
+          const text = await analyzeVideo({
+            apiKey: ctx.apiKey,
+            prompt,
+            dataUrl,
+            filename: path.split('/').pop(),
+            model: videoModel,
+            signal: ctx.signal,
+            onUsage: (u) => {
+              if (u) {
+                vIn += Number(u.input || 0);
+                vOut += Number(u.output || 0);
+              }
+            },
+          });
+          const ms = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0);
+          const outPath = `internal/ocr/${path.replace(/^(uploads|outputs|internal)\//, '').replace(/\.[^.]+$/, '')}.video.md`;
+          try { fs.write(outPath, text); } catch { /* 落盘失败仍回全文 */ }
+          emit({
+            status: 'ok',
+            note: `已分析 ${path}`,
+            durationMs: ms,
+            fsChange: true,
+            billing: {
+              kind: 'vision',
+              model: videoModel,
+              usage: { input: vIn, output: vOut },
+              videoCount: 1,
+            },
+          });
+          return `[视频识别完成] 模型 ${videoModel} · 文件 ${path} · 全文 ${text.length} 字已写入 ${outPath}\n\n${text}`;
+        } catch (err) {
+          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
+          emit({ status: 'error', error: { message: err.message } });
+          return `analyze_video 失败：${err.message}`;
+        }
+      }
       case 'analyze_pdf': {
+        const visionModel = resolveVisionModel(ctx.visionModel);
         const listPdfs = () => fs.list().filter((f) => /\.pdf$/i.test(f.path)).map((f) => f.path);
         let path = normalizeFsPath(args.path || '');
         if (!path) {
@@ -1107,7 +1197,7 @@ async function executeToolBody(name, args, ctx) {
                 const batch = batches[b];
                 const from = batch[0].page;
                 const to = batch[batch.length - 1].page;
-                emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · 第 ${from}–${to} 页一次上传${batches.length > 1 ? ` · 批次 ${b + 1}/${batches.length}` : ''}）…` });
+                emit({ status: 'running', note: `识图中（${visionModel} · 第 ${from}–${to} 页一次上传${batches.length > 1 ? ` · 批次 ${b + 1}/${batches.length}` : ''}）…` });
                 const hint = layerChars
                   ? '\n（这些页面来自同一份 PDF；文本层已单独提取，你重点补充文本层拿不到的内容：表格结构、图表/公式/图片含义、版面与标注，并修正文本层的乱序。）'
                   : '\n（这些页面来自同一份 PDF，可能是扫描件：请按阅读顺序完整转录全部文字，并描述表格与图片。）';
@@ -1116,6 +1206,7 @@ async function executeToolBody(name, args, ctx) {
                   apiKey: ctx.apiKey,
                   prompt: pagePrompt,
                   dataUrls: batch.map((img) => img.dataUrl),
+                  model: visionModel,
                   signal: ctx.signal,
                   onUsage: (u) => {
                     if (u) { visionIn += Number(u.input || 0); visionOut += Number(u.output || 0); }
@@ -1135,7 +1226,7 @@ async function executeToolBody(name, args, ctx) {
             return `analyze_pdf 失败：${path} 没有可提取的文本层${renderNote ? `，且${renderNote}` : ''}${textLayer.error ? `（${textLayer.error}）` : ''}。`;
           }
           const sections = [];
-          if (visionText) sections.push(`## 视觉识别（${VISION_TOOL_MODEL} · ${shot} 页）\n\n${visionText}`);
+          if (visionText) sections.push(`## 视觉识别（${visionModel} · ${shot} 页）\n\n${visionText}`);
           if (layerMd) sections.push(`## 内嵌文本层（pdf.js · ${layerPages.length}/${totalPages || layerPages.length} 页 · ${layerChars} 字）\n\n${layerMd}`);
           else sections.push('## 内嵌文本层\n\n（无：该 PDF 没有可提取的文字，可能是扫描件）');
           const text = sections.join('\n\n');
@@ -1149,12 +1240,12 @@ async function executeToolBody(name, args, ctx) {
             fsChange: true,
             billing: shot ? {
               kind: 'vision',
-              model: VISION_TOOL_MODEL,
+              model: visionModel,
               usage: { input: visionIn, output: visionOut },
               imageCount: shot,
             } : undefined,
           });
-          const head = `[PDF 分析完成] 文件 ${path} · 共 ${totalPages || '?'} 页 · 文本层 ${layerChars} 字 · 识图 ${shot} 页${shot ? `（${VISION_TOOL_MODEL}，整批上传）` : ''} · 全文已写入 ${ocrPath}`;
+          const head = `[PDF 分析完成] 文件 ${path} · 共 ${totalPages || '?'} 页 · 文本层 ${layerChars} 字 · 识图 ${shot} 页${shot ? `（${visionModel}，整批上传）` : ''} · 全文已写入 ${ocrPath}`;
           return `${head}${renderNote ? `\n${renderNote}` : ''}\n\n${text}`;
         } catch (err) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
@@ -1507,6 +1598,13 @@ function collectAnalyzePaths(fs, args, listImgs) {
   if (imgs.length === 1) return imgs;
   if (!imgs.length) return { error: 'analyze_image 缺少 path：沙箱里还没有图片（用户上传会进 uploads/）。' };
   return { error: `analyze_image 缺少 path。沙箱中的图片：${imgs.join('、')}` };
+}
+
+const VIDEO_EXT_RE = /\.(mp4|webm|mov|m4v)$/i;
+const VIDEO_MAX_BYTES = 16 * 1024 * 1024;
+function videoMimeOf(path) {
+  const ext = String(path || '').toLowerCase().split('.').pop();
+  return ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'm4v' ? 'video/x-m4v' : 'video/mp4';
 }
 
 function ocrOutPath(paths) {

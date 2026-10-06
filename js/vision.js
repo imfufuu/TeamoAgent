@@ -1,9 +1,12 @@
-// 识图工具专用通道：对话模型全部按纯文本发送，图片只走 deepseek-v4-flash-vision-exp。
+// 识图 / 视频识别工具专用通道：对话模型全部按纯文本发送，图片与视频只走这里。
+// 模型由设置页「多模态模型」决定（config.js VISION_MODELS / VIDEO_MODELS），默认仍是 deepseek-v4-flash-vision-exp。
 // 独立文件，避免给 api.js 新增具名导出（Pages 混版缓存会白屏）。
-import { authHeaders } from './api.js?v=2026.10.5.17';
+import { authHeaders } from './api.js?v=2026.10.5.18';
 import { gatewayBase, otherGatewayBase, setGatewayBase, isNetworkError } from './endpoint.js';
+import { DEFAULT_VISION_MODEL, DEFAULT_VIDEO_MODEL, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.18';
 
-export const VISION_TOOL_MODEL = 'deepseek-v4-flash-vision-exp';
+export const VISION_TOOL_MODEL = DEFAULT_VISION_MODEL;
+export const VIDEO_TOOL_MODEL = DEFAULT_VIDEO_MODEL;
 
 // 网关对 OpenAI 兼容接口未传 max_tokens 时经常默认 1k/4k，OCR 会被 finish_reason=length 砍半截。
 const VISION_MAX_TOKENS = 16384;
@@ -116,7 +119,7 @@ async function normalizeForVision(u) {
 }
 
 /** 用识图模型看一张或多张图（data URL 或 http URL），返回模型文字。长度上限会自动续写。 */
-export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal, onUsage }) {
+export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, model, signal, onUsage }) {
   if (!apiKey) throw new Error('未配置 API Key');
   const rawUrls = [];
   for (const u of (Array.isArray(dataUrls) ? dataUrls : [])) {
@@ -132,14 +135,25 @@ export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal, 
     text: urls.length > 1 ? `${text}\n（共 ${urls.length} 张，按顺序分别分析每一张，用 Markdown 二级标题标出第几张。）` : text,
   }];
   for (const u of urls) content.push({ type: 'image_url', image_url: { url: u } });
+  return runVisionTurns({ model: resolveVisionModel(model), content, apiKey, signal, onUsage, promptLen: text.length, imageCount: urls.length });
+}
+
+// 只有 DeepSeek / GLM 系默认会「先思考再答」且认 reasoning:false；Gemini / Claude 不认这个字段，
+// 传了反而可能 400（会自动重试一次，但白跑一趟）。
+function wantsReasoningOff(model) {
+  return /^(deepseek|glm)/i.test(String(model || ''));
+}
+
+// 公共循环：发一轮，finish_reason=length 就续写，最多 VISION_CONTINUES 次；汇总 usage 回调计费。
+async function runVisionTurns({ model, content, apiKey, signal, onUsage, promptLen = 0, imageCount = 0, videoSeconds = 0 }) {
   const messages = [{ role: 'user', content }];
-  let disableReasoning = true;
+  let disableReasoning = wantsReasoningOff(model);
   const parts = [];
   let totalInput = 0;
   let totalOutput = 0;
   for (let i = 0; i < VISION_CONTINUES; i++) {
     const body = {
-      model: VISION_TOOL_MODEL,
+      model,
       stream: false,
       max_tokens: VISION_MAX_TOKENS,
       messages,
@@ -167,9 +181,37 @@ export async function analyzeImage({ apiKey, prompt, dataUrl, dataUrls, signal, 
   }
   const fullText = parts.join('');
   if (typeof onUsage === 'function') {
-    const estIn = totalInput || (urls.length * 1600 + Math.ceil(text.length / 2));
+    // 没拿到 usage 时的估算：图 ≈1600 tok/张；视频 ≈ 70 tok/秒（Gemini 1fps 实测约 4200 tok/分钟）
+    const estIn = totalInput || (imageCount * 1600 + Math.ceil(videoSeconds * 70) + Math.ceil(promptLen / 2));
     const estOut = totalOutput || Math.ceil(fullText.length / 2);
-    try { onUsage({ model: VISION_TOOL_MODEL, input: estIn, output: estOut, imageCount: urls.length }); } catch { /* noop */ }
+    try { onUsage({ model, input: estIn, output: estOut, imageCount, videoSeconds }); } catch { /* noop */ }
   }
   return fullText;
+}
+
+const DEFAULT_VIDEO_PROMPT = '请完整分析这段视频：按时间顺序描述画面内容、人物动作与场景变化（标注大致时间点，如 0:05）；逐字转录出现的字幕、屏幕文字与可听清的语音；最后用几句话概括视频主题。不要省略、不要只给摘要。';
+const VIDEO_MIME = /^video\/(mp4|webm|quicktime|x-m4v)$/i;
+
+/**
+ * 用视频识别模型看一段视频（data:video/...;base64 URL）。
+ * 走 OpenAI 兼容 chat/completions 的 `file` 部件（filename + file_data），这是网关唯一真正把视频喂给 Gemini 的写法：
+ * `video_url` 部件会被静默丢弃（模型靠文件名瞎编），非 Gemini 模型会把 file 部件剥掉——所以模型表只收录 Gemini。
+ */
+export async function analyzeVideo({ apiKey, prompt, dataUrl, filename, model, signal, onUsage, durationSec = 0 }) {
+  if (!apiKey) throw new Error('未配置 API Key');
+  const u = String(dataUrl || '');
+  const mm = /^data:([^;]+);base64,/.exec(u);
+  if (!mm) throw new Error('视频不是 base64 data URL（请确认文件来自 uploads/ 附件）');
+  let mime = mm[1].toLowerCase();
+  if (!VIDEO_MIME.test(mime)) {
+    // mov/m4v 浏览器常给 video/quicktime|x-m4v；其它一律按 mp4 送，网关按 MIME 识别容器
+    mime = 'video/mp4';
+  }
+  const fileData = mime === mm[1].toLowerCase() ? u : u.replace(/^data:[^;]+;base64,/, `data:${mime};base64,`);
+  const text = String(prompt || DEFAULT_VIDEO_PROMPT).trim() || DEFAULT_VIDEO_PROMPT;
+  const content = [
+    { type: 'text', text },
+    { type: 'file', file: { filename: String(filename || 'video.mp4'), file_data: fileData } },
+  ];
+  return runVisionTurns({ model: resolveVideoModel(model), content, apiKey, signal, onUsage, promptLen: text.length, videoSeconds: durationSec });
 }
