@@ -47,7 +47,7 @@ function pageName(pdfName, i) {
  * 把 PDF 每一页画成 JPEG data URL，供 analyze_image 识别。
  * @returns {Promise<{ok:boolean, pages:number, images:{name:string, dataUrl:string, page:number}[], error?:string, truncated?:boolean}>}
  */
-export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'document.pdf' } = {}) {
+export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'document.pdf', baseScale = BASE_SCALE, maxEdge = MAX_EDGE, quality = JPEG_QUALITY, firstPage = 1 } = {}) {
   const u8 = toU8(bytes);
   if (u8.length < 5 || u8[0] !== 0x25 || u8[1] !== 0x50 || u8[2] !== 0x44 || u8[3] !== 0x46) {
     return { ok: false, pages: 0, images: [], error: '不是 PDF 文件' };
@@ -68,16 +68,17 @@ export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'documen
     return { ok: false, pages: 0, images: [], error: `无法打开 PDF（可能加密或损坏）：${err.message || err}` };
   }
   const pages = doc.numPages || 0;
-  const n = Math.min(pages, maxPages);
+  const start = Math.max(1, Math.min(pages, Number(firstPage) || 1));
+  const n = Math.min(pages, start + maxPages - 1);
   const images = [];
   try {
-    for (let i = 1; i <= n; i++) {
+    for (let i = start; i <= n; i++) {
       const page = await doc.getPage(i);
       const base = page.getViewport({ scale: 1 });
       const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) ? Math.min(window.devicePixelRatio, 2.5) : 1;
-      let scale = BASE_SCALE * dpr;
+      let scale = baseScale * dpr;
       const edge = Math.max(base.width, base.height) * scale;
-      if (edge > MAX_EDGE) scale *= MAX_EDGE / edge;
+      if (edge > maxEdge) scale *= maxEdge / edge;
       const viewport = page.getViewport({ scale });
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(viewport.width));
@@ -89,7 +90,8 @@ export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'documen
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = 'high';
       await page.render({ canvasContext: ctx, viewport, intent: 'print' }).promise;
-      const dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      const dataUrl = canvas.toDataURL('image/jpeg', quality);
+      canvas.width = 0; canvas.height = 0; // 立即释放位图内存（多页连续渲染时很关键）
       images.push({ name: pageName(name, i), dataUrl, page: i });
     }
   } catch (err) {
@@ -99,4 +101,56 @@ export async function pdfToImages(bytes, { maxPages = MAX_PAGES, name = 'documen
   }
   if (!images.length) return { ok: false, pages, images: [], error: '没有渲染出任何页' };
   return { ok: true, pages, images, truncated: pages > n };
+}
+
+/**
+ * 用 pdf.js 文本层提取每页内嵌文字（电子版 PDF 几乎零成本拿到全文；扫描件会是空的）。
+ * @returns {Promise<{ok:boolean, pages:number, texts:string[], chars:number, error?:string}>}
+ */
+export async function pdfExtractText(bytes, { maxPages = 50, maxChars = 120000 } = {}) {
+  const u8 = toU8(bytes);
+  if (u8.length < 5 || u8[0] !== 0x25 || u8[1] !== 0x50 || u8[2] !== 0x44 || u8[3] !== 0x46) {
+    return { ok: false, pages: 0, texts: [], chars: 0, error: '不是 PDF 文件' };
+  }
+  let pdfjs;
+  try { pdfjs = await loadPdfjs(); }
+  catch (err) { return { ok: false, pages: 0, texts: [], chars: 0, error: err.message || String(err) }; }
+  if (!pdfjs) return { ok: false, pages: 0, texts: [], chars: 0, error: 'PDF 渲染库不可用' };
+  let doc;
+  try {
+    const data = u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+    doc = await pdfjs.getDocument({ data, verbosity: 0 }).promise;
+  } catch (err) {
+    return { ok: false, pages: 0, texts: [], chars: 0, error: `无法打开 PDF（可能加密或损坏）：${err.message || err}` };
+  }
+  const pages = doc.numPages || 0;
+  const n = Math.min(pages, maxPages);
+  const texts = [];
+  let chars = 0;
+  try {
+    for (let i = 1; i <= n; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      let line = '';
+      const lines = [];
+      let lastY = null;
+      for (const item of content.items || []) {
+        if (!item || typeof item.str !== 'string') continue;
+        const y = Array.isArray(item.transform) ? Math.round(item.transform[5]) : null;
+        if (lastY != null && y != null && Math.abs(y - lastY) > 2) { lines.push(line.trimEnd()); line = ''; }
+        line += item.str + (item.hasEOL ? '\n' : '');
+        lastY = y;
+      }
+      if (line.trim()) lines.push(line.trimEnd());
+      let text = lines.join('\n').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+      if (chars + text.length > maxChars) { text = text.slice(0, Math.max(0, maxChars - chars)) + '\n…[文本层过长，已截断]'; texts.push(text); chars += text.length; break; }
+      chars += text.length;
+      texts.push(text);
+    }
+  } catch (err) {
+    return { ok: texts.length > 0, pages, texts, chars, error: `读取第 ${texts.length + 1} 页文本失败：${err.message || err}` };
+  } finally {
+    try { if (doc && doc.destroy) doc.destroy(); } catch { /* */ }
+  }
+  return { ok: true, pages, texts, chars };
 }

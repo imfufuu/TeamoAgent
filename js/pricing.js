@@ -474,6 +474,14 @@ export function summarizeTurnCost(arg1, opts = {}) {
         imageItems.push(ic);
         continue;
       }
+      if (tc.name === 'analyze_pdf' && (!tm || /^\[PDF 分析完成\]/.test(tContent))) {
+        const shot = Number((/识图 (\d+) 页/.exec(tContent) || [])[1] || 0);
+        if (!shot) continue;
+        const vc = estimateVisionCost({ model: VISION_MODEL_ID, imageCount: shot, textChars: tContent.length || 600 });
+        visionCostUsd += vc.costUsd;
+        visionItems.push(vc);
+        continue;
+      }
       if (tc.name === 'analyze_image' && (!tm || /^\[识图完成\]/.test(tContent))) {
         const args = tc.args || {};
         const count = Array.isArray(args.paths) && args.paths.length ? args.paths.length : 1;

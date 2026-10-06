@@ -620,7 +620,7 @@ export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
     'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'regex',
     'hash', 'codec', 'unicode', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'qr_code',
     'render_mermaid', 'render_dot', 'zip_files', 'unzip_file', 'get_current_time',
-    'generate_image', 'analyze_image', 'remember',
+    'generate_image', 'analyze_image', 'analyze_pdf', 'remember',
   ]),
 });
 

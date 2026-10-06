@@ -9,18 +9,18 @@
      · worker 放行 self 与 blob:（sandbox.js 的 blob Worker 兜底通道）
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-2aRNQx83UCeoVj8pdpjU/W9jjJZYMrALbo67hvHmbeE=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.5.12" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-ClanBu2hU2Ptw7Vw/BEFSZZPI+bSMr9o7ZpIsFqSb1s=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
+<meta name="app-version" content="2026.10.5.13" />
 <meta name="app-release" content="V1.7" />
 <title>Dubhe Agent V1.7 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.10.5.12" />
-<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.12" />
+<link rel="stylesheet" href="css/styles.css?v=2026.10.5.13" />
+<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.13" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <!-- 第三方字体（Google Fonts / jsDelivr）改由启动脚本动态插入：解析器插入的外链样式表会阻塞后面所有脚本执行，
      国内或弱网下这两个域名一挂起，整个应用就卡在加载屏直到 60 秒超时（V1.7.1 修复）。 -->
-<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.12" />
+<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.13" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -91,14 +91,48 @@
   var WIDTH={assets:18,modules:46,kernel:72,ui:92};
   var t0=Date.now(),cur=-1,lastAt=Date.now(),t=0,errorTimer=0,slowTimer=0,settled=false,revealed=false;
   function setHint(s){ if(hint) hint.textContent=s; }
-  function setStage(name){
-    var i=STAGES.indexOf(name); if(i<0||settled||revealed) return;
-    if(i<=cur) return;
+  var shown=0;
+  function setWidth(pct){ if(pct<=shown) return; shown=pct; if(bar) bar.style.width=pct+'%'; }
+  function applyStage(i){
+    var name=STAGES[i];
     cur=i; lastAt=Date.now();
-    if(bar) bar.style.width=WIDTH[name]+'%';
+    setWidth(WIDTH[name]);
     if(steps){ var li=steps.children; for(var k=0;k<li.length;k++){ li[k].className=k<i?'done':(k===i?'active':''); } }
     setHint(LABEL[name]);
   }
+  // 阶段切换至少停留 MIN_DWELL：内核/界面阶段常在同一帧内连报，不排队的话用户只看得到首尾两个
+  var MIN_DWELL=110, target=-1, pumpTimer=0;
+  function pump(){
+    pumpTimer=0;
+    if(revealed||cur>=target) return;
+    var wait=MIN_DWELL-(Date.now()-lastAt);
+    if(cur>=0&&wait>0){ pumpTimer=setTimeout(pump,wait); return; }
+    applyStage(cur+1);
+    if(cur<target) pumpTimer=setTimeout(pump,MIN_DWELL);
+  }
+  function setStage(name){
+    var i=STAGES.indexOf(name); if(i<0||settled||revealed) return;
+    if(i<=target) return;
+    target=i;
+    if(!pumpTimer) pump();
+  }
+  // ES 模块图要等全部脚本下载完才会执行 main.js，期间没人上报阶段。
+  // 用 Resource Timing 数一数 js/ 下已到达的脚本：第一个到达就进入「加载模块」，之后按数量把进度条推到下一阶段前。
+  var MODULES_EXPECTED=70, modSeen={}, modCount=0;
+  function noteResource(entry){
+    try{
+      var n=entry&&entry.name||''; if(!/\/js\/[^?]+\.js(\?|$)/.test(n)||modSeen[n]) return;
+      modSeen[n]=1; modCount++;
+      setStage('modules');
+      if(cur===1){ setWidth(WIDTH.modules+Math.round((WIDTH.kernel-WIDTH.modules-4)*Math.min(1,modCount/MODULES_EXPECTED))); if(modCount>1) setHint('加载模块… '+modCount); }
+    }catch(_){}
+  }
+  try{
+    if(window.PerformanceObserver){
+      var po=new PerformanceObserver(function(list){ list.getEntries().forEach(noteResource); });
+      po.observe({type:'resource',buffered:true});
+    }
+  }catch(_){}
   function showActions(){ if(actions&&actions.hidden){ actions.hidden=false; } }
   function stopTimers(){ clearTimeout(t); clearTimeout(errorTimer); clearInterval(slowTimer); }
   function forceReveal(msg){
@@ -111,12 +145,9 @@
     if(errBox){ errBox.hidden=false; errBox.textContent=msg||'启动过程出错，请强制刷新（Ctrl/Cmd+Shift+R）后重试'; }
     showActions();
   }
-  function complete(){
-    if(settled) return;
-    settled=true;
-    stopTimers();
+  function finish(){
     if(!boot || !document.getElementById('boot-screen')) return;
-    if(bar) bar.style.width='100%';
+    setWidth(100);
     if(steps){ var li=steps.children; for(var k=0;k<li.length;k++) li[k].className='done'; }
     setHint('准备就绪');
     requestAnimationFrame(function(){
@@ -124,6 +155,21 @@
       boot.classList.add('fade-out');
       setTimeout(function(){ try{boot.remove();}catch(e){} },500);
     });
+  }
+  function complete(){
+    if(settled) return;
+    settled=true;
+    stopTimers();
+    if(!boot || !document.getElementById('boot-screen')) return;
+    try{ if(po) po.disconnect(); }catch(_){}
+    // 把还没走到的阶段逐级补完（每级停留 MIN_DWELL），再收尾；避免从「载入资源」直接跳到「准备就绪」
+    target=STAGES.length-1;
+    var step=function(){
+      if(cur<target){ if(!pumpTimer) pump(); setTimeout(step,40); return; }
+      var wait=MIN_DWELL-(Date.now()-lastAt);
+      setTimeout(finish,wait>0?wait:0);
+    };
+    step();
   }
   window.__dubheBootGuard={complete:complete,stage:setStage};
   setStage('assets');
@@ -428,6 +474,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.10.5.12"></script>
+<script type="module" src="js/main.js?v=2026.10.5.13"></script>
 </body>
 </html>

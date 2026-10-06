@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.12';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY } from './config.js?v=2026.10.5.13';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 

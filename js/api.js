@@ -315,7 +315,16 @@ export function createThinkingTracker() {
 // 附件: {kind:'image'|'text', name, mime, size, dataUrl?, text?, stripped?}
 
 function attachmentNote(a) {
-  return a.stripped ? `（附件「${a.name}」内容因本地存储限制已省略）` : `（附件「${a.name}」不可读）`;
+  if (a.stripped) return `（附件「${a.name}」内容因本地存储限制已省略）`;
+  const isPdf = a.source === 'pdf' || a.mime === 'application/pdf' || /\.pdf$/i.test(String(a.name || ''));
+  if (isPdf) {
+    const pages = a.pages ? `，约 ${a.pages} 页` : '';
+    return `【PDF 附件「${a.name}」已原样写入沙箱 uploads/${a.name}${pages}。对话模型不能直接读 PDF，请调用 analyze_pdf 工具（会提取文本层并整批识图）。】`;
+  }
+  if (a.source === 'zip' || /\.zip$/i.test(String(a.name || ''))) {
+    return `【ZIP 附件「${a.name}」已写入沙箱 uploads/${a.name}，需要里面的文件时调用 unzip_file。】`;
+  }
+  return `（附件「${a.name}」不可读）`;
 }
 
 function userTextParts(m) {

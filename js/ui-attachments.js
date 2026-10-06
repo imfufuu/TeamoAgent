@@ -1,9 +1,8 @@
 // Dubhe Agent · 附件（从 ui.js 的 mountUI 拆出，V1.7.1）
-// 按钮 / 相机 / 拖拽 / 粘贴 四个入口 → 统一 addFiles：图片缩放与 MIME 白名单、文本 / PDF（转页图）/ ZIP（解包进沙箱）、
+// 按钮 / 相机 / 拖拽 / 粘贴 四个入口 → 统一 addFiles：图片缩放与 MIME 白名单、文本 / PDF（原样入沙箱，交给 analyze_pdf）/ ZIP（解包进沙箱）、
 // 大小上限与芯片渲染。对外只暴露 { hasPending, takePending, addFiles }，发送逻辑取走后自动清空。
-import { pdfToImages } from './pdfpages.js';
 import { ICON } from './icons.js';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.12';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.13';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -105,28 +104,25 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'image', name: f.name, mime: finalMime, size: finalSize, dataUrl, scaled: didScale ? true : undefined });
         } else if (PDF_RE.test(f.name) || f.type === 'application/pdf') {
           if (f.size > MAX_PDF) { toast(`${f.name}：PDF 超过 12MB`, 'err'); continue; }
-          toast(`${f.name}：正在把每一页转成图片…`, 'ok', 2400);
-          const buf = await f.arrayBuffer();
-          const got = await pdfToImages(buf, { name: f.name });
-          if (!got.ok || !got.images.length) {
-            toast(`${f.name}：${got.error || '无法渲染 PDF'}`, 'err', 6000);
-            continue;
-          }
-          if (got.images.length && globalThis.__dubhePrewarmImageModeration) globalThis.__dubhePrewarmImageModeration('pdf');
-          for (const img of got.images) {
-            pending.push({
-              id: Math.random().toString(36).slice(2),
-              kind: 'image',
-              name: img.name,
-              mime: 'image/jpeg',
-              size: Math.round((img.dataUrl.length * 3) / 4),
-              dataUrl: img.dataUrl,
-              source: 'pdf',
-              originalName: `${f.name} · 第 ${img.page} 页`,
-            });
-          }
-          const more = got.truncated ? `（共 ${got.pages} 页，已渲染前 ${got.images.length} 页）` : `（${got.images.length} 页）`;
-          toast(`${f.name}：已转成图片${more}，发送并通过审核后写入 uploads/，请让 Agent 用 analyze_image 识别`, 'ok', 5200);
+          // PDF 原样进沙箱 uploads/，由 Agent 调用 analyze_pdf（文本层 + 整批页图识图）；不再在发送前逐页转图
+          const dataUrl = await readAs('dataURL', f);
+          let pages = 0;
+          try {
+            const head = atob(String(dataUrl).slice(String(dataUrl).indexOf(',') + 1, String(dataUrl).indexOf(',') + 1 + 4 * 1024 * 256));
+            pages = (head.match(/\/Type\s*\/Page(?![sA-Z])/g) || []).length;
+          } catch { pages = 0; }
+          pending.push({
+            id: Math.random().toString(36).slice(2),
+            kind: 'file',
+            name: f.name,
+            mime: 'application/pdf',
+            size: f.size,
+            dataUrl: String(dataUrl).replace(/^data:[^;]*;base64,/, 'data:application/pdf;base64,'),
+            source: 'pdf',
+            pages: pages || undefined,
+            originalName: f.name,
+          });
+          toast(`${f.name}：已作为 PDF 附件加入${pages ? `（约 ${pages} 页）` : ''}，发送后 Agent 会调用 analyze_pdf 识别`, 'ok', 4200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
           pending.push({

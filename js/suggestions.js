@@ -65,6 +65,55 @@ export const SUGGESTIONS = [
     title: '写一个 Markdown 看板，导入三张带标签的卡片，再用正则抽出所有 #ui 卡',
     text: '在 files/board.md 用简单语法实现看板：## Todo / ## Doing / ## Done，卡片格式 - [ ] title #tag。导入三张卡：「梳理工具 schema」#docs 在 Todo，「修彩虹闪白」#ui 在 Done，「沙箱卡片化」#ui 在 Doing。再用 regex 抽出所有 #ui 卡片标题，写入 files/board-ui.txt。最后 list_files 确认这两个文件都在。卡片标题保持中文。',
   },
+  // ── 以下为 V1.7.1 新增：覆盖更多领域（金融 / 生物 / 物理 / 语言 / 地理 / 音乐 / 教育 / 法务 / 运筹 / 数据库 / 图表 / 时间）──
+  {
+    title: '用 SQL 沙箱建一张图书馆借阅表，查出逾期最久的读者并给出罚金明细',
+    text: '用 execute_sql 建表 books(id,title,author)、members(id,name)、loans(id,book_id,member_id,borrowed_on,due_on,returned_on)。插入 6 本书、4 位读者、10 条借阅（其中 4 条逾期未还，日期用 2026-09 月份）。写查询：① 每位读者当前在借数；② 逾期天数最多的三条借阅（以 2026-10-06 计）；③ 按每天 0.5 元算罚金并按读者汇总。把三段 SQL 与结果整理成表格，最后用 write_file 把建表 + 查询语句存为 files/library.sql。',
+  },
+  {
+    title: '用 Mermaid 画出一次 HTTPS 握手的时序图，并逐步标注每条消息的作用',
+    text: '用 render_mermaid 画 TLS 1.3 握手时序图：参与者 Client / Server；消息依次 ClientHello（含 key_share、supported_versions）、ServerHello、EncryptedExtensions、Certificate、CertificateVerify、Finished、Client Finished、Application Data。每条消息用 note 标注一句作用（≤ 20 字）。图渲染出来后，再用 3–5 句话解释 1.3 相比 1.2 为什么少了一个往返，以及 0-RTT 的风险是什么。',
+  },
+  {
+    title: '模拟孟德尔双因子杂交：用 Python 跑一万次随机配子，验证 9:3:3:1',
+    text: '用 Python 沙箱模拟豌豆双杂合子 YyRr × YyRr：随机生成配子组合 10000 次，统计四种表型（黄圆 / 黄皱 / 绿圆 / 绿皱）的计数与比例，与理论 9:3:3:1 比较，并做一次卡方检验（手写公式，不用 scipy）给出 χ² 与自由度 3 下是否显著（临界值 7.815）。用 Markdown 表格列出观察值 / 期望值 / 贡献项，最后把结果写入 files/mendel.csv。',
+  },
+  {
+    title: '做一份房贷对比：等额本息与等额本金 30 年总利息差多少，画出月供曲线',
+    text: '贷款 200 万元，年利率 3.6%，期限 30 年。用 JavaScript 分别计算等额本息与等额本金：首月月供、末月月供、总利息，以及两者总利息之差。再生成前 360 期的月供序列，用 :::chart 快捷语法画两条月供曲线。最后用 3 句话说明：如果计划第 8 年提前还清，哪种方式更划算，差额大约多少。注意：这是数学演算，不构成投资建议。',
+  },
+  {
+    title: '把一段英文摘要做成词频与可读性报告：Flesch 分数、最长句、生僻词',
+    text: '把下面这段写入 files/abstract.txt：「Large language models can call tools to extend their capabilities. However, orchestrating many tools reliably remains difficult. We present a scheduler that groups independent calls into waves and bounds concurrency per category.」用 JavaScript 统计：总词数、句数、平均句长、音节数（用简单元音组计数法），算 Flesch Reading Ease；列出最长的句子与所有 ≥ 10 个字母的词。用 text_tool 做一次大小写无关的词频 Top 10。输出一份简短可读性报告。',
+  },
+  {
+    title: '用 Haversine 公式算出大阪到东京、札幌、那霸的距离，并按远近排好',
+    text: '用 JavaScript 实现 Haversine 公式（地球半径 6371 km）。坐标：大阪 34.6937,135.5023；东京 35.6762,139.6503；札幌 43.0618,141.3545；那霸 26.2124,127.6809。算出大阪到另外三城的大圆距离（保留 1 位小数），按远近排序，并估算新干线 / 飞机大致用时（新干线按 250 km/h、飞机按 800 km/h + 1 小时地面时间粗估）。把结果写成 Markdown 表，并用 convert_units 把最远一程换算成英里。',
+  },
+  {
+    title: '生成 C 大调下的和弦进行 I–V–vi–IV 的音名与频率表，再写一首 8 小节旋律',
+    text: '用 JavaScript 按十二平均律（A4 = 440 Hz）算出 C4–C5 各音的频率。列出 C 大调 I–V–vi–IV（C、G、Am、F）每个和弦的组成音与频率。再随机但受约束地生成一段 8 小节 4/4 的旋律：每小节 4 个四分音符，音只能取当前小节和弦的和弦内音或级进经过音，起止都落在 C。输出为「小节 | 和弦 | 四个音名」表格，并把旋律写成简单 JSON（files/melody.json：数组 of {bar, chord, notes, hz}）。',
+  },
+  {
+    title: '用 Python 数值求解单摆运动，比较小角近似与真实周期在 10°–90° 的误差',
+    text: '用 Python 沙箱（numpy 可装）对单摆 θ″ = −(g/L)·sin θ 做四阶龙格–库塔积分：L = 1 m，g = 9.81，初始角速度 0，初始角 10°、30°、60°、90°，步长 1 ms，积一个完整周期。从过零点测出真实周期，与小角近似 T = 2π√(L/g) 比较，给出相对误差表。再把 90° 的 θ(t) 前 2 秒用 :::chart 折线画出来。最后两句话解释为什么振幅越大周期越长。',
+  },
+  {
+    title: '设计一周 5 天的中学课程表：6 个班、8 位老师、不冲突，用约束求解器思路',
+    text: '用 JavaScript 写一个带回溯的课程表求解器：5 天 × 6 节，6 个班（A–F），科目与周课时：语文 5、数学 5、英语 4、物理 3、化学 3、历史 2、地理 2、体育 2、美术 2、自习 2。8 位老师，各教 1–2 门，每位老师同一节只能在一个班；每班每天同一科不超过 2 节；体育不排第 1 节。输出：是否找到解、回溯次数、A 班与 D 班的完整课表（Markdown 表），并把全部课表写入 files/timetable.json。',
+  },
+  {
+    title: '把一份用户协议里的关键条款抽成结构化清单：期限、违约、争议解决、单方变更',
+    text: '把下面条款写入 files/terms.txt：「本协议自用户点击同意起生效，有效期一年，期满自动续展。用户违反第 3 条的，平台有权立即终止服务且不退还费用。因本协议产生的争议，双方应友好协商；协商不成的，提交平台所在地有管辖权的人民法院诉讼解决。平台有权在提前 7 日公告后修改本协议。」用 regex 与 json_tool 抽成 JSON：生效条件、期限、续展、违约后果、争议解决（方式 + 管辖）、单方变更（通知期）。再用三句话指出其中对用户最不利的两处，并说明本回答不构成法律意见。',
+  },
+  {
+    title: '用 CSV 工具清洗一份带脏数据的问卷：去重、统一日期、把年龄分桶出直方图',
+    text: '用 write_file 写入 files/survey.csv，12 行：列 id,name,age,joined,city，故意混入 2 行重复 id、年龄字段有「25岁」「三十」「-1」、日期有「2026/9/3」「3 Sep 2026」「2026-09-03」三种写法、城市大小写不一。用 csv_tool + JavaScript：去重（保留首次）、年龄解析为整数并剔除非法、日期统一为 ISO、城市首字母大写。输出清洗日志（每条改动一行）与清洗后的 files/survey.clean.csv；再按年龄分桶（<20、20–29、30–39、≥40）用 :::chart 柱状图画直方图。',
+  },
+  {
+    title: '算出 2026 年剩余的每个月第二个星期二，并生成一个可导入的 ICS 日程文件',
+    text: '用 date_calc 与 JavaScript 配合：从 2026-10-06 起到年底，找出每个月的第二个星期二（10/11/12 月），同时给出距今天的天数。再写一个 iCalendar 文件 files/patch-tuesday.ics：每个日期一个 VEVENT（SUMMARY「补丁星期二 · 例行更新」，10:00–11:00，TZID=Asia/Tokyo，UID 唯一，DTSTAMP 取当前时间）。最后用 regex 工具校验文件里 DTSTART 的格式全部是 YYYYMMDDTHHMMSS，并告诉我校验结果。',
+  },
 ];
 
 export function shuffled(list, rnd = Math.random) {

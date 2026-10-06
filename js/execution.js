@@ -844,6 +844,7 @@ export const TOOL_CONTRACTS = Object.freeze({
   unicode: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L0' }),
   generate_image: contract({ sideEffect: 'cost', idempotent: false, timeoutMs: 180000, riskLevel: 'L2', external: true, note: '外部生图调用（计费）' }),
   analyze_image: contract({ sideEffect: 'remote', idempotent: true, retryPolicy: 'once', timeoutMs: 60000, riskLevel: 'L1', external: true, note: '图片上行到网关做视觉分析' }),
+  analyze_pdf: contract({ sideEffect: 'remote', idempotent: true, retryPolicy: 'once', timeoutMs: 180000, riskLevel: 'L1', external: true, note: 'PDF 文本层本地提取；页图整批上行到网关做视觉分析' }),
   zip_files: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L2', verifyAfterRun: true }),
   unzip_file: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L2', verifyAfterRun: true, note: '批量写入文件' }),
   fetch_url: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'backoff', timeoutMs: 30000, riskLevel: 'L2', external: true }),

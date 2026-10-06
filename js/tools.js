@@ -1,7 +1,8 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.12';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.13';
 import { analyzeImage, VISION_TOOL_MODEL } from './vision.js';
+import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel } from './config.js';
 import { fetchPage, gitRun, relaySearch, relayCrawl } from './net.js';
@@ -11,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.12';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.13';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.12';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.13';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -214,6 +215,24 @@ export const TOOL_DEFS = [
         paths: { type: 'array', items: { type: 'string' }, description: '可选：多张图一次 OCR，按顺序分析' },
         prefix: { type: 'string', description: '可选：只分析以此路径前缀开头的图片（如 uploads/scan-）' },
         prompt: { type: 'string', description: '分析要求，如「读出图中全部文字」或「描述这张架构图」；缺省为全面描述' },
+      },
+    },
+  },
+  {
+    name: 'analyze_pdf',
+    description:
+      '分析沙箱中的 PDF（用户上传的 PDF 原样存放在 uploads/*.pdf）。对话模型不能直接读 PDF：必须调用本工具。' +
+      '流程：① 用 pdf.js 提取全部内嵌文本层；② 把页面渲染成图片，整批一次性上传给 ' + VISION_TOOL_MODEL + ' 识图（表格、公式、扫描件也能读）；③ 返回「文本层 + 视觉识别」合并结果。' +
+      '不要用 read_file 读 PDF（那是 base64），也不要逐页调 analyze_image。' +
+      'path 省略时自动取用户最近上传的 PDF。pages 可限制识图页数（默认前 8 页；文本层始终提取全部）。' +
+      '返回全文，不截成摘要；同时写入沙箱 internal/ocr/{文件名}.ocr.md，可用 read_file 再读。',
+    parameters: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: '沙箱 PDF 路径，如 uploads/report.pdf；省略=最近上传的 PDF' },
+        prompt: { type: 'string', description: '分析要求，如「提取全部表格」「总结每页要点」；缺省为完整转录并描述图表' },
+        pages: { type: 'integer', description: '最多识图的页数（1–24，默认 8）。只需文本层时可传 0 跳过识图' },
+        first_page: { type: 'integer', description: '识图起始页（默认 1），配合 pages 分段读长文档' },
       },
     },
   },
@@ -1037,6 +1056,110 @@ async function executeToolBody(name, args, ctx) {
           if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
           emit({ status: 'error', error: { message: err.message } });
           return `analyze_image 失败：${err.message}`;
+        }
+      }
+      case 'analyze_pdf': {
+        const listPdfs = () => fs.list().filter((f) => /\.pdf$/i.test(f.path)).map((f) => f.path);
+        let path = normalizeFsPath(args.path || '');
+        if (!path) {
+          const pdfs = listPdfs();
+          if (!pdfs.length) return 'analyze_pdf 失败：沙箱里没有 PDF（用户上传的 PDF 会写入 uploads/）。';
+          path = pdfs[pdfs.length - 1];
+        }
+        let raw = '';
+        try { raw = fs.read(path); } catch { return `analyze_pdf 失败：找不到 ${path}（现有 PDF：${listPdfs().join('、') || '无'}）`; }
+        let bytes;
+        try { bytes = /^data:/i.test(raw) ? dataUrlToBytes(raw).bytes : new TextEncoder().encode(raw); }
+        catch (err) { return `analyze_pdf 失败：${path} 不是可解析的 PDF 数据（${err.message}）`; }
+        if (!(bytes && bytes.length > 4 && bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46)) {
+          return `analyze_pdf 失败：${path} 不是 PDF 文件（缺少 %PDF- 头）。`;
+        }
+        const prompt = String(args.prompt || '').trim();
+        const wantPages = args.pages == null ? 8 : Math.max(0, Math.min(24, Number(args.pages) || 0));
+        const firstPage = Math.max(1, Number(args.first_page) || 1);
+        const t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+        try {
+          // ① 文本层：全部页，几乎零成本
+          emit({ status: 'running', note: `提取 PDF 文本层（${path}）…` });
+          const textLayer = await pdfExtractText(bytes);
+          const layerPages = textLayer.texts || [];
+          const layerChars = layerPages.reduce((n, t) => n + t.length, 0);
+          const totalPages = textLayer.pages || 0;
+          const layerMd = layerChars
+            ? layerPages.map((t, i) => `### 第 ${i + 1} 页\n\n${t || '（本页无文本层）'}`).join('\n\n')
+            : '';
+          // ② 渲染页图 → ③ 整批上传识图（一次请求带全部页，而不是逐页）
+          let visionText = '';
+          let shot = 0;
+          let visionIn = 0;
+          let visionOut = 0;
+          let renderNote = '';
+          if (wantPages > 0 && ctx.apiKey) {
+            emit({ status: 'running', note: `渲染 PDF 页面（第 ${firstPage} 页起，最多 ${wantPages} 页）…` });
+            const got = await pdfToImages(bytes, { name: path.split('/').pop(), maxPages: wantPages, firstPage, baseScale: 1.6, maxEdge: 2048, quality: 0.85 });
+            if (!got.ok || !got.images.length) {
+              renderNote = `页面渲染失败：${got.error || '未知原因'}`;
+            } else {
+              const batches = [];
+              for (let i = 0; i < got.images.length; i += 8) batches.push(got.images.slice(i, i + 8));
+              const parts = [];
+              for (let b = 0; b < batches.length; b++) {
+                const batch = batches[b];
+                const from = batch[0].page;
+                const to = batch[batch.length - 1].page;
+                emit({ status: 'running', note: `识图中（${VISION_TOOL_MODEL} · 第 ${from}–${to} 页一次上传${batches.length > 1 ? ` · 批次 ${b + 1}/${batches.length}` : ''}）…` });
+                const hint = layerChars
+                  ? '\n（这些页面来自同一份 PDF；文本层已单独提取，你重点补充文本层拿不到的内容：表格结构、图表/公式/图片含义、版面与标注，并修正文本层的乱序。）'
+                  : '\n（这些页面来自同一份 PDF，可能是扫描件：请按阅读顺序完整转录全部文字，并描述表格与图片。）';
+                const pagePrompt = `${prompt || '请完整分析这份 PDF：转录文字、还原表格、说明图表与公式。'}${hint}\n页码：第 ${from} 到第 ${to} 页，请用「## 第 N 页」标出。`;
+                const text = await analyzeImage({
+                  apiKey: ctx.apiKey,
+                  prompt: pagePrompt,
+                  dataUrls: batch.map((img) => img.dataUrl),
+                  signal: ctx.signal,
+                  onUsage: (u) => {
+                    if (u) { visionIn += Number(u.input || 0); visionOut += Number(u.output || 0); }
+                  },
+                });
+                parts.push(text);
+                shot += batch.length;
+              }
+              visionText = parts.join('\n\n');
+              if (got.truncated && firstPage + shot - 1 < got.pages) renderNote = `识图只覆盖了第 ${firstPage}–${firstPage + shot - 1} 页（共 ${got.pages} 页）；需要后续页请再调 analyze_pdf 并传 first_page=${firstPage + shot}。`;
+            }
+          } else if (wantPages > 0 && !ctx.apiKey) {
+            renderNote = '未配置 API Key，跳过识图，只返回文本层。';
+          }
+          if (!layerChars && !visionText) {
+            emit({ status: 'error', error: { message: '文本层为空且识图未得到结果' } });
+            return `analyze_pdf 失败：${path} 没有可提取的文本层${renderNote ? `，且${renderNote}` : ''}${textLayer.error ? `（${textLayer.error}）` : ''}。`;
+          }
+          const sections = [];
+          if (visionText) sections.push(`## 视觉识别（${VISION_TOOL_MODEL} · ${shot} 页）\n\n${visionText}`);
+          if (layerMd) sections.push(`## 内嵌文本层（pdf.js · ${layerPages.length}/${totalPages || layerPages.length} 页 · ${layerChars} 字）\n\n${layerMd}`);
+          else sections.push('## 内嵌文本层\n\n（无：该 PDF 没有可提取的文字，可能是扫描件）');
+          const text = sections.join('\n\n');
+          const ms = Math.round(((typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now()) - t0);
+          const ocrPath = ocrOutPath([path]);
+          try { fs.write(ocrPath, `# ${path}\n\n${text}`); } catch { /* 落盘失败仍回全文 */ }
+          emit({
+            status: 'ok',
+            note: `已分析 ${path}（文本层 ${layerChars} 字${shot ? ` · 识图 ${shot} 页` : ''}）`,
+            durationMs: ms,
+            fsChange: true,
+            billing: shot ? {
+              kind: 'vision',
+              model: VISION_TOOL_MODEL,
+              usage: { input: visionIn, output: visionOut },
+              imageCount: shot,
+            } : undefined,
+          });
+          const head = `[PDF 分析完成] 文件 ${path} · 共 ${totalPages || '?'} 页 · 文本层 ${layerChars} 字 · 识图 ${shot} 页${shot ? `（${VISION_TOOL_MODEL}，整批上传）` : ''} · 全文已写入 ${ocrPath}`;
+          return `${head}${renderNote ? `\n${renderNote}` : ''}\n\n${text}`;
+        } catch (err) {
+          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
+          emit({ status: 'error', error: { message: err.message } });
+          return `analyze_pdf 失败：${err.message}`;
         }
       }
       case 'zip_files': {

@@ -88,8 +88,8 @@ export function openPhotoEditor(file, options = {}) {
             <button class="photo-tool-button" type="button" data-photo-action="undo" title="撤销（⌘Z / Ctrl+Z）" aria-label="撤销" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 8 5 12l4 4"/><path d="M5.5 12H14a4.5 4.5 0 0 1 0 9h-2"/></svg><span class="photo-tool-name">撤销</span></button>
           </div>
           <div class="photo-tool-group">
-            <button class="photo-tool-button" type="button" data-photo-action="rotate-left" title="向左旋转 90°（Shift+R）" aria-label="向左旋转 90 度"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10V5m0 0h5M4.5 5.5A8 8 0 1 1 3 12"/></svg><span class="photo-tool-name">左旋</span></button>
-            <button class="photo-tool-button" type="button" data-photo-action="rotate-right" title="向右旋转 90°（R）" aria-label="向右旋转 90 度"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 10V5m0 0h-5m4.5.5A8 8 0 1 0 21 12"/></svg><span class="photo-tool-name">右旋</span></button>
+            <button class="photo-tool-button" type="button" data-photo-action="rotate-left" title="向左旋转 90°（Shift+R）" aria-label="向左旋转 90 度"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg><span class="photo-tool-name">左旋</span></button>
+            <button class="photo-tool-button" type="button" data-photo-action="rotate-right" title="向右旋转 90°（R）" aria-label="向右旋转 90 度"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg><span class="photo-tool-name">右旋</span></button>
           </div>
           <div class="photo-tool-group">
             <button class="photo-tool-button" type="button" data-photo-action="crop" title="裁剪（C）" aria-label="裁剪" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 3v13a2 2 0 0 0 2 2h12M3 7h13a2 2 0 0 1 2 2v12"/></svg><span class="photo-tool-name">裁剪</span></button>
@@ -167,7 +167,7 @@ export function openPhotoEditor(file, options = {}) {
     const penSizeValue = modal.querySelector('.photo-pen-size-value');
     const colorValue = modal.querySelector('.photo-color-value');
     const MAX_UNDO_ENTRIES = 8;
-    const MAX_UNDO_BYTES = 96 * 1024 * 1024;
+    const MAX_UNDO_BYTES = 192 * 1024 * 1024; // 未压缩像素预算（12MP ≈ 48MB/步）
 
     const syncBrushControls = () => {
       if (penSizeValue && penSize) penSizeValue.textContent = `${Number(penSize.value) || 6} px`;
@@ -203,28 +203,44 @@ export function openPhotoEditor(file, options = {}) {
         button.disabled = blocked;
       }
     };
+    // 撤销快照：直接复制像素（canvas → canvas 的 drawImage 是 GPU 拷贝，毫秒级），
+    // 不再 toBlob('image/png')——12MP 照片的 PNG 编码要 1–3 秒，之前每次旋转 / 落笔都卡在这里。
+    // 代价是内存按 4 字节/像素计（12MP ≈ 48MB），用 MAX_UNDO_BYTES 做预算，超出就淘汰最旧的。
+    const releaseSnapshot = (snapshot) => {
+      if (!snapshot) return;
+      try { if (snapshot.bitmap && typeof snapshot.bitmap.close === 'function') snapshot.bitmap.close(); } catch { /* no-op */ }
+      if (snapshot.copy) { snapshot.copy.width = 0; snapshot.copy.height = 0; }
+    };
     const pushUndoSnapshot = () => {
-      if (!state.ready || !canvas.width || !canvas.height || typeof canvas.toBlob !== 'function') return Promise.resolve(false);
+      if (!state.ready || !canvas.width || !canvas.height) return Promise.resolve(false);
       const sequence = ++state.historySequence;
       const width = canvas.width;
       const height = canvas.height;
-      const task = new Promise((resolveSnapshot) => {
-        const complete = (blob) => {
-          if (blob && !state.finished && blob.size <= MAX_UNDO_BYTES) {
-            const snapshot = { sequence, width, height, blob, size: blob.size };
-            undoHistory.push(snapshot);
-            undoHistory.sort((a, b) => a.sequence - b.sequence);
-            state.historyBytes += snapshot.size;
-            while (undoHistory.length > MAX_UNDO_ENTRIES || state.historyBytes > MAX_UNDO_BYTES) {
-              const removed = undoHistory.shift();
-              if (removed) state.historyBytes -= removed.size;
-            }
-          } else if (blob && blob.size > MAX_UNDO_BYTES) {
-            setHint('这张照片的撤销快照过大；当前编辑仍可继续，但该步无法撤销。');
-          }
-          resolveSnapshot(!!blob);
-        };
-        try { canvas.toBlob(complete, 'image/png'); } catch { complete(null); }
+      const size = width * height * 4;
+      if (size > MAX_UNDO_BYTES) {
+        setHint('这张照片的撤销快照过大；当前编辑仍可继续，但该步无法撤销。');
+        return Promise.resolve(false);
+      }
+      let copy = null;
+      try {
+        copy = doc.createElement('canvas');
+        copy.width = width; copy.height = height;
+        const copyCtx = copy.getContext('2d');
+        if (!copyCtx) throw new Error('no 2d');
+        copyCtx.drawImage(canvas, 0, 0);
+      } catch { copy = null; }
+      if (!copy) return Promise.resolve(false);
+      const task = Promise.resolve().then(() => {
+        if (state.finished) { releaseSnapshot({ copy }); return false; }
+        const snapshot = { sequence, width, height, copy, size };
+        undoHistory.push(snapshot);
+        undoHistory.sort((a, b) => a.sequence - b.sequence);
+        state.historyBytes += snapshot.size;
+        while (undoHistory.length > MAX_UNDO_ENTRIES || state.historyBytes > MAX_UNDO_BYTES) {
+          const removed = undoHistory.shift();
+          if (removed) { state.historyBytes -= removed.size; releaseSnapshot(removed); }
+        }
+        return true;
       });
       pendingSnapshots.add(task);
       task.then(() => { pendingSnapshots.delete(task); syncActionButtons(); });
@@ -251,10 +267,14 @@ export function openPhotoEditor(file, options = {}) {
       }
       if (applyCropButton) applyCropButton.hidden = !state.crop || !state.selection;
       if (cancelCropButton) cancelCropButton.hidden = !state.crop;
-      if (state.crop) setHint('拖动裁剪框边缘或八个手柄调整选区；也可在框内移动，完成后点“应用裁剪”。');
+      if (state.crop) {
+        state.selection = { x: 0, y: 0, width: canvas.width, height: canvas.height };
+        setHint('已框住整张照片：拖动八个手柄缩小选区，或直接在照片上重新框选；框内拖动可移动，完成后点“应用裁剪”。');
+      }
       else if (state.draw) setHint('在照片上拖动进行标注；再次点击画笔可退出。');
       else setHint('旋转、裁剪或标注后，保存的照片会作为附件加入本轮。');
       if (overlayCtx) overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+      if (state.crop) drawSelection();
       syncActionButtons();
     };
     const point = (event) => {
@@ -330,7 +350,9 @@ export function openPhotoEditor(file, options = {}) {
     };
     const beginCropDrag = (event, p) => {
       const handle = hitCropHandle(p, state.selection);
-      const inside = !handle && pointInCrop(p, state.selection);
+      const sel = state.selection;
+      const fullFrame = !!sel && sel.x <= 0 && sel.y <= 0 && sel.width >= canvas.width && sel.height >= canvas.height;
+      const inside = !handle && !fullFrame && pointInCrop(p, sel);
       state.dragType = handle ? 'resize' : inside ? 'move' : 'create';
       state.dragHandle = handle;
       state.dragStart = p;
@@ -395,23 +417,17 @@ export function openPhotoEditor(file, options = {}) {
       } catch (error) { setHint(`旋转失败：${error.message}`); }
     };
     const restoreSnapshot = async (snapshot) => {
-      const snapshotUrl = win.URL.createObjectURL(snapshot.blob);
       try {
-        const restoredImage = await new Promise((res, rej) => {
-          const source = new ImageCtor();
-          source.onload = () => res(source);
-          source.onerror = () => rej(new Error('无法恢复照片快照'));
-          source.src = snapshotUrl;
-        });
+        if (!snapshot.copy || !snapshot.copy.width) throw new Error('无法恢复照片快照');
         canvas.width = snapshot.width;
         canvas.height = snapshot.height;
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(restoredImage, 0, 0, canvas.width, canvas.height);
+        ctx.drawImage(snapshot.copy, 0, 0, canvas.width, canvas.height);
         syncOverlay();
         setMode(null);
         setHint(`已撤销；照片恢复至 ${canvas.width} × ${canvas.height}。`);
       } finally {
-        try { win.URL.revokeObjectURL(snapshotUrl); } catch { /* no-op */ }
+        releaseSnapshot(snapshot);
       }
     };
     const undo = async () => {
@@ -442,12 +458,40 @@ export function openPhotoEditor(file, options = {}) {
       pushUndoSnapshot();
       if (ctx) {
         const rect = canvas.getBoundingClientRect();
-        ctx.beginPath(); ctx.moveTo(p.x, p.y);
         ctx.strokeStyle = color.value || '#ffffff';
+        ctx.fillStyle = ctx.strokeStyle;
         ctx.lineWidth = Math.max(1, Number(penSize.value) * (rect.width ? canvas.width / rect.width : 1));
         ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+        // 落笔先点一个圆点：原地点击也有痕迹
+        ctx.beginPath(); ctx.arc(p.x, p.y, ctx.lineWidth / 2, 0, Math.PI * 2); ctx.fill();
       }
     });
+    // 画笔：每段只描「上一点 → 当前点」（二次贝塞尔经中点平滑），而不是从落笔点起整条路径重描；
+    // 指针事件先攒进队列，rAF 一次画完（高频触控 / 数位板一帧能来 10+ 个事件）。
+    const strokeQueue = [];
+    let strokeRaf = 0;
+    const flushStroke = () => {
+      strokeRaf = 0;
+      if (!ctx || !strokeQueue.length) return;
+      let prev = state.last || strokeQueue[0];
+      ctx.beginPath();
+      ctx.moveTo(prev.x, prev.y);
+      for (const q of strokeQueue) {
+        const mid = { x: (prev.x + q.x) / 2, y: (prev.y + q.y) / 2 };
+        ctx.quadraticCurveTo(prev.x, prev.y, mid.x, mid.y);
+        prev = q;
+      }
+      ctx.lineTo(prev.x, prev.y);
+      ctx.stroke();
+      state.last = prev;
+      strokeQueue.length = 0;
+    };
+    const queueStroke = (event) => {
+      const events = typeof event.getCoalescedEvents === 'function' ? event.getCoalescedEvents() : null;
+      if (events && events.length) for (const e of events) strokeQueue.push(point(e));
+      else strokeQueue.push(point(event));
+      if (!strokeRaf) strokeRaf = (win.requestAnimationFrame || ((fn) => setTimeout(fn, 16)))(flushStroke);
+    };
     canvas.addEventListener('pointermove', (event) => {
       const p = point(event);
       if (!state.drawing || !state.start && !state.dragStart) {
@@ -457,9 +501,8 @@ export function openPhotoEditor(file, options = {}) {
         }
         return;
       }
-      if (state.crop) updateCropDrag(p);
-      else if (ctx && state.draw) { ctx.lineTo(p.x, p.y); ctx.stroke(); }
-      state.last = p;
+      if (state.crop) { updateCropDrag(p); state.last = p; return; }
+      if (ctx && state.draw) queueStroke(event);
     });
     const endPointer = (event, cancelled = false) => {
       if (!state.drawing) return;
@@ -467,6 +510,7 @@ export function openPhotoEditor(file, options = {}) {
         if (cancelled) state.selection = state.dragInitial ? { ...state.dragInitial } : null;
         else updateCropDrag(point(event));
       }
+      if (state.draw && strokeQueue.length) flushStroke();
       state.drawing = false;
       state.start = null; state.last = null;
       state.dragStart = null; state.dragType = null; state.dragHandle = null; state.dragInitial = null;

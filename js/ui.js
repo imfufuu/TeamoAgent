@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.12';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.13';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.12';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.13';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,19 +16,18 @@ import { claimsWebSearch, webRefusal } from './websearch.js';
 import { effectiveApiKey, unlockAdminKey, adminUnlocked, isAdminAlias } from './adminkey.js';
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { filterCmds, tokenBreakdown, formatTokBreak, shortSuggest } from './commands.js';
-import { pdfToImages } from './pdfpages.js';
 import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.12';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.12';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.12';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.12';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.12';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.12';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.12';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.12';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.13';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.13';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.13';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.13';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.13';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.13';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.13';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.13';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -145,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.12';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram } from './quickviz.js?v=2026.10.5.13';
 
 function sanitizeSvgRaw(raw) {
   let s = String(raw || '')
@@ -874,6 +873,9 @@ function fmtAgo(ts) {
   const d = Math.round(sec / 86400);
   return d === 1 ? '1 day ago' : `${d} days ago`;
 }
+
+// 这些工具不进 Ran Commands，而是各自的文件折叠（Explored / Edited File(s)）
+const FILE_FOLD_TOOLS = new Set(['write_file', 'read_file', 'analyze_image', 'analyze_pdf']);
 
 export function mountUI(store, agent) {
   const msgList = $('#messages');
@@ -1623,6 +1625,9 @@ function validateApiKey(s) {
   $('#new-session').addEventListener('click', () => {
     if (inSystem()) return toast('系统命令通道内不能新建会话：先在模型菜单选回普通模型', 'warn');
     if (getBusy()) return toast('请等待当前回合结束', 'warn');
+    // 当前已是空会话（没有消息、没有沙箱文件）：不重建视图，只提示——避免整页重绘闪一下
+    const emptyNow = !(store.state.messages || []).length && !Object.keys(store.state.files || {}).length;
+    if (emptyNow) { composer.focus(); return toast('已在新对话中', 'ok', 1800); }
     (store.ensureDraft ? store.ensureDraft() : store.createSession());
     agent.loadFiles({});
     rebuildMessages(); renderSessions(); renderFiles(); updateStats(); renderTimeStats(); updateModelBtn();
@@ -2089,7 +2094,7 @@ function validateApiKey(s) {
     return TOOL_RESULT_ERROR.test(body)
       || /^\[git 退出码 (?!0\b)\d+\]/i.test(body)
       || /^fatal:|^error:/im.test(body)
-      || /── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key/.test(body);
+      || /── 错误 ──|不是合法 JSON|未配置 TeamoRouter API Key|^⛔|执行内核在调用前拦截/.test(body);
   }
   function toolIds(chip) {
     return String(chip && (chip.dataset.callIds || chip.dataset.callId) || '').split(',').filter(Boolean);
@@ -2119,20 +2124,31 @@ function validateApiKey(s) {
     fold.classList.toggle('live', getBusy() && !allDone);
     fold.classList.toggle('ok', allDone && !failed && !cancelled);
     fold.classList.toggle('fail', allDone && failed);
+    // 失败条数 + 总耗时（各命令耗时之和；拿不到耗时的不计）
+    let failedCount = 0;
+    let totalMs = 0;
+    for (const chip of children) {
+      for (const id of toolIds(chip)) {
+        const st = chip._toolStates && chip._toolStates[id];
+        if ((st && st.status === 'error') || (hasToolOutput(chip, id) && toolResultFailed(chip._outs[id]))) failedCount += 1;
+        if (st && Number.isFinite(Number(st.durationMs))) totalMs += Number(st.durationMs);
+      }
+    }
+    const timeHtml = totalMs > 0 ? ` <span class="chip-time">${fmtSpan(totalMs)}</span>` : '';
     const state = $('.chip-state', fold);
     if (state) {
       if (allDone && failed) {
         const firstFailure = children.find((chip) => chip.classList.contains('fail'));
-        state.innerHTML = '<span class="chip-fail">✗</span>';
+        state.innerHTML = `<span class="chip-fail">✗ ${total > 1 ? `${failedCount}/${total} 失败` : '失败'}</span>${timeHtml}`;
         state.title = firstFailure ? String(($('.chip-state', firstFailure) || {}).title || '') : '';
         state.classList.add('bad');
       } else if (allDone && cancelled) {
         state.textContent = '已停止'; state.title = ''; state.classList.remove('bad');
       } else if (allDone) {
-        state.innerHTML = '<span class="chip-ok">✓</span>';
-        state.title = ''; state.classList.remove('bad');
+        state.innerHTML = `<span class="chip-ok">✓ ${total > 1 ? '全部成功' : '成功'}</span>${timeHtml}`;
+        state.title = totalMs > 0 ? `总耗时 ${fmtSpan(totalMs)}` : ''; state.classList.remove('bad');
       } else {
-        state.textContent = settled ? `${settled}/${total}` : '…';
+        state.textContent = settled ? `执行中 ${settled}/${total}` : '执行中…';
         state.title = ''; state.classList.remove('bad');
       }
     }
@@ -2171,11 +2187,12 @@ function validateApiKey(s) {
         });
         const item = chip._toolStates[failId] || {};
         const errTxt = String(item.note || chip._outs[failId] || '工具失败').slice(0, 400);
-        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗</span>`;
+        const durF = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
+        state.innerHTML = `<span class="chip-fail" title="${esc(errTxt)}">✗ 失败</span>${durF > 0 ? ` <span class="chip-time">${fmtSpan(durF)}</span>` : ''}`;
         state.title = errTxt; state.classList.add('bad');
       } else if (allDone) {
-        const dur = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).find((x) => Number.isFinite(Number(x)));
-        state.innerHTML = `<span class="chip-ok">✓</span>${dur != null ? ` <span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
+        const dur = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
+        state.innerHTML = `<span class="chip-ok">✓ 成功</span>${dur > 0 ? ` <span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
         state.title = ''; state.classList.remove('bad');
       } else {
         state.textContent = running ? (running.note || '执行中…') : (settled ? `${settled}/${ids.length}` : '…');
@@ -2326,12 +2343,43 @@ function validateApiKey(s) {
       if (wb) wb.addEventListener('click', (e) => { e.preventDefault(); doWebRetry(m); });
     }
     if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
-    // 所有命令收在 Ran Commands；读/写/识图分别进入 Explored / Edited File(s)。
+    // 所有命令收在 Ran Commands；读/写/识图/识 PDF 分别进入 Explored / Edited File(s)。
+    // 同一轮里连续多条带命令的助手消息只画一块 Ran Commands（挂在最后一条上，前面的拆掉）——
+    // 与 Explored / Edited 的合并规则一致，屏上绝不出现两块连着的 Ran Command。
     const chips = $('.tool-chips', wrap);
+    const msgsAll = store.state.messages;
+    const idxA = msgsAll.findIndex((x) => x.id === m.id);
+    const commandCallsOf = (msg) => ((msg && msg.toolCalls) || []).filter((t) => t && !FILE_FOLD_TOOLS.has(t.name));
+    let laterHasCommands = false;
+    if (idxA >= 0) {
+      for (let i = idxA + 1; i < msgsAll.length; i++) {
+        const x = msgsAll[i];
+        if (x.role === 'user') break;
+        if (x.role === 'assistant' && commandCallsOf(x).length) { laterHasCommands = true; break; }
+      }
+    }
+    const mergedCalls = [];
+    if (idxA >= 0 && !laterHasCommands && commandCallsOf(m).length) {
+      for (let i = idxA; i >= 0; i--) {
+        const x = msgsAll[i];
+        if (x.role === 'user') break;
+        if (x.role !== 'assistant') continue;
+        const calls = commandCallsOf(x);
+        if (!calls.length) break;
+        mergedCalls.unshift(...calls);
+        if (i !== idxA) {
+          // 前面那条消息上的旧折叠拆掉（它的命令已并入本条）
+          const w = msgNodes.get(x.id);
+          const oldChips = w && $('.tool-chips', w);
+          if (oldChips && oldChips.firstChild) { oldChips.innerHTML = ''; oldChips.dataset.sig = ''; syncAssistantShell(w); }
+        }
+      }
+    } else if (idxA < 0) {
+      mergedCalls.push(...commandCallsOf(m));
+    }
     const groups = [];
     const seen = new Map();
-    for (const t of (m.toolCalls || [])) {
-      if (['write_file', 'read_file', 'analyze_image'].includes(t.name)) continue;
+    for (const t of mergedCalls) {
       if (!seen.has(t.name)) {
         const g = { name: t.name, items: [] };
         seen.set(t.name, g);
@@ -2373,6 +2421,11 @@ function validateApiKey(s) {
           child._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
           child._outs = {};
           child._toolStates = {};
+          for (const t of g.items) {
+            if (t && t.id != null && (t.status || Number.isFinite(Number(t.durationMs)))) {
+              child._toolStates[String(t.id)] = { status: t.status || undefined, note: t.errorNote || '', durationMs: Number.isFinite(Number(t.durationMs)) ? Number(t.durationMs) : undefined };
+            }
+          }
           itemsBox.appendChild(child);
         }
       }
@@ -2410,8 +2463,6 @@ function validateApiKey(s) {
       syncRanCommandsFold(fold);
     }
     // 连续 Edited / Explored File 合并到同一轮最后一条对应工具的助手消息，避免连着两块
-    const msgsAll = store.state.messages;
-    const idxA = msgsAll.findIndex((x) => x.id === m.id);
     const pathsOf = (msg, name) => [...new Set((msg && msg.toolCalls || []).filter((c) => c.name === name && c.args && c.args.path).map((c) => String(c.args.path)))];
     const imagePaths = (() => {
       try {
@@ -2467,7 +2518,28 @@ function validateApiKey(s) {
       }
       return [...new Set(out)];
     };
-    const pathsOfExplored = (msg) => [...new Set([...pathsOf(msg, 'read_file'), ...pathsOfAnalyze(msg)])];
+    // analyze_pdf：path 省略时工具自己挑最近的 PDF，所以优先从结果头部回读真实文件名
+    const pathsOfAnalyzePdf = (msg) => {
+      const out = [];
+      for (const call of (msg && msg.toolCalls || [])) {
+        if (call.name !== 'analyze_pdf') continue;
+        const args = call.args && typeof call.args === 'object' ? call.args : {};
+        const toolMsg = (store.state.messages || []).find((x) => x.role === 'tool' && String(x.toolCallId) === String(call.id));
+        const result = String(toolMsg && toolMsg.content != null ? toolMsg.content : '');
+        const found = /^\[PDF 分析完成\] 文件 (.*?) · /.exec(result);
+        let path = found ? found[1].trim() : (args.path ? String(args.path) : decodeRawJsonString(String(args.__raw || ''), 'path'));
+        if (!path) {
+          try {
+            const pdfs = (agent && agent.fs && typeof agent.fs.list === 'function' ? agent.fs.list() : [])
+              .map((f) => String(f && f.path || '')).filter((p) => /\.pdf$/i.test(p));
+            if (pdfs.length) path = pdfs[pdfs.length - 1];
+          } catch { /* noop */ }
+        }
+        if (path) out.push(path);
+      }
+      return [...new Set(out)];
+    };
+    const pathsOfExplored = (msg) => [...new Set([...pathsOf(msg, 'read_file'), ...pathsOfAnalyze(msg), ...pathsOfAnalyzePdf(msg)])];
     // P3：写文件类的路径要走 editpreview —— 流式期间 args 是半截 JSON（{__raw}），
     // 只有它能从「还没写完的文本」里把 path 扫出来，否则直播行会一直空着直到整段写完。
     const pathsOfEdit = (msg) => {
@@ -2655,14 +2727,16 @@ function validateApiKey(s) {
             quality: args.quality || 'auto',
             count: Number(args.n) || 1,
           });
-        } else if (tc.name === 'analyze_image') {
+        } else if (tc.name === 'analyze_image' || tc.name === 'analyze_pdf') {
           const tm = msgs.find((x) => x.role === 'tool' && x.toolCallId === tc.id);
           const outChars = tm && tm.content ? String(tm.content).length : 600;
+          const shot = tc.name === 'analyze_pdf' ? Number((/识图 (\d+) 页/.exec(String(tm && tm.content || '')) || [])[1] || 0) : 1;
+          if (!shot) continue;
           toolCosts.push({
             kind: 'vision',
             model: 'deepseek-v4-flash-vision-exp',
-            usage: { input: 1600, output: Math.max(120, Math.ceil(outChars / 2)) },
-            imageCount: 1,
+            usage: { input: 1600 * shot, output: Math.max(120, Math.ceil(outChars / 2)) },
+            imageCount: shot,
           });
         }
       }
@@ -2701,7 +2775,7 @@ function validateApiKey(s) {
     // 智能路由器：任务完成后显示芯片，点击显示服务商（不暴露具体模型）
     const routerInfo = info.headMsg && info.headMsg.router ? info.headMsg.router : (m.router || null);
     if (routerInfo) {
-      parts.push(`<button type="button" class="router-chip" data-router-info="1" title="智能路由器选择的服务提供商（不显示具体模型）">${ROUTER_ICON_SVG}<span>${esc(routerInfo.chosenProvider)}</span></button>`);
+      parts.push(`<button type="button" class="router-chip" data-router-info="1" title="智能路由器选择的服务商 · 点击查看具体模型">${ROUTER_ICON_SVG}<span>${esc(routerInfo.chosenProvider)}</span></button>`);
     }
     if (info.hasUsage) {
       const s = info.summary;
@@ -3042,12 +3116,38 @@ function validateApiKey(s) {
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
   }
+  // 智能路由详情弹层：与 token 弹层共用 #tok-pop（同一时间只开一个）
+  function showRouterPop(anchor, ri, realModel) {
+    const pop = $('#tok-pop');
+    const body = $('#tok-pop-body');
+    const head = pop && $('.tok-pop-h', pop);
+    if (!pop) return;
+    if (!pop.hidden && pop.dataset.kind === 'router' && pop._anchor === anchor) { hideTokPop(); return; }
+    pop.dataset.kind = 'router';
+    pop._anchor = anchor;
+    if (head) head.textContent = '智能路由';
+    const provider = (ri && ri.chosenProvider) || providerOf(realModel) || '—';
+    const rows = [
+      ['任务类型', ri ? ri.categoryLabel : '—'],
+      ['难度', ri ? ri.difficultyLabel : '—'],
+      ['服务商', provider],
+    ];
+    let html = rows.map(([k, v]) => `<div class="tok-row"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join('');
+    html += `<div class="tok-row total router-model-row"><span>具体模型</span><span class="router-model">${providerIcon(providerOf(realModel))}<span class="mono">${esc(realModel || '未知')}</span></span></div>`;
+    html += '<div class="tok-hint">路由由本地启发式即时决定；换一句话问，可能会选到不同模型。</div>';
+    if (body) body.innerHTML = html;
+    pop.hidden = false;
+    placeTokPop(anchor);
+  }
   function showTokBreak(anchor, turnInfo = null) {
     const pop = $('#tok-pop');
     const body = $('#tok-pop-body');
     const stats = $('#conv-stats');
     if (!pop) return;
-    if (!pop.hidden) { hideTokPop(); return; }
+    if (!pop.hidden && pop.dataset.kind !== 'router') { hideTokPop(); return; }
+    pop.dataset.kind = 'tokens';
+    const headEl = $('.tok-pop-h', pop);
+    if (headEl) headEl.textContent = 'Token 构成';
     const sysTok = estimateTokens([{ role: 'system', text: systemPrompt(new Date(), { webEnabled: false }) }]);
     const b = tokenBreakdown(store.state.messages, estimateTokens, sysTok);
     const n = (x) => (x >= 1000 ? `${(x / 1000).toFixed(1)}k` : String(x || 0));
@@ -3496,11 +3596,10 @@ function validateApiKey(s) {
           }
         }
       }
-      if (ri) {
-        toast(`智能路由器：任务类型「${ri.categoryLabel}」· 难度「${ri.difficultyLabel}」· 路由至 ${ri.chosenProvider}`, 'ok', 4000);
-      } else {
-        toast('智能路由器已为本轮选择了合适的模型', 'ok');
-      }
+      // 点服务商芯片 → 弹出路由详情（任务类型 / 难度 / 服务商 / 具体模型），复用 token 弹层的壳
+      const headMsg = (wrap && wrap._msg) || (() => { const mid = wrap && wrap.dataset && wrap.dataset.id; return store.state.messages.find((mm) => mm.id === mid) || null; })();
+      const realModel = (headMsg && headMsg.model) || (ri && ri.chosenModel) || '';
+      showRouterPop(routerChip, ri, realModel);
       return;
     }
     const dl = e.target.closest('[data-sb-dl]');
@@ -3609,7 +3708,7 @@ function validateApiKey(s) {
     if (pop.contains(e.target) || (statsEl && statsEl.contains(e.target)) || e.target.closest('.tok-btn')) return;
     hideTokPop();
   });
-  window.addEventListener('resize', () => { if ($('#tok-pop') && !$('#tok-pop').hidden) placeTokPop($('#conv-stats')); });
+  window.addEventListener('resize', () => { const pop = $('#tok-pop'); if (pop && !pop.hidden) placeTokPop((pop._anchor && pop._anchor.isConnected) ? pop._anchor : $('#conv-stats')); });
 
   function syncComposerPh() {
     if (!composer) return;

@@ -58,7 +58,7 @@ export function contextBudgetFor(modelId) {
 }
 
 function isVisionToolMsg(m) {
-  return m && m.role === 'tool' && (m.name === 'analyze_image' || (typeof m.content === 'string' && m.content.startsWith('[识图完成]')));
+  return m && m.role === 'tool' && (m.name === 'analyze_image' || m.name === 'analyze_pdf' || (typeof m.content === 'string' && (m.content.startsWith('[识图完成]') || m.content.startsWith('[PDF 分析完成]'))));
 }
 
 const truncTool = (max, opts) => (m) => {

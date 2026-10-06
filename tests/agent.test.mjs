@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.12';
+} from '../js/api.js?v=2026.10.5.13';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.12');
+const api = await import('../js/api.js?v=2026.10.5.13');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3119,7 +3119,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.12');
+  const api = await import('../js/api.js?v=2026.10.5.13');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3948,9 +3948,32 @@ test('index.html 附件 accept 含 PDF 与 ZIP；提示词说明转图片再识�
   assert.ok(html.includes('application/zip') && html.includes('.zip'), 'accept 应含 ZIP');
   const sys = cfg.systemPrompt();
   assert.match(sys, /analyze_image/);
+  assert.match(sys, /analyze_pdf/);
   assert.match(sys, /逐页渲染成 JPEG|转成图片|页图/);
   assert.match(sys, /zip_files/);
   assert.equal(/\.pdf\.txt/.test(sys), false);
+});
+test('analyze_pdf：注册 / 契约 / 访问集 / 附件不再预转页图', async () => {
+  const names = TOOL_DEFS.map((t) => t.name);
+  assert.ok(names.includes('analyze_pdf'));
+  const def = TOOL_DEFS.find((t) => t.name === 'analyze_pdf');
+  assert.match(def.description, /文本层/);
+  assert.match(def.description, /整批/);
+  assert.ok(def.parameters.properties.pages && def.parameters.properties.first_page);
+  const ex = await import('../js/execution.js');
+  const c = ex.getToolContract ? ex.getToolContract('analyze_pdf') : (ex.TOOL_CONTRACTS || {}).analyze_pdf;
+  if (c) { assert.equal(c.external, true); assert.equal(c.idempotent, true); }
+  const fsp = await import('node:fs');
+  const att = fsp.readFileSync(new URL('../js/ui-attachments.js', import.meta.url), 'utf8');
+  assert.equal(att.includes('pdfToImages'), false, '发送前不再把 PDF 逐页转图');
+  assert.ok(att.includes("source: 'pdf'") && att.includes("mime: 'application/pdf'"));
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.ok(tools.includes('pdfExtractText(bytes)'), '先提取文本层');
+  assert.ok(tools.includes('dataUrls: batch.map((img) => img.dataUrl)'), '页图整批上传给识图模型');
+  const api = fsp.readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
+  assert.ok(api.includes('请调用 analyze_pdf 工具'));
+  const uiSrc = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  assert.ok(uiSrc.includes('pathsOfAnalyzePdf(msg)'), 'analyze_pdf 归入 Explored File(s)');
 });
 test('移动端消息头模型名与用量同一行；侧栏 Logo 不省略 DUBHEAGENT', async () => {
   const fsp = await import('node:fs');
@@ -4229,7 +4252,7 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(ep, /Edited Files/i, '完成后显示 Edited Files N');
   assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
   assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
-  assert.match(ui, /\['write_file', 'read_file', 'analyze_image'\]\.includes/, '文件读写与识图从命令芯片组移出');
+  assert.match(ui, /FILE_FOLD_TOOLS = new Set\(\['write_file', 'read_file', 'analyze_image', 'analyze_pdf'\]\)/, '文件读写与识图从命令芯片组移出');
   assert.match(ui, /pathsOfAnalyze/, 'analyze_image 路径合并到 Explored Files');
   assert.match(ui, /Ran Commands \${total}/, '其余命令统一折叠到 Ran Commands');
   assert.match(ui, /tool-call-chip/, '命令输出仍可逐项展开查看');
@@ -5026,11 +5049,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.12');
+  assert.equal(APP_VERSION, '2026.10.5.13');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.12/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.13/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.12/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.13/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7766,7 +7789,8 @@ test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模�
   const uiHelpers = ['el', 'esc', 'fmtSize', 'safeImgSrc', 'safeHref', 'sanitizeSvgRaw', 'highlightCode', 'toast', 'renderMarkdown', 'sandboxPath', 'headingSlug'];
   for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'quickviz']) {
     const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
-    const code = src.replace(/\/\/.*$/gm, '').replace(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');
+    // 去注释时放过 URL 里的 //（xmlns="http://www.w3.org/2000/svg" 这类内联 SVG 会把整行吃掉）
+    const code = src.replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1').replace(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');
     const provided = new Set();
     for (const m of code.matchAll(/^import\s*\{([^}]*)\}/gm)) m[1].split(',').forEach((x) => provided.add(x.trim().split(/\s+as\s+/).pop().trim()));
     for (const m of code.matchAll(/^(?:export )?(?:const|let|function|async function)\s+([A-Za-z_$][\w$]*)/gm)) provided.add(m[1]);

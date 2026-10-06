@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.12';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.13';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.12';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.13';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -94,7 +94,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.12';
+} from './execution.js?v=2026.10.5.13';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.12';
+} from './recovery.js?v=2026.10.5.13';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.12';
+} from './idempotency.js?v=2026.10.5.13';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.12';
+} from './memorylife.js?v=2026.10.5.13';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.12';
+} from './trajectory.js?v=2026.10.5.13';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.12';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.12';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.13';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.13';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.12';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.12';
+} from './experiments.js?v=2026.10.5.13';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.13';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +143,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.12';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.12';
+} from './executionContext.js?v=2026.10.5.13';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.13';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.12';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.13';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -338,6 +338,7 @@ export function toolAccessSet(call) {
       return { reads: strList(a.path), writes: outOrAny([ACCESS_ANY]) };
     case 'diff_text': return { reads: [...strList(a.left_path), ...strList(a.right_path)], writes: [] };
     case 'analyze_image': return { reads: [...strList(a.path), ...pathList(a.paths)], writes: [] };
+    case 'analyze_pdf': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
     default:
       if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
@@ -736,6 +737,10 @@ export function createAgent(store, hooks = {}) {
     exec.machine.transition(EXECUTION_STATES.TOOL_RUNNING, `开始执行 ${calls.length} 次调用（依赖图调度 ${planToolWaves(calls).length} 波：${planToolWaves(calls).map((b) => `${b.kind}×${b.indices.length}`).join('+')}）`);
 
     const recordBlocked = (call, { reason, failure, risk, idempotencyKey, notes = [] }) => {
+      // 调用前被拦截也算失败：写回 call，界面重建芯片后仍显示 ✗（而不是按结果文本猜）
+      call.status = 'error';
+      call.errorNote = String(reason || (failure && failure.label) || '调用前被拦截').slice(0, 200);
+      if (call.durationMs == null) call.durationMs = 0;
       const run = exec.machine.beginToolRun({ callId: call.id, name: call.name, args: call.args, reason, risk, idempotencyKey });
       const closed = exec.machine.endToolRun(run, { status: 'blocked', failure, notes });
       waveRuns.push(closed);
@@ -1020,6 +1025,10 @@ export function createAgent(store, hooks = {}) {
       }
 
       const status = (execError || post.failureSignalled || post.failureKind) ? 'failed' : 'succeeded';
+      // 把结论写回 call 本身：工具芯片重建（合并到同轮最后一条消息 / 刷新页面）后仍能显示 成功 / 失败 与耗时
+      call.status = status === 'failed' ? 'error' : 'ok';
+      call.durationMs = Date.now() - t0;
+      if (status === 'failed') call.errorNote = String((execError && execError.message) || (failure && failure.label) || '').slice(0, 200);
       const closed = exec.machine.endToolRun(run, {
         status,
         failure,
@@ -1873,7 +1882,7 @@ export function createAgent(store, hooks = {}) {
             ? 'pyodide-wasm'
             : call.name === 'execute_javascript'
               ? 'worker-8ms'
-              : (call.name === 'dispatch_subagent' || call.name === 'generate_image' || call.name === 'analyze_image')
+              : (call.name === 'dispatch_subagent' || call.name === 'generate_image' || call.name === 'analyze_image' || call.name === 'analyze_pdf')
                 ? 'gateway-api'
                 : 'browser-0ms';
           telemetry.recordTool(call.name, Math.round(waveMs / Math.max(1, toolCalls.length)), { engine, ok: !isErr });

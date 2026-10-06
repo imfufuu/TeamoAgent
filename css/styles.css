@@ -1269,6 +1269,19 @@ a { color: var(--fg); }
 #tab-memory .mem-list { max-height: none; flex: 1; }
 
 .empty-hint { color: var(--fg-3); font-size: var(--ui-fs-11_5px, 11.5px); text-align: left; padding: 10px 12px 16px; line-height: 1.6; }
+/* 文件面板空状态：插画 + 说明；插画用 currentColor 跟随主题，三个部件错峰浮现 */
+.files-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 26px 14px 30px; color: var(--fg-3); animation: fe-in .5s var(--ease-out, ease) both; }
+.files-empty-art { width: 150px; height: auto; color: var(--fg-2); margin-bottom: 10px; }
+.files-empty-text { margin: 0; font-size: var(--ui-fs-12px, 12px); color: var(--fg-2); line-height: 1.6; max-width: 220px; }
+.files-empty-sub { margin: 4px 0 0; font-size: var(--ui-fs-11px, 11px); color: var(--fg-3); line-height: 1.5; }
+.files-empty-art .fe-drop { animation: fe-drop 2.8s var(--ease-out, ease) infinite; transform-origin: 117px 30px; }
+.files-empty-art .fe-sparks { animation: fe-blink 2.8s ease-in-out infinite; }
+.files-empty-art .fe-stack, .files-empty-art .fe-back { animation: fe-in .6s var(--ease-out, ease) both; }
+.files-empty-art .fe-back { animation-delay: .08s; }
+@keyframes fe-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes fe-drop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(5px); } }
+@keyframes fe-blink { 0%, 100% { opacity: .25; } 50% { opacity: .7; } }
+@media (prefers-reduced-motion: reduce) { .files-empty, .files-empty-art * { animation: none !important; } }
 
 .files-card {
   border: 1px solid var(--line); border-radius: 14px; background: var(--bg);
@@ -1621,8 +1634,14 @@ a { color: var(--fg); }
 }
 
 .sb-img { max-width: min(420px, 100%); height: auto; display: block; margin: 8px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-soft); }
-.sb-img[src*="image/svg"] { width: min(640px, 100%); min-height: 80px; }
-.md-body img[src*="image/svg"] { width: min(640px, 100%); min-height: 80px; }
+/* 矢量图：不再强制按宽度拉到 640px——竖长方形 SVG 会被拉成几千像素高。改为宽高双向约束、保持比例、
+   超出部分 contain；小图仍给到最小 280px 宽好看清内容。 */
+.sb-img[src*="image/svg"], .md-body img[src*="image/svg"] {
+  width: auto; height: auto;
+  max-width: min(640px, 100%); max-height: min(60vh, 560px);
+  min-width: min(280px, 100%); min-height: 80px;
+  object-fit: contain;
+}
 .sb-file {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin: 8px 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px;
@@ -1887,6 +1906,10 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   font-family: var(--mono); font-size: var(--ui-fs-12px, 12px); padding: 3px 0; color: var(--fg-2);
 }
 .tok-row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; color: var(--fg); font-weight: 600; }
+.tok-hint { font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); line-height: 1.5; margin-top: 8px; font-family: var(--font); }
+.router-model { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.router-model .provider-ico, .router-model svg, .router-model img { width: 14px; height: 14px; flex-shrink: 0; }
+.router-model .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 170px; }
 .tok-btn {
   font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
   text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--line-2);
@@ -2114,4 +2137,65 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 @media (prefers-reduced-motion: reduce) {
   .msg-user.enter .bubble, .tool-chips .chip, .attach-chip, .attach-menu-item, .suggest, .settings-body .set-sec, .pill.on, .status .dot { animation: none !important; }
   .sess-item, .pill, .attach-chip, #send-btn, .ghost-btn, .primary-btn, .icon-btn, #sidebar-fab { transition: none !important; }
+}
+
+/* 沙箱文件查看器：PDF 页图预览 */
+.fv-pdf { padding: 12px 14px 20px; display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.fv-pdf-loading, .fv-pdf-more { font-size: 12px; color: var(--muted); text-align: center; }
+.fv-pdf-meta { font-size: 11px; color: var(--muted); align-self: flex-start; }
+.fv-pdf-page { margin: 0; max-width: 720px; width: 100%; animation: fv-pdf-in .35s ease both; }
+.fv-pdf-page img { display: block; width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: #fff; box-shadow: 0 2px 10px rgba(0,0,0,.06); }
+.fv-pdf-page figcaption { font-size: 11px; color: var(--muted); text-align: center; margin-top: 4px; }
+@keyframes fv-pdf-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ── 动效层续（V1.7.2）：状态徽标 / 折叠清单 / 文件树 / 弹层 / 下拉 的小细节 ── */
+@keyframes badgeIn { 0% { opacity: 0; transform: scale(.6); } 60% { transform: scale(1.12); } 100% { opacity: 1; transform: none; } }
+@keyframes tickDraw { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }
+@keyframes rowIn { from { opacity: 0; transform: translateX(-4px); } to { opacity: 1; transform: none; } }
+@keyframes glowOnce { 0% { box-shadow: inset 3px 0 0 var(--fg); background: var(--bg-soft); } 100% { box-shadow: inset 3px 0 0 transparent; background: transparent; } }
+/* 成功 / 失败徽标出现时弹一下；失败再轻轻抖一下提醒 */
+.chip-state .chip-ok, .chip-state .chip-fail { display: inline-block; animation: badgeIn .34s var(--ease-spring) both; }
+.chip-state .chip-fail { animation: badgeIn .34s var(--ease-spring) both, shake .4s var(--ease) .34s; }
+.chip-state .chip-time { display: inline-block; animation: chipIn .3s var(--ease-out) both .08s; }
+/* 命令 / 文件折叠：展开箭头旋转，清单项错落进入 */
+.ran-commands > .chip-ico, .md-fold > .chip-ico, .edited-files > .chip-ico, .explored-files > .chip-ico { transition: transform .26s var(--ease-spring), color .2s var(--ease); }
+.ran-commands.done.expanded > .chip-ico, .md-fold.expanded > .chip-ico { transform: rotate(90deg); }
+.ran-commands.done:hover > .chip-ico, .md-fold:hover > .chip-ico { transform: translateX(1px); }
+.ran-commands.done.expanded:hover > .chip-ico, .md-fold.expanded:hover > .chip-ico { transform: rotate(90deg) translateY(-1px); }
+.ran-commands.expanded > .chip-detail .tool-call-chip { animation: rowIn .26s var(--ease-out) both; }
+.ran-commands.expanded > .chip-detail .tool-call-chip:nth-child(2) { animation-delay: 40ms; }
+.ran-commands.expanded > .chip-detail .tool-call-chip:nth-child(3) { animation-delay: 80ms; }
+.ran-commands.expanded > .chip-detail .tool-call-chip:nth-child(n+4) { animation-delay: 120ms; }
+.edited-files.expanded .fold-inner li, .explored-files.expanded .fold-inner li { animation: rowIn .24s var(--ease-out) both; }
+.edited-files.expanded .fold-inner li:nth-child(2), .explored-files.expanded .fold-inner li:nth-child(2) { animation-delay: 35ms; }
+.edited-files.expanded .fold-inner li:nth-child(3), .explored-files.expanded .fold-inner li:nth-child(3) { animation-delay: 70ms; }
+.edited-files.expanded .fold-inner li:nth-child(n+4), .explored-files.expanded .fold-inner li:nth-child(n+4) { animation-delay: 100ms; }
+/* 侧栏文件树：新行滑入 + 刚变更的文件左侧亮一下；悬停微位移 */
+.ft-row { animation: rowIn .22s var(--ease-out) both; transition: background-color .18s var(--ease), transform .18s var(--ease); }
+.ft-row:hover { transform: translateX(2px); }
+.ft-row.just-changed { animation: rowIn .22s var(--ease-out) both, glowOnce 1.6s var(--ease-out) .1s both; }
+/* Token / 路由弹层：从锚点弹出 */
+.tok-pop:not([hidden]) { animation: popIn .22s var(--ease-out) both; transform-origin: top center; }
+.tok-pop .tok-row { animation: rowIn .24s var(--ease-out) both; }
+.tok-pop .tok-row:nth-child(2) { animation-delay: 30ms; } .tok-pop .tok-row:nth-child(3) { animation-delay: 60ms; } .tok-pop .tok-row:nth-child(n+4) { animation-delay: 90ms; }
+/* 模型下拉：前几项错落进入，选中项打勾位移 */
+#model-menu .dd-item { animation: rowIn .2s var(--ease-out) both; transition: background-color .16s var(--ease), color .16s var(--ease), padding-left .16s var(--ease); }
+#model-menu .dd-item:nth-child(1) { animation-delay: 0ms; } #model-menu .dd-item:nth-child(2) { animation-delay: 25ms; } #model-menu .dd-item:nth-child(3) { animation-delay: 50ms; }
+#model-menu .dd-item:nth-child(4) { animation-delay: 75ms; } #model-menu .dd-item:nth-child(5) { animation-delay: 100ms; } #model-menu .dd-item:nth-child(n+6) { animation-delay: 120ms; }
+#model-menu .dd-item:hover { padding-left: 14px; }
+/* 启动屏：阶段点变 done 时弹一下 */
+.boot-steps li.done b { animation: badgeIn .3s var(--ease-spring) both; }
+/* 用户气泡附件 / 消息头部路由芯片 */
+.att-row .att-img, .att-row .att-file { animation: popIn .26s var(--ease-out) both; transition: transform .2s var(--ease); }
+.att-row .att-img:hover { transform: translateY(-1px) scale(1.02); }
+.router-chip { transition: transform .2s var(--ease-spring), border-color .2s var(--ease), background-color .2s var(--ease); }
+.router-chip:hover { transform: translateY(-1px); }
+.router-chip:active { transform: scale(.96); }
+/* 图片编辑器：非旋转类工具图标悬停微放大 */
+.photo-tool-button:hover:not(:disabled):not([data-photo-action^="rotate"]) svg { transform: scale(1.12); }
+@media (prefers-reduced-motion: reduce) {
+  .chip-state .chip-ok, .chip-state .chip-fail, .chip-state .chip-time, .ran-commands.expanded > .chip-detail .tool-call-chip,
+  .edited-files.expanded .fold-inner li, .explored-files.expanded .fold-inner li, .ft-row, .tok-pop:not([hidden]), .tok-pop .tok-row,
+  #model-menu .dd-item, .boot-steps li.done b, .att-row .att-img, .att-row .att-file, .fv-pdf-page { animation: none !important; }
+  .ran-commands > .chip-ico, .md-fold > .chip-ico, .ft-row, .router-chip, .photo-tool-button { transition: none !important; }
 }
