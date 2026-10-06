@@ -1262,6 +1262,62 @@ export function formatBudgetLedger(gov) {
   return `【执行内核 · 预算】${['toolCalls', 'retries', 'durationMs', 'parallelTasks', 'memoryWrites', 'externalSideEffects'].map((ch) => show(ch)).join(' · ')}${s.exhaustedChannels.length ? ` ⚠ 已耗尽：${s.exhaustedChannels.map((c) => BUDGET_LABEL[c] || c).join('、')}` : ''}`;
 }
 
+// ── 预算预警（P1 修正：拦截无预警）────────────────────────────────────────────
+// 以前 formatBudgetLedger 只在拦截发生之后作为错误文本回传——模型事前看不到余额，只能撞墙。
+// 现在每轮迭代把账本 + 预警并入 ephemeral：任一可计数通道剩余 ≤ BUDGET_WARN_THRESHOLD 就明说
+// 「还剩几次、该怎么省」，耗尽的通道直接告知「这类调用不会再被放行」，让模型提前收敛而不是事后被拦。
+export const BUDGET_WARN_THRESHOLD = 2;
+// 计 1 次外部副作用的工具（与 classifyToolRisk 的 hasExternalSideEffect 判定一致：external / network / cost / remote）
+const EXTERNAL_TOOL_HINT = 'fetch_url / search_web / crawl_site / download_file / generate_image / analyze_image / analyze_pdf / analyze_video / execute_cpp / run_git / dispatch_subagent';
+
+export function formatBudgetForecast(gov, { tools = null } = {}) {
+  if (!gov) return '';
+  const s = gov.snapshot();
+  const spentAny = ['toolCalls', 'externalSideEffects', 'memoryWrites', 'retries'].some((ch) => (s.spent[ch] || 0) > 0);
+  const rem = (ch) => (s.remaining && s.remaining[ch] != null ? Number(s.remaining[ch]) : null);
+  const names = new Set((Array.isArray(tools) ? tools : []).map(toolNameOf).filter(Boolean));
+  const hasTool = (n) => !Array.isArray(tools) || names.has(n);
+  const warn = [];
+  const ext = rem('externalSideEffects');
+  if (ext != null && ext <= 0) {
+    warn.push(`外部副作用额度已用尽（${s.spent.externalSideEffects}/${s.budget.maxExternalSideEffects}）：${EXTERNAL_TOOL_HINT} 等跨边界调用本轮不会再被放行。请用已有信息给出结论，并如实列出未完成的外部动作。`);
+  } else if (ext != null && ext <= BUDGET_WARN_THRESHOLD) {
+    warn.push(`外部副作用剩余 ${ext} 次（抓取 / 检索 / 下载 / 生图 / 识图 / 委派每次计 1）：${hasTool('crawl_site') ? '优先用 crawl_site（同源多页一次计 1）替代多次 fetch_url，' : '把剩余的外部调用合并到最必要的一次，'}或先给结论。`);
+  }
+  const tc = rem('toolCalls');
+  if (tc != null && tc <= 0) warn.push(`工具调用额度已用尽（${s.spent.toolCalls}/${s.budget.maxToolCalls}）：不要再发起任何工具调用，直接给出最终回答。`);
+  else if (tc != null && tc <= BUDGET_WARN_THRESHOLD) warn.push(`工具调用剩余 ${tc} 次：把剩余步骤合并到一次调用里，准备收敛为最终回答。`);
+  const mw = rem('memoryWrites');
+  if (mw != null && mw <= 0 && hasTool('remember')) warn.push('记忆写入额度已用尽：本轮不要再调用 remember。');
+  const dur = rem('durationMs');
+  if (dur != null && dur > 0 && dur <= 60000) warn.push(`墙钟剩余约 ${Math.ceil(dur / 1000)} 秒：避免再开长链路（委派 / 大规模抓取），尽快收敛。`);
+  if (!spentAny && !warn.length) return '';
+  return [formatBudgetLedger(gov), ...warn.map((w) => `⚠ ${w}`)].join('\n');
+}
+
+// 被拦下时的恢复路径：哪些上限用户能在「设置 → 执行预算」里调，哪些只能新开一轮。
+// 同一段文字同时给模型（工具结果）与用户（芯片出参）看，所以必须是用户能照着做的操作，而不是内核术语。
+const USER_ADJUSTABLE_BUDGET = Object.freeze(['externalSideEffects', 'toolCalls']);
+export function formatBudgetRecovery(channel, gov) {
+  const ch = BUDGET_CHANNELS.includes(channel) ? channel : 'toolCalls';
+  const label = BUDGET_LABEL[ch] || ch;
+  const limit = gov && gov.budget ? gov.budget[`max${ch.charAt(0).toUpperCase()}${ch.slice(1)}`] : null;
+  const adjustable = USER_ADJUSTABLE_BUDGET.includes(ch);
+  return `恢复路径：${adjustable ? `可在「设置 → 执行预算」把${label}上限调高（当前 ${limit == null ? '∞' : limit}，下一轮生效），或` : ''}新开一轮对话继续；本轮请先给出阶段性结论，并列出尚未执行的动作。`;
+}
+
+// 给界面脚注用的最小摘要（只保留两路最常撞墙的通道 + 耗尽列表），随助手消息持久化
+export function summarizeBudgetForUI(gov) {
+  if (!gov) return null;
+  const s = gov.snapshot();
+  if (!(s.spent.toolCalls > 0) && !s.exhaustedChannels.length) return null;
+  return {
+    toolCalls: [s.spent.toolCalls, s.budget.maxToolCalls == null ? null : s.budget.maxToolCalls],
+    external: [s.spent.externalSideEffects, s.budget.maxExternalSideEffects == null ? null : s.budget.maxExternalSideEffects],
+    exhausted: [...s.exhaustedChannels],
+  };
+}
+
 // ── 11. 风险分级（L0–L3）与最小信息确认请求 ─────────────────────────────
 export const RISK_LEVELS = Object.freeze(['L0', 'L1', 'L2', 'L3']);
 

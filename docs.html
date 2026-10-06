@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.20" />
+<meta name="app-version" content="2026.10.5.21" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -212,7 +212,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.20</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.21</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -231,6 +231,7 @@
           <li><span class="tag add">ADD</span><span><strong><code>analyze_video</code> 视频识别（构建 .18）</strong>：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 <code>uploads/</code>，工具逻辑照搬 <code>analyze_image</code>，以 <code>file</code> 部件交给 Gemini，全文写入 <code>internal/ocr/*.video.md</code> 并按 usage 计费；视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。</span></li>
           <li><span class="tag add">ADD</span><span><strong>沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 .19）</strong>：视频附件进入前本地抽帧——0.3 秒海报图作为芯片 / 气泡的首帧缩略图，再均匀抽 5 帧交给与图片同一条 NudeNet + NSFWJS 审核流水线（任一帧命中即拦截，抽不到帧视为失败关闭；帧只用于审核，入消息前摘掉）；气泡点击原地播放，文件面板里 <code>uploads/*.mp4</code> 不再显示为二进制，专属图标 + 直接 <code>&lt;video&gt;</code> 播放（blob URL，关闭即回收）。CSP 新增 <code>media-src</code>。</span></li>
           <li><span class="tag add">ADD</span><span><strong><code>download_file</code> 跨域文件拉取（构建 .19）</strong>：经 Worker <code>/api/file</code>（v1.7.0）把任意 http(s) 资源原始字节写入沙箱 <code>uploads/</code>（≤ 16 MB，拒绝私网地址，≤ 5 次跳转，文件名取 Content-Disposition → URL → MIME 推断）；中继无 <code>file</code> 能力时自动从工具表剔除。输入框粘贴裸链接或回形针菜单「从链接添加」也走同一条通道，与本地文件相同的分类与审核流程。工具总数 39。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>预算拦截无预警（构建 .21）</strong>：七路预算的账本以前只在拦截之后才回传，模型只能撞墙。现在每轮把账本与预警前置到上下文（剩余 ≤ 2 明说怎么省、耗尽点名哪些调用不再放行）；被拦下的工具结果给出恢复路径（「设置 → 执行预算」调高上限或新开一轮）；设置页新增「执行预算」区；回合脚注显示 <code>工具 N/M · 外部 N/M</code>，耗尽标红。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>终端提示符图标 / 真实字节数 / 全局气泡弹入（构建 .20）</strong>：Ran Command(s) 折叠头改为 <code>&gt;_</code>（运行中光标闪烁、跑完即停、展开不旋转）；<code>list_files</code> 与文件面板的体积改为真实字节数（data URL 按 base64 反推、文本按 UTF-8，不再虚高 1/3）；新增全局 <code>--pop-*</code> 动效令牌与 <code>bubbleIn</code>，下拉 / 附件菜单 / 弹层 / 命令面板 / 图表提示 / 折叠面板统一为同一条轻过冲的气泡弹入曲线（只动 transform + opacity，收起快于弹入，reduced-motion 退化）。</span></li>
           <li><span class="tag add">ADD</span><span><strong>设置页「多模态模型」（构建 .18）</strong>：识图模型（<code>analyze_image</code> / <code>analyze_pdf</code> 页图）与视频识别模型可选，只给几个有特点的档位（默认·最便宜 / 便宜·极快 / 均衡 / 效果最好 / 文档·代码截图），全局生效并透传到子智能体；费用估算按所选模型取价。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>下架 DeepSeek 免费档（构建 .18）</strong>：<code>deepseek-v4-flash-free</code> / <code>deepseek-flash-free</code> 从模型表、价目表、智能路由候选删除并在 UI 兜底隐藏；固定对话模型 38 个。</span></li>
@@ -464,7 +465,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.20</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.21</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

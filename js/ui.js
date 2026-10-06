@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.20';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.21';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.20';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.21';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.20';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.20';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.20';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.20';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.20';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.20';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.20';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.20';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.21';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.21';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.21';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.21';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.21';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.21';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.21';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.21';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.20';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.21';
 // :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
 const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
@@ -2119,11 +2119,27 @@ function validateApiKey(s) {
     const time = [clock, ago].filter(Boolean).join(' | ');
     const head = bits.join(' · ');
     const line = head && time ? `${head} · ${time}` : (head || time);
-    if (!line) { foot.hidden = true; foot.textContent = ''; return; }
+    // P1 修正：回合脚注显示两路最常撞墙的预算（工具调用 / 外部副作用）已用 / 上限，耗尽标红
+    const b = m.budget && typeof m.budget === 'object' ? m.budget : null;
+    const budgetBits = [];
+    if (b && Array.isArray(b.toolCalls) && b.toolCalls[0] > 0) budgetBits.push(`工具 ${b.toolCalls[0]}/${b.toolCalls[1] == null ? '∞' : b.toolCalls[1]}`);
+    if (b && Array.isArray(b.external) && b.external[0] > 0) budgetBits.push(`外部 ${b.external[0]}/${b.external[1] == null ? '∞' : b.external[1]}`);
+    const exhausted = b && Array.isArray(b.exhausted) ? b.exhausted : [];
+    if (!line && !budgetBits.length) { foot.hidden = true; foot.textContent = ''; return; }
     foot.hidden = false;
     foot.textContent = line;
+    if (budgetBits.length) {
+      const span = document.createElement('span');
+      span.className = `foot-budget${exhausted.length ? ' bad' : ''}`;
+      span.textContent = `${line ? ' · ' : ''}${budgetBits.join(' · ')}${exhausted.length ? ' ⚠' : ''}`;
+      span.title = exhausted.length
+        ? `本轮预算已耗尽：${exhausted.map((c) => BUDGET_CHANNEL_LABEL[c] || c).join('、')}。可在「设置 → 执行预算」调高上限（下一轮生效），或新开一轮对话`
+        : '本轮执行预算：工具调用 / 外部副作用（抓取、检索、生图、识图、委派）已用 / 上限；上限可在「设置 → 执行预算」调整';
+      foot.appendChild(span);
+    }
     foot.title = m.reasoningLevel === 'off' ? '本轮思考 Off' : (m.ts ? new Date(m.ts).toLocaleString() : '');
   }
+  const BUDGET_CHANNEL_LABEL = { toolCalls: '工具调用', retries: '重试次数', durationMs: '墙钟时长', parallelTasks: '并发任务', memoryWrites: '记忆写入', externalSideEffects: '外部副作用', tokens: 'Token 消耗' };
 
   const TOOL_RESULT_ERROR = /^(?:工具执行失败|图像模型调用失败|图像调用在发起前失败|未配置 TeamoRouter API Key|Python 沙箱不可用|(?:[A-Za-z][\w-]*)(?:\s+[A-Za-z][\w-]*)*\s+(?:失败|缺少|不可用|拒绝执行|错误)(?:[：:]|\b))/i;
   function toolResultFailed(text) {

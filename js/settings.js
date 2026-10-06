@@ -1,6 +1,7 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.20';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.21';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
+import { DEFAULT_TURN_BUDGET } from './execution.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
 const FONT_SIZE_KEY = 'dubhe-fontsize';
@@ -82,6 +83,21 @@ function syncMultimodalSelects(store) {
   }
 }
 
+function syncBudgetInputs(store) {
+  const eb = (store.state.settings && store.state.settings.executionBudget) || {};
+  const ext = Number.isFinite(Number(eb.maxExternalSideEffects)) ? Number(eb.maxExternalSideEffects) : DEFAULT_TURN_BUDGET.maxExternalSideEffects;
+  const tc = Number.isFinite(Number(eb.maxToolCalls)) ? Number(eb.maxToolCalls) : DEFAULT_TURN_BUDGET.maxToolCalls;
+  if ($('#set-budget-ext')) $('#set-budget-ext').value = String(ext);
+  if ($('#set-budget-tools')) $('#set-budget-tools').value = String(tc);
+  const note = $('#set-budget-note');
+  if (note) {
+    const custom = ext !== DEFAULT_TURN_BUDGET.maxExternalSideEffects || tc !== DEFAULT_TURN_BUDGET.maxToolCalls;
+    note.textContent = custom
+      ? `当前为自定义值（默认：外部副作用 ${DEFAULT_TURN_BUDGET.maxExternalSideEffects} · 工具调用 ${DEFAULT_TURN_BUDGET.maxToolCalls}）。模型每轮都能看到余额，剩余 ≤ 2 时会收到预警`
+      : `默认值。模型每轮都能看到余额与预警；撞上上限时工具结果里会给出这条设置的入口`;
+  }
+}
+
 export function openSettingsModal({ store } = {}) {
   const m = $('#settings-modal');
   if (!m) return;
@@ -95,6 +111,7 @@ export function openSettingsModal({ store } = {}) {
   $('#set-fast').checked = !!store.state.settings.fastMode;
   $('#set-thinking').checked = store.state.settings.thinking !== false;
   syncSeg('#set-reason', store.state.settings.reasoningLevel || 'medium');
+  syncBudgetInputs(store);
   syncMultimodalSelects(store);
   $('#set-about-ver').textContent = APP_RELEASE;
   $('#set-about-build').textContent = APP_VERSION;
@@ -194,6 +211,32 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   const syncReasonRow = () => { if (reasonRow) reasonRow.hidden = !$('#set-thinking').checked; };
   bindSw('#set-thinking', 'thinking', syncReasonRow);
   syncReasonRow();
+
+  // 执行预算（P1 修正：预算拦截要有用户可操作的恢复路径）：两路最常撞墙的通道可调，其余沿用内核默认
+  const bindBudget = (id, key, min, max) => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('change', () => {
+      const def = DEFAULT_TURN_BUDGET[key];
+      let n = Math.round(Number(el.value));
+      if (!Number.isFinite(n)) n = def;
+      n = Math.max(min, Math.min(max, n));
+      const cur = { ...(store.state.settings.executionBudget || {}) };
+      if (n === def) delete cur[key]; else cur[key] = n;
+      store.state.settings.executionBudget = Object.keys(cur).length ? cur : undefined;
+      store.notify();
+      syncBudgetInputs(store);
+      toast(n === def ? `${key === 'maxExternalSideEffects' ? '外部副作用' : '工具调用'}上限已恢复默认 ${def}（下一轮生效）` : `${key === 'maxExternalSideEffects' ? '外部副作用' : '工具调用'}上限已设为 ${n}（下一轮生效）`, 'ok', 2600);
+    });
+  };
+  bindBudget('#set-budget-ext', 'maxExternalSideEffects', 1, 60);
+  bindBudget('#set-budget-tools', 'maxToolCalls', 4, 128);
+  const budgetReset = $('#set-budget-reset');
+  if (budgetReset) budgetReset.addEventListener('click', () => {
+    store.state.settings.executionBudget = undefined;
+    store.notify();
+    syncBudgetInputs(store);
+    toast(`执行预算已恢复默认（外部副作用 ${DEFAULT_TURN_BUDGET.maxExternalSideEffects} · 工具调用 ${DEFAULT_TURN_BUDGET.maxToolCalls}）`, 'ok', 2600);
+  });
 
   bindSeg('#set-reason', (v) => {
     store.state.settings.reasoningLevel = v;

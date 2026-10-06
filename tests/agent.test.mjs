@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.20';
+} from '../js/api.js?v=2026.10.5.21';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.20');
+const api = await import('../js/api.js?v=2026.10.5.21');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.20');
+  const api = await import('../js/api.js?v=2026.10.5.21');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.20');
+  assert.equal(APP_VERSION, '2026.10.5.21');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.20/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.21/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.20/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.21/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8385,6 +8385,143 @@ test('全局「气泡弹入」动效：统一 --pop-* 令牌 + bubbleIn 关键�
   assert.match(rm, /\.dd-menu, \.md-chart-tooltip, \.chip-detail, \.chip-detail > \.fold-inner \{ transition: none !important; \}/);
   assert.doesNotMatch(css, /animation: fadeUp \.14s var\(--ease\) both;/, '附件菜单旧的 fadeUp 已替换');
   assert.doesNotMatch(css, /animation: popIn \.22s var\(--ease-out\) both; transform-origin: top center;/, 'token 弹层旧 popIn 已替换');
+});
+
+group('P1 修正：预算拦截无预警 → 每轮前置账本 + 预警 / 拦截文本带恢复路径 / 设置页可调 / 脚注显示余额');
+
+test('formatBudgetForecast：没花过钱不打扰；剩余 ≤ 2 预警并给省法；耗尽明说不再放行', async () => {
+  const ex = await import('../js/execution.js');
+  assert.equal(ex.BUDGET_WARN_THRESHOLD, 2);
+  const gov = ex.createBudgetGovernor({ maxExternalSideEffects: 6, maxToolCalls: 32 });
+  assert.equal(ex.formatBudgetForecast(gov, { tools: ['fetch_url', 'crawl_site'] }), '', '一分钱没花：不往上下文里塞账本');
+  for (let i = 0; i < 4; i++) { gov.spend('toolCalls', 1); gov.spend('externalSideEffects', 1); }
+  const t4 = ex.formatBudgetForecast(gov, { tools: ['fetch_url', 'crawl_site'] });
+  assert.match(t4, /【执行内核 · 预算】/, '花过钱就带账本');
+  assert.match(t4, /外部副作用 4\/6/);
+  assert.match(t4, /⚠ 外部副作用剩余 2 次/);
+  assert.match(t4, /优先用 crawl_site（同源多页一次计 1）替代多次 fetch_url/, '有 crawl_site 时给出具体省法');
+  gov.spend('externalSideEffects', 1);
+  const t5 = ex.formatBudgetForecast(gov, { tools: ['fetch_url'] });
+  assert.match(t5, /外部副作用剩余 1 次/);
+  assert.match(t5, /把剩余的外部调用合并到最必要的一次/, '没有 crawl_site 时不推荐一个不存在的工具');
+  gov.spend('externalSideEffects', 1);
+  const t6 = ex.formatBudgetForecast(gov, { tools: ['fetch_url'] });
+  assert.match(t6, /外部副作用额度已用尽（6\/6）/);
+  assert.match(t6, /fetch_url \/ search_web \/ crawl_site \/ download_file/, '点名哪些调用不会再被放行');
+  assert.match(t6, /如实列出未完成的外部动作/);
+  // 工具调用通道同样预警
+  const g2 = ex.createBudgetGovernor({ maxToolCalls: 5 });
+  for (let i = 0; i < 3; i++) g2.spend('toolCalls', 1);
+  assert.match(ex.formatBudgetForecast(g2), /工具调用剩余 2 次/);
+  g2.spend('toolCalls', 1); g2.spend('toolCalls', 1);
+  assert.match(ex.formatBudgetForecast(g2), /工具调用额度已用尽（5\/5）：不要再发起任何工具调用/);
+});
+
+test('formatBudgetRecovery：用户能调的通道指向「设置 → 执行预算」并带当前上限；不能调的只给新开一轮', async () => {
+  const ex = await import('../js/execution.js');
+  const gov = ex.createBudgetGovernor({ maxExternalSideEffects: 6, maxToolCalls: 32 });
+  const r1 = ex.formatBudgetRecovery('externalSideEffects', gov);
+  assert.match(r1, /设置 → 执行预算/);
+  assert.match(r1, /把外部副作用上限调高（当前 6，下一轮生效）/);
+  assert.match(r1, /新开一轮对话继续/);
+  assert.match(ex.formatBudgetRecovery('toolCalls', gov), /把工具调用上限调高（当前 32，下一轮生效）/);
+  const r3 = ex.formatBudgetRecovery('tokens', gov);
+  assert.doesNotMatch(r3, /设置 → 执行预算/, 'Token 上限不在设置页，不能给假入口');
+  assert.match(r3, /新开一轮对话继续/);
+  // 脚注摘要
+  assert.equal(ex.summarizeBudgetForUI(gov), null, '没调过工具的回合不显示预算');
+  gov.spend('toolCalls', 3); gov.spend('externalSideEffects', 6);
+  assert.deepEqual(ex.summarizeBudgetForUI(gov), { toolCalls: [3, 32], external: [6, 6], exhausted: ['externalSideEffects'] });
+});
+
+test('端到端：连抓 5 页后第 6 轮请求的 system 里有「外部副作用 5/6 · 剩余 1」预警；第 7 次抓取被拦，结果文本给出「设置 → 执行预算」恢复路径；脚注预算随消息落盘', async () => {
+  const calls = [];
+  const modelTurns = [];
+  for (let i = 1; i <= 7; i++) modelTurns.push(openaiToolTurn(`call_${i}`, 'fetch_url', JSON.stringify({ url: `https://example.com/p${i}` })));
+  modelTurns.push(openaiTextTurn('抓了六页，第七页被预算拦下。'));
+  const net = await import('../js/net.js');
+  net.resetRelayProbe();
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/v1/chat/completions')) {
+      const call = { url: u, opts };
+      try { call.body = JSON.parse(opts && opts.body); } catch { /* noop */ }
+      calls.push(call);
+      return modelTurns.shift();
+    }
+    if (u.includes('/api/health')) return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', version: '1.7.0', capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (u.includes('/api/fetch')) {
+      const target = new URL(u, 'http://x').searchParams.get('url');
+      return new Response(JSON.stringify({ url: target, text: `页面 ${target} 的正文`, content_type: 'text/html', title: 'p' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`未预期的请求：${u}`);
+  };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = true;
+    const agent = createAgent(store, {});
+    await agent.send('把 example.com 的七个页面都抓下来');
+    assert.equal(calls.length, 8, `7 次工具轮 + 1 次收尾 = 8 次模型请求，实际 ${calls.length}`);
+    const sysText = (call) => (call.body.messages || []).filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
+    // 第 1 轮：没花钱，不塞账本
+    assert.doesNotMatch(sysText(calls[0]), /【执行内核 · 预算】/, '首轮不该有账本噪音');
+    // 第 6 轮（已抓 5 页）：账本 + 剩余 1 预警
+    const s6 = sysText(calls[5]);
+    assert.match(s6, /外部副作用 5\/6/, '第 6 轮请求应带账本 外部副作用 5/6');
+    assert.match(s6, /外部副作用剩余 1 次/, '第 6 轮请求应带「剩余 1」预警');
+    // 第 7 轮（已抓 6 页）：耗尽告知
+    assert.match(sysText(calls[6]), /外部副作用额度已用尽（6\/6）/);
+    // 第 7 次抓取被拦：工具结果带恢复路径
+    const toolMsgs = store.state.messages.filter((m) => m.role === 'tool');
+    assert.equal(toolMsgs.length, 7);
+    for (let i = 0; i < 6; i++) assert.match(String(toolMsgs[i].content), /\[抓取完成\]/, `第 ${i + 1} 次抓取应成功`);
+    const blocked = String(toolMsgs[6].content);
+    assert.match(blocked, /^⛔ 执行内核：预算耗尽：外部副作用 剩余 0/);
+    assert.match(blocked, /设置 → 执行预算/, '被拦的结果文本必须给恢复路径');
+    assert.match(blocked, /把外部副作用上限调高（当前 6，下一轮生效）/);
+    // 第 8 轮请求里模型能看到那条被拦的 tool 结果
+    const last = calls[7].body.messages.find((m) => m.role === 'tool' && m.tool_call_id === 'call_7');
+    assert.ok(last && /设置 → 执行预算/.test(String(last.content)));
+    // 最终助手消息带脚注预算
+    const finalMsg = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.ok(finalMsg.budget, '最终消息应带 budget 摘要');
+    assert.deepEqual(finalMsg.budget.external, [6, 6]);
+    assert.deepEqual(finalMsg.budget.exhausted, ['externalSideEffects']);
+    assert.equal(finalMsg.budget.toolCalls[0], 7, '7 次工具调用（含被拦那次已扣的 toolCalls）');
+    assert.equal(agent.getStatus(), 'done');
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('设置页「执行预算」：两路上限可调（写 settings.executionBudget，默认值不落盘）、恢复默认、与 DEFAULT_TURN_BUDGET 同源；脚注显示「工具 N/M · 外部 N/M」耗尽标红', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const settings = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(app, /<section class="set-sec" id="set-budget-sec">\s*<h4>执行预算<\/h4>/);
+  assert.match(app, /<input id="set-budget-ext" class="set-input set-num mono" type="number" min="1" max="60"/);
+  assert.match(app, /<input id="set-budget-tools" class="set-input set-num mono" type="number" min="4" max="128"/);
+  assert.match(app, /<button id="set-budget-reset" class="mini-btn" type="button">恢复默认<\/button>/);
+  assert.match(settings, /import \{ DEFAULT_TURN_BUDGET \} from '\.\/execution\.js';/, '默认值与内核同源，不手抄');
+  assert.match(settings, /bindBudget\('#set-budget-ext', 'maxExternalSideEffects', 1, 60\);/);
+  assert.match(settings, /bindBudget\('#set-budget-tools', 'maxToolCalls', 4, 128\);/);
+  assert.match(settings, /if \(n === def\) delete cur\[key\]; else cur\[key\] = n;/, '等于默认值就不落盘，避免未来改默认时被旧值钉住');
+  assert.match(settings, /store\.state\.settings\.executionBudget = Object\.keys\(cur\)\.length \? cur : undefined;/);
+  assert.match(agent, /createBudgetGovernor\(\{ \.\.\.DEFAULT_TURN_BUDGET, \.\.\.\(store\.state\.settings\.executionBudget \|\| \{\}\) \}\)/, '设置值确实进内核');
+  assert.match(agent, /nexusState\.budgetGov = budgetGov;/);
+  assert.match(agent, /formatBudgetForecast\(nexusState && nexusState\.budgetGov, \{ tools: turnTools \}\),\n\s+formatBudgetNote\(iteration, TOOL_LOOP_MAX\),/, '预警并入 ephemeral，紧挨循环次数提示');
+  assert.match(agent, /budget: summarizeBudgetForUI\(exec\.budgetGov\) \|\| undefined,/);
+  assert.equal((agent.match(/formatBudgetRecovery\(/g) || []).length, 3, '三处拦截文本都带恢复路径');
+  assert.match(ui, /budgetBits\.push\(`工具 \$\{b\.toolCalls\[0\]\}\/\$\{b\.toolCalls\[1\] == null \? '∞' : b\.toolCalls\[1\]\}`\)/);
+  assert.match(ui, /budgetBits\.push\(`外部 \$\{b\.external\[0\]\}\/\$\{b\.external\[1\] == null \? '∞' : b\.external\[1\]\}`\)/);
+  assert.match(ui, /span\.className = `foot-budget\$\{exhausted\.length \? ' bad' : ''\}`;/);
+  assert.match(css, /\.msg-foot \.foot-budget\.bad \{ color: #dc2626; font-weight: 600; \}/);
+  assert.match(css, /\[data-theme="dark"\] \.msg-foot \.foot-budget\.bad \{ color: #f87171; \}/);
 });
 
 for (const item of queue) {

@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.20';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.21';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.20';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.21';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -84,6 +84,9 @@ import {
   formatConfirmationRequest,
   createBudgetGovernor,
   formatBudgetLedger,
+  formatBudgetForecast,
+  formatBudgetRecovery,
+  summarizeBudgetForUI,
   fsDigest,
   finalizeExecutionTurn,
   summarizeExecutionRecord,
@@ -94,7 +97,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.20';
+} from './execution.js?v=2026.10.5.21';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +107,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.20';
+} from './recovery.js?v=2026.10.5.21';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.20';
+} from './idempotency.js?v=2026.10.5.21';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.20';
+} from './memorylife.js?v=2026.10.5.21';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.20';
+} from './trajectory.js?v=2026.10.5.21';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.20';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.20';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.21';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.21';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.20';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.20';
+} from './experiments.js?v=2026.10.5.21';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.21';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +146,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.20';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.20';
+} from './executionContext.js?v=2026.10.5.21';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.21';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.20';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.21';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -652,6 +655,8 @@ export function createAgent(store, hooks = {}) {
         ledgerNote,
         reflectionNote,
         droppedCount ? `（上下文管理：为适配 ${model} 的窗口预算，已省略最早 ${droppedCount} 条消息）` : '',
+        // P1 修正：七路预算的账本与预警每轮前置给模型（以前只在拦截之后才回传），剩余 ≤ 2 时明说怎么省
+        formatBudgetForecast(nexusState && nexusState.budgetGov, { tools: turnTools }),
         formatBudgetNote(iteration, TOOL_LOOP_MAX),
       ].filter((s) => s && String(s).trim()).join('\n\n'),
     });
@@ -806,7 +811,7 @@ export function createAgent(store, hooks = {}) {
           risk, idempotencyKey: pre.idempotencyKey, notes: pre.errors.map((e) => e.id),
         });
         return budgetBlocked
-          ? `${pre.message}\n${formatBudgetLedger(exec.budgetGov)}`
+          ? `${pre.message}\n${formatBudgetLedger(exec.budgetGov)}\n${formatBudgetRecovery(pre.errors.some((e) => e.id === 'budget-tokens-exhausted') ? 'tokens' : 'toolCalls', exec.budgetGov)}`
           : pre.message;
       }
 
@@ -917,7 +922,7 @@ export function createAgent(store, hooks = {}) {
           failure: { kind: 'ENVIRONMENT', label: '预算耗尽', handling: '不重试：本轮预算已用尽', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '给出阶段性结论并披露未完成部分。' },
           risk, idempotencyKey: pre.idempotencyKey, notes: ['budget-tool-calls-exhausted'],
         });
-        return `⛔ 执行内核：${spendTool.reason}。请立即收敛结论并如实披露未完成的部分。\n${formatBudgetLedger(exec.budgetGov)}`;
+        return `⛔ 执行内核：${spendTool.reason}。请立即收敛结论并如实披露未完成的部分。\n${formatBudgetLedger(exec.budgetGov)}\n${formatBudgetRecovery('toolCalls', exec.budgetGov)}`;
       }
       exec.machine.audit.record('budget-spend', {
         channel: 'toolCalls', amount: 1, spent: spendTool.spent,
@@ -933,7 +938,7 @@ export function createAgent(store, hooks = {}) {
             failure: { kind: 'ENVIRONMENT', label: '预算耗尽', handling: '不重试：本轮外部副作用额度已用尽', retryable: false, maxRetries: 0, verifyFirst: false, guidance: '不要改参数重试该调用；给出阶段性结论并说明还有哪些外部动作未执行。' },
             risk, idempotencyKey: pre.idempotencyKey, notes: ['budget-external-side-effects-exhausted'],
           });
-          return `⛔ 执行内核：${spendExt.reason}。该调用跨越外部边界，发出即不可撤回，已在本轮额度用尽时拦下。\n${formatBudgetLedger(exec.budgetGov)}`;
+          return `⛔ 执行内核：${spendExt.reason}。该调用跨越外部边界，发出即不可撤回，已在本轮额度用尽时拦下。\n${formatBudgetLedger(exec.budgetGov)}\n${formatBudgetRecovery('externalSideEffects', exec.budgetGov)}`;
         }
         exec.machine.audit.record('budget-spend', {
           channel: 'externalSideEffects', amount: 1, spent: spendExt.spent,
@@ -1332,6 +1337,7 @@ export function createAgent(store, hooks = {}) {
       },
     });
     const budgetGov = createBudgetGovernor({ ...DEFAULT_TURN_BUDGET, ...(store.state.settings.executionBudget || {}) });
+    nexusState.budgetGov = budgetGov; // buildMessages 每轮据此把预算账本 + 预警写进 ephemeral
     const machine = createExecutionStateMachine({
       turnId: `turn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
       sessionId,
@@ -1815,6 +1821,8 @@ export function createAgent(store, hooks = {}) {
           // 自学标记：该模型真实出现过「有思考但无可见正文」→ 模型菜单标「思考链已加密」
           ...(!!(turn.thinking && !reasoning && (thinkingBlocks.length || usage.reasoning)) ? (() => { try { store.state.observedHiddenThink = { ...(store.state.observedHiddenThink || {}), [model]: true }; } catch { /* 忽略 */ } return {}; })() : {}),
           finishReason, done: true, lengthContinues: lengthContinues || undefined, transport: getTransport(),
+          // 回合脚注用：工具 / 外部副作用两路预算的已用 / 上限与耗尽列表（P1 修正：用户也能看到余额）
+          budget: summarizeBudgetForUI(exec.budgetGov) || undefined,
           webSearch: web && (web.sources.length || web.results) ? web : undefined,
           nexusFootprint: nexusState.lastFootprint ? { ...nexusState.lastFootprint, usedTools: [...new Set(usedTools)] } : undefined,
         });

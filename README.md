@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.20` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.21` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -121,6 +121,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.21：P1 修正——预算拦截无预警**
+
+30. **预算前置给模型**：`formatBudgetForecast()` 每轮把账本 + 预警并入 ephemeral，剩余 ≤ 2 明说怎么省、耗尽点名哪些调用不再放行；以前账本只在拦截之后才出现。
+31. **拦截文本带恢复路径**：`formatBudgetRecovery()` 指向「设置 → 执行预算」（外部副作用 / 工具调用上限可调，下一轮生效），Token 等不可调通道只给「新开一轮」。
+32. **设置页「执行预算」+ 回合脚注余额**：`settings.executionBudget` 可调（默认值同源 `DEFAULT_TURN_BUDGET`，等于默认不落盘）；脚注 `工具 N/M · 外部 N/M`，耗尽标红。
 
 **构建 2026.10.5.20：终端提示符图标 / 真实字节数 / 全局气泡弹入动效**
 
