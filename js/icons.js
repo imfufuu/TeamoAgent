@@ -56,6 +56,8 @@ export const ICON = {
   thinking: ico('<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/>'),
   search: ico('<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>'),
   globe: ico('<circle cx="12" cy="12" r="9"/><path d="M3.2 9.5h17.6"/><path d="M3.2 14.5h17.6"/><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18"/>'),
+  // Ran Command(s) 折叠头：终端提示符 >_（.20 起不再用扳手）；下划线单独成 path，运行中以光标闪烁代替旋转
+  terminal: ico('<path d="m4.5 7 5 5-5 5"/><path class="term-caret" d="M12.5 17.2H19.5"/>'),
   // /system 系统命令识别器：终端提示符（▸ + 下划线），与整体图标语言一致（.17）
   system: ico('<path d="m5 7.5 4.5 4.5L5 16.5"/><path d="M12.5 17H19"/>'),
   git: ico('<circle cx="6.5" cy="6.5" r="2.5"/><circle cx="6.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="12" r="2.5"/><path d="M6.5 9v6"/><path d="M9 6.5h3.5a2 2 0 0 1 2 2v1.5"/><path d="M9 17.5h3.5a2 2 0 0 0 2-2V14"/>'),

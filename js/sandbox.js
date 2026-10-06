@@ -14,6 +14,38 @@ const FS_MAX_PATH = 512;
 const FS_MAX_FILES = 5000;
 
 // 路径合法性：相对路径、无反斜杠 / 控制字符、无空段 / . / ..、不允许原型键，长度 ≤ 512
+// 文件真实字节数：data URL 按 base64 反推（去掉填充），文本按 UTF-8 编码长度。
+// 以前 list() 直接给 String(c).length —— 图片 / 视频 / PDF 的 data URL 会虚高 1/3，中文文本则偏小；
+// list_files 工具、系统提示里的「当前沙箱文件」与文件面板都从这里取数，必须是真实体积。
+// 按（路径 → 内容引用）缓存：同一引用直接命中，避免每次刷新文件面板都对大文件重新编码。
+const sizeCache = new Map();
+const utf8 = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+export function contentByteSize(content) {
+  const str = String(content == null ? '' : content);
+  if (str.startsWith('data:')) {
+    const comma = str.indexOf(',');
+    if (comma > 0 && comma < 256 && /;base64/i.test(str.slice(0, comma))) {
+      const body = str.length - comma - 1;
+      let pad = 0;
+      if (str.endsWith('==')) pad = 2; else if (str.endsWith('=')) pad = 1;
+      return Math.max(0, Math.floor(body * 3 / 4) - pad);
+    }
+  }
+  if (!utf8) return str.length;
+  // 纯 ASCII 快速路径：长度即字节数（绝大多数代码 / JSON / CSV 命中）
+  // eslint-disable-next-line no-control-regex
+  if (str.length < 4096 && !/[^\x00-\x7f]/.test(str)) return str.length;
+  return utf8.encode(str).length;
+}
+function cachedSize(path, content) {
+  const hit = sizeCache.get(path);
+  if (hit && hit.content === content) return hit.size;
+  const size = contentByteSize(content);
+  if (sizeCache.size > 4096) sizeCache.clear();
+  sizeCache.set(path, { content, size });
+  return size;
+}
+
 export function isSafeFsPath(path) {
   const p = String(path == null ? '' : path);
   if (!p || p.length > FS_MAX_PATH) return false;
@@ -90,7 +122,7 @@ export function createFS(initial = {}) {
       delete files[p];
     },
     list() {
-      return Object.entries(files).map(([path, c]) => ({ path, size: String(c).length }));
+      return Object.entries(files).map(([path, c]) => ({ path, size: cachedSize(path, c) }));
     },
     export() { return { ...files }; },
     import(obj) { for (const [k, v] of Object.entries(obj || {})) { if (isSafeFsPath(k)) files[k] = String(v); } },
@@ -150,7 +182,7 @@ export function createTempFS(baseFS) {
       // 先列临时层
       for (const [path, c] of Object.entries(ephemeral)) {
         seen.add(path);
-        out.push({ path, size: String(c).length });
+        out.push({ path, size: cachedSize(path, c) });
       }
       // 再列基文件（剔除被删/被临时覆盖的）
       for (const e of baseFS.list()) {

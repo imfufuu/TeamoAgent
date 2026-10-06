@@ -6,6 +6,7 @@ import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.
 import { ICON } from './icons.js';
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { pdfToImages } from './pdfpages.js';
+import { contentByteSize } from './sandbox.js';
 
 // data:video/… → blob URL（与 ui.js 气泡播放同一做法；独立实现以免 split 模块反向 import ui.js）
 function videoBlobUrl(dataUrl) {
@@ -109,14 +110,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
   // 目录折叠状态：本次页面会话内记住（沙箱是路径即结构，没有真实目录节点）
   const collapsedDirs = new Set();
   // 图片以 data URL 存放，字符串长度会虚高 ~1/3；按 base64 反推真实字节
-  const approxBytes = (raw) => {
-    const str = String(raw || '');
-    if (str.startsWith('data:')) {
-      const comma = str.indexOf(',');
-      if (comma > 0 && /;base64/i.test(str.slice(0, comma))) return Math.max(0, Math.round((str.length - comma - 1) * 0.75));
-    }
-    return new TextEncoder().encode(str).length;
-  };
+  const approxBytes = (raw) => contentByteSize(raw);
 
   const storageQuota = SANDBOX_STORAGE_CAP; // 产品上限 120MB，不用 navigator.storage 那种 39321.6MB
   const zipEstimateBytes = (files) => {

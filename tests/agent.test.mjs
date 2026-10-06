@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.19';
+} from '../js/api.js?v=2026.10.5.20';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.19');
+const api = await import('../js/api.js?v=2026.10.5.20');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.19');
+  const api = await import('../js/api.js?v=2026.10.5.20');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.19');
+  assert.equal(APP_VERSION, '2026.10.5.20');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.19/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.20/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.19/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.20/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8313,6 +8313,78 @@ test('链接附件：粘贴文件 URL / 「文件链接」菜单项 → 经中�
   assert.match(ua, /addFromUrl\(text\)\.then\(\(ok\) => \{ if \(!ok\) insertAtCursor\(composer, text\); \}\);/, '拉取失败回退为普通文本粘贴');
   assert.match(app, /<button id="attach-link-action" class="attach-menu-item"/);
   assert.match(ua, /addFromUrl,\s*captureVideoFrames,/, '对外暴露以便测试 / 其它入口复用');
+});
+
+group('2026.10.5.20：Ran Command 终端提示符图标 / list_files 真实字节数 / 全局气泡弹入动效');
+
+test('Ran Command(s) 折叠头图标是终端提示符 >_（ICON.terminal），运行中光标闪烁而不是扳手旋转，展开不旋转', async () => {
+  const fsp = await import('node:fs');
+  const { ICON } = await import('../js/icons.js');
+  const ui = readUiSource();
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.ok(ICON.terminal, 'icons.js 需导出 terminal');
+  assert.match(ICON.terminal, /<path d="m4\.5 7 5 5-5 5"\/>/, '> 形折线');
+  assert.match(ICON.terminal, /<path class="term-caret" d="M12\.5 17\.2H19\.5"\/>/, '_ 下划线单独成 path 以便闪烁');
+  assert.match(ui, /fold\.innerHTML = `<span class="chip-ico chip-ico-term">\$\{ICON\.terminal \|\| ICON\.tool \|\| ''\}<\/span>/, '折叠头用 terminal 图标');
+  assert.match(css, /\.ran-commands\.live > \.chip-ico \{ animation: none; \}/, '运行中不再旋转');
+  assert.match(css, /\.ran-commands\.live > \.chip-ico \.term-caret \{ animation: termCaret [\d.]+s steps\(1, end\) infinite; \}/, '下划线光标闪烁');
+  assert.match(css, /\.ran-commands\.done > \.chip-ico \.term-caret \{ animation: none; opacity: 1; \}/, '跑完停止闪烁');
+  assert.doesNotMatch(css, /\.ran-commands\.done\.expanded > \.chip-ico, \.md-fold\.expanded > \.chip-ico \{ transform: rotate\(90deg\); \}/, '终端提示符不随展开旋转 90°');
+  assert.match(css, /\.ran-commands\.done\.expanded > \.chip-ico \{ transform: translateX\(1\.5px\); \}/);
+  assert.match(css, /\.md-fold\.expanded > \.chip-ico \{ transform: rotate\(90deg\); \}/, 'md-fold 的箭头仍然旋转');
+});
+
+test('fs.list() / list_files 返回真实字节数：data URL 按 base64 反推（去填充）、文本按 UTF-8，而不是字符串长度', async () => {
+  const { contentByteSize } = await import('../js/sandbox.js');
+  const b64 = (s) => Buffer.from(s).toString('base64');
+  assert.equal(contentByteSize(`data:image/png;base64,${b64('hello')}`), 5, 'hello → 1 个 = 填充');
+  assert.equal(contentByteSize(`data:image/png;base64,${b64('hello!')}`), 6, '6 字节无填充');
+  assert.equal(contentByteSize(`data:video/mp4;base64,${b64('abcd')}`), 4, '4 字节 → 2 个 = 填充');
+  assert.equal(contentByteSize('中文abc'), 9, 'UTF-8：中文各 3 字节');
+  assert.equal(contentByteSize('x'.repeat(5000) + '中'), 5003, '长文本仍走 UTF-8 编码');
+  assert.equal(contentByteSize('data:text/plain,plain%20text'), 'data:text/plain,plain%20text'.length, '非 base64 的 data URL 按文本计');
+  const bytes = new Uint8Array(3001).fill(7);
+  const url = `data:application/octet-stream;base64,${Buffer.from(bytes).toString('base64')}`;
+  assert.equal(contentByteSize(url), 3001);
+  assert.notEqual(url.length, 3001, '字符串长度确实虚高');
+  const fs = createFS({ 'uploads/a.bin': url, 'notes.md': '中文abc' });
+  const sizes = Object.fromEntries(fs.list().map((f) => [f.path, f.size]));
+  assert.equal(sizes['uploads/a.bin'], 3001);
+  assert.equal(sizes['notes.md'], 9);
+  // list_files 工具输出的就是 fs.list().size
+  const fsp = await import('node:fs');
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.match(tools, /case 'list_files': \{\n\s+const list = fs\.list\(\);\n[\s\S]{0,200}list\.map\(\(f\) => `\$\{f\.path\} \(\$\{f\.size\} B\)`\)/);
+  const panel = fsp.readFileSync(new URL('../js/ui-files-panel.js', import.meta.url), 'utf8');
+  assert.match(panel, /import \{ contentByteSize \} from '\.\/sandbox\.js';/, '文件面板与工具同一口径');
+  assert.match(panel, /const approxBytes = \(raw\) => contentByteSize\(raw\);/);
+});
+
+test('全局「气泡弹入」动效：统一 --pop-* 令牌 + bubbleIn 关键帧；下拉 / 附件菜单 / token 弹层 / 命令面板 / 图表提示 / 折叠面板全部接入；reduced-motion 退化', async () => {
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  assert.match(css, /--pop-dur: \.34s;/);
+  assert.match(css, /--pop-ease: cubic-bezier\(\.22, 1\.18, \.32, 1\);/, '轻微过冲的弹入曲线');
+  assert.match(css, /--pop-out-dur: \.14s;/, '收起要快');
+  assert.match(css, /@keyframes bubbleIn \{\n\s+from \{ opacity: 0; transform: translate3d\(var\(--pop-dx, 0px\), var\(--pop-dy, 6px\), 0\) scale\(\.9\); \}\n\s+to \{ opacity: 1; transform: translate3d\(0, 0, 0\) scale\(1\); \}\n\}/, '只动 transform + opacity');
+  assert.match(css, /\.bubble-in \{ animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: var\(--pop-origin, top left\); \}/, '通用类');
+  // 下拉菜单：open 态 transition 走同一曲线，origin 在按钮下沿
+  assert.match(css, /\.dd-menu \{[\s\S]*?transform: translate3d\(0, -6px, 0\) scale\(\.9\); transform-origin: top left;[\s\S]*?\}\n\.dd-menu\.open \{[\s\S]*?transform var\(--pop-dur\) var\(--pop-ease\)/);
+  assert.match(css, /\.attach-menu \{[\s\S]*?animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: bottom left; --pop-dy: 8px;/, '附件菜单从回形针上方冒出');
+  assert.match(css, /\.tok-pop:not\(\[hidden\]\) \{ animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: top left; --pop-dy: -8px; \}/);
+  assert.match(css, /\.tok-pop\[data-place="above"\]:not\(\[hidden\]\) \{ transform-origin: bottom left; --pop-dy: 8px; \}/, '弹层在锚点上方时 origin 翻转');
+  assert.match(ui, /pop\.dataset\.place = top >= r\.bottom \? 'below' : 'above';/, 'JS 按摆放方向写 data-place');
+  assert.match(css, /\.cmd-card \{[\s\S]*?animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: top center; --pop-dy: -14px;/);
+  assert.match(css, /\.md-chart-tooltip\.show \{[^}]*transform var\(--pop-dur\) var\(--pop-ease\)/, '图表提示同曲线');
+  assert.match(css, /\.chip-detail > \.fold-inner \{ transform: translate3d\(0, -4px, 0\) scale\(\.985\); transform-origin: top left;/, '折叠面板内容轻弹入');
+  assert.match(css, /grid-template-rows: 1fr; opacity: 1;\n\s+transition: grid-template-rows var\(--pop-dur\) var\(--pop-ease\), opacity \.18s ease-out;/, '折叠展开高度同曲线');
+  assert.match(css, /#think-menu \.dd-item \{ animation: rowIn \.2s var\(--ease-out\) both; \}/, '思考档位菜单项错落');
+  const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n  .chip-state .chip-ok'));
+  assert.match(rm, /\.attach-menu, \.cmd-card, \.cmd-palette, \.bubble-in, #think-menu \.dd-item, \.cmd-item, \.ran-commands\.live > \.chip-ico \.term-caret \{ animation: none !important; \}/);
+  assert.match(rm, /\.dd-menu, \.md-chart-tooltip, \.chip-detail, \.chip-detail > \.fold-inner \{ transition: none !important; \}/);
+  assert.doesNotMatch(css, /animation: fadeUp \.14s var\(--ease\) both;/, '附件菜单旧的 fadeUp 已替换');
+  assert.doesNotMatch(css, /animation: popIn \.22s var\(--ease-out\) both; transform-origin: top center;/, 'token 弹层旧 popIn 已替换');
 });
 
 for (const item of queue) {

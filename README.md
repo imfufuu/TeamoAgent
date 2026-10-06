@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.19` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.20` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -121,6 +121,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.20：终端提示符图标 / 真实字节数 / 全局气泡弹入动效**
+
+27. **Ran Command(s) 图标 → `>_`**：运行中下划线光标闪烁（不旋转），跑完即停；展开不旋转。
+28. **沙箱文件体积真实化**：`fs.list()` 经 `contentByteSize()`（base64 反推 / UTF-8），`list_files`、系统提示、文件面板、配额统计同一口径，不再把 data URL 字符串长度当文件大小。
+29. **全局气泡弹入**：`--pop-*` 令牌 + `bubbleIn`，下拉 / 附件菜单 / 弹层 / 命令面板 / 图表提示 / 折叠面板共用一条轻过冲曲线（.34s 入、.14s 出，仅 transform + opacity），reduced-motion 退化。
 
 **构建 2026.10.5.19：沙箱视频播放 / 首帧缩略图 / 5 帧审核 / 跨域文件拉取**
 

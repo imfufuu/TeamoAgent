@@ -2,8 +2,11 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-06 · 构建 2026.10.5.19
+## Dubhe Agent V1.7 Stable · 2026-10-06 · 构建 2026.10.5.20
 
+- **Ran Command(s) 图标改为终端提示符 `>_`（构建 2026.10.5.20）**：折叠头不再是扳手；运行中不旋转，改为下划线光标闪烁（`steps(1)`，跑完即停）；展开时不再旋转 90°，只把 `>` 右推 1.5px。`ICON.terminal` 新增，下划线单独成 path。
+- **`list_files` / 沙箱文件体积改为真实字节数（构建 2026.10.5.20）**：以前取字符串长度——图片 / 视频 / PDF 的 data URL 虚高 1/3、中文文本偏小。现在 `fs.list()` 统一经 `contentByteSize()`：base64 按 `⌊n·3/4⌋ − 填充` 反推、文本按 UTF-8 编码长度，按（路径 → 内容引用）缓存避免大文件重复编码；`list_files` 工具、系统提示里的「当前沙箱文件」、文件面板与配额统计全部同一口径。
+- **全局「气泡弹入」动效（构建 2026.10.5.20）**：新增 `--pop-dur .34s / --pop-ease cubic-bezier(.22,1.18,.32,1) / --pop-out-dur .14s` 令牌与 `bubbleIn` 关键帧（只动 `transform + opacity`，`translate3d` 上合成层；轻微过冲后落定；收起快于弹入），模型 / 思考档位下拉、附件菜单、Token / 路由弹层（按锚点上下方向翻转 `transform-origin`）、命令面板、图表悬浮提示、所有折叠面板（Ran Commands / 思考 / Explored / Edited / md-fold：高度走 grid-rows 同曲线，内容再轻弹入）全部接入；菜单项以 25–40 ms 错落跟进；`prefers-reduced-motion` 整体退化为无动画。
 - **沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 2026.10.5.19）**：此前 `uploads/*.mp4` 在文件面板被当成二进制只给十六进制预览、气泡里也只有一个文件芯片。现在：① 附件进入前用 `<video>` + canvas 在本地抽帧——0.3 秒处一张海报图（附件芯片 / 消息气泡的首帧缩略图）+ 按 `(i+0.5)/5 · 时长` 均匀抽 5 帧；流式 WebM（录屏 / MediaRecorder 产物）时长为 Infinity 的先 seek 到极大值逼出真实时长再抽；解不出画面的（HEVC `.mov` 等）直接拒收。② 5 帧与图片走同一条 NudeNet + NSFWJS 本地审核流水线，任一帧命中即整条视频拦截，抽不到帧视为失败关闭；帧数据只用于审核，`agent.send` 入消息前摘掉，不进上下文也不落 IndexedDB。③ 气泡显示海报 + `▶ 时长` 角标，点击原地换成 `<video controls>`（blob URL，与全屏预览的点击互不干扰）；文件面板视频有专属图标，点开即 `<video>` 播放，关闭时 MutationObserver 回收 blob。CSP 新增 `media-src 'self' blob: data:`。
 - **跨域文件拉取 `download_file`（构建 2026.10.5.19）**：新工具（工具总数 39）经 Worker `/api/file`（v1.7.0，`capabilities` 含 `file`）拉取任意 http(s) 资源原始字节写入沙箱 `uploads/`（≤ 16 MB，Worker 侧 `Content-Length` 预判 + 流式计数双重 413，禁止私网 / 本机地址，跟随 ≤ 5 次跳转并回传 `x-dubhe-final-url` / `x-dubhe-file-name`）；文件名取 `Content-Disposition` → URL 末段 → MIME 推断扩展名，重名自动加序号；结果头 `[下载完成] <url>\n保存：<path> · <mime> · <MB> MB · <kind>`，图片 / PDF / 视频提示后续可接 `analyze_*`。中继不支持 `file` 能力时该工具从工具表剔除（`executionContext` 与能力位双向对齐测试覆盖）。网络类并行限流名单纳入该工具。
 - **前端粘贴 / 输入链接即附件（构建 2026.10.5.19）**：输入框粘贴裸 http(s) 链接或回形针菜单「从链接添加」→ 经中继拉取 → 与本地文件完全相同的分类（图片缩放 / 视频抽帧 / PDF / 文本 / ZIP）与审核流程，大小上限 16 MB，失败只弹 toast 不入附件。

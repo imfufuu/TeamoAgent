@@ -322,10 +322,15 @@ a { color: var(--fg); }
   position: fixed; z-index: 60; /* fixed 脱离侧栏 overflow:hidden 裁剪，left/top/width 由 JS 按按钮位置设置 */
   background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow-lg); max-height: min(420px, 60vh); overflow: hidden auto;
-  opacity: 0; transform: translateY(-6px) scale(.98); pointer-events: none;
-  transition: opacity .22s var(--ease), transform .22s var(--ease);
+  /* 全局气泡弹入（见动效层 --pop-*）：从按钮下沿冒出来，收起时快速淡出 */
+  opacity: 0; transform: translate3d(0, -6px, 0) scale(.9); transform-origin: top left; pointer-events: none;
+  transition: opacity var(--pop-out-dur) var(--pop-out-ease), transform var(--pop-out-dur) var(--pop-out-ease), visibility 0s linear var(--pop-out-dur);
+  visibility: hidden;
 }
-.dd-menu.open { opacity: 1; transform: none; pointer-events: auto; }
+.dd-menu.open {
+  opacity: 1; transform: translate3d(0, 0, 0) scale(1); pointer-events: auto; visibility: visible;
+  transition: opacity .16s ease-out, transform var(--pop-dur) var(--pop-ease), visibility 0s;
+}
 /* 搜索框固定在菜单顶部；层级显式高于分组标题（模型系列图标层在其之下）*/
 .dd-search-wrap { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 10px; border-bottom: 1px solid var(--line); }
 .dd-search { width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); color: var(--fg); outline: none; transition: border-color .2s; }
@@ -735,8 +740,13 @@ a { color: var(--fg); }
 /* 只在「还没跑完」时转：跑完了就停下（用户明确要求「调用完后停止转动」） */
 .chip:not(.done) .chip-ico { animation: spin 1.2s linear infinite; }
 .chip.done .chip-ico { animation: none; color: var(--fg-2); }
-.ran-commands.live > .chip-ico { animation: spin 1.2s linear infinite; }
+/* Ran Command(s) 折叠头是终端提示符 >_：运行中不旋转，下划线像光标一样闪；跑完了就停 */
+.ran-commands.live > .chip-ico { animation: none; }
+.ran-commands.live > .chip-ico .term-caret { animation: termCaret 1.05s steps(1, end) infinite; }
 .ran-commands.done > .chip-ico { animation: none; color: var(--fg-2); }
+.ran-commands.done > .chip-ico .term-caret { animation: none; opacity: 1; }
+.chip-ico-term svg { stroke-width: 2.3; }
+@keyframes termCaret { 0%, 55% { opacity: 1; } 56%, 100% { opacity: 0; } }
 .ran-command-items { display: flex; flex-direction: column; gap: 0; width: 100%; }
 .ran-command-items > .tool-call-chip { width: 100%; }
 .chip-name { font-weight: 600; }
@@ -755,8 +765,10 @@ a { color: var(--fg); }
   display: grid; grid-template-rows: 0fr; opacity: 0;
   width: 100%; flex-basis: 100%; font-size: var(--ui-fs-11_5px, 11.5px); color: var(--fg-2);
   padding-left: 21px; line-height: 1.65; box-sizing: border-box; overflow: hidden;
-  transition: grid-template-rows .28s var(--ease), opacity .2s var(--ease);
+  transition: grid-template-rows .22s var(--ease), opacity .16s var(--pop-out-ease);
 }
+/* 折叠面板展开：高度用 grid-rows 过渡，内容本体再做一次极轻的气泡弹入（只动 transform / opacity） */
+.chip-detail > .fold-inner { transform: translate3d(0, -4px, 0) scale(.985); transform-origin: top left; transition: transform var(--pop-out-dur) var(--pop-out-ease); }
 .chip.expanded > .chip-detail,
 .chip.expanded .chip-detail,
 .reasoning.expanded > .chip-detail,
@@ -769,12 +781,21 @@ a { color: var(--fg); }
 .reasoning.live > .chip-detail,
 .chip.live > .chip-detail {
   grid-template-rows: 1fr; opacity: 1;
+  transition: grid-template-rows var(--pop-dur) var(--pop-ease), opacity .18s ease-out;
+}
+.chip.expanded > .chip-detail > .fold-inner, .chip.expanded .chip-detail > .fold-inner,
+.reasoning.expanded > .chip-detail > .fold-inner, .reasoning.expanded .chip-detail > .fold-inner,
+.md-fold.expanded > .chip-detail > .fold-inner, .edited-files.expanded > .chip-detail > .fold-inner,
+.explored-files.expanded > .chip-detail > .fold-inner, .ran-commands.expanded > .chip-detail > .fold-inner,
+.ran-commands.live > .chip-detail > .fold-inner, .reasoning.live > .chip-detail > .fold-inner, .chip.live > .chip-detail > .fold-inner {
+  transform: translate3d(0, 0, 0) scale(1); transition: transform var(--pop-dur) var(--pop-ease);
 }
 .reasoning.live > .chip-detail,
 .chip.live > .chip-detail,
 .ran-commands.live > .chip-detail {
   transition: none;
 }
+.reasoning.live > .chip-detail > .fold-inner, .chip.live > .chip-detail > .fold-inner, .ran-commands.live > .chip-detail > .fold-inner { transition: none; }
 .chip-detail > .fold-inner { overflow: hidden; min-height: 0; }
 .chip-args { margin: 4px 0; word-break: break-all; }
 .chip-result { background: var(--bg-soft); border: none; border-radius: 8px; padding: 8px 10px; max-height: min(60vh, 520px); overflow: auto; white-space: pre-wrap; word-break: break-all; font-size: var(--ui-fs-11px, 11px); }
@@ -886,7 +907,8 @@ a { color: var(--fg); }
   position: absolute; left: 0; bottom: calc(100% + 9px); z-index: 30;
   display: flex; flex-direction: column; gap: 3px; width: max-content; min-width: 176px; padding: 6px;
   border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg);
-  box-shadow: var(--shadow-lg); animation: fadeUp .14s var(--ease) both;
+  box-shadow: var(--shadow-lg);
+  animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: bottom left; --pop-dy: 8px;
 }
 .attach-menu-item {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px;
@@ -1740,7 +1762,7 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .md-flow-node:hover, .md-mind-node:hover {
   opacity: .94;
 }
-/* 2026.10.5.19：新增图类（条形 / 面积 / 环形 / 堆叠 / 直方 / 箱线 / 气泡 / 漏斗 / 桑基 / 地图） */
+/* 2026.10.5.20：新增图类（条形 / 面积 / 环形 / 堆叠 / 直方 / 箱线 / 气泡 / 漏斗 / 桑基 / 地图） */
 .md-chart-legend { fill: var(--fg-2); font-family: var(--sans); }
 .md-chart-donut-total { font-family: var(--sans); font-size: var(--ui-fs-20px, 20px); font-weight: 700; fill: var(--fg); }
 .md-chart-box { cursor: pointer; outline: none; transition: opacity .16s ease; }
@@ -1775,10 +1797,10 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   background: color-mix(in srgb, var(--fg) 92%, var(--bg));
   color: var(--bg); font-family: var(--mono); font-size: var(--ui-fs-11_5px, 11.5px); line-height: 1.3;
   border: 1px solid var(--line);
-  opacity: 0; transform: translate(-50%, calc(-100% - 8px));
-  transition: opacity .14s ease;
+  opacity: 0; transform: translate(-50%, calc(-100% - 4px)) scale(.9); transform-origin: bottom center;
+  transition: opacity var(--pop-out-dur) var(--pop-out-ease), transform var(--pop-out-dur) var(--pop-out-ease);
 }
-.md-chart-tooltip.show { opacity: 1; transform: translate(-50%, calc(-100% - 8px)); }
+.md-chart-tooltip.show { opacity: 1; transform: translate(-50%, calc(-100% - 8px)) scale(1); transition: opacity .14s ease-out, transform var(--pop-dur) var(--pop-ease); }
 .md-chart-tip-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; box-shadow: 0 0 0 1.5px rgba(255,255,255,.45); }
 .md-chart-tip-label { font-family: var(--sans); font-weight: 650; }
 .md-chart-tip-val { opacity: .92; }
@@ -1973,7 +1995,9 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .cmd-card {
   width: min(560px, 100%); background: var(--bg); border: 1px solid var(--line);
   border-radius: 14px; box-shadow: var(--shadow-lg); overflow: hidden;
+  animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: top center; --pop-dy: -14px;
 }
+.cmd-palette:not([hidden]) { animation: fadeIn .18s ease-out both; }
 .cmd-input {
   width: 100%; border: 0; border-bottom: 1px solid var(--line); padding: 14px 16px;
   font-size: var(--ui-fs-14px, 14px); background: var(--bg); color: var(--fg); outline: none;
@@ -2118,6 +2142,24 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
    prefers-reduced-motion 下整体退化为无动画。
    ═══════════════════════════════════════════════════════════════════════ */
 :root { --ease-spring: cubic-bezier(.34, 1.4, .64, 1); --ease-out: cubic-bezier(.16, 1, .3, 1); }
+/* ── 全局「气泡弹入」（.20）：所有展开菜单 / 浮层 / 折叠面板共用同一条曲线 ──
+   · 只动 transform + opacity（合成层，不触发布局 / 重绘），translate3d 强制 GPU 层；
+   · 曲线 cubic-bezier(.22,1.18,.32,1)：前 40% 走完九成路程、末尾约 3% 过冲再落定，像气泡从锚点冒出来；
+   · 弹入 .34s、收起 .14s（收起要快，不挡手）；transform-origin 由各组件按锚点方向设置（上 / 下 / 左 / 右）；
+   · 菜单项再用 rowIn / chipIn 以 25–40ms 错落跟进，整体节奏「容器先到、内容随后」。
+   使用：animation: bubbleIn var(--pop-dur) var(--pop-ease) both; 或 open 态 transition 同参。*/
+:root {
+  --pop-dur: .34s;
+  --pop-ease: cubic-bezier(.22, 1.18, .32, 1);
+  --pop-out-dur: .14s;
+  --pop-out-ease: cubic-bezier(.4, 0, .9, .6);
+}
+@keyframes bubbleIn {
+  from { opacity: 0; transform: translate3d(var(--pop-dx, 0px), var(--pop-dy, 6px), 0) scale(.9); }
+  to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+.bubble-in { animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: var(--pop-origin, top left); }
 @keyframes popIn { from { opacity: 0; transform: translateY(6px) scale(.97); } to { opacity: 1; transform: none; } }
 @keyframes chipIn { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 @keyframes ringOut { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fg) 35%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
@@ -2205,9 +2247,11 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .chip-state .chip-time { display: inline-block; line-height: 1; animation: chipIn .3s var(--ease-out) both .08s; }
 /* 命令 / 文件折叠：展开箭头旋转，清单项错落进入 */
 .ran-commands > .chip-ico, .md-fold > .chip-ico, .edited-files > .chip-ico, .explored-files > .chip-ico { transition: transform .26s var(--ease-spring), color .2s var(--ease); }
-.ran-commands.done.expanded > .chip-ico, .md-fold.expanded > .chip-ico { transform: rotate(90deg); }
+.md-fold.expanded > .chip-ico { transform: rotate(90deg); }
 .ran-commands.done:hover > .chip-ico, .md-fold:hover > .chip-ico { transform: translateX(1px); }
-.ran-commands.done.expanded:hover > .chip-ico, .md-fold.expanded:hover > .chip-ico { transform: rotate(90deg) translateY(-1px); }
+.md-fold.expanded:hover > .chip-ico { transform: rotate(90deg) translateY(-1px); }
+/* 终端提示符不旋转：展开时只把 > 往右推一点点，表示「已打开」 */
+.ran-commands.done.expanded > .chip-ico { transform: translateX(1.5px); }
 .ran-commands.expanded > .chip-detail .tool-call-chip { animation: rowIn .26s var(--ease-out) both; }
 .ran-commands.expanded > .chip-detail .tool-call-chip:nth-child(2) { animation-delay: 40ms; }
 .ran-commands.expanded > .chip-detail .tool-call-chip:nth-child(3) { animation-delay: 80ms; }
@@ -2221,7 +2265,8 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .ft-row:hover { transform: translateX(2px); }
 .ft-row.just-changed { animation: rowIn .22s var(--ease-out) both, glowOnce 1.6s var(--ease-out) .1s both; }
 /* Token / 路由弹层：从锚点弹出 */
-.tok-pop:not([hidden]) { animation: popIn .22s var(--ease-out) both; transform-origin: top center; }
+.tok-pop:not([hidden]) { animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: top left; --pop-dy: -8px; }
+.tok-pop[data-place="above"]:not([hidden]) { transform-origin: bottom left; --pop-dy: 8px; }
 .tok-pop .tok-row { animation: rowIn .24s var(--ease-out) both; }
 .tok-pop .tok-row:nth-child(2) { animation-delay: 30ms; } .tok-pop .tok-row:nth-child(3) { animation-delay: 60ms; } .tok-pop .tok-row:nth-child(n+4) { animation-delay: 90ms; }
 /* 模型下拉：前几项错落进入，选中项打勾位移 */
@@ -2229,6 +2274,11 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 #model-menu .dd-item:nth-child(1) { animation-delay: 0ms; } #model-menu .dd-item:nth-child(2) { animation-delay: 25ms; } #model-menu .dd-item:nth-child(3) { animation-delay: 50ms; }
 #model-menu .dd-item:nth-child(4) { animation-delay: 75ms; } #model-menu .dd-item:nth-child(5) { animation-delay: 100ms; } #model-menu .dd-item:nth-child(n+6) { animation-delay: 120ms; }
 #model-menu .dd-item:hover { padding-left: 14px; }
+/* 思考档位菜单 / 命令面板：同一套「容器先到、内容随后」的错落 */
+#think-menu .dd-item { animation: rowIn .2s var(--ease-out) both; }
+#think-menu .dd-item:nth-child(2) { animation-delay: 25ms; } #think-menu .dd-item:nth-child(3) { animation-delay: 50ms; } #think-menu .dd-item:nth-child(4) { animation-delay: 75ms; } #think-menu .dd-item:nth-child(n+5) { animation-delay: 100ms; }
+.cmd-palette:not([hidden]) .cmd-item { animation: rowIn .2s var(--ease-out) both; }
+.cmd-palette:not([hidden]) .cmd-item:nth-child(2) { animation-delay: 25ms; } .cmd-palette:not([hidden]) .cmd-item:nth-child(3) { animation-delay: 50ms; } .cmd-palette:not([hidden]) .cmd-item:nth-child(n+4) { animation-delay: 75ms; }
 /* 启动屏：阶段点变 done 时弹一下 */
 .boot-steps li.done b { animation: badgeIn .3s var(--ease-spring) both; }
 /* 用户气泡附件 / 消息头部路由芯片 */
@@ -2242,7 +2292,10 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 @media (prefers-reduced-motion: reduce) {
   .chip-state .chip-ok, .chip-state .chip-fail, .chip-state .chip-time, .ran-commands.expanded > .chip-detail .tool-call-chip,
   .edited-files.expanded .fold-inner li, .explored-files.expanded .fold-inner li, .ft-row, .tok-pop:not([hidden]), .tok-pop .tok-row,
-  #model-menu .dd-item, .boot-steps li.done b, .att-row .att-img, .att-row .att-file, .fv-pdf-page { animation: none !important; }
+  #model-menu .dd-item, .boot-steps li.done b, .att-row .att-img, .att-row .att-file, .fv-pdf-page,
+  .attach-menu, .cmd-card, .cmd-palette, .bubble-in, #think-menu .dd-item, .cmd-item, .ran-commands.live > .chip-ico .term-caret { animation: none !important; }
+  .dd-menu, .md-chart-tooltip, .chip-detail, .chip-detail > .fold-inner { transition: none !important; }
+  .chip-detail > .fold-inner { transform: none !important; }
   .ran-commands > .chip-ico, .md-fold > .chip-ico, .ft-row, .router-chip, .photo-tool-button { transition: none !important; }
   .md-chart-map-loading, .md-chart-map[data-map-state="ready"] .md-chart-svg { animation: none !important; }
 }
