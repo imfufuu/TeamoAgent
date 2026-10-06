@@ -1,23 +1,23 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.18';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.19';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
 import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js';
-import { fetchPage, gitRun, relaySearch, relayCrawl } from './net.js';
+import { fetchPage, gitRun, relaySearch, relayCrawl, relayDownload, fileNameFromUrl, RELAY_FILE_MAX_BYTES } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.18';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.19';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.18';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.19';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -321,6 +321,22 @@ export const TOOL_DEFS = [
         mode: { type: 'string', enum: ['text', 'raw'], description: 'text=去标签正文（默认）；raw=原始 HTML/JSON（自己做正则/解析时用）' },
         max_bytes: { type: 'integer', description: '最多抓取字节数，默认 2000000，上限 4000000' },
         save_path: { type: 'string', description: '可选：把全文写到沙箱的指定路径（默认 web/<host>/<slug>.md）' },
+      },
+      required: ['url'],
+    },
+  },
+  {
+    name: 'download_file',
+    description:
+      '把一个 http(s) 链接指向的文件（图片 / 视频 / PDF / ZIP / 音频 / 任意二进制或文本）经中继跨域拉进沙箱 uploads/，单文件 ≤ 16MB。' +
+      '浏览器直连会被目标站 CORS 拦下，所以本工具只在中继声明 file 能力时出现。' +
+      '拉下来后图片可 analyze_image / 作 generate_image 参考图，视频可 analyze_video，PDF 可 analyze_pdf，ZIP 可 unzip_file，文本可 read_file。' +
+      '与 fetch_url 的区别：fetch_url 读网页正文文本；download_file 原样保存文件字节。网页链接（HTML）请用 fetch_url。',
+    parameters: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: '文件的完整网址（含 http:// 或 https://）' },
+        path: { type: 'string', description: '可选：沙箱保存路径（默认 uploads/<链接里的文件名>；同名已存在时自动加序号）' },
       },
       required: ['url'],
     },
@@ -861,6 +877,48 @@ async function executeToolBody(name, args, ctx) {
         }
         emit({ status: 'ok', fsChange: !!r.savedTo, note: `${r.status || ''} ${(r.chars / 1024).toFixed(1)}K${r.savedTo ? ` → ${r.savedTo}` : ''}` });
         return `[抓取完成] ${r.url}（HTTP ${r.status || '?'} · ${r.contentType || '未知类型'} · ${r.chars} 字符${r.savedTo ? ` · 全文已存 ${r.savedTo}` : ''}）${r.note ? `\n说明：${r.note}` : ''}\n\n${r.preview}`;
+      }
+      case 'download_file': {
+        const url = String(args.url || '').trim();
+        emit({ status: 'running', note: `拉取 ${url.slice(0, 50)}` });
+        let r;
+        try {
+          r = await relayDownload({
+            url, maxBytes: RELAY_FILE_MAX_BYTES, signal: ctx.signal,
+            onProgress: ({ loaded, total }) => emit({ status: 'running', note: `拉取中 ${(loaded / 1024 / 1024).toFixed(1)}${total ? ` / ${(total / 1024 / 1024).toFixed(1)}` : ''} MB` }),
+          });
+        } catch (err) {
+          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
+          r = { ok: false, error: err.message };
+        }
+        if (!r.ok) {
+          emit({ status: 'error', error: { message: r.error } });
+          return `download_file 失败：${r.error}`;
+        }
+        const mime = r.mime || 'application/octet-stream';
+        let path = args.path ? normalizeFsPath(args.path) : '';
+        if (!path) path = `uploads/${(r.name || fileNameFromUrl(r.finalUrl || url, mime)).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_') || 'download'}`;
+        // 同名不覆盖：追加序号（和用户附件落盘规则一致）
+        const taken = new Set(fs.list().map((f) => f.path));
+        if (taken.has(path)) {
+          const dot = path.lastIndexOf('.');
+          const slash = path.lastIndexOf('/');
+          const stem = dot > slash ? path.slice(0, dot) : path;
+          const ext = dot > slash ? path.slice(dot) : '';
+          for (let n = 2; taken.has(path); n++) path = `${stem}-${n}${ext}`;
+        }
+        const textual = /^text\/|json|xml|javascript|csv|markdown|yaml|toml|x-sh/i.test(mime) && !/zip|pdf|octet/i.test(mime);
+        let content;
+        if (textual) content = new TextDecoder('utf-8', { fatal: false }).decode(r.bytes);
+        else content = bytesToDataUrl(r.bytes, mime);
+        try { fs.write(path, content); } catch (err) {
+          emit({ status: 'error', error: { message: err.message } });
+          return `download_file 失败：写入 ${path} 出错：${err.message}`;
+        }
+        const kind = /^image\//.test(mime) ? '图片（可 analyze_image）' : /^video\//.test(mime) ? '视频（可 analyze_video）' : /pdf/.test(mime) ? 'PDF（可 analyze_pdf）' : /zip/.test(mime) ? 'ZIP（可 unzip_file）' : textual ? '文本（可 read_file）' : '二进制';
+        const sizeMb = (r.bytes.length / 1024 / 1024).toFixed(2);
+        emit({ status: 'ok', fsChange: true, note: `${sizeMb} MB → ${path}` });
+        return `[下载完成] ${r.finalUrl || url}\n保存：${path} · ${mime} · ${sizeMb} MB · ${kind}${r.via === 'direct' ? '（目标站允许 CORS，浏览器直连）' : '（经中继）'}`;
       }
       case 'run_git': {
         emit({ status: 'running', note: String(args.command || 'git').slice(0, 46) });

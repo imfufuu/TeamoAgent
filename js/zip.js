@@ -43,9 +43,11 @@ const MIME_EXT = {
   'text/plain': 'txt', 'text/html': 'html', 'text/css': 'css', 'text/csv': 'csv', 'text/markdown': 'md',
   'application/json': 'json', 'application/pdf': 'pdf', 'application/zip': 'zip',
   'application/javascript': 'js', 'application/xml': 'xml',
+  'video/mp4': 'mp4', 'video/webm': 'webm', 'video/quicktime': 'mov', 'video/x-m4v': 'm4v',
 };
 // 由路径扩展名反推一个合理的 MIME（用于 Blob type，避免浏览器默认 text/plain 把文件标成 .txt）
 const EXT_MIME = {
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/x-m4v',
   txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', html: 'text/html', htm: 'text/html',
   css: 'text/css', csv: 'text/csv', json: 'application/json', jsonc: 'application/json',
   js: 'application/javascript', mjs: 'application/javascript', cjs: 'application/javascript',

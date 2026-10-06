@@ -6,7 +6,7 @@
 // 静态站点没有构建器，Pages 对子资源有 ~10 分钟缓存，「新 ui.js + 旧 api.js」这种混版组合
 // 会让新增的具名导入在 ESM link 期直接报错 → 整页白屏。新文件（本模块）没有旧缓存可比对，
 // 而它只 import api.js 里早已存在的 streamChat，安全。
-import { streamChat } from './api.js?v=2026.10.5.18';
+import { streamChat } from './api.js?v=2026.10.5.19';
 import { effectiveApiKey } from './adminkey.js';
 
 const inflight = new Set(); // 正在起标题的会话 id，避免同一会话并发重复调用

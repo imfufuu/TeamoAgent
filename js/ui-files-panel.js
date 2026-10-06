@@ -7,6 +7,19 @@ import { ICON } from './icons.js';
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { pdfToImages } from './pdfpages.js';
 
+// data:video/… → blob URL（与 ui.js 气泡播放同一做法；独立实现以免 split 模块反向 import ui.js）
+function videoBlobUrl(dataUrl) {
+  const s = String(dataUrl || '');
+  const m = /^data:([^;,]+);base64,/.exec(s);
+  if (!m) return '';
+  try {
+    const bin = atob(s.slice(s.indexOf(',') + 1));
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([u8], { type: m[1] }));
+  } catch { return ''; }
+}
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const el = (tag, cls, html) => { const n = document.createElement(tag); if (cls) n.className = cls; if (html != null) n.innerHTML = html; return n; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -127,7 +140,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
       try { raw = agent.fs.read(f.path); } catch { /**/ }
       const str = String(raw);
       const isSvg = /\.svg$/i.test(f.path) || (/^data:image\/svg/i.test(str)) || (/<svg[\s>]/i.test(str.slice(0, 2000)));
-      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(str), isSvg };
+      return { path: f.path, size: approxBytes(raw), isImage: /^data:image\//.test(str), isSvg, isVideo: /^data:video\//.test(str) || /\.(mp4|webm|mov|m4v)$/i.test(f.path) };
     });
     // 与上一次渲染比对：新建 / 内容变化的文件行短暂高亮（首次渲染与会话切换不高亮）
     const sigNow = new Map(allFiles.map((f) => [f.path, f.size]));
@@ -170,6 +183,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
       return;
     }
     const imageSet = new Set(wsFiles.filter((f) => f.isImage).map((f) => f.path));
+    const videoSet = new Set(wsFiles.filter((f) => f.isVideo).map((f) => f.path));
     const rows = flattenTree(tree, { isCollapsed: (p) => collapsedDirs.has(p) });
     for (const r of rows) {
       const closed = r.type === 'dir' && collapsedDirs.has(r.path);
@@ -205,7 +219,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
         const fr = wsFiles.find((ff) => ff.path === r.path);
         const isSvgFile = !!(fr && fr.isSvg);
         row.innerHTML = `<span class="ft-sp"></span>`
-          + `<span class="ft-ico">${imageSet.has(r.path) || isSvgFile ? ICON.image : ICON.file}</span>`
+          + `<span class="ft-ico">${videoSet.has(r.path) ? (ICON.video || '🎬') : (imageSet.has(r.path) || isSvgFile ? ICON.image : ICON.file)}</span>`
           + `<span class="ft-name file-path">${esc(r.name)}</span>`
           + `<span class="ft-actions"><button class="files-icon-btn ft-copy" type="button" title="复制文件名">${ICON.copy}</button><button class="files-icon-btn file-dl" type="button" title="下载此文件">${ICON.download}</button></span>`;
         $('.ft-copy', row).addEventListener('click', (e) => {
@@ -239,7 +253,11 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
     const isCode = /\.(js|mjs|cjs|ts|jsx|tsx|py|java|c|cpp|h|hpp|cc|cxx|cs|go|rs|rb|php|swift|kt|scala|dart|m|matlab|sh|bash|zsh|ps1|bat|cmd|sql|json|jsonc|yml|yaml|toml|ini|conf|xml|html|htm|css|scss|less|md|markdown|r|jl|pyi|vue|svelte|tex|latex|lua|hs|erl|ex|exs|clj|cljs|fs|fsx|ml|mli|asm|s|vhd|v|sv|cu|sol|graphql|gql|hbs|jinja|j2|dockerfile|mk|nginx|diff|patch|log|csv|tsv|txt|text)$/i.test(lower);
     const isTextual = isCode || /^text\//.test(lower);
     let bodyHtml = '';
-    if (imgSrc) {
+    // 视频（uploads/*.mp4 等 data:video/…）：转 blob URL 交给 <video controls>（CSP media-src 放行 blob:）
+    const videoUrl = /^data:video\//i.test(rawStr) ? videoBlobUrl(rawStr) : '';
+    if (videoUrl) {
+      bodyHtml = `<div class="fv-video"><video controls playsinline preload="metadata" src="${esc(videoUrl)}" title="${esc(path)}"></video><div class="fv-video-meta mono">${esc(path.split('/').pop())} · ${fmtSize(byteLen)}</div></div>`;
+    } else if (imgSrc) {
       bodyHtml = `<div class="fv-img"><img src="${esc(imgSrc)}" alt="${esc(path)}"></div>`;
     } else if (svgContent) {
       bodyHtml = `<div class="fv-svg">${svgContent}</div>`;
@@ -276,6 +294,13 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
       + bodyHtml;
     viewer.classList.add('open');
+    if (videoUrl) {
+      // 关闭 / 切换文件时释放 blob，避免反复打开把内存吃满
+      const vid = $('.fv-video video', viewer);
+      const release = () => { try { URL.revokeObjectURL(videoUrl); } catch { /* noop */ } };
+      const mo = new MutationObserver(() => { if (!vid || !vid.isConnected || !viewer.classList.contains('open')) { release(); mo.disconnect(); } });
+      mo.observe(viewer, { childList: true, attributes: true, attributeFilter: ['class'] });
+    }
     $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
     const pdfBox = $('.fv-pdf', viewer);

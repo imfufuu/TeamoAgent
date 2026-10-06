@@ -16,7 +16,7 @@ import { readLocal } from './legacy-keys.js';
 
 let RELAY = { base: '', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
 let activeRelay = null; // { base, label, endpoints, capabilities }
-let featureRelays = { search: null, crawl: null };
+let featureRelays = { search: null, crawl: null, file: null };
 let relayOk = null;
 let relayProbe = null;
 
@@ -39,7 +39,7 @@ function userRelayOverride() {
 }
 function relayEndpoints(base) {
   const b = String(base || '').replace(/\/+$/, '');
-  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health`, search: `${b}/api/search`, crawl: `${b}/api/crawl` };
+  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health`, search: `${b}/api/search`, crawl: `${b}/api/crawl`, file: `${b}/api/file` };
 }
 async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
   // AbortSignal.any/timeout 老浏览器可能没有，手动派生一个 ctrl
@@ -78,7 +78,7 @@ export async function relayAvailable(signal) {
     for (const url of PUBLIC_RELAY_CANDIDATES) candidates.push({ base: url, label: 'public', endpoints: relayEndpoints(url) });
     const unique = candidates.filter((c, i, all) => all.findIndex((x) => x.endpoints.base === c.endpoints.base) === i);
     let selected = null;
-    featureRelays = { search: null, crawl: null };
+    featureRelays = { search: null, crawl: null, file: null };
     // 先保留既有的中继优先级（同源 → 用户指定 → 公共），同时继续探测至找到声明搜索/爬虫能力的 Worker。
     // 这样本地 server.py 可继续服务 fetch/git，而新增工具不会误打到它的 404 路由。
     for (const c of unique) {
@@ -88,7 +88,8 @@ export async function relayAvailable(signal) {
       if (!selected) selected = candidate;
       if (!featureRelays.search && probe.capabilities.includes('search')) featureRelays.search = candidate;
       if (!featureRelays.crawl && probe.capabilities.includes('crawl')) featureRelays.crawl = candidate;
-      if (selected && featureRelays.search && featureRelays.crawl) break;
+      if (!featureRelays.file && probe.capabilities.includes('file')) featureRelays.file = candidate;
+      if (selected && featureRelays.search && featureRelays.crawl && featureRelays.file) break;
     }
     if (selected) {
       activeRelay = selected;
@@ -97,7 +98,7 @@ export async function relayAvailable(signal) {
       return true;
     }
     activeRelay = null;
-    featureRelays = { search: null, crawl: null };
+    featureRelays = { search: null, crawl: null, file: null };
     // 回落到同源默认值
     RELAY = { base: '', ...relayEndpoints('') };
     relayOk = false;
@@ -111,12 +112,12 @@ export function currentRelay() { return relayOk && activeRelay ? { base: activeR
 
 /** Worker 特性由 health.capabilities 声明；不要仅凭 /api/health=ok 假设存在新路由。 */
 export function relaySupports(feature) { return !!(relayOk && featureRelays[String(feature || '').toLowerCase()]); }
-export function relayCapabilities() { return { search: relaySupports('search'), crawl: relaySupports('crawl') }; }
+export function relayCapabilities() { return { search: relaySupports('search'), crawl: relaySupports('crawl'), file: relaySupports('file') }; }
 
 /** 重置探测缓存（测试 / 切换环境时用） */
 export function resetRelayProbe() {
   relayOk = null; relayProbe = null; activeRelay = null;
-  featureRelays = { search: null, crawl: null };
+  featureRelays = { search: null, crawl: null, file: null };
   RELAY = { base: '', ...relayEndpoints('') };
 }
 
@@ -172,6 +173,90 @@ async function relayFeatureJson(feature, params, signal) {
     return { ok: true, ...payload };
   } catch (err) {
     return { ok: false, error: `Worker ${key} 请求失败：${err && err.message ? err.message : String(err)}` };
+  }
+}
+
+// ── 跨域文件拉取（/api/file）────────────────────────────────────────────
+export const RELAY_FILE_MAX_BYTES = 16 * 1024 * 1024;
+export function fileNameFromUrl(u, contentType = '') {
+  let name = '';
+  try { name = decodeURIComponent(new URL(u).pathname.split('/').filter(Boolean).pop() || ''); } catch { name = ''; }
+  name = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').trim().slice(0, 120);
+  if (!name) name = 'download';
+  if (!/\.[a-z0-9]{1,5}$/i.test(name)) {
+    const ct = String(contentType || '').toLowerCase();
+    const ext = /image\/jpeg/.test(ct) ? 'jpg' : /image\/png/.test(ct) ? 'png' : /image\/gif/.test(ct) ? 'gif' : /image\/webp/.test(ct) ? 'webp' : /image\/svg/.test(ct) ? 'svg'
+      : /video\/mp4/.test(ct) ? 'mp4' : /video\/webm/.test(ct) ? 'webm' : /video\/quicktime/.test(ct) ? 'mov'
+        : /application\/pdf/.test(ct) ? 'pdf' : /zip/.test(ct) ? 'zip' : /json/.test(ct) ? 'json' : /html/.test(ct) ? 'html' : /csv/.test(ct) ? 'csv' : /text\//.test(ct) ? 'txt' : '';
+    if (ext) name += `.${ext}`;
+  }
+  return name;
+}
+
+/**
+ * 经中继拉取跨域二进制文件（浏览器直连会被目标站 CORS 拦下）。
+ * 优先走声明了 file 能力的 Worker；没有时退回浏览器直连（只有目标站允许 CORS 才会成功）。
+ * 返回 { ok, bytes: Uint8Array, mime, name, finalUrl, via } 或 { ok:false, error }。
+ */
+export async function relayDownload({ url = '', maxBytes = RELAY_FILE_MAX_BYTES, signal, onProgress } = {}) {
+  const target = String(url || '').trim();
+  if (!/^https?:\/\//i.test(target)) return { ok: false, error: `只接受 http(s) 绝对地址，收到：${target || '(空)'}` };
+  const limit = Math.max(1024, Math.min(Math.floor(Number(maxBytes) || RELAY_FILE_MAX_BYTES), RELAY_FILE_MAX_BYTES));
+  const readBody = async (res) => {
+    const total = Number(res.headers.get('content-length') || 0);
+    if (total > limit) throw new Error(`文件 ${(total / 1024 / 1024).toFixed(1)} MB 超过上限 ${Math.round(limit / 1024 / 1024)} MB`);
+    if (!res.body || !res.body.getReader) {
+      const buf = new Uint8Array(await res.arrayBuffer());
+      if (buf.length > limit) throw new Error(`文件超过上限 ${Math.round(limit / 1024 / 1024)} MB`);
+      return buf;
+    }
+    const reader = res.body.getReader();
+    const chunks = [];
+    let got = 0;
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      got += value.length;
+      if (got > limit) { try { await reader.cancel(); } catch { /* noop */ } throw new Error(`文件超过上限 ${Math.round(limit / 1024 / 1024)} MB`); }
+      chunks.push(value);
+      if (typeof onProgress === 'function') { try { onProgress({ loaded: got, total }); } catch { /* noop */ } }
+    }
+    const out = new Uint8Array(got);
+    let off = 0;
+    for (const c of chunks) { out.set(c, off); off += c.length; }
+    return out;
+  };
+  const ok = await relayAvailable(signal);
+  const candidate = ok ? featureRelays.file : null;
+  if (candidate) {
+    try {
+      const res = await fetch(`${candidate.endpoints.file}?url=${encodeURIComponent(target)}&max=${limit}`, { signal });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        return { ok: false, error: `中继拉取失败（HTTP ${res.status}）：${j.error || res.statusText || '未知原因'}`, status: res.status };
+      }
+      const bytes = await readBody(res);
+      const mime = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+      let name = '';
+      try { name = decodeURIComponent(res.headers.get('x-dubhe-file-name') || ''); } catch { name = ''; }
+      let finalUrl = target;
+      try { finalUrl = decodeURI(res.headers.get('x-dubhe-final-url') || '') || target; } catch { finalUrl = target; }
+      return { ok: true, bytes, mime, name: name || fileNameFromUrl(finalUrl, mime), finalUrl, via: 'relay' };
+    } catch (err) {
+      if (err && err.name === 'AbortError') throw err;
+      return { ok: false, error: `中继拉取异常：${err && err.message ? err.message : String(err)}` };
+    }
+  }
+  // 直连兜底：目标站需允许 CORS，且页面 CSP connect-src 放行；公共部署下多半失败，但自建部署可用
+  try {
+    const res = await fetch(target, { signal, redirect: 'follow' });
+    if (!res.ok) return { ok: false, error: `直连 HTTP ${res.status}（当前中继未声明 file 能力，请部署新版 relay/worker.js）` };
+    const bytes = await readBody(res);
+    const mime = (res.headers.get('content-type') || 'application/octet-stream').split(';')[0].trim().toLowerCase();
+    return { ok: true, bytes, mime, name: fileNameFromUrl(res.url || target, mime), finalUrl: res.url || target, via: 'direct' };
+  } catch (err) {
+    if (err && err.name === 'AbortError') throw err;
+    return { ok: false, error: `无法跨域拉取 ${target}：${err && err.message ? err.message : String(err)}。${ok ? '当前中继未声明 file 能力，请部署新版 relay/worker.js。' : RELAY_HINT}` };
   }
 }
 

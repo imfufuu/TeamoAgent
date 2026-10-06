@@ -12,6 +12,7 @@
  *   GET /api/fetch?url=...             → 有 SSRF 护栏的单页抓取（text/raw）
  *   GET /api/search?q=...              → SearXNG（配置时）优先，DuckDuckGo HTML 回退
  *   GET /api/crawl?url=...             → 同源、有限页数/深度的 HTML 正文抓取
+ *   GET /api/file?url=...              → 跨域二进制文件拉取（图片 / PDF / 视频 / ZIP，≤ 16MB，原样回传 + CORS）
  *                                      可选 max_pages、max_depth、max_bytes、max_chars
  *   GET /                              → 版本提示
  *
@@ -24,9 +25,11 @@
  *   · CORS 全开供静态站点直连；公开部署建议再用 Cloudflare Rate Limiting 限流
  */
 
-const WORKER_VERSION = '1.6.0';
+const WORKER_VERSION = '1.7.0';
 const UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 Dubhe-Agent-Relay/${WORKER_VERSION}`;
 const MAX_FETCH_BYTES = 4_000_000;
+const MAX_FILE_BYTES = 16 * 1024 * 1024; // /api/file：与前端视频附件上限一致；Worker 128MB 内存，16MB 一次性缓冲安全
+const FILE_TIMEOUT_MS = 60_000;
 const MAX_SEARCH_BYTES = 600_000;
 const MAX_SEARCH_RESULTS = 10;
 const MAX_CRAWL_PAGES = 5;
@@ -398,7 +401,7 @@ async function crawlSite({ url, maxPages = 3, maxDepth = 1, maxBytesPerPage = 25
 
 // ── 带重定向护栏的 fetch ───────────────────────────────────────
 // Cloudflare fetch 自动跟随重定向，但 follow=manual 后我们自己跟，每跳校验。
-async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, maxRedirects = 5, timeoutMs = FETCH_TIMEOUT_MS, accept = '*/*', signal, allowedOrigin } = {}) {
+async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, maxRedirects = 5, timeoutMs = FETCH_TIMEOUT_MS, accept = '*/*', signal, allowedOrigin, binary = false } = {}) {
   let current = await guardUrl(urlStr);
   let hops = 0;
   while (hops++ <= maxRedirects) {
@@ -447,6 +450,16 @@ async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, max
       off += take;
       if (off >= buf.length) break;
     }
+    if (binary) {
+      return {
+        status: res.status,
+        contentType: res.headers.get('content-type') || '',
+        bytes: buf,
+        truncated: total > limit,
+        url: current,
+        lastModified: res.headers.get('last-modified') || '',
+      };
+    }
     const text = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     return {
       status: res.status,
@@ -457,6 +470,24 @@ async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, max
     };
   }
   throw new Error(`重定向次数过多（上限 ${maxRedirects}）`);
+}
+
+// 从 URL 路径猜文件名；没有扩展名时按 Content-Type 补一个，保证前端能按后缀分流（图片 / 视频 / PDF / ZIP）
+const MIME_EXT = [
+  [/^image\/jpeg/i, 'jpg'], [/^image\/png/i, 'png'], [/^image\/gif/i, 'gif'], [/^image\/webp/i, 'webp'], [/^image\/svg/i, 'svg'],
+  [/^video\/mp4/i, 'mp4'], [/^video\/webm/i, 'webm'], [/^video\/quicktime/i, 'mov'],
+  [/^application\/pdf/i, 'pdf'], [/zip/i, 'zip'], [/^application\/json/i, 'json'], [/^text\/html/i, 'html'], [/^text\/plain/i, 'txt'], [/^text\/csv/i, 'csv'],
+];
+function fileNameFromUrl(u, contentType) {
+  let name = '';
+  try { name = decodeURIComponent(new URL(u).pathname.split('/').filter(Boolean).pop() || ''); } catch { name = ''; }
+  name = name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').slice(0, 120);
+  if (!name) name = 'download';
+  if (!/\.[a-z0-9]{1,5}$/i.test(name)) {
+    const hit = MIME_EXT.find(([re]) => re.test(String(contentType || '')));
+    if (hit) name += `.${hit[1]}`;
+  }
+  return name;
 }
 
 function json(obj, status = 200, extra = {}) {
@@ -476,7 +507,7 @@ export default {
     if (request.method !== 'GET') return json({ error: '只允许 GET 请求' }, 405);
     if (url.pathname === '/api/health') {
       // Keep this legacy health identifier stable for clients that inspect metadata.
-      return json({ ok: true, relay: 'dubhe-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl'] });
+      return json({ ok: true, relay: 'dubhe-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl', 'file'], limits: { file_bytes: MAX_FILE_BYTES } });
     }
     if (url.pathname === '/api/search') {
       try {
@@ -504,6 +535,35 @@ export default {
         return json(result);
       } catch (err) {
         return json({ error: err && err.message ? err.message : String(err), url: url.searchParams.get('url') || '' }, 502);
+      }
+    }
+    if (url.pathname === '/api/file') {
+      // 跨域二进制拉取：浏览器直连会被目标站 CORS 拦下，这里原样转发字节并加 CORS 头。
+      // 同一套 SSRF 护栏（guardUrl）与重定向逐跳校验；超过上限直接 413 而不是截断（半个视频 / ZIP 没有意义）。
+      const target = url.searchParams.get('url') || '';
+      try {
+        if (!target) return json({ error: '缺少 url 参数' }, 400);
+        let limit = Number(url.searchParams.get('max') || MAX_FILE_BYTES);
+        if (!Number.isFinite(limit)) limit = MAX_FILE_BYTES;
+        limit = Math.max(1024, Math.min(Math.floor(limit), MAX_FILE_BYTES));
+        const r = await guardedFetch(target, { limit, binary: true, cache: false, timeoutMs: FILE_TIMEOUT_MS, signal: request.signal });
+        if (r.truncated) return json({ error: `文件超过上限 ${Math.round(limit / 1024 / 1024)}MB`, url: target, limit }, 413);
+        const name = fileNameFromUrl(r.url || target, r.contentType);
+        return new Response(r.bytes, {
+          status: 200,
+          headers: {
+            ...CORS,
+            'content-type': r.contentType || 'application/octet-stream',
+            'content-length': String(r.bytes.length),
+            'content-disposition': `inline; filename*=UTF-8''${encodeURIComponent(name)}`,
+            'cache-control': 'no-store',
+            'x-dubhe-final-url': encodeURI(r.url || target),
+            'x-dubhe-file-name': encodeURIComponent(name),
+            'access-control-expose-headers': 'content-type, content-length, content-disposition, x-dubhe-final-url, x-dubhe-file-name',
+          },
+        });
+      } catch (err) {
+        return json({ error: err && err.message ? err.message : String(err), url: target }, 502);
       }
     }
     if (url.pathname === '/api/fetch') {
@@ -537,7 +597,8 @@ export default {
       `  GET  /api/health\n` +
       `  GET  /api/fetch?url=<URL>[&mode=text|raw][&max=4000000]\n` +
       `  GET  /api/search?q=<query>[&limit=1..10]\n` +
-      `  GET  /api/crawl?url=<URL>[&max_pages=1..5][&max_depth=0..2]\n\n` +
+      `  GET  /api/crawl?url=<URL>[&max_pages=1..5][&max_depth=0..2]\n` +
+      `  GET  /api/file?url=<URL>[&max=1024..${MAX_FILE_BYTES}]   （二进制原样回传，≤16MB）\n\n` +
       `部署说明见仓库 relay/worker.js；搜索可选配置 SEARXNG_URL。\n` +
       `公开部署建议为 /api/search 与 /api/crawl 配置 Cloudflare 限流规则。\n`,
       { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8', ...CORS } },

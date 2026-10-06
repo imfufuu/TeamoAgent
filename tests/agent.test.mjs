@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.18';
+} from '../js/api.js?v=2026.10.5.19';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.18');
+const api = await import('../js/api.js?v=2026.10.5.19');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.18');
+  const api = await import('../js/api.js?v=2026.10.5.19');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4743,7 +4743,7 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   const net = fsp.readFileSync(new URL('../js/net.js', import.meta.url), 'utf8');
   const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
-  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site'\]\)/);
+  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file'\]\)/);
   assert.match(ag, /内置沙箱 Git/);
   assert.match(net, /function localGitRun/);
   assert.match(net, /git version DubheGit/);
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.18');
+  assert.equal(APP_VERSION, '2026.10.5.19');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.18/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.19/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.18/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.19/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7807,7 +7807,7 @@ test('estimateTokens：同一消息对象重复估算走缓存，字段变化后
 group('V1.7.1 续：同波按类别限流 / ui.js 拆分契约');
 test('runWithCategoryLimits：网络类 ≤ 4、本地 ≤ 8 并发，结果按原序回填，单个失败不拖累其它', async () => {
   const { runWithCategoryLimits, plannedConcurrency, NETWORK_TOOLS, PARALLEL_LIMITS } = await import('../js/agent.js');
-  assert.deepEqual([...NETWORK_TOOLS].sort(), ['crawl_site', 'fetch_url', 'search_web']);
+  assert.deepEqual([...NETWORK_TOOLS].sort(), ['crawl_site', 'download_file', 'fetch_url', 'search_web']);
   assert.deepEqual(PARALLEL_LIMITS, { network: 4, default: 8 });
   const items = [...Array(10)].map((_, i) => ({ index: i, name: 'fetch_url' })).concat([...Array(12)].map((_, i) => ({ index: 10 + i, name: 'regex' })));
   const active = { net: 0, loc: 0 }; const peak = { net: 0, loc: 0 };
@@ -8090,7 +8090,7 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(def.description, /不要传 model/);
   assert.match(def.description, /16MB/);
   assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'prompt']);
-  assert.equal(TOOL_DEFS.length, 38, '工具总数 37 → 38');
+  assert.equal(TOOL_DEFS.length, 39, '工具总数 37 → 38（analyze_video）→ 39（download_file）');
   const c = ex.getToolContract('analyze_video');
   assert.equal(c.sideEffect, 'remote');
   assert.equal(c.external, true);
@@ -8164,6 +8164,155 @@ test('启动屏网络明细：显示当前拉取文件名与下载速度，合�
   assert.match(css, /\.boot-net:empty \{ opacity: 0; \}/);
   const digest = `sha256-${createHash('sha256').update(script).digest('base64')}`;
   assert.ok(app.includes(digest), `CSP 哈希需与内联启动脚本同步（期望 ${digest}）`);
+});
+
+group('2026.10.5.19：沙箱内播放视频 / 视频首帧缩略图 / 视频抽 5 帧审核 / 跨域文件拉取（download_file + 链接附件）');
+
+test('视频附件：上传时抽帧（海报 + 均匀 5 帧），帧只给审核用，不进消息；解不出帧的视频拒收', async () => {
+  const fsp = await import('node:fs');
+  const ua = fsp.readFileSync(new URL('../js/ui-attachments.js', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(ua, /const VIDEO_FRAMES = 5;/);
+  assert.match(ua, /const captureVideoFrames = \(file, \{ frames = VIDEO_FRAMES, timeoutMs = 20000 \} = \{\}\)/);
+  assert.match(ua, /const t = d \? \(\(i \+ 0\.5\) \/ n\) \* d : 0;/, '均匀抽帧：(i+0.5)/n · duration');
+  assert.match(ua, /poster: cap\.poster,/);
+  assert.match(ua, /frames: cap\.frames,/);
+  assert.match(ua, /无法抽帧审核，未加入/, '解码失败 → 拒收而不是无审核放行');
+  assert.match(ua, /attach-chip-thumb is-video/.source ? /attach-chip-thumb\$\{a\.source === 'video' \? ' is-video' : ''\}/ : /x/, '芯片用海报缩略图');
+  assert.match(agent, /if \(a && Array\.isArray\(a\.frames\)\) \{ videoFrames\.set\(a, a\.frames\); delete a\.frames; \}/, '帧在入消息前摘掉');
+  assert.match(agent, /const moderation = await runContentModeration\(userText, forModeration\);/);
+  assert.match(agent, /a\.kind === 'image' \|\| a\.source === 'video'/, '审核异常时视频回合也 fail-closed');
+});
+
+test('视频审核：5 帧走图片流水线，任一帧命中拦截；没有帧的视频视为未审到（degraded → fail-closed）', async () => {
+  const mod = await import('../js/moderation.js');
+  assert.equal(mod.VIDEO_MODERATION_FRAMES, 5);
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/moderation.js', import.meta.url), 'utf8');
+  assert.match(src, /const videoAtts = \(attachments \|\| \[\]\)\.filter\(\(a\) => a && a\.source === 'video'\);/);
+  assert.match(src, /frameImgs\.push\(\{ kind: 'image', name: `\$\{v\.name \|\| 'video'\}#frame\$\{i \+ 1\}`, dataUrl: f, fromVideo: true \}\)/);
+  assert.match(src, /let imgFail = videoNoFrames > 0;/);
+  assert.match(src, /a\.kind === 'image' \|\| a\.source === 'video'\)\)\.length;/, '带视频的回合按带图预算（90s）且 fail-closed');
+  // 行为：没有帧的视频 → degraded；模型不可用环境下 moderateImages 不应直接放行
+  const r = await mod.moderateImages({ attachments: [{ kind: 'file', source: 'video', name: 'a.mp4', dataUrl: 'data:video/mp4;base64,AAAA' }], text: '' });
+  assert.equal(r.blocked, false);
+  assert.equal(r.degraded, true, '没抽到帧的视频必须标 degraded');
+});
+
+test('沙箱视频可播放：文件面板 <video>（blob URL）、气泡海报点击就地播放、CSP media-src 放行 blob:', async () => {
+  const fsp = await import('node:fs');
+  const panel = fsp.readFileSync(new URL('../js/ui-files-panel.js', import.meta.url), 'utf8');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  assert.match(panel, /const videoUrl = \/\^data:video\\\/\/i\.test\(rawStr\) \? videoBlobUrl\(rawStr\) : '';/);
+  assert.match(panel, /<div class="fv-video"><video controls playsinline preload="metadata" src="\$\{esc\(videoUrl\)\}"/);
+  assert.match(panel, /URL\.revokeObjectURL\(videoUrl\)/, '关闭时释放 blob');
+  assert.match(panel, /isVideo: \/\^data:video\\\/\/\.test\(str\)/);
+  assert.match(app, /media-src 'self' blob: data:;/, 'CSP 必须放行 blob: 媒体，否则 <video> 不出声不出画');
+  assert.match(ui, /export function videoBlobUrl\(dataUrl\)/);
+  assert.match(ui, /class="att-video\$\{can \? '' : ' is-off'\}" data-att-idx="\$\{idx\}"/);
+  assert.match(ui, /const btn = e\.target\.closest\('\.att-video'\);/);
+  assert.match(ui, /btn\.replaceWith\(v\);/, '点击海报 → 就地换成 <video>');
+  assert.match(css, /\.att-video-badge \{/);
+  assert.match(css, /\.fv-video video \{/);
+  const { ICON } = await import('../js/icons.js');
+  assert.ok(ICON.video, '文件树需要视频图标');
+});
+
+test('download_file 工具：定义 / 契约 / 能力门控 / 网络类限流 / 执行路径', async () => {
+  const fsp = await import('node:fs');
+  const { TOOL_DEFS, executeTool } = await import('../js/tools.js');
+  const ex = await import('../js/execution.js');
+  const nexus = await import('../js/nexus.js');
+  const ag = await import('../js/agent.js');
+  const def = TOOL_DEFS.find((t) => t.name === 'download_file');
+  assert.ok(def, '缺少 download_file');
+  assert.match(def.description, /16MB/);
+  assert.match(def.description, /CORS/);
+  assert.deepEqual(def.parameters.required, ['url']);
+  assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'url']);
+  const c = ex.getToolContract('download_file');
+  assert.equal(c.sideEffect, 'network');
+  assert.equal(c.external, true);
+  assert.ok(c.timeoutMs >= 120000);
+  assert.ok(ag.NETWORK_TOOLS.has('download_file'), '网络类并发限流 ≤ 4');
+  assert.equal(ag.toolCategoryOf('download_file'), 'network');
+  // 能力向量：relay+web 开但 Worker 未声明 file → 禁用；声明 file → 启用
+  const off = nexus.computeCapabilityVector({ relayOk: true, webEnabled: true, fileEnabled: false, sandboxEnabled: true });
+  assert.ok(off.disabledTools.includes('download_file'));
+  assert.ok(off.disabledToolGroups.includes('fileDownload(unavailable)'));
+  const on = nexus.computeCapabilityVector({ relayOk: true, webEnabled: true, fileEnabled: true, sandboxEnabled: true });
+  assert.ok(on.enabledTools.includes('download_file'));
+  assert.equal(on.fileDownloadActive, true);
+  const noWeb = nexus.computeCapabilityVector({ relayOk: true, webEnabled: false, fileEnabled: true });
+  assert.ok(noWeb.disabledTools.includes('download_file'));
+  // 内网地址升级 L3 需确认（与 fetch_url 同规则）
+  const risk = ex.assessToolRisk ? ex.assessToolRisk('download_file', { url: 'http://127.0.0.1/x.bin' }) : null;
+  if (risk) assert.equal(risk.level, 'L3');
+  const agentSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(agentSrc, /if \(t\.name === 'download_file'\) return relayOk && settings\.webEnabled !== false && relaySupports\('file'\);/);
+  assert.match(agentSrc, /case 'download_file': return \{ reads: \[\], writes: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\] \};/);
+  assert.match(agentSrc, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file'\]\)/);
+  const cfgSrc = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(cfgSrc, /- download_file：把 http\(s\) 链接指向的文件/);
+  // 执行：非法 URL 直接失败，不发请求
+  const fs = createFS();
+  const bad = await executeTool('download_file', { url: 'ftp://x/y.bin' }, { fs, onUi: () => {} });
+  assert.match(bad, /download_file 失败：只接受 http\(s\) 绝对地址/);
+});
+
+test('net.js relayDownload：走声明 file 能力的 Worker，超限拒绝，文件名按 Content-Type 补扩展名', async () => {
+  const net = await import('../js/net.js');
+  assert.equal(net.RELAY_FILE_MAX_BYTES, 16 * 1024 * 1024);
+  assert.equal(net.fileNameFromUrl('https://a.b/c/d.png?x=1'), 'd.png');
+  assert.equal(net.fileNameFromUrl('https://a.b/c/123', 'video/mp4'), '123.mp4');
+  assert.equal(net.fileNameFromUrl('https://a.b/', 'application/pdf'), 'download.pdf');
+  assert.equal(net.fileNameFromUrl('https://a.b/%E6%B5%8B%E8%AF%95.zip'), '测试.zip');
+  const caps = net.relayCapabilities();
+  assert.deepEqual(Object.keys(caps).sort(), ['crawl', 'file', 'search']);
+  const bad = await net.relayDownload({ url: 'not-a-url' });
+  assert.equal(bad.ok, false);
+  assert.match(bad.error, /只接受 http\(s\)/);
+  // mock：health 声明 file → /api/file 收到 url & max，返回字节
+  net.resetRelayProbe();
+  const origFetch = globalThis.fetch;
+  const seen = [];
+  globalThis.fetch = async (url) => {
+    const u = String(url);
+    seen.push(u);
+    if (/\/api\/health$/.test(u)) return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (/\/api\/file\?/.test(u)) return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200, headers: { 'content-type': 'image/png', 'x-dubhe-file-name': 'logo.png', 'x-dubhe-final-url': 'https://cdn.example.org/logo.png' } });
+    return new Response('nf', { status: 404 });
+  };
+  try {
+    const r = await net.relayDownload({ url: 'https://cdn.example.org/logo.png' });
+    assert.equal(r.ok, true, r.error);
+    assert.equal(r.via, 'relay');
+    assert.equal(r.mime, 'image/png');
+    assert.equal(r.name, 'logo.png');
+    assert.deepEqual([...r.bytes], [1, 2, 3, 4]);
+    assert.ok(seen.some((u) => /\/api\/file\?url=https%3A%2F%2Fcdn\.example\.org%2Flogo\.png&max=16777216$/.test(u)), `应带 url+max 调 /api/file：${seen.join(' | ')}`);
+    assert.equal(net.relaySupports('file'), true);
+  } finally {
+    globalThis.fetch = origFetch;
+    net.resetRelayProbe();
+  }
+});
+
+test('链接附件：粘贴文件 URL / 「文件链接」菜单项 → 经中继拉取后走同一条 addFiles 流水线', async () => {
+  const fsp = await import('node:fs');
+  const ua = fsp.readFileSync(new URL('../js/ui-attachments.js', import.meta.url), 'utf8');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(ua, /import \{ relayDownload, relaySupports, relayAvailable, RELAY_FILE_MAX_BYTES \} from '\.\/net\.js';/);
+  assert.match(ua, /function looksLikeFileUrl\(t\)/);
+  assert.match(ua, /async function addFromUrl\(url\)/);
+  assert.match(ua, /const file = new File\(\[r\.bytes\], r\.name \|\| 'download', \{ type: r\.mime \|\| 'application\/octet-stream' \}\);/);
+  assert.match(ua, /await addFiles\(\[file\]\);/, '链接文件与本地文件同一条流水线（缩放 / 抽帧 / 审核）');
+  assert.match(ua, /if \(looksLikeFileUrl\(text\) && composer\.value\.trim\(\) === ''\)/, '只在输入框为空时把粘贴的链接当附件');
+  assert.match(ua, /addFromUrl\(text\)\.then\(\(ok\) => \{ if \(!ok\) insertAtCursor\(composer, text\); \}\);/, '拉取失败回退为普通文本粘贴');
+  assert.match(app, /<button id="attach-link-action" class="attach-menu-item"/);
+  assert.match(ua, /addFromUrl,\s*captureVideoFrames,/, '对外暴露以便测试 / 其它入口复用');
 });
 
 for (const item of queue) {

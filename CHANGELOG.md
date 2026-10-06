@@ -2,8 +2,11 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-06 · 构建 2026.10.5.18
+## Dubhe Agent V1.7 Stable · 2026-10-06 · 构建 2026.10.5.19
 
+- **沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 2026.10.5.19）**：此前 `uploads/*.mp4` 在文件面板被当成二进制只给十六进制预览、气泡里也只有一个文件芯片。现在：① 附件进入前用 `<video>` + canvas 在本地抽帧——0.3 秒处一张海报图（附件芯片 / 消息气泡的首帧缩略图）+ 按 `(i+0.5)/5 · 时长` 均匀抽 5 帧；流式 WebM（录屏 / MediaRecorder 产物）时长为 Infinity 的先 seek 到极大值逼出真实时长再抽；解不出画面的（HEVC `.mov` 等）直接拒收。② 5 帧与图片走同一条 NudeNet + NSFWJS 本地审核流水线，任一帧命中即整条视频拦截，抽不到帧视为失败关闭；帧数据只用于审核，`agent.send` 入消息前摘掉，不进上下文也不落 IndexedDB。③ 气泡显示海报 + `▶ 时长` 角标，点击原地换成 `<video controls>`（blob URL，与全屏预览的点击互不干扰）；文件面板视频有专属图标，点开即 `<video>` 播放，关闭时 MutationObserver 回收 blob。CSP 新增 `media-src 'self' blob: data:`。
+- **跨域文件拉取 `download_file`（构建 2026.10.5.19）**：新工具（工具总数 39）经 Worker `/api/file`（v1.7.0，`capabilities` 含 `file`）拉取任意 http(s) 资源原始字节写入沙箱 `uploads/`（≤ 16 MB，Worker 侧 `Content-Length` 预判 + 流式计数双重 413，禁止私网 / 本机地址，跟随 ≤ 5 次跳转并回传 `x-dubhe-final-url` / `x-dubhe-file-name`）；文件名取 `Content-Disposition` → URL 末段 → MIME 推断扩展名，重名自动加序号；结果头 `[下载完成] <url>\n保存：<path> · <mime> · <MB> MB · <kind>`，图片 / PDF / 视频提示后续可接 `analyze_*`。中继不支持 `file` 能力时该工具从工具表剔除（`executionContext` 与能力位双向对齐测试覆盖）。网络类并行限流名单纳入该工具。
+- **前端粘贴 / 输入链接即附件（构建 2026.10.5.19）**：输入框粘贴裸 http(s) 链接或回形针菜单「从链接添加」→ 经中继拉取 → 与本地文件完全相同的分类（图片缩放 / 视频抽帧 / PDF / 文本 / ZIP）与审核流程，大小上限 16 MB，失败只弹 toast 不入附件。
 - **`analyze_video` 视频识别（构建 2026.10.5.18）**：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 `uploads/`，工具逻辑照搬 `analyze_image`：读 data URL → 走 OpenAI 兼容接口的 `file` 部件交给 Gemini → 全文写入 `internal/ocr/{文件名}.video.md` 并回传计费 usage。`video_url` 部件会被网关静默丢弃、非 Gemini 模型会剥掉视频部件，因此视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。
 - **设置页「多模态模型」**：识图模型（`analyze_image` / `analyze_pdf` 页图）与视频识别模型可选，只给几个有特点的档位（默认·最便宜 / 便宜·极快 / 均衡 / 效果最好 / 文档·代码截图），全局生效、写入 `settings.visionModel / videoModel`，透传到主回合与子智能体的工具 ctx；费用估算按所选模型取价。
 - **下架 DeepSeek 免费档**：`deepseek-v4-flash-free`、`deepseek-flash-free` 从模型表、价目表、智能路由候选中删除，UI 兜底隐藏（网关 `/v1/models` 再返回也不显示）；固定对话模型 40 → 38。

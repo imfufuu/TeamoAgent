@@ -40,12 +40,13 @@ const CAPABILITY_TOOLS = Object.freeze([
   ['web', 'fetch_url'],                  // 基础网页抓取能力
   ['web', 'search_web', 'search'],       // Worker 可选路由，由 health.capabilities 声明
   ['web', 'crawl_site', 'crawl'],
+  ['web', 'download_file', 'file'],    // 跨域文件拉取路由，同样由 health.capabilities 声明
   ['sandbox', 'execute_javascript'],
   ['dispatch', 'dispatch_subagent'],
 ]);
 
 // 只在中继（本地服务）可用、且不依赖具体能力位的工具：中继不在就必须摘掉
-export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url', 'search_web', 'crawl_site']);
+export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
 
 // 受沙箱能力位管辖的工具（与 js/tools.js 的 CODE_TOOL_NAMES 必须一致；有单测钉住）
 export const SANDBOX_GATED_TOOLS = Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']);
@@ -173,6 +174,10 @@ export function deriveToolWhitelist(ctx, allTools = []) {
     }
     if (name === 'crawl_site' && (!webConstraints || webConstraints.crawl !== true)) {
       dropped.push({ name, reason: 'relay-crawl-unavailable' });
+      continue;
+    }
+    if (name === 'download_file' && (!webConstraints || webConstraints.file !== true)) {
+      dropped.push({ name, reason: 'relay-file-unavailable' });
       continue;
     }
     if (RELAY_DEPENDENT_TOOLS.includes(name) && !bits.relay) { dropped.push({ name, reason: 'relay-offline' }); continue; }

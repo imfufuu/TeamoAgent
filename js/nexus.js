@@ -606,13 +606,14 @@ export function escalateNexusProfile(prevProfile, { iteration = 1, toolCallsCoun
 
 // 4 位主能力向量 + 两个由 Worker health 明确声明的网页路由特性：
 //   - fetch_url 依赖 (relayOk ∧ webEnabled)
-//   - search_web / crawl_site 额外依赖对应 Worker capability，不能从「health=ok」推断存在
+//   - search_web / crawl_site / download_file 额外依赖对应 Worker capability，不能从「health=ok」推断存在
 //   - execute_javascript / execute_python / execute_cpp 仅依赖 sandboxEnabled
 //   - dispatch_subagent 仅依赖 canDispatch
 export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
   webFetch: Object.freeze(['fetch_url']),
   workerSearch: Object.freeze(['search_web']),
   siteCrawler: Object.freeze(['crawl_site']),
+  fileDownload: Object.freeze(['download_file']),
   codeSandbox: Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']),
   subagentSwarm: Object.freeze(['dispatch_subagent']),
   invariantCore: Object.freeze([
@@ -629,6 +630,7 @@ export function computeCapabilityVector({
   webEnabled = true,
   searchEnabled = false,
   crawlEnabled = false,
+  fileEnabled = false,
   sandboxEnabled = true,
   canDispatch = false,
 } = {}) {
@@ -640,16 +642,18 @@ export function computeCapabilityVector({
   const webFetchActive = Boolean(r && w);
   const workerSearchActive = Boolean(webFetchActive && searchEnabled);
   const siteCrawlerActive = Boolean(webFetchActive && crawlEnabled);
+  const fileDownloadActive = Boolean(webFetchActive && fileEnabled);
   const codeSandboxActive = Boolean(s);
   const subagentSwarmActive = Boolean(d);
   const disabledToolGroups = [];
   const disabledTools = [];
   if (!webFetchActive) {
     disabledToolGroups.push(!r ? 'webFetch(no-relay)' : 'webFetch(web-off)');
-    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch, ...CAPABILITY_GATED_TOOL_GROUPS.workerSearch, ...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler);
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch, ...CAPABILITY_GATED_TOOL_GROUPS.workerSearch, ...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler, ...CAPABILITY_GATED_TOOL_GROUPS.fileDownload);
   } else {
     if (!workerSearchActive) { disabledToolGroups.push('workerSearch(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.workerSearch); }
     if (!siteCrawlerActive) { disabledToolGroups.push('siteCrawler(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler); }
+    if (!fileDownloadActive) { disabledToolGroups.push('fileDownload(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.fileDownload); }
   }
   if (!codeSandboxActive) {
     disabledToolGroups.push('codeSandbox(sandbox-off)');
@@ -664,6 +668,7 @@ export function computeCapabilityVector({
     ...(webFetchActive ? CAPABILITY_GATED_TOOL_GROUPS.webFetch : []),
     ...(workerSearchActive ? CAPABILITY_GATED_TOOL_GROUPS.workerSearch : []),
     ...(siteCrawlerActive ? CAPABILITY_GATED_TOOL_GROUPS.siteCrawler : []),
+    ...(fileDownloadActive ? CAPABILITY_GATED_TOOL_GROUPS.fileDownload : []),
     ...(codeSandboxActive ? CAPABILITY_GATED_TOOL_GROUPS.codeSandbox : []),
     ...(subagentSwarmActive ? CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm : []),
   ];
@@ -673,6 +678,7 @@ export function computeCapabilityVector({
     webFetchActive,
     workerSearchActive,
     siteCrawlerActive,
+    fileDownloadActive,
     codeSandboxActive,
     subagentSwarmActive,
     enabledTools,

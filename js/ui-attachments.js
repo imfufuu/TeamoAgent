@@ -2,7 +2,8 @@
 // 按钮 / 相机 / 拖拽 / 粘贴 四个入口 → 统一 addFiles：图片缩放与 MIME 白名单、文本 / PDF（原样入沙箱，交给 analyze_pdf）/ ZIP（解包进沙箱）、
 // 大小上限与芯片渲染。对外只暴露 { hasPending, takePending, addFiles }，发送逻辑取走后自动清空。
 import { ICON } from './icons.js';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.18';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.19';
+import { relayDownload, relaySupports, relayAvailable, RELAY_FILE_MAX_BYTES } from './net.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -26,16 +27,66 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
   const fileInput = $('#attach-input');
   const cameraInput = $('#camera-input');
 
-  // 读视频时长（只解元数据，不解码画面）：失败就当 0，不影响上传
-  const probeVideoDuration = (file) => new Promise((resolve) => {
-    if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return resolve(0);
+  // 视频抽帧：海报图（首帧缩略图，气泡 / 芯片用）+ 均匀抽 VIDEO_FRAMES 帧（本地审核用，与图片同一条 NudeNet + NSFWJS 流水线）。
+  // 只在浏览器解码能力内（H.264 / VP8 / VP9 / AV1）；解不出来的（HEVC .mov 等）直接拒收——审不到就不进沙箱。
+  const VIDEO_FRAMES = 5;
+  const FRAME_MAX_SIDE = 480;
+  const captureVideoFrames = (file, { frames = VIDEO_FRAMES, timeoutMs = 20000 } = {}) => new Promise((resolve, reject) => {
+    if (typeof document === 'undefined' || typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') return reject(new Error('当前环境不支持视频解码'));
     const v = document.createElement('video');
     const url = URL.createObjectURL(file);
-    const done = (d) => { try { URL.revokeObjectURL(url); } catch { /* noop */ } resolve(Number.isFinite(d) && d > 0 ? d : 0); };
-    const timer = setTimeout(() => done(0), 4000);
-    v.preload = 'metadata';
-    v.onloadedmetadata = () => { clearTimeout(timer); done(v.duration); };
-    v.onerror = () => { clearTimeout(timer); done(0); };
+    let done = false;
+    const finish = (fn, arg) => { if (done) return; done = true; clearTimeout(timer); try { v.pause(); v.removeAttribute('src'); v.load(); } catch { /* noop */ } try { URL.revokeObjectURL(url); } catch { /* noop */ } fn(arg); };
+    const timer = setTimeout(() => finish(reject, new Error('视频解码超时（20 秒）')), timeoutMs);
+    v.muted = true; v.playsInline = true; v.preload = 'auto';
+    const canvas = document.createElement('canvas');
+    const grab = () => {
+      const w = v.videoWidth || 0, h = v.videoHeight || 0;
+      if (!w || !h) throw new Error('视频没有画面轨');
+      const r = Math.min(1, FRAME_MAX_SIDE / Math.max(w, h));
+      canvas.width = Math.max(1, Math.round(w * r)); canvas.height = Math.max(1, Math.round(h * r));
+      canvas.getContext('2d').drawImage(v, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.78);
+    };
+    const seekTo = (t) => new Promise((res, rej) => {
+      const onSeeked = () => { v.removeEventListener('seeked', onSeeked); v.removeEventListener('error', onErr); res(); };
+      const onErr = () => { v.removeEventListener('seeked', onSeeked); v.removeEventListener('error', onErr); rej(new Error('seek 失败')); };
+      v.addEventListener('seeked', onSeeked); v.addEventListener('error', onErr);
+      v.currentTime = Math.max(0, t);
+    });
+    v.onerror = () => finish(reject, new Error('浏览器无法解码该视频（可能是 HEVC / 不支持的容器），请转成 H.264 MP4 再传'));
+    v.onloadedmetadata = async () => {
+      try {
+        let d = Number.isFinite(v.duration) && v.duration > 0 ? v.duration : 0;
+        // 等到能画第一帧
+        if (v.readyState < 2) await new Promise((res) => { v.addEventListener('loadeddata', res, { once: true }); });
+        // 流式 WebM（MediaRecorder / 屏幕录制产物）头里没写时长，duration 为 Infinity：
+        // 先 seek 到一个极大值逼浏览器扫到文件尾，durationchange 后才能拿到真实时长并均匀抽帧。
+        if (!d) {
+          d = await new Promise((res) => {
+            const t = setTimeout(() => res(0), 4000);
+            const on = () => {
+              if (Number.isFinite(v.duration) && v.duration > 0) { clearTimeout(t); v.removeEventListener('durationchange', on); res(v.duration); }
+            };
+            v.addEventListener('durationchange', on);
+            try { v.currentTime = 1e9; } catch { clearTimeout(t); v.removeEventListener('durationchange', on); res(0); }
+          });
+        }
+        const out = [];
+        // 海报：0.3 秒处（避开纯黑首帧），短视频取 10%
+        await seekTo(Math.min(0.3, d * 0.1));
+        const poster = grab();
+        // 均匀抽帧：(i+0.5)/n · duration
+        const n = Math.max(1, frames);
+        for (let i = 0; i < n; i++) {
+          const t = d ? ((i + 0.5) / n) * d : 0;
+          await seekTo(t);
+          out.push(grab());
+          if (!d) break;
+        }
+        finish(resolve, { poster, frames: out, durationSec: d, width: v.videoWidth, height: v.videoHeight });
+      } catch (err) { finish(reject, err); }
+    };
     v.src = url;
   });
 
@@ -143,8 +194,9 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
           if (f.size > MAX_VIDEO) { toast(`${f.name}：视频超过 16MB，请裁剪或压缩后再传`, 'err'); continue; }
           const ext = (f.name.toLowerCase().split('.').pop() || 'mp4');
           const mime = VIDEO_MIME_RE.test(f.type) ? f.type : (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'm4v' ? 'video/x-m4v' : 'video/mp4');
-          let durationSec = 0;
-          try { durationSec = await probeVideoDuration(f); } catch { durationSec = 0; }
+          let cap;
+          try { cap = await captureVideoFrames(f); } catch (err) { toast(`${f.name}：${err.message}（无法抽帧审核，未加入）`, 'err', 5200); continue; }
+          const durationSec = cap.durationSec || 0;
           pending.push({
             id: Math.random().toString(36).slice(2),
             kind: 'file',
@@ -154,9 +206,13 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
             dataUrl: String(await readAs('dataURL', f)).replace(/^data:[^;]*;base64,/, `data:${mime};base64,`),
             source: 'video',
             durationSec: durationSec || undefined,
+            width: cap.width || undefined,
+            height: cap.height || undefined,
+            poster: cap.poster,   // 首帧缩略图：芯片 / 气泡显示
+            frames: cap.frames,   // 均匀 5 帧：仅供本地审核，agent.send 会在入消息前摘掉
             originalName: f.name,
           });
-          toast(`${f.name}：已作为视频附件加入${durationSec ? `（约 ${Math.round(durationSec)} 秒）` : ''}，发送后 Agent 会调用 analyze_video 识别`, 'ok', 4200);
+          toast(`${f.name}：已作为视频附件加入（${durationSec ? `约 ${Math.round(durationSec)} 秒，` : ''}已抽 ${cap.frames.length} 帧待审核），发送后 Agent 会调用 analyze_video 识别`, 'ok', 4200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
           pending.push({
@@ -186,9 +242,9 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
     attachChips.style.display = pending.length ? '' : 'none';
     for (const a of pending) {
       const chip = el('div', 'attach-chip enter');
-      const imgSrc = a.kind === 'image' ? safeImgSrc(a.dataUrl) : '';
+      const imgSrc = a.kind === 'image' ? safeImgSrc(a.dataUrl) : (a.source === 'video' && a.poster ? safeImgSrc(a.poster) : '');
       chip.innerHTML = (imgSrc
-        ? `<img src="${esc(imgSrc)}" alt="">`
+        ? `<span class="attach-chip-thumb${a.source === 'video' ? ' is-video' : ''}"><img src="${esc(imgSrc)}" alt=""></span>`
         : `<span class="attach-chip-ico">${a.source === 'video' ? '🎬' : '📄'}</span>`)
         + `<span class="attach-chip-name mono">${esc(a.originalName || a.name)}</span><span class="attach-chip-size">${fmtSize(a.size)}</span><button class="attach-chip-x" type="button" aria-label="移除附件">${ICON.x}</button>`;
       $('.attach-chip-x', chip).addEventListener('click', () => {
@@ -253,11 +309,66 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
   mainEl.addEventListener('drop', (e) => addFiles(e.dataTransfer && e.dataTransfer.files));
   composer.addEventListener('paste', (e) => {
     const files = [...((e.clipboardData && e.clipboardData.files) || [])];
-    if (files.length) { e.preventDefault(); addFiles(files); }
+    if (files.length) { e.preventDefault(); addFiles(files); return; }
+    // 粘贴的是一条指向文件的链接（图片 / 视频 / PDF / ZIP）：经中继跨域拉下来当附件，走同一条审核 / 缩略图流水线
+    const text = String((e.clipboardData && e.clipboardData.getData('text')) || '').trim();
+    if (looksLikeFileUrl(text) && composer.value.trim() === '') {
+      e.preventDefault();
+      addFromUrl(text).then((ok) => { if (!ok) insertAtCursor(composer, text); });
+    }
   });
+
+  // ── 链接附件：粘贴 / 「链接」菜单项 → relay /api/file → File → addFiles ──────────────
+  const FILE_URL_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|avif|heic|heif|svg|mp4|webm|mov|m4v|pdf|zip)(?:[?#].*)?$/i;
+  function looksLikeFileUrl(t) {
+    if (!/^https?:\/\/\S+$/i.test(t) || /\s/.test(t)) return false;
+    try { return FILE_URL_EXT_RE.test(new URL(t).pathname + (new URL(t).search || '')); } catch { return false; }
+  }
+  function insertAtCursor(el, text) {
+    const start = el.selectionStart ?? el.value.length, end = el.selectionEnd ?? el.value.length;
+    el.value = el.value.slice(0, start) + text + el.value.slice(end);
+    el.selectionStart = el.selectionEnd = start + text.length;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  let urlBusy = false;
+  async function addFromUrl(url) {
+    const target = String(url || '').trim();
+    if (!/^https?:\/\//i.test(target)) { toast('请输入以 http(s):// 开头的文件链接', 'err'); return false; }
+    if (urlBusy) { toast('上一个链接还在拉取中…', 'info'); return false; }
+    if (pending.length >= MAX_FILES) { toast(`最多 ${MAX_FILES} 个附件`, 'err'); return false; }
+    urlBusy = true;
+    const label = target.length > 60 ? `${target.slice(0, 57)}…` : target;
+    try {
+      await relayAvailable();
+      if (!relaySupports('file')) {
+        toast('当前中继不支持跨域拉取文件（需要新版 relay/worker.js，health 声明 file 能力）', 'err', 5200);
+        return false;
+      }
+      toast(`正在经中继拉取 ${label}`, 'info', 2600);
+      const r = await relayDownload({ url: target, maxBytes: RELAY_FILE_MAX_BYTES });
+      if (!r.ok) { toast(`拉取失败：${r.error}`, 'err', 5200); return false; }
+      const file = new File([r.bytes], r.name || 'download', { type: r.mime || 'application/octet-stream' });
+      const before = pending.length;
+      await addFiles([file]);
+      return pending.length > before;
+    } catch (err) {
+      toast(`拉取失败：${err && err.message ? err.message : String(err)}`, 'err', 5200);
+      return false;
+    } finally { urlBusy = false; }
+  }
+  const linkBtn = $('#attach-link-action');
+  if (linkBtn) {
+    linkBtn.addEventListener('click', async () => {
+      setAttachMenuOpen(false);
+      const url = prompt('粘贴文件链接（图片 / 视频 / PDF / ZIP / 文本，≤ 16MB，经中继跨域拉取）：', '');
+      if (url && url.trim()) await addFromUrl(url.trim());
+    });
+  }
   return {
     hasPending: () => pending.length > 0,
     takePending: () => { const atts = pending; pending = []; renderAttachChips(); return atts; },
     addFiles,
+    addFromUrl,
+    captureVideoFrames,
   };
 }

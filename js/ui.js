@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.18';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.19';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.18';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.19';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.18';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.18';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.18';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.18';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.18';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.18';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.18';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.18';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.19';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.19';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.19';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.19';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.19';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.19';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.19';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.19';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.18';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.19';
 // :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
 const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
@@ -237,9 +237,22 @@ const contextBudgetLabel = (model) => {
 };
 
 // 附件展示（用户气泡内）
+const fmtVideoLen = (sec) => { const s = Math.max(0, Math.round(Number(sec) || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+// data:video/… → blob URL（16MB 的 data URL 直接塞 <video src> 既慢又占内存；blob 可被 <video> 流式读）
+export function videoBlobUrl(dataUrl) {
+  const s = String(dataUrl || '');
+  const m = /^data:([^;,]+);base64,/.exec(s);
+  if (!m) return '';
+  try {
+    const bin = atob(s.slice(s.indexOf(',') + 1));
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([u8], { type: m[1] }));
+  } catch { return ''; }
+}
 function renderAttachments(atts) {
   if (!atts || !atts.length) return '';
-  const items = atts.map((a) => {
+  const items = atts.map((a, idx) => {
     if (a.kind === 'image') {
       const src = safeImgSrc(a.dataUrl);
       return src
@@ -247,7 +260,17 @@ function renderAttachments(atts) {
         : `<span class="att-file mono" title="内容未持久化">🖼 ${esc(a.name)}（已省略）</span>`;
     }
     const isVideo = a.source === 'video' || /^video\//i.test(String(a.mime || '')) || /\.(mp4|webm|mov|m4v)$/i.test(String(a.name || ''));
-    return `<span class="att-file mono" title="${esc(a.name)}">${isVideo ? '🎬' : '📄'} ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
+    if (isVideo) {
+      // 视频：首帧海报 + ▶ 角标；点击在气泡内就地播放（blob URL，CSP media-src 已放行）
+      const poster = safeImgSrc(a.poster);
+      const dur = a.durationSec ? fmtVideoLen(a.durationSec) : '';
+      const can = !a.stripped && /^data:video\//i.test(String(a.dataUrl || ''));
+      return `<button type="button" class="att-video${can ? '' : ' is-off'}" data-att-idx="${idx}" title="${esc(a.name)}${can ? '（点击播放）' : '（内容未持久化）'}">`
+        + (poster ? `<img src="${poster}" alt="${esc(a.name)}">` : `<span class="att-video-blank">🎬</span>`)
+        + `<span class="att-video-badge">${can ? '▶' : '⊘'}${dur ? ` ${dur}` : ''}</span>`
+        + `<span class="att-video-name mono">${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span></button>`;
+    }
+    return `<span class="att-file mono" title="${esc(a.name)}">📄 ${esc(a.name)}${a.stripped ? '（已省略）' : ` · ${fmtSize(a.size)}`}</span>`;
   }).join('');
   return `<div class="att-row">${items}</div>`;
 }
@@ -3571,6 +3594,24 @@ function validateApiKey(s) {
     }).observe(msgList, { childList: true, subtree: true });
   }
   // 复制代码块按钮（事件委托）
+  // 用户气泡里的视频附件：点击 → 就地替换成 <video controls>（捕获阶段处理，不让图片灯箱接手）
+  msgList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.att-video');
+    if (!btn || !msgList.contains(btn)) return;
+    e.preventDefault(); e.stopPropagation();
+    if (btn.classList.contains('is-off')) { toast('该视频内容未持久化（已省略），无法播放', 'info'); return; }
+    const msgEl = btn.closest('.msg[data-id]');
+    const msg = msgEl ? (store.state.messages || []).find((x) => String(x.id) === String(msgEl.dataset.id)) : null;
+    const att = msg && Array.isArray(msg.attachments) ? msg.attachments[Number(btn.dataset.attIdx)] : null;
+    const url = att ? videoBlobUrl(att.dataUrl) : '';
+    if (!url) { toast('视频数据不可用', 'err'); return; }
+    const v = document.createElement('video');
+    v.className = 'att-video-player';
+    v.controls = true; v.autoplay = true; v.playsInline = true; v.preload = 'metadata';
+    v.src = url; v.title = att.name || '';
+    v.addEventListener('emptied', () => { try { URL.revokeObjectURL(url); } catch { /* noop */ } }, { once: true });
+    btn.replaceWith(v);
+  }, true);
   msgList.addEventListener('click', (e) => {
     // 图表选中态：点击空白处（不在任何 datum、tooltip、按钮内）→ 清空所有图表的激活态
     const inDatum = e.target.closest('[data-chart-label], .md-chart-tooltip, button, a');

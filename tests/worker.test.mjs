@@ -22,16 +22,18 @@ test('Worker health advertises versioned fetch/search/crawl capabilities', async
   const { response, body } = await jsonCall('/api/health');
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
-  assert.equal(body.version, '1.6.0');
+  assert.equal(body.version, '1.7.0');
   assert.equal(body.relay, 'dubhe-cf-worker', 'health identifier remains stable for compatibility');
-  assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl']);
+  assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl', 'file']);
+  assert.equal(body.limits.file_bytes, 16 * 1024 * 1024);
 });
 
 test('Worker root banner uses the Dubhe Agent identity', async () => {
   const response = await worker.fetch(makeRequest('/'));
   const text = await response.text();
   assert.equal(response.status, 200);
-  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.6\.0/);
+  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.7\.0/);
+  assert.match(text, /GET  \/api\/file\?url=/);
 });
 
 test('dashboard-compatible Worker source carries the migrated identity', () => {
@@ -289,6 +291,38 @@ test('routes are GET-only except CORS preflight, and fetch honors caller cancell
     assert.match(body.error, /disconnect|abort|cancel/i);
     assert.equal(observedAbortSignal.aborted, true);
   });
+});
+
+test('/api/file：跨域二进制原样回传 + CORS + 文件名头；超限 413；SSRF 护栏生效', async () => {
+  const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+  await withMockFetch(async (target) => {
+    assert.match(String(target), /^https:\/\/cdn\.example\.org\/img\/logo\.png/);
+    return new Response(bytes, { status: 200, headers: { 'content-type': 'image/png', 'last-modified': 'Mon, 05 Oct 2026 00:00:00 GMT' } });
+  }, async () => {
+    const response = await worker.fetch(makeRequest('/api/file?url=https%3A%2F%2Fcdn.example.org%2Fimg%2Flogo.png'));
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-type'), 'image/png');
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    assert.equal(response.headers.get('x-dubhe-file-name'), 'logo.png');
+    assert.match(response.headers.get('access-control-expose-headers'), /x-dubhe-file-name/);
+    assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [...bytes]);
+  });
+  // 没扩展名 → 按 Content-Type 补
+  await withMockFetch(async () => new Response(new Uint8Array(16), { status: 200, headers: { 'content-type': 'video/mp4' } }), async () => {
+    const response = await worker.fetch(makeRequest('/api/file?url=https%3A%2F%2Fcdn.example.org%2Fclip%2F123'));
+    assert.equal(response.headers.get('x-dubhe-file-name'), '123.mp4');
+  });
+  // 超限：413 而不是截断
+  await withMockFetch(async () => new Response(new Uint8Array(4096), { status: 200, headers: { 'content-type': 'application/zip' } }), async () => {
+    const response = await worker.fetch(makeRequest('/api/file?url=https%3A%2F%2Fcdn.example.org%2Fa.zip&max=2048'));
+    assert.equal(response.status, 413);
+    assert.match((await response.json()).error, /超过上限/);
+  });
+  // SSRF：私网地址拒绝
+  const blocked = await jsonCall('/api/file?url=http%3A%2F%2F127.0.0.1%2Fsecret.bin');
+  assert.equal(blocked.response.status, 502);
+  const missing = await jsonCall('/api/file');
+  assert.equal(missing.response.status, 400);
 });
 
 test('search and crawl validate required parameters', async () => {

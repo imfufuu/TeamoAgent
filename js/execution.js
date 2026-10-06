@@ -691,7 +691,7 @@ export function checkCapabilityConstraints({ name = '', args = {}, capabilities 
   const a = args && typeof args === 'object' ? args : {};
   const names = new Set((Array.isArray(toolNames) ? toolNames : []).map(toolNameOf).filter(Boolean));
 
-  if (['fetch_url', 'search_web', 'crawl_site'].includes(name)) {
+  if (['fetch_url', 'search_web', 'crawl_site', 'download_file'].includes(name)) {
     if (!caps.web.enabled) {
       return {
         allowed: false, decision: 'deny', constraintId: 'capability-web-off',
@@ -851,6 +851,7 @@ export const TOOL_CONTRACTS = Object.freeze({
   fetch_url: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'backoff', timeoutMs: 30000, riskLevel: 'L2', external: true }),
   search_web: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 30000, riskLevel: 'L2', external: true, note: '搜索词会发送给 Worker 配置的搜索服务，结果需核验' }),
   crawl_site: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 60000, riskLevel: 'L2', external: true, note: '严格限制同源、页数与深度的只读抓取' }),
+  download_file: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 120000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '经中继 /api/file 跨域拉取 ≤16MB 文件写入沙箱 uploads/' }),
   run_git: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 30000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '远端操作（clone/push/pull）跨系统边界时升为 L3' }),
   search_files: contract({ idempotent: true, retryPolicy: 'backoff', timeoutMs: 8000, riskLevel: 'L1' }),
   diff_text: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L1' }),
@@ -1338,7 +1339,7 @@ export function classifyToolRisk({ name = '', args = null, contract: contractDef
       reasons.push('Git 远端操作跨越外部系统边界（clone / push / pull）');
     }
   }
-  if (name === 'fetch_url') {
+  if (name === 'fetch_url' || name === 'download_file') {
     const host = hostOf(a.url || '');
     if (PRIVATE_HOST_RE.test(host)) {
       level = 'L3';

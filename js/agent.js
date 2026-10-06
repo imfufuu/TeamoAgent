@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.18';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.19';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.18';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.19';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -94,7 +94,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.18';
+} from './execution.js?v=2026.10.5.19';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -104,36 +104,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.18';
+} from './recovery.js?v=2026.10.5.19';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.18';
+} from './idempotency.js?v=2026.10.5.19';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.18';
+} from './memorylife.js?v=2026.10.5.19';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.18';
+} from './trajectory.js?v=2026.10.5.19';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.18';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.18';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.19';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.19';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.18';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.18';
+} from './experiments.js?v=2026.10.5.19';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.19';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -143,10 +143,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.18';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.18';
+} from './executionContext.js?v=2026.10.5.19';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.19';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.18';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.19';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -157,7 +157,7 @@ const toolsFor = (sandboxEnabled, { remoteCpp = true } = {}) =>
   (sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name)))
     .filter((t) => remoteCpp || t.name !== 'execute_cpp');
 // 只在具备中继路由时可用的网页工具；搜索/爬虫还须由 Worker health 明确声明对应特性。
-const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site']);
+const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
 const RELAY_OFF_NOTE = '\n\n【工具可用性】本轮健康探测没有发现可用网页中继（没有本地中继，或 Cloudflare Worker 未通过健康检查），fetch_url / search_web / crawl_site 因此不在工具表里；'
   + '顶栏联网开关当前不可用，用户请求网页任务时会重新探测。run_git 仍可用内置沙箱 Git（不支持 clone/push 等远端网络操作）；不要声称已经搜索或抓取网页。';
 const WEB_RELAY_OFF_NOTE = '\n\n【联网】本轮未联网：本地 server.py / Cloudflare Worker 当前没有通过健康检查，网页工具未加入本轮工具表。若任务需要实时信息，应如实说明暂时无法核实；不要把记忆说成刚查到的。';
@@ -173,8 +173,9 @@ function formatWebCapabilityNote({ relayOk, webEnabled, tools } = {}) {
     fetch_url: 'fetch_url（读取单个网页）',
     search_web: 'search_web（网页搜索）',
     crawl_site: 'crawl_site（同源站点抓取）',
+    download_file: 'download_file（跨域拉取文件进沙箱）',
   };
-  const unavailable = ['fetch_url', 'search_web', 'crawl_site'].filter((name) => !names.includes(name));
+  const unavailable = ['fetch_url', 'search_web', 'crawl_site', 'download_file'].filter((name) => !names.includes(name));
   return `\n\n【联网】本轮已开启；中继健康检查通过。实际网页工具表：${names.map((name) => label[name] || name).join('、')}。${unavailable.length ? `未列出的 ${unavailable.join(' / ')} 本轮不可用。` : ''}${WEB_FACTS_NOTE}`;
 }
 
@@ -341,6 +342,7 @@ export function toolAccessSet(call) {
     case 'analyze_pdf': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'analyze_video': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
+    case 'download_file': return { reads: [], writes: a.path ? strList(a.path) : [ACCESS_ANY] };
     default:
       if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
       return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };
@@ -354,7 +356,7 @@ export function toolCallsConflict(a, b) {
 }
 // 同一波内按工具类别限流：一次放出十几个 fetch_url 会同时打满中继与目标站点（也更容易被限流），
 // 网络类 ≤ 4 并发；其余本地工具 ≤ 8。限流只影响同波内的启动时机，不改变波次与结果下标。
-export const NETWORK_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site']);
+export const NETWORK_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
 export const PARALLEL_LIMITS = Object.freeze({ network: 4, default: 8 });
 export const toolCategoryOf = (name) => (NETWORK_TOOLS.has(name) ? 'network' : 'default');
 export function plannedConcurrency(names, limits = PARALLEL_LIMITS) {
@@ -576,6 +578,7 @@ export function createAgent(store, hooks = {}) {
       webEnabled: webOn,
       searchEnabled: relaySupports('search'),
       crawlEnabled: relaySupports('crawl'),
+      fileEnabled: relaySupports('file'),
       sandboxEnabled: store.state.settings.sandboxEnabled !== false,
       canDispatch,
     });
@@ -1260,6 +1263,7 @@ export function createAgent(store, hooks = {}) {
         if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
         if (t.name === 'search_web') return relayOk && settings.webEnabled !== false && relaySupports('search');
         if (t.name === 'crawl_site') return relayOk && settings.webEnabled !== false && relaySupports('crawl');
+        if (t.name === 'download_file') return relayOk && settings.webEnabled !== false && relaySupports('file');
         return relayOk || !RELAY_ONLY_TOOLS.has(t.name);
       })
       .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
@@ -1323,6 +1327,7 @@ export function createAgent(store, hooks = {}) {
           ...(userCapabilityOverrides.web || {}),
           search: relayOk && settings.webEnabled !== false && relaySupports('search'),
           crawl: relayOk && settings.webEnabled !== false && relaySupports('crawl'),
+          file: relayOk && settings.webEnabled !== false && relaySupports('file'),
         },
       },
     });
@@ -2262,7 +2267,7 @@ export function createAgent(store, hooks = {}) {
     } catch (err) {
       if (err && (err.name === 'AbortError' || (ctrl && ctrl.signal && ctrl.signal.aborted))) throw err;
       const reason = err && err.name === 'ModerationTimeoutError' ? '总预算超时' : '审核异常';
-      const imgTurn = Array.isArray(attachments) && attachments.some((a) => a && a.kind === 'image');
+      const imgTurn = Array.isArray(attachments) && attachments.some((a) => a && (a.kind === 'image' || a.source === 'video'));
       if (typeof globalThis !== 'undefined' && globalThis.__dubheModPush) globalThis.__dubheModPush({ stage: imgTurn ? 'turn:fail-closed' : 'turn:fail-open', reason, error: String(err && err.message || err).slice(0, 220) });
       if (imgTurn) {
         // 带图回合 fail-closed：审核没跑完就不放行，图片绝不进沙箱（模型在后台继续预热，用户可重试）
@@ -2308,8 +2313,10 @@ export function createAgent(store, hooks = {}) {
     const assistantMsg = store.pushMessage({
       role: 'assistant',
       text: timedOut
-        ? '⚠ 图片审核超时（模型资源下载过慢或不可达），本轮已阻止，图片未进沙箱。模型正在后台继续预热，请稍后重发。'
-        : '该内容已被审核',
+        ? '⚠ 图片 / 视频审核超时（模型资源下载过慢或不可达），本轮已阻止，附件未进沙箱。模型正在后台继续预热，请稍后重发。'
+        : (result && result.image && result.image.videoFrame
+          ? `该内容已被审核（视频抽帧 ${String(result.image.videoFrame).replace(/^.*#frame/, '第 ')} 帧命中）`
+          : '该内容已被审核'),
       model: 'Moderator',
       done: true,
       transientModeration: true,
@@ -2448,6 +2455,12 @@ export function createAgent(store, hooks = {}) {
 
     async send(userText, attachments = []) {
       clearTransientModeration();
+      // 视频附件带着 5 张审核抽帧进来：只给审核用，不进消息 / 不落 localStorage（海报图 poster 保留给气泡缩略图）
+      const videoFrames = new Map();
+      for (const a of attachments) {
+        if (a && Array.isArray(a.frames)) { videoFrames.set(a, a.frames); delete a.frames; }
+      }
+      const forModeration = attachments.map((a) => (videoFrames.has(a) ? { ...a, frames: videoFrames.get(a) } : a));
       // 若上一条 user 消息发出后用户立即停止（assistant 还没输出/被取消），
       // 本次新发送直接替换它，而不是再追加一条 user，避免留下一个"问了但没回答"的悬空气泡。
       // 判定：最后一条消息是 user，且非 transient（说明已经过了审核、发出过），且其后没有 assistant 收尾。
@@ -2479,7 +2492,7 @@ export function createAgent(store, hooks = {}) {
         emit('onUserMessage', userText, userMsg);
       }
       try {
-        const moderation = await runContentModeration(userText, attachments);
+        const moderation = await runContentModeration(userText, forModeration);
         if (moderation && moderation.blocked) { removePreviewTurn(userMsg, checkpoint); blockByModeration(moderation); return; }
       } catch (err) {
         if (err && err.name === 'AbortError') { removePreviewTurn(userMsg, checkpoint); setStatus('cancelled'); emit('onCancelled'); return; }

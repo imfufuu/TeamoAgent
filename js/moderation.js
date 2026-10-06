@@ -916,21 +916,33 @@ export async function moderateText({ text, attachments = [], apiKey = '', signal
   return mergeDecisions(policy, jevDecision);
 }
 
+export const VIDEO_MODERATION_FRAMES = 5; // 每段视频均匀抽 5 帧参与审核（与 ui-attachments.captureVideoFrames 一致）
+
 export async function moderateImages({ attachments = [], text = '', signal } = {}) {
   throwIfAborted(signal);
   const tAll = performance.now();
   const localImgs = (attachments || [])
     .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')));
-  mlog('images:start', { 本地图片: localImgs.length, 文本远程图URL: textImageCandidates(text).length });
+  // 视频附件：上传时均匀抽的 5 帧（ui-attachments.captureVideoFrames）当作图片一起过 NudeNet + NSFWJS；
+  // 任一帧命中即拦截整段视频。没有抽到帧的视频 = 没审到 → degraded（fail-closed）。
+  const videoAtts = (attachments || []).filter((a) => a && a.source === 'video');
+  const frameImgs = [];
+  let videoNoFrames = 0;
+  for (const v of videoAtts) {
+    const frames = Array.isArray(v.frames) ? v.frames.filter((f) => /^data:image\//.test(String(f || ''))).slice(0, VIDEO_MODERATION_FRAMES) : [];
+    if (!frames.length) { videoNoFrames++; continue; }
+    frames.forEach((f, i) => frameImgs.push({ kind: 'image', name: `${v.name || 'video'}#frame${i + 1}`, dataUrl: f, fromVideo: true }));
+  }
+  mlog('images:start', { 本地图片: localImgs.length, 视频: videoAtts.length, 视频抽帧: frameImgs.length, 文本远程图URL: textImageCandidates(text).length });
   let remote = { attachments: [], errors: [] };
   if (textImageCandidates(text).length) {
     try { remote = await remoteImageAttachmentsFromText(text, signal); }
     catch (err) { if (isAbortError(err)) throw err; remote = { attachments: [], errors: [{ error: String(err && err.message || err), source: 'text-image-url' }] }; }
   }
-  const imgs = [...localImgs, ...remote.attachments].slice(0, 6);
-  if (!imgs.length) return { blocked: false, score: 0, categories: [], skipped: 'no-images', parts: remote.errors };
+  const imgs = [...localImgs, ...remote.attachments].slice(0, 6).concat(frameImgs.slice(0, VIDEO_MODERATION_FRAMES * 2));
+  if (!imgs.length && !videoNoFrames) return { blocked: false, score: 0, categories: [], skipped: 'no-images', parts: remote.errors };
   let nsfwModel = null;
-  let imgFail = false; // 任一图片路径失败/超时 → degraded：fail-closed，宁可拦截不可放行
+  let imgFail = videoNoFrames > 0; // 任一图片路径失败/超时（或视频没抽到帧）→ degraded：fail-closed，宁可拦截不可放行
   const decisions = [...(remote.errors || [])];
   for (let i = 0; i < imgs.length; i++) {
     const a = imgs[i];
@@ -991,6 +1003,12 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   }
   const out = mergeDecisions(...decisions);
   if (!out.blocked && imgFail) out.degraded = true; // 图未明确放行而是「没审到」→ 标记降级
+  if (out.blocked && decisions.some((d) => d && d.blocked) && frameImgs.length) {
+    // 标出是哪段视频的第几帧命中，拦截提示能说清楚
+    const hitIdx = decisions.findIndex((d) => d && d.blocked);
+    const hit = imgs[hitIdx - (remote.errors || []).length];
+    if (hit && hit.fromVideo) out.videoFrame = hit.name;
+  }
   mlog('images:done', { 图片数: imgs.length, blocked: out.blocked, degraded: out.degraded || undefined, score: Math.round((out.score || 0) * 1000) / 1000, cats: out.categories, 总耗时: ms(tAll) });
   return out;
 }
@@ -998,7 +1016,7 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
 export async function moderateUserTurn({ text, attachments = [], apiKey = '', signal } = {}) {
   throwIfAborted(signal);
   const t0 = performance.now();
-  const imgCount = (attachments || []).filter((a) => a && a.kind === 'image').length;
+  const imgCount = (attachments || []).filter((a) => a && (a.kind === 'image' || a.source === 'video')).length;
   const hasImage = imgCount > 0 || textImageCandidates(text).length > 0;
   const bypass = policyImagePromptBypass(text, hasImage);
   if (bypass.blocked) { mlog('turn:blocked-by-prompt-bypass', {}); return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } }; }

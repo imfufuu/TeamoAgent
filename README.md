@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.18` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.19` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -116,11 +116,17 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 ```
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
-`fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site`（新版 Worker + 联网开关）、`run_git`（本地中继 `workspace/` 内 git）。
+`fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site` / `download_file`（新版 Worker + 联网开关；`download_file` 把任意 http(s) 文件原始字节拉进沙箱 `uploads/`，≤ 16 MB）、`run_git`（本地中继 `workspace/` 内 git）。
 另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image` / `analyze_video`，以及 V1.7 新增的 `csv_tool`（CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON）/ `date_calc`（日期差、加减、工作日、时区）/ `text_tool`（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）/ `convert_units`（长度、质量、温度、速度、面积、体积、数据、时间）/ `qr_code`（本地二维码 SVG，Version 1–20，写入 `outputs/`），全部在 `js/utiltools.js`，纯本地、零依赖。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.19：沙箱视频播放 / 首帧缩略图 / 5 帧审核 / 跨域文件拉取**
+
+24. **视频附件三件套**：进入附件前本地抽帧——0.3 秒海报图作为芯片 / 气泡首帧缩略图，再按 `(i+0.5)/5 · 时长` 均匀抽 5 帧交给与图片同一条 NudeNet + NSFWJS 审核流水线（任一帧命中即拦截，抽不到帧视为失败关闭；帧只用于审核，入消息前摘掉）。流式 WebM 时长为 Infinity 的先 seek 到极大值逼出真实时长；解不出画面的视频直接拒收。气泡显示海报 + `▶ 时长`，点击原地换成 `<video controls>`；文件面板视频有专属图标并可直接播放（blob URL，关闭即回收）。CSP 新增 `media-src 'self' blob: data:`。
+25. **`download_file` 新工具**（工具总数 39）：经 Worker `/api/file`（v1.7.0，health `capabilities` 含 `file`）把任意 http(s) 资源原始字节写入沙箱 `uploads/`（≤ 16 MB，私网 / 本机地址拒绝，≤ 5 次跳转），文件名取 `Content-Disposition` → URL 末段 → MIME 推断，重名加序号；中继无 `file` 能力时从工具表剔除，`executionContext` 双向对齐测试覆盖；网络类并行限流名单纳入。
+26. **粘贴 / 输入链接即附件**：输入框粘贴裸链接或回形针菜单「从链接添加」→ 经中继拉取 → 与本地文件相同的分类与审核流程（16 MB 上限）。
 
 **构建 2026.10.5.18：analyze_video / 设置页识图·视频模型 / 下架 DeepSeek 免费档 / 加载屏网络明细**
 
@@ -156,7 +162,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **构建 2026.10.5.11 继续落地**
 
-6. **同波按类别限流** `runWithCategoryLimits`：网络类（`fetch_url` / `search_web` / `crawl_site`）≤ 4 并发、本地工具 ≤ 8，每类一个信号量，按原序启动；`plannedConcurrency` 把实际峰值记入 `parallelTasks` 预算。
+6. **同波按类别限流** `runWithCategoryLimits`：网络类（`fetch_url` / `search_web` / `crawl_site` / `download_file`）≤ 4 并发、本地工具 ≤ 8，每类一个信号量，按原序启动；`plannedConcurrency` 把实际峰值记入 `parallelTasks` 预算。
 7. **mountUI 第二刀**：`ui-files-panel.js`（239 行）、`ui-lightbox.js`（202 行）、`ui-attachments.js`（232 行）以 `install*(deps)` 注入，返回最小 API（`renderFiles / openFileViewer`、`openLightbox / closeLightbox`、`hasPending / takePending / addFiles`），无反向依赖 ui.js；ui.js 5066 → 3945 行，`mountUI` 闭包约 2570 行。配套静态契约测试防止「拆出去的代码隐式依赖原模块作用域」。
 
 **构建 2026.10.5.12：启动可靠性**
