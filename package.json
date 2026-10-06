@@ -24,5 +24,8 @@
     "test:p3": "node tests/p3-kernel-smoke.mjs && node tests/p3-dom-smoke.mjs",
     "test:worker": "node tests/worker.test.mjs"
   },
-  "version": "1.6.0"
+  "version": "1.6.0",
+  "dependencies": {
+    "jsdom": "^29.1.1"
+  }
 }
