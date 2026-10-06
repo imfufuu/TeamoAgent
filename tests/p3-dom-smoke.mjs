@@ -82,6 +82,40 @@ ok('完成后折叠行变回 Edited File（不再直播）', /Edited File/.test(
 ok('完成后自动折叠（不占版面）', !fold2.classList.contains('expanded'));
 ok('展开后预览窗仍在（回看最后一次写入）', !!$('.edited-files .edit-preview'));
 
+// ── P2 修正：临时沙箱丢弃标注 ──
+console.log('\n③ 临时沙箱丢弃标注（Edited File(s) 里划线 + 「已丢弃 · 回答未引用」）');
+store.pushMessage({ role: 'user', text: '再写两个文件' });
+const m2 = store.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: [
+  { id: 'c-a', name: 'write_file', args: { path: 'outputs/keep.md', content: '# keep' }, status: 'ok' },
+  { id: 'c-b', name: 'write_file', args: { path: 'outputs/tmp.md', content: 'x' }, status: 'ok' },
+], done: false });
+ui.onAssistantStart(m2);
+ui.onAssistantDone(store.updateMessage(m2.id, { done: true, text: '结果在 outputs/keep.md。' }));
+ok('回合未提交前：没有丢弃标注', $$('.edited-files .fold-discarded').length === 0);
+// agent 收尾：tempCommit 挂到回合最终助手消息（这里是另一条、没有 write_file 的消息）→ onTempCommit 钩子重画整个回合
+const m2b = store.pushMessage({ role: 'assistant', text: '都写好了。', model: 'gpt-5.6-sol', done: true });
+ui.onAssistantStart(m2b); ui.onAssistantDone(m2b);
+ui.onTempCommit(store.updateMessage(m2b.id, { tempCommit: { committed: ['outputs/keep.md'], discarded: ['outputs/tmp.md', 'outputs/plot.png'] } }));
+const folds = $$('.edited-files');
+ok('丢弃清单只画一块（上一回合的折叠不受影响）', folds.length === 2 && $$('.edited-files.has-discarded').length === 1, String(folds.length));
+const fold3 = folds[1];
+ok('标题仍是 Edited Files 2（按 write_file 计数）', /Edited Files 2/.test(fold3.querySelector('.chip-name').textContent), fold3.querySelector('.chip-name').textContent);
+const items = [...fold3.querySelectorAll('li')];
+ok('列表 3 项：2 个 write_file + 1 个脚本生成的被丢弃产物', items.length === 3, String(items.length));
+const dropped = [...fold3.querySelectorAll('li.fold-discarded')];
+ok('2 项划线标丢弃，保留项不标', dropped.length === 2 && !items[0].classList.contains('fold-discarded'));
+ok('丢弃项带「已丢弃 · 回答未引用」标签和 title 说明怎么保留', dropped.every((li) => /已丢弃 · 回答未引用/.test(li.textContent) && /写出路径或文件名即可保留/.test(li.title)));
+ok('折叠底部有一行解释（internal/ 与 uploads/ 总是保留）', /本轮丢弃 2 个未在回答中引用的临时文件；internal\/ 与 uploads\/ 下的文件总是保留/.test(fold3.querySelector('.fold-note')?.textContent || ''));
+ok('折叠头带 has-discarded 态', fold3.classList.contains('has-discarded'));
+// 整轮没 write_file（脚本生成）→ Discarded File(s) 折叠
+store.pushMessage({ role: 'user', text: '画个图' });
+const m3 = store.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: [{ id: 'c-py', name: 'execute_python', args: { code: 'open("outputs/a.png","wb")' }, status: 'ok' }], done: false });
+ui.onAssistantStart(m3);
+ui.onAssistantDone(store.updateMessage(m3.id, { done: true, text: '画好了。' }));
+ui.onTempCommit(store.updateMessage(m3.id, { tempCommit: { committed: [], discarded: ['outputs/a.png'] } }));
+const dfold = $$('.edited-files').filter((n) => /Discarded File/.test(n.querySelector('.chip-name').textContent));
+ok('没有 write_file 时用 Discarded File 标题，画在挂 tempCommit 的消息上', dfold.length === 1 && dfold[0].querySelector('.chip-name').textContent === 'Discarded File', dfold.map((n) => n.querySelector('.chip-name').textContent).join('|'));
+
 console.log(`
 P3 DOM 冒烟：${failures === 0 ? '全部通过 ✅' : `${failures} 项失败 ❌`}`);
 process.exit(failures ? 1 : 0);

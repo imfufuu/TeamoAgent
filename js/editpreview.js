@@ -232,3 +232,43 @@ export function editFoldLabel(count, { live = false } = {}) {
   if (live) return n === 1 ? 'Editing File' : `Editing Files ${n}`;
   return n === 1 ? 'Edited File' : `Edited Files ${n}`;
 }
+
+/**
+ * P2 修正：找同一回合里 agent 挂上的临时沙箱提交结果（tempCommit = { committed, discarded }）。
+ * 回合边界 = 相邻两条 user 消息之间；顺带算出整轮有没有 write_file，供 UI 决定丢弃清单画在哪条消息上。
+ */
+export function turnRange(messages, idx) {
+  const msgs = Array.isArray(messages) ? messages : [];
+  if (!(idx >= 0 && idx < msgs.length)) return [0, -1];
+  let lo = idx; let hi = idx;
+  while (lo - 1 >= 0 && msgs[lo - 1].role !== 'user') lo--;
+  while (hi + 1 < msgs.length && msgs[hi + 1].role !== 'user') hi++;
+  return [lo, hi];
+}
+
+export function findTurnTempCommit(messages, idx, pathsOfEdit = () => []) {
+  const msgs = Array.isArray(messages) ? messages : [];
+  const [lo, hi] = turnRange(msgs, idx);
+  if (hi < lo) return null;
+  let tc = null; let turnHasEdits = false;
+  for (let i = hi; i >= lo; i--) {
+    const x = msgs[i];
+    if (!x || x.role !== 'assistant') continue;
+    if (!tc && x.tempCommit && typeof x.tempCommit === 'object') tc = x.tempCommit;
+    if (pathsOfEdit(x).length) turnHasEdits = true;
+  }
+  return tc ? { committed: tc.committed || [], discarded: tc.discarded || [], turnHasEdits } : null;
+}
+
+/** 丢弃清单只画一次：有 Edited 折叠就画在那块上；整轮没 write_file 时画在挂着 tempCommit 的最终消息上 */
+export function discardedForFold(tempCommit, { editedCount = 0, hostHasCommit = false } = {}) {
+  if (!tempCommit) return [];
+  const show = editedCount > 0 || (!tempCommit.turnHasEdits && hostHasCommit);
+  return show ? (tempCommit.discarded || []).slice() : [];
+}
+
+/** 整轮没有 write_file、只剩丢弃项时的折叠标题 */
+export function discardedFoldLabel(count) {
+  const n = Number(count) || 0;
+  return n === 1 ? 'Discarded File' : `Discarded Files ${n}`;
+}

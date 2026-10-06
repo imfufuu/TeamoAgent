@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
-import { runJavaScript, runPython, runCpp, pythonAvailable } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.21';
+import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.22';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
@@ -12,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.21';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.22';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.21';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.22';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -752,7 +752,8 @@ async function executeToolBody(name, args, ctx) {
           msg = `已写入 ${path}（${content.length} 字符）`;
         }
         emit({ status: 'ok', fsChange: true, editedPath: path, note: msg });
-        return msg;
+        // P2 修正：把持久性契约写进结果——临时沙箱里 outputs/ 等自由路径要在最终回答里提到才会保留
+        return `${msg}${persistenceNote(fs, path)}`;
       }
       case 'read_file': {
         const path = normalizeFsPath(args.path);
@@ -877,7 +878,7 @@ async function executeToolBody(name, args, ctx) {
           return `fetch_url 失败：${r.error}`;
         }
         emit({ status: 'ok', fsChange: !!r.savedTo, note: `${r.status || ''} ${(r.chars / 1024).toFixed(1)}K${r.savedTo ? ` → ${r.savedTo}` : ''}` });
-        return `[抓取完成] ${r.url}（HTTP ${r.status || '?'} · ${r.contentType || '未知类型'} · ${r.chars} 字符${r.savedTo ? ` · 全文已存 ${r.savedTo}` : ''}）${r.note ? `\n说明：${r.note}` : ''}\n\n${r.preview}`;
+        return `[抓取完成] ${r.url}（HTTP ${r.status || '?'} · ${r.contentType || '未知类型'} · ${r.chars} 字符${r.savedTo ? ` · 全文已存 ${r.savedTo}${persistenceNote(fs, r.savedTo)}` : ''}）${r.note ? `\n说明：${r.note}` : ''}\n\n${r.preview}`;
       }
       case 'download_file': {
         const url = String(args.url || '').trim();
@@ -919,7 +920,7 @@ async function executeToolBody(name, args, ctx) {
         const kind = /^image\//.test(mime) ? '图片（可 analyze_image）' : /^video\//.test(mime) ? '视频（可 analyze_video）' : /pdf/.test(mime) ? 'PDF（可 analyze_pdf）' : /zip/.test(mime) ? 'ZIP（可 unzip_file）' : textual ? '文本（可 read_file）' : '二进制';
         const sizeMb = (r.bytes.length / 1024 / 1024).toFixed(2);
         emit({ status: 'ok', fsChange: true, note: `${sizeMb} MB → ${path}` });
-        return `[下载完成] ${r.finalUrl || url}\n保存：${path} · ${mime} · ${sizeMb} MB · ${kind}${r.via === 'direct' ? '（目标站允许 CORS，浏览器直连）' : '（经中继）'}`;
+        return `[下载完成] ${r.finalUrl || url}\n保存：${path}${persistenceNote(fs, path)} · ${mime} · ${sizeMb} MB · ${kind}${r.via === 'direct' ? '（目标站允许 CORS，浏览器直连）' : '（经中继）'}`;
       }
       case 'run_git': {
         emit({ status: 'running', note: String(args.command || 'git').slice(0, 46) });

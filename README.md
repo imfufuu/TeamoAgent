@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.21` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.22` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -121,6 +121,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.22：P2 修正——沙箱文件不保证跨轮持久**
+
+33. **白名单无条件提交**：`TEMP_PERSIST_PREFIXES = ['internal/', 'uploads/']`，`commitAnswer()` / `discard()` 都保留这两个前缀下的文件（抓取全文、识图结果、下载件、用户上传）；`outputs/` 等自由路径仍按「回答是否引用」判定。
+34. **工具结果写明持久契约**：临时 FS 上 `write_file` 写自由路径提示「未提及将被丢弃」，`internal/` 与 `fetch_url` / `download_file` 落盘提示「已持久」；系统提示新增「沙箱持久规则」。
+35. **丢弃可见**：回合最终消息挂 `tempCommit`，Edited File(s) 折叠把丢弃项划线标「已丢弃 · 回答未引用」并说明怎么保留；整轮没 `write_file` 时用 Discarded File(s)。
 
 **构建 2026.10.5.21：P1 修正——预算拦截无预警**
 

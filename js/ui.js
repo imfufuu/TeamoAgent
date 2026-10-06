@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.21';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.22';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.21';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.22';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,14 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS } from './editpreview.js?v=2026.10.5.21';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.21';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.21';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.21';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.21';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.21';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.21';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.21';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.22';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.22';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.22';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.22';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.22';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.22';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.22';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.22';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +144,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.21';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.22';
 // :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
 const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
@@ -2699,7 +2699,12 @@ function validateApiKey(s) {
     // P3：写文件的折叠行 = 直播「Editing File(s)」+ 下方预览窗（最近 ~10 行，节流刷新）。
     // 完成后自动变回「Edited File(s) N」并折叠——展开时仍能看到最后写入的内容。
     const paintEditFold = (afterEl, liveNow) => {
-      const paths = mergedPaths('write_file', pathsOfEdit);
+      const edited = mergedPaths('write_file', pathsOfEdit);
+      // P2 修正：回合结束后把临时沙箱丢弃的文件标进 Edited File(s)（tempCommit 挂在回合最终消息上；脚本生成后被丢弃的产物也列出来）
+      const tempCommit = liveNow ? null : findTurnTempCommit(msgsAll, idxA, pathsOfEdit);
+      const discardedSet = new Set(discardedForFold(tempCommit, { editedCount: edited.length, hostHasCommit: !!(m && m.tempCommit) }));
+      const paths = edited.slice();
+      for (const d of discardedSet) if (!paths.includes(d)) paths.push(d);
       const calls = (m && m.toolCalls) || [];
       let node = $('.edited-files', wrap);
       if (paths.length) {
@@ -2712,7 +2717,7 @@ function validateApiKey(s) {
         };
         const preview = previewOf();
         // 预览窗按「文件 + 行数 + 字符数 + 状态」做签名：内容没变就不重排（长文件逐帧重建是卡顿主因）
-        const sig = [liveNow ? 'live' : 'done', paths.join('\u0001'), preview ? `${preview.lineCount}/${preview.chars}/${preview.status}` : 'none'].join('\u0002');
+        const sig = [liveNow ? 'live' : 'done', paths.join('\u0001'), [...discardedSet].join('\u0001'), preview ? `${preview.lineCount}/${preview.chars}/${preview.status}` : 'none'].join('\u0002');
         const now = Date.now();
         if (!node) {
           node = el('div', 'edited-files');
@@ -2727,7 +2732,7 @@ function validateApiKey(s) {
           afterEl.after(node);
         }
         node._prev = afterEl;
-        const label = editFoldLabel(paths.length, { live: !!liveNow });
+        const label = edited.length ? editFoldLabel(edited.length, { live: !!liveNow }) : discardedFoldLabel(paths.length);
         // 节流：直播期间预览窗每 EDIT_PREVIEW_REFRESH_MS 刷一次；换文件或收尾时立刻刷（不然窗口会落后几秒）
         const pathChanged = node._previewPath !== (preview && preview.path || '');
         const throttleOk = !liveNow || node._previewAt == null || (now - node._previewAt) >= EDIT_PREVIEW_REFRESH_MS;
@@ -2737,9 +2742,13 @@ function validateApiKey(s) {
           node._previewPath = (preview && preview.path) || '';
           const head = `<span class="chip-ico think-ico">${ICON.edited || ''}</span><span class="mono chip-name">${esc(label)}</span>` +
             (preview && liveNow ? `<span class="chip-state ep-state">${esc(preview.complete ? '写入完成' : '写入中…')}</span>` : '');
-          const list = `<ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul>`;
+          const list = `<ul>${paths.map((x) => (discardedSet.has(x)
+            ? `<li class="mono fold-discarded" title="回合结束时最终回答没有提到这个文件，临时沙箱已把它丢弃；在回答里写出路径或文件名即可保留">${esc(x)}<span class="fold-tag">已丢弃 · 回答未引用</span></li>`
+            : `<li class="mono">${esc(x)}</li>`)).join('')}</ul>`;
+          const dropNote = discardedSet.size ? `<div class="fold-note">本轮丢弃 ${discardedSet.size} 个未在回答中引用的临时文件；internal/ 与 uploads/ 下的文件总是保留。</div>` : '';
           const win = preview ? editPreviewHtml(preview, liveNow) : '';
-          node.innerHTML = `${head}<div class="chip-detail"><div class="fold-inner">${list}${win}</div></div>`;
+          node.innerHTML = `${head}<div class="chip-detail"><div class="fold-inner">${list}${dropNote}${win}</div></div>`;
+          node.classList.toggle('has-discarded', discardedSet.size > 0);
         }
         if (node._userToggle == null) node.classList.toggle('expanded', !!liveNow);
         dropEarlierFold('edited-files', pathsOfEdit);
@@ -4163,6 +4172,12 @@ function validateApiKey(s) {
     onFsChange(paths) {
       renderFiles();
       if (paths && paths.length) toast(`附件已复制到沙箱：${paths.join('、')}`, 'ok', 4200);
+    },
+    // P2 修正：回合收尾挂上 tempCommit 后，重画同一回合的助手消息——Edited File(s) 折叠通常在更早一条（写文件那轮）上
+    onTempCommit(m) {
+      const msgs = store.state.messages;
+      const [lo, hi] = turnRange(msgs, msgs.findIndex((x) => x.id === (m && m.id)));
+      for (let i = lo; i <= hi; i++) { const w = msgs[i].role === 'assistant' && msgNodes.get(msgs[i].id); if (w) paintAssistant(w, msgs[i]); }
     },
     scrollToBottom: () => scrollToBottom(true),
     syncWeb,

@@ -10,6 +10,19 @@ import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 // 内部文件前缀：长久保存但用户不直接查看（识图 OCR/联网缓存/元数据等）；
 // 工作区（uploads/、outputs/ 及用户主动写入的路径）对用户可见。
 const WS_INTERNAL_PREFIXES = ['internal/', '.git/'];
+// P2 修正：临时沙箱提交白名单。这些前缀下的文件是「整文件写入的工具副产物 / 用户上传 / 跨域拉取」，
+// 不是模型自由创建的半截产物——回合结束无条件写回 baseFS，不再看最终回答有没有提到路径。
+// 以前 fetch_url 落盘的 internal/web/*.md、analyze_* 的 internal/ocr/*.md 全靠「回答里碰巧出现文件名」才能活过本轮。
+export const TEMP_PERSIST_PREFIXES = Object.freeze(['internal/', 'uploads/']);
+export function isAlwaysPersistedPath(p) {
+  const s = String(p || '');
+  return TEMP_PERSIST_PREFIXES.some((pref) => s.startsWith(pref));
+}
+// 工具结果里的持久性说明：让「已写入 X」这句话带上契约，而不是让模型 / 用户猜
+export function persistenceNote(fs, path) {
+  if (!fs || fs._isTemp !== true) return '';
+  return isAlwaysPersistedPath(path) ? '（已持久）' : '（本轮结束后若最终回答未提及此文件将被丢弃）';
+}
 const FS_MAX_PATH = 512;
 const FS_MAX_FILES = 5000;
 
@@ -257,7 +270,8 @@ export function createTempFS(baseFS) {
         return false;
       };
       for (const [p, c] of Object.entries(ephemeral)) {
-        if (looksReferenced(p)) {
+        // 白名单前缀（internal/ · uploads/）无条件提交；其余（outputs/、根目录等模型自由创建的）才走引用判定
+        if (isAlwaysPersistedPath(p) || looksReferenced(p)) {
           try { baseFS.write(p, c); committed.push(p); } catch { /* noop */ }
         } else {
           discarded.push(p);
@@ -267,11 +281,19 @@ export function createTempFS(baseFS) {
       this.clear();
       return { committed, discarded };
     },
-    // 丢弃整个临时层（任务中止/失败时调用）
+    // 丢弃临时层（任务中止 / 失败时调用）：模型自由创建的半截产物丢掉；
+    // 白名单前缀下的文件是整文件写入的（抓取全文 / 识图结果 / 下载件），中止也不该让它们蒸发。
     discard() {
-      const discarded = Object.keys(ephemeral);
+      const committed = [];
+      const discarded = [];
+      for (const [p, c] of Object.entries(ephemeral)) {
+        if (isAlwaysPersistedPath(p)) {
+          try { baseFS.write(p, c); committed.push(p); continue; } catch { /* 写不进去就按丢弃记 */ }
+        }
+        discarded.push(p);
+      }
       this.clear();
-      return { committed: [], discarded };
+      return { committed, discarded };
     },
     _isTemp: true,
   };

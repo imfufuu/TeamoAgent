@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.21';
+} from '../js/api.js?v=2026.10.5.22';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.21');
+const api = await import('../js/api.js?v=2026.10.5.22');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.21');
+  const api = await import('../js/api.js?v=2026.10.5.22');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.21');
+  assert.equal(APP_VERSION, '2026.10.5.22');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.21/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.22/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.21/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.22/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8522,6 +8522,199 @@ test('设置页「执行预算」：两路上限可调（写 settings.executionB
   assert.match(ui, /span\.className = `foot-budget\$\{exhausted\.length \? ' bad' : ''\}`;/);
   assert.match(css, /\.msg-foot \.foot-budget\.bad \{ color: #dc2626; font-weight: 600; \}/);
   assert.match(css, /\[data-theme="dark"\] \.msg-foot \.foot-budget\.bad \{ color: #f87171; \}/);
+});
+
+group('P2 修正：沙箱文件不保证跨轮持久 → internal/ · uploads/ 无条件提交 / 工具结果写明持久契约 / Edited File(s) 标出丢弃项');
+
+test('createTempFS：commitAnswer 对 internal/ 与 uploads/ 无条件提交；outputs/ 等自由路径仍按「回答是否引用」判定；discard() 也保留白名单', async () => {
+  const { createTempFS, TEMP_PERSIST_PREFIXES, isAlwaysPersistedPath, persistenceNote } = await import('../js/sandbox.js');
+  assert.deepEqual([...TEMP_PERSIST_PREFIXES], ['internal/', 'uploads/']);
+  assert.equal(isAlwaysPersistedPath('internal/web/a.md'), true);
+  assert.equal(isAlwaysPersistedPath('uploads/x.png'), true);
+  assert.equal(isAlwaysPersistedPath('outputs/x.png'), false);
+  assert.equal(isAlwaysPersistedPath('internal'), false, '必须带斜杠前缀，根目录同名文件不算');
+  // ① 正常结束：回答一个字没提文件
+  let base = createFS({ 'keep.txt': 'old' });
+  let tmp = createTempFS(base);
+  tmp.write('internal/web/example-com.md', '抓取全文');
+  tmp.write('internal/ocr/img.ocr.md', '识图结果');
+  tmp.write('uploads/pasted.png', 'data:image/png;base64,AAAA');
+  tmp.write('outputs/tmp.txt', '半截产物');
+  tmp.write('scratch.py', 'print(1)');
+  let r = tmp.commitAnswer('做完了，没有什么要说的。');
+  assert.deepEqual(r.committed.sort(), ['internal/ocr/img.ocr.md', 'internal/web/example-com.md', 'uploads/pasted.png']);
+  assert.deepEqual(r.discarded.sort(), ['outputs/tmp.txt', 'scratch.py']);
+  assert.equal(base.has('internal/web/example-com.md'), true, '抓取全文必须活过本轮');
+  assert.equal(base.has('uploads/pasted.png'), true);
+  assert.equal(base.has('outputs/tmp.txt'), false, '未引用的自由路径仍然丢弃（行为不变）');
+  assert.equal(base.read('keep.txt'), 'old');
+  // ② 引用判定不变：回答提到文件名就留
+  base = createFS({});
+  tmp = createTempFS(base);
+  tmp.write('outputs/report.md', '# r');
+  tmp.write('outputs/tmp.txt', 'x');
+  r = tmp.commitAnswer('报告见 outputs/report.md');
+  assert.deepEqual(r.committed, ['outputs/report.md']);
+  assert.deepEqual(r.discarded, ['outputs/tmp.txt']);
+  // ③ 取消 / 出错走 discard()：白名单照样落盘，半截产物丢掉，基座里的删除不生效
+  base = createFS({ 'a.txt': '1' });
+  tmp = createTempFS(base);
+  tmp.write('internal/web/p.md', '全文');
+  tmp.write('outputs/half.py', 'def');
+  tmp.remove('a.txt');
+  r = tmp.discard();
+  assert.deepEqual(r, { committed: ['internal/web/p.md'], discarded: ['outputs/half.py'] });
+  assert.equal(base.has('internal/web/p.md'), true, '中止也不该让抓取全文蒸发');
+  assert.equal(base.has('outputs/half.py'), false);
+  assert.equal(base.read('a.txt'), '1', 'discard 不应用删除');
+  assert.equal(tmp.has('outputs/half.py'), false, '临时层已清空');
+  assert.equal(tmp.has('a.txt'), true, '基座文件在临时层视图里复活（删除被撤销）');
+  // ④ 持久性说明：只对临时 FS 生效；白名单说「已持久」，其余说会被丢弃
+  assert.equal(persistenceNote(base, 'outputs/x.md'), '', '基座 FS 上不加说明');
+  assert.equal(persistenceNote(tmp, 'internal/web/x.md'), '（已持久）');
+  assert.equal(persistenceNote(tmp, 'outputs/x.md'), '（本轮结束后若最终回答未提及此文件将被丢弃）');
+});
+
+test('工具结果契约：write_file 在临时沙箱里写 outputs/ 会提示「未提及将被丢弃」；写 internal/ 提示「已持久」；基座 FS 上文案不变；system 提示里写明持久规则', async () => {
+  const { createTempFS } = await import('../js/sandbox.js');
+  const base = createFS({});
+  const tmp = createTempFS(base);
+  const r1 = await executeTool('write_file', { path: 'outputs/a.md', content: 'hi' }, { fs: tmp });
+  const strip = (t) => String(t).replace(/\n\[执行耗时 \d+ms\]$/, '');
+  assert.equal(strip(r1), '已写入 outputs/a.md（2 字符）（本轮结束后若最终回答未提及此文件将被丢弃）');
+  const r2 = await executeTool('write_file', { path: 'internal/notes/a.md', content: 'hi' }, { fs: tmp });
+  assert.equal(strip(r2), '已写入 internal/notes/a.md（2 字符）（已持久）');
+  const r3 = await executeTool('write_file', { path: 'outputs/b.md', content: 'hey' }, { fs: base });
+  assert.equal(strip(r3), '已写入 outputs/b.md（3 字符）', '基座 FS（子代理 / 直接调用）不加说明');
+  const fsp = await import('node:fs');
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.match(tools, /import \{ runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote \} from '\.\/sandbox\.js';/);
+  assert.match(tools, /全文已存 \$\{r\.savedTo\}\$\{persistenceNote\(fs, r\.savedTo\)\}/, 'fetch_url 的落盘说明带持久契约');
+  assert.match(tools, /保存：\$\{path\}\$\{persistenceNote\(fs, path\)\}/, 'download_file 的落盘说明带持久契约');
+  const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(cfg, /沙箱持久规则：本轮新建的文件只有在最终回答里提到其路径或文件名/);
+  assert.match(cfg, /internal\/ 与 uploads\/ 下的文件（抓取全文、识图结果、下载件、用户上传）总是保留/);
+});
+
+test('端到端：fetch_url 落盘的 internal/web/*.md 在回答完全没提到文件时仍进入 store.state.files；连续两轮累加；最终消息挂 tempCommit 供 UI 标注', async () => {
+  const big = '正文'.repeat(1500); // > 2000 字符才会落盘
+  const modelTurns = [
+    openaiToolTurn('call_1', 'fetch_url', JSON.stringify({ url: 'https://example.com/alpha' })),
+    openaiTextTurn('这页讲的是 alpha。'),
+    openaiToolTurn('call_2', 'fetch_url', JSON.stringify({ url: 'https://example.com/beta' })),
+    openaiTextTurn('这页讲的是 beta。'),
+  ];
+  const toolTexts = [];
+  const net = await import('../js/net.js');
+  net.resetRelayProbe();
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/v1/chat/completions')) return modelTurns.shift();
+    if (u.includes('/api/health')) return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', version: '1.7.0', capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    if (u.includes('/api/fetch')) {
+      const target = new URL(u, 'http://x').searchParams.get('url');
+      return new Response(JSON.stringify({ url: target, text: `${target}\n${big}`, content_type: 'text/html', title: 'p' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error(`未预期的请求：${u}`);
+  };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = true;
+    const agent = createAgent(store, {});
+    await agent.send('看看 example.com/alpha 说了什么');
+    const webFiles = () => Object.keys(store.state.files || {}).filter((p) => p.startsWith('internal/web/'));
+    assert.equal(webFiles().length, 1, `第一轮结束 internal/web/ 应有 1 个文件，实际：${webFiles().join(', ')}`);
+    const t1 = store.state.messages.find((m) => m.role === 'tool');
+    toolTexts.push(String(t1.content));
+    assert.match(toolTexts[0], /全文已存 internal\/web\/[^\s（]+\.md（已持久）/, '工具结果写明已持久');
+    const a1 = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    assert.doesNotMatch(a1.text, /internal\//, '前提：回答确实没有提到文件');
+    assert.deepEqual(a1.tempCommit && a1.tempCommit.committed, webFiles(), '最终消息挂上 tempCommit.committed');
+    assert.deepEqual(a1.tempCommit.discarded, []);
+    assert.equal(agent.fs.has(webFiles()[0]), true, 'agent.fs（基座）里也能 read_file 到');
+    await agent.send('再看看 example.com/beta');
+    assert.equal(webFiles().length, 2, `第二轮累加到 2 个，实际：${webFiles().join(', ')}`);
+    assert.equal(modelTurns.length, 0);
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('端到端：write_file 写 outputs/ 后回答没提 → 文件被丢弃，最终消息 tempCommit.discarded 列出它；回答提到则提交', async () => {
+  const run = async (finalText) => {
+    const calls = [];
+    mockFetch([
+      openaiToolTurn('call_w', 'write_file', JSON.stringify({ path: 'outputs/draft.md', content: '# 草稿' })),
+      openaiTextTurn(finalText),
+    ], calls);
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    const agent = createAgent(store, {});
+    await agent.send('写个草稿');
+    const tool = store.state.messages.find((m) => m.role === 'tool');
+    const final = [...store.state.messages].reverse().find((m) => m.role === 'assistant');
+    return { store, tool: String(tool.content), final };
+  };
+  try {
+    const a = await run('好了。');
+    assert.match(a.tool, /^已写入 outputs\/draft\.md（4 字符）（本轮结束后若最终回答未提及此文件将被丢弃）(\n\[执行耗时 \d+ms\])?$/);
+    assert.equal(Object.prototype.hasOwnProperty.call(a.store.state.files, 'outputs/draft.md'), false);
+    assert.deepEqual(a.final.tempCommit, { committed: [], discarded: ['outputs/draft.md'] });
+    const b = await run('草稿写在 outputs/draft.md。');
+    assert.equal(b.store.state.files['outputs/draft.md'], '# 草稿');
+    assert.deepEqual(b.final.tempCommit, { committed: ['outputs/draft.md'], discarded: [] });
+  } finally { globalThis.fetch = realFetch; await drainSaves(); }
+});
+
+test('UI：Edited File(s) 折叠按 tempCommit 把丢弃项划线并标「已丢弃 · 回答未引用」；整轮没 write_file 时只在挂 tempCommit 的消息上画 Discarded File(s)；纯函数与样式到位', async () => {
+  const ep = await import('../js/editpreview.js');
+  const edit = (path) => ({ role: 'assistant', toolCalls: [{ name: 'write_file', args: { path }, status: 'ok' }] });
+  const msgs = [
+    { role: 'user', text: 'a' },
+    edit('outputs/x.md'),
+    { role: 'assistant', text: '完', tempCommit: { committed: [], discarded: ['outputs/x.md', 'outputs/gen.png'] } },
+    { role: 'user', text: 'b' },
+    { role: 'assistant', text: '下一轮' },
+  ];
+  const pathsOfEdit = (m) => ep.pathsOfEdits((m && m.toolCalls) || []);
+  const tc = ep.findTurnTempCommit(msgs, 1, pathsOfEdit);
+  assert.deepEqual(tc, { committed: [], discarded: ['outputs/x.md', 'outputs/gen.png'], turnHasEdits: true });
+  assert.deepEqual(ep.findTurnTempCommit(msgs, 2, pathsOfEdit), tc, '同一回合任意消息都能找到');
+  assert.equal(ep.findTurnTempCommit(msgs, 4, pathsOfEdit), null, '不跨回合');
+  assert.deepEqual(ep.turnRange(msgs, 2), [1, 2]);
+  assert.deepEqual(ep.turnRange(msgs, 4), [4, 4]);
+  assert.deepEqual(ep.turnRange(msgs, -1), [0, -1]);
+  // 有 Edited 折叠：画在那块上（含不是 write_file 写的 gen.png）
+  assert.deepEqual(ep.discardedForFold(tc, { editedCount: 1, hostHasCommit: false }), ['outputs/x.md', 'outputs/gen.png']);
+  // 挂 tempCommit 的那条消息本身没有 write_file、但整轮有 → 不重复画
+  assert.deepEqual(ep.discardedForFold(tc, { editedCount: 0, hostHasCommit: true }), []);
+  // 整轮没 write_file（脚本生成的产物）→ 画在挂 tempCommit 的最终消息上
+  const tc2 = { committed: [], discarded: ['outputs/plot.png'], turnHasEdits: false };
+  assert.deepEqual(ep.discardedForFold(tc2, { editedCount: 0, hostHasCommit: true }), ['outputs/plot.png']);
+  assert.deepEqual(ep.discardedForFold(tc2, { editedCount: 0, hostHasCommit: false }), []);
+  assert.deepEqual(ep.discardedForFold(null, { editedCount: 1, hostHasCommit: true }), []);
+  assert.equal(ep.discardedFoldLabel(1), 'Discarded File');
+  assert.equal(ep.discardedFoldLabel(3), 'Discarded Files 3');
+  const fsp = await import('node:fs');
+  const ui = readUiSource();
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const agentSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.match(ui, /const tempCommit = liveNow \? null : findTurnTempCommit\(msgsAll, idxA, pathsOfEdit\);/, '直播期间不标注，收尾后才看提交结果');
+  assert.match(ui, /discardedForFold\(tempCommit, \{ editedCount: edited\.length, hostHasCommit: !!\(m && m\.tempCommit\) \}\)/);
+  assert.match(ui, /<li class="mono fold-discarded" title="回合结束时最终回答没有提到这个文件，临时沙箱已把它丢弃；在回答里写出路径或文件名即可保留">\$\{esc\(x\)\}<span class="fold-tag">已丢弃 · 回答未引用<\/span><\/li>/);
+  assert.match(ui, /本轮丢弃 \$\{discardedSet\.size\} 个未在回答中引用的临时文件；internal\/ 与 uploads\/ 下的文件总是保留。/);
+  assert.match(ui, /node\.classList\.toggle\('has-discarded', discardedSet\.size > 0\);/);
+  assert.match(ui, /edited\.length \? editFoldLabel\(edited\.length, \{ live: !!liveNow \}\) : discardedFoldLabel\(paths\.length\)/);
+  assert.match(css, /\.edited-files li\.fold-discarded \{ color: var\(--fg-3\); text-decoration: line-through;/);
+  assert.match(css, /\.edited-files li\.fold-discarded \.fold-tag \{ margin-left: 8px;[^}]*color: #dc2626;/);
+  assert.match(css, /\.edited-files \.fold-note \{/);
+  assert.match(agentSrc, /store\.updateMessage\(lastAssistant\.id, \{ tempCommit: \{ committed: tc\.committed \|\| \[\], discarded: tc\.discarded \|\| \[\] \} \}\);\n\s+emit\('onTempCommit', lastAssistant\);/, '提交结果挂到最终助手消息并通知 UI 重画');
+  const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  assert.match(main, /onTempCommit: \(m\) => ui && ui\.onTempCommit && ui\.onTempCommit\(m\),/);
+  assert.match(ui, /onTempCommit\(m\) \{\n\s+const msgs = store\.state\.messages;\n\s+const \[lo, hi\] = turnRange\(msgs, msgs\.findIndex/, 'UI 重画整个回合（折叠通常在更早的消息上）');
 });
 
 for (const item of queue) {

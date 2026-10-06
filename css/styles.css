@@ -1891,6 +1891,11 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 
 /* ── P3：编辑直播预览（Editing File(s) + 最近写入的几行）────────────────── */
 .edited-files .ep-state { font-family: var(--font); color: var(--fg-3); }
+/* P2 修正：临时沙箱丢弃标注——回答没提到的文件在回合结束时被丢弃，折叠里要能看出来并知道怎么保留 */
+.edited-files li.fold-discarded { color: var(--fg-3); text-decoration: line-through; text-decoration-color: color-mix(in srgb, #dc2626 55%, transparent); }
+.edited-files li.fold-discarded .fold-tag { margin-left: 8px; font-family: var(--font); font-size: 11px; color: #dc2626; text-decoration: none; display: inline-block; }
+.edited-files .fold-note { margin-top: 6px; font-family: var(--font); font-size: 11.5px; color: var(--fg-3); line-height: 1.5; }
+.edited-files.has-discarded > .chip-name { color: #b45309; }
 .edited-files.live .chip-ico { animation: spin 1.2s linear infinite; }  /* 写入中才转，写完停下 */
 .edit-preview {
   margin: 6px 0 2px; border: 1px solid var(--line); border-radius: 8px;

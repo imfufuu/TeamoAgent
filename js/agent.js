@@ -15,7 +15,7 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.21';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.22';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -62,7 +62,7 @@ import {
   evaluateNexusAcceptanceMetrics,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.21';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.22';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -97,7 +97,7 @@ import {
   summarizeArgs,
   formatConfirmationDecision,
   CONFIRMATION_DECISIONS,
-} from './execution.js?v=2026.10.5.21';
+} from './execution.js?v=2026.10.5.22';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
@@ -107,36 +107,36 @@ import {
   summarizeCheckpointHealth,
   diffFileState,
   digestArtifact,
-} from './recovery.js?v=2026.10.5.21';
+} from './recovery.js?v=2026.10.5.22';
 import {
   createIdempotencyLedger,
   planReplay,
   digestResultText,
   operationKey,
-} from './idempotency.js?v=2026.10.5.21';
+} from './idempotency.js?v=2026.10.5.22';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
   summarizeMemoryHealth,
-} from './memorylife.js?v=2026.10.5.21';
+} from './memorylife.js?v=2026.10.5.22';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.21';
+} from './trajectory.js?v=2026.10.5.22';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.21';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.21';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.22';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate, formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.22';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   appendExperimentSample,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.21';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.21';
+} from './experiments.js?v=2026.10.5.22';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.22';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -146,10 +146,10 @@ import {
   formatContextPanel,
   contextAuditFields,
   toolName,
-} from './executionContext.js?v=2026.10.5.21';
-import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.21';
+} from './executionContext.js?v=2026.10.5.22';
+import { reconcileAudit, formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.22';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.21';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.22';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -1998,10 +1998,12 @@ export function createAgent(store, hooks = {}) {
       }
       telemetry.activeMemoryCount = Array.isArray(store.state.memory) ? store.state.memory.length : 0;
 
-      // ── 临时沙箱提交：正常结束 → 只把最终回答引用到的文件提交到 baseFS；
-      //    取消/错误 → 丢弃全部临时写入（用户不希望半截产物污染沙箱）。
+      // ── 临时沙箱提交：正常结束 → 把最终回答引用到的文件 + 白名单前缀（internal/ · uploads/）提交到 baseFS；
+      //    取消/错误 → 丢弃模型自由创建的半截产物，白名单文件仍保留（P2 修正：抓取全文 / 识图结果不该随回合蒸发）。
+      //    结果同时挂到最终助手消息上（tempCommit），UI 在 Edited File(s) 折叠里标出哪些被丢弃、为什么。
+      let lastAssistant = null;
       try {
-        const lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.transientModeration);
+        lastAssistant = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.transientModeration) || null;
         const finalText = (lastAssistant && lastAssistant.text) || '';
         if (status === 'done') {
           exec.tempCommit = tempFS.commitAnswer(finalText);
@@ -2012,6 +2014,13 @@ export function createAgent(store, hooks = {}) {
         tempFS.discard();
         exec.tempCommit = { error: String((err && err.message) || err).slice(0, 160), committed: [], discarded: [] };
       } finally {
+        try {
+          const tc = exec.tempCommit || {};
+          if (lastAssistant && ((tc.committed && tc.committed.length) || (tc.discarded && tc.discarded.length))) {
+            store.updateMessage(lastAssistant.id, { tempCommit: { committed: tc.committed || [], discarded: tc.discarded || [] } });
+            emit('onTempCommit', lastAssistant); // UI 重画本回合的 Edited File(s) 折叠（丢弃项划线）
+          }
+        } catch { /* UI 标注失败不影响提交结果 */ }
         fs = baseFS; // 归还 fs 指针
         syncFS();
         // 工具回调期间仍在临时 FS；只有这里才知道最终哪些文件已提交到真实工作区。

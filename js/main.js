@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.21';
-import { createAgent } from './agent.js?v=2026.10.5.21';
-import { mountUI, toast } from './ui.js?v=2026.10.5.21';
+import { createStore } from './state.js?v=2026.10.5.22';
+import { createAgent } from './agent.js?v=2026.10.5.22';
+import { mountUI, toast } from './ui.js?v=2026.10.5.22';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.21';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.21';
-import { APP_RELEASE } from './config.js?v=2026.10.5.21';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.22';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.22';
+import { APP_RELEASE } from './config.js?v=2026.10.5.22';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
@@ -26,6 +26,7 @@ const hooks = {
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
+  onTempCommit: (m) => ui && ui.onTempCommit && ui.onTempCommit(m),
   onModerationFailOpen: (reason) => {
     globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('moderation.fail-open', reason || '超时');
     toast(`⚠ 图片/文本审核${reason || '超时'}，本轮已放行——控制台输入 __dubheModDump() 可复制完整审核日志（β）`, 'warn', 9000);
