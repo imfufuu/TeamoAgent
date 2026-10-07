@@ -168,11 +168,12 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
     const u = String(target); seen.push(u);
     if (/html\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html; charset=utf-8' } });
     if (/lite\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (/search\.brave\.com/.test(u)) return new Response('<html><body>Please verify you are human</body></html>', { status: 200, headers: { 'content-type': 'text/html' } });
     if (/^https:\/\/www\.bing\.com\/search\?/.test(u)) {
       const url = new URL(u);
       assert.equal(url.searchParams.get('format'), 'rss');
       assert.equal(url.searchParams.get('q'), 'dubhe agent');
-      assert.equal(url.searchParams.get('mkt'), 'en-US', '英文查询 → en-US 市场（不让 Bing 按出口国家乱猜）');
+      assert.equal(url.searchParams.get('mkt'), null, '不要带 mkt / setlang（实测带上后 Bing 对数据中心请求返回整页无关结果）');
       return new Response(rss, { status: 200, headers: { 'content-type': 'application/rss+xml; charset=utf-8' } });
     }
     throw new Error(`unexpected fetch ${u}`);
@@ -181,9 +182,10 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
     assert.equal(response.status, 200, body.error);
     assert.equal(body.provider, 'Bing');
     assert.equal(body.fallback, true);
-    assert.deepEqual(body.tried, ['DuckDuckGo', 'DuckDuckGo Lite']);
+    assert.deepEqual(body.tried, ['DuckDuckGo', 'DuckDuckGo Lite', 'Brave']);
     assert.match(body.warning, /DuckDuckGo 不可用（DuckDuckGo HTML 没有解析到结果/);
     assert.match(body.warning, /DuckDuckGo Lite 不可用（DuckDuckGo Lite 没有解析到结果/);
+    assert.match(body.warning, /Brave 不可用（Brave 没有解析到结果/);
     assert.match(body.warning, /已回退 Bing/);
     assert.equal(body.results.length, 2, '去重 + 丢私网地址');
     assert.equal(body.results[0].title, 'Dubhe Agent · GitHub');
@@ -192,7 +194,7 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
     assert.equal(body.results[0].source, 'Bing');
     assert.equal(body.results[1].title, 'Dubhe – Wikipedia & friends');
     assert.equal(body.results[1].snippet, 'Dubhe is a star & more.');
-    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'lite.duckduckgo.com', 'www.bing.com'], 'DDG html → DDG lite → Bing，顺序固定');
+    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'lite.duckduckgo.com', 'search.brave.com', 'www.bing.com'], 'DDG html → DDG lite → Brave → Bing，顺序固定');
   });
 });
 
@@ -231,6 +233,42 @@ test('DuckDuckGo HTML 被挡但 Lite 的 POST 入口可用 → 用 Lite（表单
   });
 });
 
+test('DuckDuckGo 两个入口都被挡 → Brave HTML：解析 data-type="web" 块的落地页 / title 属性 / generic-snippet，过滤广告块与私网地址', async () => {
+  const challenge = '<html><body><div class="anomaly-modal__title">bots</div></body></html>';
+  const brave = `<html><body><div id="results">
+    <div class="snippet svelte-x" data-pos="0" data-type="ad" data-keynav="true"><a href="https://ads.example.com/buy">Ad</a><div class="title search-snippet-title" title="Sponsored">Sponsored</div></div>
+    <div class="snippet svelte-x" data-pos="1" data-type="web" data-keynav="true"><div class="result-content"><a href="https://github.com/imfufuu/dubhe-agent?utm=1&amp;x=2" target="_self" class="l1"><div class="site-name">GitHub</div><div class="title search-snippet-title line-clamp-1" title="GitHub - imfufuu/dubhe-agent &amp; more">GitHub - imfufuu/dubhe-agent &amp; more</div></a><div class="generic-snippet"><div class="content desktop-default-regular t-primary">Dubhe Agent <strong>V1.7</strong> · 构建 ·</div></div></div></div>
+    <div class="snippet svelte-x" data-pos="2" data-type="web"><a href="http://192.168.1.1/x"><div class="title search-snippet-title" title="router">router</div></a></div>
+    <div class="snippet svelte-x" data-pos="3" data-type="web"><a href="https://en.wikipedia.org/wiki/Dubhe"><div class="title search-snippet-title" title="Dubhe - Wikipedia">Dubhe - Wikipedia</div></a><div class="generic-snippet"><div class="content">Dubhe is a star.</div></div></div>
+    <div class="snippet svelte-x" data-pos="4" data-type="web"><a href="https://en.wikipedia.org/wiki/Dubhe"><div class="title search-snippet-title" title="dup">dup</div></a></div>
+  </div></body></html>`;
+  const seen = [];
+  await withMockFetch(async (target) => {
+    const u = String(target); seen.push(u);
+    if (/duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html' } });
+    if (/^https:\/\/search\.brave\.com\/search\?/.test(u)) {
+      const url = new URL(u);
+      assert.equal(url.searchParams.get('q'), 'dubhe agent');
+      assert.equal(url.searchParams.get('source'), 'web');
+      return new Response(brave, { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/search?q=${encodeURIComponent('dubhe agent')}&limit=5`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'Brave');
+    assert.deepEqual(body.tried, ['DuckDuckGo', 'DuckDuckGo Lite']);
+    assert.equal(body.results.length, 2, '广告块不算、私网丢弃、重复 URL 合并');
+    assert.equal(body.results[0].title, 'GitHub - imfufuu/dubhe-agent & more');
+    assert.equal(body.results[0].url, 'https://github.com/imfufuu/dubhe-agent?utm=1&x=2', 'href 实体解码');
+    assert.match(body.results[0].snippet, /^Dubhe Agent V1\.7 · 构建 ·$/);
+    assert.equal(body.results[0].source, 'Brave');
+    assert.equal(body.results[1].url, 'https://en.wikipedia.org/wiki/Dubhe');
+    assert.equal(body.results[1].snippet, 'Dubhe is a star.');
+    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'lite.duckduckgo.com', 'search.brave.com'], 'Brave 成功就不再打 Bing');
+  });
+});
+
 test('所有搜索源全挂 → 502 且错误里逐个列出原因', async () => {
   await withMockFetch(async () => new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }), async () => {
     const { response, body } = await jsonCall('/api/search?q=nothing');
@@ -238,6 +276,7 @@ test('所有搜索源全挂 → 502 且错误里逐个列出原因', async () =>
     assert.match(body.error, /所有搜索源都失败/);
     assert.match(body.error, /DuckDuckGo：/);
     assert.match(body.error, /DuckDuckGo Lite：/);
+    assert.match(body.error, /Brave：/);
     assert.match(body.error, /Bing：Bing RSS 没有解析到结果/);
   });
 });

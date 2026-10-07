@@ -10,7 +10,7 @@
  * 端点：
  *   GET /api/health                    → 版本与 capabilities
  *   GET /api/fetch?url=...             → 有 SSRF 护栏的单页抓取（text/raw）
- *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → DuckDuckGo Lite（POST）→ Bing RSS 依次回退
+ *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → DuckDuckGo Lite（POST）→ Brave HTML → Bing RSS 依次回退
  *   GET /api/crawl?url=...             → 同源、有限页数/深度的 HTML 正文抓取
  *   GET /api/file?url=...              → 跨域二进制文件拉取（图片 / PDF / 视频 / ZIP，≤ 16MB，原样回传 + CORS）
  *                                      可选 max_pages、max_depth、max_bytes、max_chars
@@ -366,9 +366,7 @@ async function searchBing(query, limit, signal) {
   endpoint.searchParams.set('q', query);
   endpoint.searchParams.set('format', 'rss');
   endpoint.searchParams.set('count', String(Math.max(limit, 10)));
-  // 市场提示：数据中心出口不带 cookie 时 Bing 会按出口国家乱猜市场，给出一堆无关结果；按查询语种显式指定
-  endpoint.searchParams.set('mkt', /[\u3040-\u30ff]/.test(query) ? 'ja-JP' : (/[\u4e00-\u9fff]/.test(query) ? 'zh-CN' : 'en-US'));
-  endpoint.searchParams.set('setlang', /[\u3040-\u30ff]/.test(query) ? 'ja' : (/[\u4e00-\u9fff]/.test(query) ? 'zh-hans' : 'en'));
+  // 注意：不要加 mkt / setlang——2026-10-07 实测带上后 Bing 对无 cookie 的数据中心请求返回整页无关结果（YouTube / 百度经验），不带反而正常。
   const response = await guardedFetch(endpoint.toString(), {
     limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
     accept: 'application/rss+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5',
@@ -377,12 +375,43 @@ async function searchBing(query, limit, signal) {
   if (!results.length) throw new Error('Bing RSS 没有解析到结果');
   return { provider: 'Bing', results, truncated: response.truncated };
 }
+// Brave Search（HTML）：对数据中心出口最宽容、结果质量也最好的一家（2026-10-07 实测 DuckDuckGo 两个入口都挡、Bing RSS 偶发整页无关结果时，
+// Brave 仍能把目标仓库排第一）。结构：<div class="snippet …" data-type="web"> → 第一个 <a href> 是落地页，
+// <div class="… search-snippet-title …" title="…"> 是标题，<div class="generic-snippet"><div class="content …">…</div> 是摘要。
+function parseBraveHtml(html, limit) {
+  const source = String(html || '');
+  const blocks = source.split(/<div\b[^>]*\bclass\s*=\s*"snippet(?:\s[^"]*)?"[^>]*\bdata-type\s*=\s*"web"[^>]*>/i).slice(1);
+  const results = [];
+  for (const block of blocks) {
+    const href = /<a\b[^>]*\bhref\s*=\s*"(https?:\/\/[^"]+)"/i.exec(block);
+    if (!href) continue;
+    const t = /search-snippet-title[^>]*\btitle\s*=\s*"([^"]*)"/i.exec(block);
+    const sn = /generic-snippet[\s\S]*?<div\b[^>]*\bclass\s*=\s*"content[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(block);
+    const item = normalizeSearchResult({ title: htmlToText(t ? decodeEntities(t[1]) : ''), url: decodeEntities(href[1]), snippet: htmlToText(sn ? sn[1] : '').slice(0, 500) }, 'Brave');
+    if (item && !results.some((r) => r.url === item.url)) results.push(item);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+async function searchBrave(query, limit, signal) {
+  const endpoint = new URL('https://search.brave.com/search');
+  endpoint.searchParams.set('q', query);
+  endpoint.searchParams.set('source', 'web');
+  const response = await guardedFetch(endpoint.toString(), {
+    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
+    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+  });
+  const results = parseBraveHtml(response.body, limit);
+  if (!results.length) throw new Error('Brave 没有解析到结果（可能被上游限流）');
+  return { provider: 'Brave', results, truncated: response.truncated };
+}
 async function searchWeb(query, limit, env = {}, signal) {
   const errors = [];
   const providers = [];
   if (String(env.SEARXNG_URL || '').trim()) providers.push(['SearXNG', () => searchSearXNG(query, limit, env, signal)]);
   providers.push(['DuckDuckGo', () => searchDuckDuckGo(query, limit, signal)]);
   providers.push(['DuckDuckGo Lite', () => searchDuckDuckGoLite(query, limit, signal)]);
+  providers.push(['Brave', () => searchBrave(query, limit, signal)]);
   providers.push(['Bing', () => searchBing(query, limit, signal)]);
   for (const [name, run] of providers) {
     try {
