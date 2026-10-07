@@ -1,12 +1,13 @@
 name: Pages (Actions 部署)
 
 # GitHub Pages 部署通道（仓库 Settings → Pages → Source = GitHub Actions）。
-# 推送 main 即自动发布；workflow_dispatch 保留为手动重发入口。
+# 推送 main 或本次授权的 Arena 工作分支即自动发布；workflow_dispatch 保留为手动重发入口。
+# 只允许下列明确列出的分支发布，不能改成任意分支通配符。
 # concurrency 同一组避免重叠部署。（2026-09-28 起 legacy「Deploy from a branch」已弃用——
 # 此前注释描述的 legacy 模式与仓库实际配置不符，已修正。）
 on:
   push:
-    branches: [main]
+    branches: [main, 'arena/018d1d80-dubhe-agent']
   workflow_dispatch:
 
 permissions:
