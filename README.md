@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.29` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.7.1` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,14 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.7.1：文件状态核验与真实调用回归**
+
+- `files_keys` 取同步后的宿主文件系统：Python 增量回写不再报空，JS 被拒收的路径不再冒充已保存；写后回读、删后检查，失败明确回报（部分变更可能已生效，先核验再恢复）。
+- 同轮 `read_file / list_files / text_tool` 重新读取当前状态，不复用旧结果摘要。旧账本没有文件状态摘要时先核验，不能仅凭参数相同宣称成功；有摘要时使用账本实际产物路径比对。
+- `files` 是无原型字典，不是普通对象；同轮跨调用共享文件视图。**跨回合不是全部持久**：`internal/`、`uploads/` 自动保留，其余新增或修改文件需在最终回答引用，否则丢弃临时变更。JS / Python 描述及执行回执都写明此边界。
+- 文件缺失先探测存储视图；缺少运行时 API 先探测环境；找不到替换片段不再误报为文件不存在。
+- 回归覆盖真实 JS Worker 源码与 Agent 工具链、Python 增量协议、拒收与静默写删失败、旧账本以及回合结束保留规则。JS Worker 测试使用 Node VM 消息适配，不依赖在线网关；Python 协议测试不冒充真实 Pyodide 执行。
 
 **构建 2026.10.5.29：沙箱文件视图一致性——JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误**
 

@@ -13,7 +13,7 @@
 import { sha256Hex } from './nexus.js';
 import { canonicalJSON } from './execution.js';
 
-export const IDEMPOTENCY_POLICY_VERSION = 'idem-policy-2.4.0';
+export const IDEMPOTENCY_POLICY_VERSION = 'idem-policy-2.4.1';
 export const LEDGER_SCHEMA_VERSION = 'exec-idem-ledger-1';
 export const LEDGER_MAX = 48;
 
@@ -108,10 +108,18 @@ export function planReplay({ entry = null, contract = null, userText = '', curre
   if (!entry) return { decision: 'allow', reason: '账本无同键记录，按新调用执行' };
   const c = contract || {};
   const authorized = AUTHORIZE_RE.test(String(userText || ''));
+  // 已完成的只读调用也可能过期（list/read/text 在两次调用间可被写工具改变）。
+  // 账本只有结果摘要，不是结果缓存；重新读取才能用它探测当前存储视图。
+  if (entry.status === 'succeeded' && c.sideEffect === 'none') {
+    return { decision: 'allow', reason: '只读 / 纯计算无重复副作用，重新执行以取得当前状态与完整结果' };
+  }
   // 同一轮内的重复调用（模型一次发了两个完全相同的调用）：复用，不重复执行——
   // 但文件系统写操作要先核对副作用是否仍然成立（Stage 3 的承诺是「核验副作用」，不是「核验参数」）：
   // 目标文件已不在 / 内容已变（被后续工具删改、被沙箱回写覆盖）→ 按新调用重新执行，而不是拿着旧结果骗模型。
   if (entry.turnId && currentTurnId && entry.turnId === String(currentTurnId) && entry.status === 'succeeded') {
+    if (c.sideEffect === 'filesystem' && !entry.artifactDigest) {
+      return { decision: 'verify-first', reason: '旧记录没有可核验的文件状态摘要，不能仅凭同参数成功记录复用', guidance: '先用 read_file / list_files 核验目标状态；不要宣称文件已存在或盲目重发。' };
+    }
     if (c.sideEffect === 'filesystem' && entry.artifactDigest) {
       if (!currentArtifactDigest) {
         return { decision: 'allow', reason: `同一轮内虽有同参数调用成功过，但目标 ${entry.artifactPath || '文件'} 当前已不存在（本轮被删除或被后续写入清掉），重新执行`, guidance: '' };
@@ -150,9 +158,6 @@ export function planReplay({ entry = null, contract = null, userText = '', curre
   }
 
   // status === 'succeeded'
-  if (c.sideEffect === 'none') {
-    return { decision: 'allow', reason: '纯读/纯计算工具：跨轮重跑是合理的（结果可能已变化），仅同轮去重' };
-  }
   if (authorized) {
     return { decision: 'allow', reason: '用户在本次指令中明确要求重做（再写/覆盖/重跑/强制），按新调用执行并全程记录' };
   }

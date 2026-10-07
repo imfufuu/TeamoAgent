@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.29" />
+<meta name="app-version" content="2026.10.7.1" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -214,7 +214,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.29</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.7.1</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -476,7 +476,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.29 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.7.1 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

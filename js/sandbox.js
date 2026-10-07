@@ -2,7 +2,7 @@
 // JS 沙箱：独立 Web Worker，无 DOM/fetch 访问面，超时强制 terminate
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
-import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js';
+import { APP_VERSION, SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js';
 import { readLocal, writeLocal } from './legacy-keys.js';
 import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 
@@ -108,15 +108,23 @@ export function applyWorkerFiles(fsObj, before, after) {
   let written = 0, removed = 0;
   for (const k of Object.keys(r.files)) {
     if (!Object.prototype.hasOwnProperty.call(prev, k) || prev[k] !== r.files[k]) {
-      try { fsObj.write(k, r.files[k]); written += 1; } catch (err) { r.rejected.push({ path: k, reason: `write-failed: ${err && err.message || err}` }); }
+      try {
+        fsObj.write(k, r.files[k]);
+        if (fsObj.read(k) !== r.files[k]) throw new Error('写后回读不一致');
+        written += 1;
+      } catch (err) { r.rejected.push({ path: k, reason: `write-failed: ${err && err.message || err}` }); }
     }
   }
   for (const k of Object.keys(prev)) {
-    if (!Object.prototype.hasOwnProperty.call(r.files, k) && typeof fsObj.remove === 'function') {
-      try { fsObj.remove(k); removed += 1; } catch { /* 删不掉就保留 */ }
+    if (!Object.prototype.hasOwnProperty.call(r.files, k)) {
+      try {
+        fsObj.remove(k);
+        if (Object.prototype.hasOwnProperty.call(fsObj.export(), k)) throw new Error('删除后仍存在');
+        removed += 1;
+      } catch (err) { r.rejected.push({ path: k, reason: `remove-failed: ${err && err.message || err}` }); }
     }
   }
-  return { ...r, written, removed };
+  return { ...r, files: fsObj.export(), written, removed };
 }
 
 function noteWorkerFiles(out, r) {
@@ -125,10 +133,15 @@ function noteWorkerFiles(out, r) {
   if (!r.ok) notes.push(`[沙箱] ${r.reason}，本次对文件的修改已全部丢弃`);
   if (r.rejected.length) {
     const why = { protected: '受保护路径', 'unsafe-path': '非法路径', 'non-string': '值不是字符串' };
-    notes.push(`[沙箱] 已拒绝 ${r.rejected.length} 个文件写入：${r.rejected.slice(0, 5).map((x) => `${x.path}（${why[x.reason] || x.reason}）`).join('；')}${r.rejected.length > 5 ? ' …' : ''}`);
+    notes.push(`[沙箱] 已拒绝 ${r.rejected.length} 个文件变更：${r.rejected.slice(0, 5).map((x) => `${x.path}（${why[x.reason] || x.reason}）`).join('；')}${r.rejected.length > 5 ? ' …' : ''}`);
   }
   if (!notes.length) return out;
-  return { ...out, logs: [...(out.logs || []), ...notes.map((text) => ({ level: 'warn', text }))], filesRejected: r.rejected.length, filesDropped: !r.ok };
+  return {
+    ...out, ok: false,
+    error: out.error || { message: '沙箱文件同步失败：部分或全部变更未生效，请先 list_files / read_file 核验当前存储视图。' },
+    logs: [...(out.logs || []), ...notes.map((text) => ({ level: 'warn', text }))],
+    filesRejected: r.rejected.length, filesDropped: !r.ok,
+  };
 }
 
 export function createFS(initial = {}) {
@@ -179,7 +192,7 @@ export function createFS(initial = {}) {
 //    其余临时文件（调试输出、中间数据、缓存等）随 overlay 一起丢弃。
 //    修复 #3：Agent 不再在用户沙箱里留下一堆中间产物。
 export function createTempFS(baseFS) {
-  const ephemeral = {}; // 本轮临时写的文件
+  const ephemeral = Object.create(null); // 与 baseFS 使用相同字典与路径约束
   const deletedInEphemeral = new Set(); // 本轮主动删除的基文件
   const fs = {
     read(path) {
@@ -190,17 +203,13 @@ export function createTempFS(baseFS) {
     },
     write(path, content) {
       const p = String(path || '');
-      const parts = p.split('/');
-      if (!p || p.startsWith('/') || p.includes('\\') || p.includes('\0')
-          || parts.some((seg) => !seg || seg === '.' || seg === '..')) {
-        throw new Error(`非法路径: ${p}`);
-      }
+      if (!isSafeFsPath(p)) throw new Error(`非法路径: ${p}`);
       ephemeral[p] = String(content);
       deletedInEphemeral.delete(p);
     },
     remove(path) {
       const p = String(path || '');
-      if (p.startsWith('/') || p.includes('\0')) return;
+      if (!isSafeFsPath(p)) return;
       // 临时层删
       delete ephemeral[p];
       // 如果基文件里也有，标记删除
@@ -392,9 +401,9 @@ function runInWorker(workerFile, payload, timeoutMs) {
 export async function runJavaScript(code, fsObj) {
   const t0 = performance.now();
   const files = fsObj.export();
-  let out = await runInWorker('worker-js.js', { code, files }, SANDBOX_JS_TIMEOUT_MS);
+  let out = await runInWorker(`worker-js.js?v=${APP_VERSION}`, { code, files }, SANDBOX_JS_TIMEOUT_MS);
   if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
-  return { ...out, durationMs: Math.round(performance.now() - t0) };
+  return { ...out, files: fsObj.export(), durationMs: Math.round(performance.now() - t0) };
 }
 
 // ── Python：常驻 Worker（Pyodide 运行时只加载一次）─────────────────────
@@ -422,7 +431,7 @@ let pyBlobTried = false;
 
 export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   if (pyodideBroken) {
-    return { ok: false, logs: [], error: { message: 'Pyodide 运行时不可用（CDN 加载失败），请改用 execute_javascript' }, durationMs: 0 };
+    return { ok: false, logs: [], files: fsObj.export(), error: { message: 'Pyodide 运行时不可用（CDN 加载失败），请改用 execute_javascript' }, durationMs: 0 };
   }
   const files = fsObj.export();
   const packages = [...new Set([...loadPyPkgs(), ...(Array.isArray(extraPkgs) ? extraPkgs : [])])];
@@ -444,13 +453,13 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   const attempt = (useBlob) => new Promise((resolve) => {
     const spawn = async () => {
       if (useBlob) {
-        const res = await fetch(new URL('worker-py.js', import.meta.url));
+        const res = await fetch(new URL(`worker-py.js?v=${APP_VERSION}`, import.meta.url));
         if (!res.ok) throw new Error(`无法获取沙箱脚本（HTTP ${res.status}）`);
         const url = URL.createObjectURL(new Blob([await res.text()], { type: 'text/javascript' }));
         pyWorker = new Worker(url); // 常驻复用：后续 attempt(false) 直接拿到这个 blob Worker
         return pyWorker;
       }
-      if (!pyWorker) pyWorker = new Worker(new URL('worker-py.js', import.meta.url));
+      if (!pyWorker) pyWorker = new Worker(new URL(`worker-py.js?v=${APP_VERSION}`, import.meta.url));
       return pyWorker;
     };
     spawn().then((worker) => {
@@ -509,7 +518,7 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   }
   if (workerAfter) {
     out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, workerAfter));
-    // 记录 Worker 镜像（含被主线程拒收的条目——下一轮 diff 会把它们纠正回来）
+    // 仅成功同步才保留 Worker 镜像；拒收 / 执行失败后下一轮发全量纠正。
     pySyncedWorker = out.ok ? usedWorker : null;
     pySynced = out.ok ? workerAfter : null;
   } else {
@@ -518,7 +527,7 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
   }
   if (sentFull && !out.ok) { pySyncedWorker = null; pySynced = null; }
   if (Array.isArray(out.installed)) savePyPkgs(out.installed.filter((n) => typeof n === 'string' && /^[A-Za-z0-9_.\-\[\]]{1,80}$/.test(n)).slice(0, 200));
-  return { ...out, durationMs: Math.round(performance.now() - t0) };
+  return { ...out, files: fsObj.export(), durationMs: Math.round(performance.now() - t0) };
 }
 
 // ── C++：Compiler Explorer 公共 API 远程编译执行 ───────────────────────

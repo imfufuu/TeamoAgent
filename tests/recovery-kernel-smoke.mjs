@@ -93,7 +93,7 @@ await check('检查点：状态摘要稳定、产物漂移可检出、恢复计�
 
 // ── ② 幂等账本：四类裁决 + 同轮并发只执行一次 + 跨轮操作键稳定 ──
 await check('幂等账本：复用 / 先核验 / 拦截重复副作用 / 放行 四类裁决齐备，同轮并发只执行一次', () => {
-  assert.equal(IDEMPOTENCY_POLICY_VERSION, 'idem-policy-2.4.0');
+  assert.equal(IDEMPOTENCY_POLICY_VERSION, 'idem-policy-2.4.1');
   const ledger = createIdempotencyLedger();
   const tool = 'write_file', args = { path: 'files/a.txt', content: 'A' };
   const key = operationKey({ toolName: tool, args });

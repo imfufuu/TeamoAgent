@@ -295,7 +295,7 @@ check('幂等：同键重复调用被账本裁决（同轮复用 / 跨轮先核�
   ledger.claim(key, { tool: 'write_file', turnId: 'turn-smoke', argsSummary: 'out/a.txt' });
   ledger.settle(key, { status: 'succeeded', resultDigest: 'abc123' });
   const sameTurn = planReplay({ entry: ledger.lookup(key), contract: TOOL_CONTRACTS.write_file, currentTurnId: 'turn-smoke' });
-  assert.equal(sameTurn.decision, 'reuse', `同轮同键必须复用，实际 ${sameTurn.decision}`);
+  assert.equal(sameTurn.decision, 'verify-first', `缺少文件状态摘要不能复用，实际 ${sameTurn.decision}`);
   const nextTurn = planReplay({ entry: ledger.lookup(key), contract: TOOL_CONTRACTS.write_file, currentTurnId: 'turn-smoke-2' });
   assert.ok(['reuse', 'verify-first'].includes(nextTurn.decision), `跨轮同键应复用或先核验，实际 ${nextTurn.decision}`);
   const uncertain = createIdempotencyLedger({ entries: [] });

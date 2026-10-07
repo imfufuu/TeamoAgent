@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.29';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.7.1';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { DEFAULT_TURN_BUDGET } from './execution.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';

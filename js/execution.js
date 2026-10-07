@@ -1124,8 +1124,9 @@ export const FAILURE_KIND_META = Object.freeze({
 
 const FAILURE_PATTERNS = [
   { kind: 'PERMISSION', re: /(?:无权|权限|不允许|拒绝|forbidden|permission|not allowed|outside|越权)/i },
-  { kind: 'FILE_NOT_FOUND', re: /(?:找不到|文件不存在|不存在的文件|no such file|does not exist|ENOENT)/i },
-  { kind: 'ENVIRONMENT', re: /(?:沙箱已关闭|沙箱创建失败|沙箱不可用|未开启|不可用|不存在|未安装|未就绪|no relay|中继|Pyodide|WASM|Worker|not available|unavailable)/i },
+  { kind: 'INVALID_ARGS', re: /(?:找不到指定片段|找不到指定文本|old_text.*(?:not found|不存在))/i },
+  { kind: 'FILE_NOT_FOUND', re: /(?:文件不存在|不存在的文件|沙箱中找不到|失败：找不到|no such file|\bENOENT\b|(?:file|path)\b[^\n]*(?:not found|does not exist))/i },
+  { kind: 'ENVIRONMENT', re: /(?:沙箱文件同步失败|is not defined|Can't find variable|沙箱已关闭|沙箱创建失败|沙箱不可用|未开启|不可用|不存在|未安装|未就绪|no relay|中继|Pyodide|WASM|Worker|not available|unavailable)/i },
   { kind: 'TRANSIENT', re: /(?:超时|timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up|网络中断|网络|fetch failed|429|50\d|暂时|重试)/i },
   { kind: 'INVALID_ARGS', re: /(?:参数|不是合法 JSON|必须|缺少|schema|invalid)/i },
   { kind: 'DATA', re: /(?:返回结构|空结果|解析失败|unexpected|malformed|empty)/i },
@@ -1157,9 +1158,11 @@ export function classifyToolFailure({ name = '', args = null, result = '', error
     idempotencyKey: idempotencyKey({ turnId: '', toolName: name, args }),
     guidance: kind === 'FILE_NOT_FOUND'
       ? '文件找不到是存储视图 / 路径 / 时序问题，不是数据源问题：先用 list_files 看当前到底有哪些文件（注意完整相对路径与大小写），确认后再重写或改路径；不要换数据源。'
-      : (meta.verifyFirst
+      : (kind === 'ENVIRONMENT' && /^(?:execute_javascript|execute_python)$/.test(name)
+        ? '先探测环境与存储视图：list_files / read_file；JS 用 Object.keys(files)、typeof console，Python 用 list(FILES)。不要盲换 API 或数据源。'
+        : (meta.verifyFirst
         ? '该调用可能已经产生了副作用（写入/提交/扣费），结果丢失。禁止盲目重试：先用 read_file / list_files 核验目标状态。'
-        : (retryable ? '可按有限退避重试一次，若仍失败则转入带限制作答并如实披露。' : '')),
+        : (retryable ? '可按有限退避重试一次，若仍失败则转入带限制作答并如实披露。' : ''))),
   };
 }
 

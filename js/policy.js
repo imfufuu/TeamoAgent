@@ -37,7 +37,7 @@ export const POLICY_VERSIONS = Object.freeze({
   executionPolicyVersion: 'policy-2.5.0',
   confirmationPolicyVersion: 'confirm-policy-2.5.0',
   recoveryPolicyVersion: 'recovery-policy-2.5.0',
-  idempotencyPolicyVersion: 'idem-policy-2.4.0',
+  idempotencyPolicyVersion: 'idem-policy-2.4.1',
   memoryPolicyVersion: 'memory-policy-2.5.0',
   trajectoryPolicyVersion: 'trajectory-policy-2.4.0',
   experimentPolicyVersion: 'experiment-policy-2.5.0',
