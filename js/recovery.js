@@ -8,7 +8,7 @@
 //   注意与 state.js 里「会话回滚检查点（对话级）」区分：这里是**执行级**检查点，
 //   记录的是工具步骤、产物摘要与状态摘要，用于续跑而不是对话回滚。
 
-import { sha256Hex } from './nexus.js';
+import { sha256Hex } from './nexus.js?v=2026.10.7.2';
 
 export const RECOVERY_POLICY_VERSION = 'recovery-policy-2.5.0';
 export const CHECKPOINT_SCHEMA_VERSION = 'exec-checkpoint-schema-1';

@@ -2,7 +2,7 @@
 // 不移植 skill_view 工具：浏览器 Agent 多一轮加载成本高，Jev/关键词命中后直接注入正文。
 // 复杂回合结束后用工具轨迹蒸馏一条会话技能（无额外 LLM 调用，fail-open）。
 
-import { tokenizeForSearch } from './nexus.js';
+import { tokenizeForSearch } from './nexus.js?v=2026.10.7.2';
 
 export const BUNDLED_SKILLS = [
   {

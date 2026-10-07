@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.7.1';
+} from '../js/api.js?v=2026.10.7.2';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.7.1');
+const api = await import('../js/api.js?v=2026.10.7.2');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.7.1');
+  const api = await import('../js/api.js?v=2026.10.7.2');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.7.1');
+  assert.equal(APP_VERSION, '2026.10.7.2');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.7\.1/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.7\.2/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.7\.1/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.7\.2/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -9034,7 +9034,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.7.1'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.7.2'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9076,7 +9076,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.7.1');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.7.2');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9828,6 +9828,129 @@ test('Agent 端到端：同轮读取不复用旧视图，写后删再同参写�
     assert.equal(store.state.files['files/host.txt'], 'h');
     assert.equal(store.state.files['files/probe.txt'], 'x');
   } finally { globalThis.fetch = realFetch; restore(); }
+});
+
+
+group('生图与网页中继解耦：范围明确、按需挂载、真实请求路径');
+
+test('生图能力独立于 relay/web/sandbox 开关；出图、修图命中挂载，结构图仍排除', async () => {
+  const ec = await import('../js/executionContext.js');
+  for (const relay of [false, true]) for (const web of [false, true]) for (const sandbox of [false, true]) {
+    const table = ec.deriveToolWhitelistFromBits({ relayOk: relay, webEnabled: web, sandboxEnabled: sandbox, canDispatch: false }, TOOL_DEFS);
+    assert.ok(table.allowed.some((t) => t.name === 'generate_image'), JSON.stringify({ relay, web, sandbox }));
+    assert.ok(!table.dropped.some((d) => d.name === 'generate_image'));
+    for (const text of ['直接出图', '帮我修图', '改图，把背景换成白色', '编辑这张照片', '把原图美化一下', '图生图', '绘制头像']) {
+      const selection = ec.selectToolsForTurn({ allowed: table.allowed, text });
+      assert.ok(selection.mounted.some((t) => t.name === 'generate_image'), text);
+    }
+    for (const text of ['请绘图：折线图', '直接出图：流程图', '生成一张架构图']) {
+      const selection = ec.selectToolsForTurn({ allowed: table.allowed, text });
+      assert.ok(!selection.mounted.some((t) => t.name === 'generate_image'), text);
+    }
+  }
+  const lazy = ec.formatDeferredTools([{ name: 'generate_image' }]);
+  assert.match(lazy, /按需未挂载≠禁用/);
+  assert.match(lazy, /生图不可替代/);
+});
+
+test('精简和完整降级诊断保留影响范围，runtime 不将中继探测外推成生图失败', async () => {
+  const nexus = await import('../js/nexus.js');
+  const { formatRuntime } = await import('../js/prompt.js');
+  const items = nexus.buildDegradationDiagnostics({ relayOk: false, webEnabled: true });
+  for (const compact of [true, false]) {
+    const note = nexus.formatDegradationDiagnostics(items, { compact });
+    assert.match(note, /fetch_url.*search_web.*crawl_site.*download_file/);
+    assert.match(note, /generate_image 直连图像网关，不依赖网页中继/);
+    assert.match(note, /生图状态须以实际调用为准/);
+  }
+  const runtime = formatRuntime({ imageModel: 'gpt-image-2.5-sunburst' });
+  assert.match(runtime, /不是图像接口的健康检查结果/);
+  assert.match(runtime, /不能据此断言生图会失败或返回空结果/);
+  assert.match(runtime, /API Key、额度、权限和执行预算约束/);
+  assert.match(TOOL_DEFS.find((t) => t.name === 'generate_image').description, /不依赖网页中继/);
+});
+
+test('Agent 端到端：健康探测全部失败仍直连出图；延迟挂载回执不建议 JS 替代，GPT/Nano 两条链路落盘', async () => {
+  const net = await import('../js/net.js');
+  const b64 = Buffer.from('mock-image-bytes').toString('base64');
+  try {
+    for (const deferred of [false, true]) {
+      net.resetRelayProbe();
+      const chatBodies = [], imageRequests = [];
+      let healthCalls = 0;
+      const model = deferred ? 'gemini-3.1-flash-image' : 'gpt-image-2.5-sunburst';
+      globalThis.fetch = async (url, opts) => {
+        const u = String(url);
+        if (u.includes('/api/health')) { healthCalls++; return new Response('{}', { status: 503 }); }
+        if (u.includes('/v1/chat/completions')) {
+          const body = JSON.parse(opts.body);
+          chatBodies.push(body);
+          const count = deferred ? 2 : 1;
+          if (chatBodies.length <= count) return openaiToolTurn(`image-${chatBodies.length}`, 'generate_image', JSON.stringify({ prompt: '一只在窗边晒太阳的猫' }));
+          return openaiTextTurn('![猫](sandbox://outputs/image-001.png)');
+        }
+        if (u.endsWith('/v1/images/generations') || u.includes(':generateContent')) {
+          imageRequests.push({ url: u, body: JSON.parse(opts.body) });
+          const payload = deferred
+            ? { candidates: [{ content: { parts: [{ inlineData: { mimeType: 'image/png', data: b64 } }] } }] }
+            : { data: [{ b64_json: b64 }] };
+          return new Response(JSON.stringify(payload), { status: 200 });
+        }
+        throw new Error(`意外请求（不得通过网页中继生图）：${u}`);
+      };
+      const store = storeNoWeb(createStore());
+      store.state.apiKey = 'sk-teamo-test';
+      store.state.model = 'gpt-5.6-sol';
+      store.state.imageModel = model;
+      store.state.relayOk = null;
+      store.state.settings.webEnabled = true;
+      store.state.settings.sandboxEnabled = false;
+      await createAgent(store, {}).send(deferred ? '按刚才说的做' : '直接出图，一只在窗边晒太阳的猫');
+      assert.ok(healthCalls > 0, '确实执行了失败的中继健康探测');
+      assert.equal(store.state.relayOk, false);
+      const names = (b) => (b.tools || []).map((t) => t.function?.name || t.name);
+      assert.equal(names(chatBodies[0]).includes('generate_image'), !deferred);
+      assert.ok(!names(chatBodies[0]).includes('fetch_url'));
+      const runtime = chatBodies[0].messages.filter((m) => m.role === 'system').map((m) => m.content).join('\n');
+      assert.match(runtime, /generate_image 直连 TeamoRouter 图像接口，不依赖网页中继/);
+      const results = store.state.messages.filter((m) => m.role === 'tool').map((m) => m.content);
+      if (deferred) {
+        assert.ok(names(chatBodies[1]).includes('generate_image'));
+        assert.match(results[0], /此次只挂载、未发起生图请求/);
+        assert.match(results[0], /不依赖网页中继/);
+        assert.doesNotMatch(results[0], /可用 execute_javascript 完成|改用 execute_javascript/);
+      }
+      assert.equal(imageRequests.length, 1, '只有实际生图调用产生一次网关请求');
+      assert.match(imageRequests[0].url, /^https:\/\/api\.teamorouter\.(?:com|cn)\//);
+      if (deferred) assert.match(imageRequests[0].url, /gemini-3\.1-flash-image:generateContent/);
+      else assert.equal(imageRequests[0].body.model, model);
+      assert.match(results.at(-1), /图像生成完成/);
+      assert.equal(store.state.files['outputs/image-001.png'], `data:image/png;base64,${b64}`);
+      assert.equal(store.state.lastExecutionRecord.toolRuns.at(-1).status, 'succeeded');
+    }
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('生图不依赖中继不代表必然成功：缺 Key 不发请求，网关 401 如实回报且不落空产物', async () => {
+  let calls = 0;
+  globalThis.fetch = async (url) => {
+    calls++;
+    assert.match(String(url), /\/v1\/images\/generations$/);
+    return new Response(JSON.stringify({ error: { message: 'API key rejected', code: 'invalid_api_key' } }), { status: 401 });
+  };
+  try {
+    const fs = createFS();
+    const args = { prompt: '一只在窗边晒太阳的猫' };
+    const noKey = await executeTool('generate_image', args, { fs, relayOk: false });
+    assert.match(noKey, /未配置.*API Key/);
+    assert.equal(calls, 0);
+    const failed = await executeTool('generate_image', args, { fs, apiKey: 'sk-invalid', imageModel: 'gpt-image-2.5-sunburst', relayOk: false });
+    assert.equal(calls, 1);
+    assert.match(failed, /图像模型调用失败/);
+    assert.match(failed, /API key rejected/);
+    assert.doesNotMatch(failed, /relay-offline|中继/);
+    assert.deepEqual(fs.keys(), []);
+  } finally { globalThis.fetch = realFetch; }
 });
 
 for (const item of queue) {

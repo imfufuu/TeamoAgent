@@ -6,17 +6,17 @@
 // 不拥有：模型请求循环、系统提示组装、回合收尾记账（agent.js runLoop / turnfinalizer.js）、工具本身的实现（tools.js）。
 // 注入而非 import 的四样东西：store（状态）、emit（UI 钩子）、getFs（回合内 fs 指针会被换成临时层，所以是 getter）、
 // runSubagent（住在 agent.js，避免循环依赖）。P1（预算）/ P2（持久）类修正都会碰这段代码——先抽出来再改。
-import { executeTool } from './tools.js?v=2026.10.7.1';
+import { executeTool } from './tools.js?v=2026.10.7.2';
 import { findSubagent } from './subagents.js';
 import {
   EXECUTION_STATES, CONFIRMATION_DECISIONS,
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.7.1';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.7.1';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.7.1';
-import { toolName } from './executionContext.js?v=2026.10.7.1';
+} from './execution.js?v=2026.10.7.2';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.7.2';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.7.2';
+import { toolName } from './executionContext.js?v=2026.10.7.2';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -271,16 +271,21 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         if (def && !exec.toolList.some((t) => t && t.name === call.name)) exec.toolList.push(def);
         if (def) toolDefByName.set(call.name, def);
         exec.machine.audit.record('tool-lazy-mount', { name: call.name, mountedCount: exec.toolList.length });
+        const imageMount = call.name === 'generate_image';
+        const mountGuidance = imageMount
+          ? 'generate_image 已临时挂载，请按新下发的 schema 再次调用；生图直连 TeamoRouter，不依赖网页中继。此次只挂载、未发起生图请求，不能据此判断图像接口失败，也不能用 execute_javascript 替代。'
+          : `再次调用 ${call.name}（内核已挂载），或用 execute_javascript 完成同样的事。`;
         emit('onToolEvent', call, { status: 'error', note: '本轮未启用（已临时挂载，可重试）' });
         recordBlocked(call, {
           reason: `工具 ${call.name} 本轮未启用（按需挂载表之外）`,
           failure: {
-            kind: 'ENVIRONMENT', label: '工具未挂载', handling: '内核已临时挂载：可直接重试一次，或改用 execute_javascript',
+            kind: 'ENVIRONMENT', label: '工具未挂载', handling: imageMount ? '内核已临时挂载：按 schema 重试生图工具' : '内核已临时挂载：可直接重试一次，或改用 execute_javascript',
             retryable: true, maxRetries: 1, verifyFirst: false,
-            guidance: `再次调用 ${call.name}（内核已挂载），或用 execute_javascript 完成同样的事。`,
+            guidance: mountGuidance,
           },
           risk: { level: 'L0', levelLabel: '未执行', reasons: ['工具本轮未启用'], hasExternalSideEffect: false, irreversible: false, requiresConfirmation: false },
         });
+        if (imageMount) return mountGuidance;
         return `该工具本轮未启用，可用 execute_javascript 完成；内核已临时挂载 ${call.name}，如确需也可直接重试一次。`;
       }
 

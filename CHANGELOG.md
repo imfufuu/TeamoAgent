@@ -2,8 +2,9 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-07 · 构建 2026.10.7.1
+## Dubhe Agent V1.7 Stable · 2026-10-07 · 构建 2026.10.7.2
 
+- **生图能力误判修正（构建 2026.10.7.2）**：`relay-offline:degraded` 的精简提示不再丢弃影响范围；runtime / 工具描述明确 `generate_image` 直连 TeamoRouter、不依赖网页中继，不能把网页健康探测外推成图像接口失败。「出图 / 修图 / 改图 / 图生图 / 编辑照片」命中按需挂载，结构图排除不变；生图延迟挂载回执说明尚未发请求、按 schema 重试，不再建议用 JS 替代。新增独立能力开关矩阵、诊断范围、GPT/Nano 中继离线端到端（桩网关）和缺 Key / 401 回归。
 - **文件视图核验补全（构建 2026.10.7.1）**：JS/Python `files_keys` 统一来自同步后的宿主快照（修复 Python 增量回传报空、JS 拒收路径仍出现在结果的问题）；文件写后回读、删后检查，拒收明确返回失败与实际存储视图。同轮只读调用重新执行，不复用过期摘要；无产物摘要的旧文件写账本先核验，产物比对使用账本的实际路径。临时层与基座使用同一路径校验；工具描述和执行结果区分同轮共享与跨回合保留。收窄文件缺失分类，替换片段缺失归参数错误，缺 API 引导环境探测。新增真实 JS Worker 源码 + Agent 端到端和 Python 增量协议等回归；入口、文件系统模块与 Worker URL 同步更新缓存版本。
 - **沙箱文件视图一致性（构建 2026.10.5.29）**。根因：`sandbox.js applyWorkerFiles()` 用 `clear()+import()` 回写 Worker 文件镜像，而每轮工具操作的 `createTempFS` 临时层 `import()` 为空操作、`clear()` 清掉本轮写入——任何一次 `execute_javascript / execute_python` 都会清空本轮 `write_file` 的文件并丢弃沙箱自己写的 `files`（V1.7 起即存在）。改为差异回写（write / remove），真实 FS 与临时层语义一致。同时：① `idempotency.planReplay` 同轮复用文件系统写操作前核对目标摘要，已不存在 / 已变化 → 重新执行；② `execution.js` 新增 `FILE_NOT_FOUND` 失败类（处置「先 list_files 探测，不换数据源」，不记 uncertain）；③ `execute_javascript / execute_python` 描述改为无原型字典 + 跨调用持久契约，Worker 报错提示与系统提示同步。测试 +4（agent 423）。
 - **5 项跟进（构建 2026.10.5.28）**。① 智能路由器显示名改回 `smart_router`（`SMART_ROUTER_LABEL`），所有位置一致，不再用中文「智能」。② 加载页：超时 60 → 90 秒；两个重载按钮只在超时 / 报错后出现；慢网提示只写「网速较慢 · 已等待 N 秒」；CSP 哈希同步。③ 预算脚注 ⚠ 行去掉危险色（`.foot-budget.spent` 次级色）。④ 远程复核前 `snapshotForRemoteReview()` 先压 512px JPEG 0.8 快照，失败退回原图。⑤ 测试：agent 419（+1）、assets-integrity 改为校验 90 秒与「等待期间无重载按钮」。

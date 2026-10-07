@@ -422,7 +422,7 @@ export const CORE_TOOLS = Object.freeze([
 export const TOOL_MOUNT_RULES = Object.freeze({
   get_current_time: { text: /现在(?:几点|是几号|时间|日期)|当前时间|几点|今天|明天|昨天|这周|本周|上周|这个月|本月|今年|日期|星期|周几|几号|\bnow\b|\btoday\b|\btime\b|\bdate\b/i },
   get_browser_environment: { text: /浏览器|运行环境|user.?agent|分辨率|时区|语言设置|\bbrowser\b|\benvironment\b|\bplatform\b/i },
-  generate_image: { text: /画(?:一|个|张|幅|出)|生成.{0,8}(?:图片|照片|插画|海报|头像|logo|封面|壁纸)|生图|文生图|插画|海报|\bimage\b|\bpicture\b|\billustration\b|\bposter\b|\bdraw\b|\blogo\b/i, exclude: /折线图|柱状图|饼图|散点图|图表|流程图|架构图|时序图|思维导图|关系图|类图|状态图|甘特图|依赖图|拓扑/i },
+  generate_image: { text: /出图|修图|改图|图生图|图改图|绘图|绘制.{0,8}(?:图片|照片|插画|海报|头像|封面|壁纸)|(?:修改|编辑|重绘|美化).{0,8}(?:图片|照片|原图)|(?:图片|照片|原图).{0,8}(?:修改|编辑|重绘|美化)|画(?:一|个|张|幅|出)|生成.{0,8}(?:图片|照片|插画|海报|头像|logo|封面|壁纸)|生图|文生图|插画|海报|\bimage\b|\bpicture\b|\billustration\b|\bposter\b|\bdraw\b|\blogo\b/i, exclude: /折线图|柱状图|饼图|散点图|图表|流程图|架构图|时序图|思维导图|关系图|类图|状态图|甘特图|依赖图|拓扑/i },
   analyze_video: { text: /视频|影片|\bvideo\b|\.mp4\b|\.webm\b|\.mov\b/i, attachments: ['video'] },
   analyze_pdf: { text: /\bpdf\b|论文|扫描件/i, attachments: ['pdf'] },
   zip_files: { text: /压缩|打包|\bzip\b|归档|\barchive\b/i, attachments: ['zip'] },
@@ -501,7 +501,7 @@ export function formatDeferredTools(deferred, { max = 24 } = {}) {
   if (!names.length) return '';
   const shown = names.slice(0, max).join('、');
   const more = names.length > max ? `…等 ${names.length} 个` : '';
-  return `另有 ${names.length} 个工具本轮按需未挂载：${shown}${more}（确有需要时直接调用，内核会当场挂载并让你重试；小任务优先用已挂载工具或 execute_javascript）`;
+  return `另有 ${names.length} 个工具本轮按需未挂载：${shown}${more}（按需未挂载≠禁用，也不代表健康检查失败；确有需要时直接调用，内核会当场挂载并让你按 schema 重试；仅纯计算小任务可改用 execute_javascript，生图不可替代）`;
 }
 
 /** 从会话消息里取近几轮实际调用过的工具名（粘性挂载的输入）。 */

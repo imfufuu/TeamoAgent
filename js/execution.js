@@ -19,7 +19,7 @@
 // 覆盖「完整性」（记录是否被改动），部分覆盖「完备性」（与 Store 消息对账），
 // 不能证明「真实性」（事件是否真由指定执行环境产生，需硬件远程证明，本架构不做此声明）。
 
-import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js';
+import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js?v=2026.10.7.2';
 
 // ── 0. 策略版本（一次执行的审计记录必须记录这些版本，否则无法归因退化来源）──
 export const EXECUTION_KERNEL_VERSION = '2.3.0';

@@ -1257,7 +1257,8 @@ export function buildDegradationDiagnostics({
   if (!relayOk) {
     items.push({
       id: 'relay-offline',
-      capability: 'fetch_url / search_web / crawl_site 网页能力与远端真实 Git',
+      capability: 'fetch_url / search_web / crawl_site / download_file 网页能力与远端真实 Git',
+      unaffected: 'generate_image 直连图像网关，不依赖网页中继；生图状态须以实际调用为准',
       status: 'degraded',
       reason: '当前没有探测到可用网页中继（本地 server.py 或 Cloudflare Worker）',
       recovery: '启动 `python3 server.py` 以恢复单页抓取/Git，或部署新版 relay/worker.js 并在 localStorage 设置 dubhe-relay；刷新后重新探测',
@@ -1325,12 +1326,13 @@ export function buildDegradationDiagnostics({
 export function formatDegradationDiagnostics(items = [], { compact = false, capCode = '' } = {}) {
   if (!Array.isArray(items) || !items.length) return '';
   if (compact) {
-    const shortList = items.map((it) => `${it.id}:${it.status}`).join(', ');
+    // 压缩只能删细节，不能删影响范围，否则 relay-offline 会被误读成全局工具不可用。
+    const shortList = items.map((it) => `${it.id}:${it.status}（范围=${it.capability || '未指定，不得外推'}${it.unaffected ? `；不受影响=${it.unaffected}` : ''}）`).join(', ');
     return `【天枢2.5 · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
   }
-  const lines = [`【天枢2.5 · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
+  const lines = [`【天枢2.5 · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】以下诊断仅适用于各条列出的能力，不是全部工具的健康结论；未调用的接口不要推测失败。若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
   for (const it of items) {
-    lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}`);
+    lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}${it.unaffected ? ` ｜ 不受影响=${it.unaffected}` : ''}`);
   }
   return lines.join('\n');
 }

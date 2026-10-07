@@ -30,6 +30,7 @@ export function formatRuntime({ now, model, imageModel, filesNote, webNote, rela
   if (now) lines.push(`当前时间：${now instanceof Date ? now.toISOString() : String(now)}`);
   if (model) lines.push(`Session model: ${model}`);
   if (imageModel) lines.push(`生图模型：${imageModel}（generate_image 必须用这个 ID，不要传 model 参数；仅用于照片/插画/海报等栅格画面，统计图/流程图/思维导图/架构图禁止用生图）`);
+  if (imageModel) lines.push('【生图链路】generate_image 直连 TeamoRouter 图像接口，不依赖网页中继，也不受顶栏「联网」或「沙箱」开关控制。relay-offline:degraded 不是图像接口的健康检查结果，不能据此断言生图会失败或返回空结果。按需未挂载不等于禁用：需要时调用，内核挂载后按工具 schema 重试；不能用 execute_javascript 替代图像模型。是否成功以实际调用或内核拦截结果为准（仍受 API Key、额度、权限和执行预算约束）。');
   lines.push('图表规范：柱状/条形/折线/面积/饼/环形/堆叠/直方/箱线/散点/气泡/漏斗/桑基/地图等统计图用 Markdown 快捷语法 :::chart（位移-时间等物理关系图用 line / scatter）；流程图用 :::flow 或 render_mermaid；思维导图用 :::mind；架构/依赖图用 render_dot / SVG。不要为这些调用 generate_image。');
   const extra = join([filesNote, webNote, relayNote, toolTableNote]);
   return extra ? `${lines.join('\n')}\n\n${extra}` : lines.join('\n');

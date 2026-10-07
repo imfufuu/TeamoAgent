@@ -6,7 +6,7 @@ import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.
 import { ICON } from './icons.js';
 import { SANDBOX_STORAGE_CAP, sandboxQuotaLabel } from './storagefmt.js';
 import { pdfToImages } from './pdfpages.js';
-import { contentByteSize } from './sandbox.js?v=2026.10.7.1';
+import { contentByteSize } from './sandbox.js?v=2026.10.7.2';
 
 // data:video/… → blob URL（与 ui.js 气泡播放同一做法；独立实现以免 split 模块反向 import ui.js）
 function videoBlobUrl(dataUrl) {

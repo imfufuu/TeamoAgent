@@ -11,14 +11,14 @@ import {
   resumeExecutionState,
   summarizeExecutionRecord,
   evaluateExecutionKernelAcceptance,
-} from './execution.js?v=2026.10.7.1';
-import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.7.1';
-import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.7.1';
-import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.7.1';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.7.1';
-import { appendExperimentSample } from './experiments.js?v=2026.10.7.1';
-import { reconcileAudit } from './audit.js?v=2026.10.7.1';
-import { auditFootprintAgainstStore, recordRouteLatencySample, evaluateNexusAcceptanceMetrics } from './nexus.js';
+} from './execution.js?v=2026.10.7.2';
+import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.7.2';
+import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.7.2';
+import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.7.2';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.7.2';
+import { appendExperimentSample } from './experiments.js?v=2026.10.7.2';
+import { reconcileAudit } from './audit.js?v=2026.10.7.2';
+import { auditFootprintAgainstStore, recordRouteLatencySample, evaluateNexusAcceptanceMetrics } from './nexus.js?v=2026.10.7.2';
 
 /**
  * 回合收尾：把一轮的执行状态、轨迹、审计、指标、实验样本写回 store，并触发 UI 刷新。

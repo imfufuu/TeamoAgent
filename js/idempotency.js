@@ -10,7 +10,7 @@
 //       allow（状态已变化或用户明确要求，按新调用执行）
 // 定位说明：账本只做「同一逻辑操作不要重复执行」的因果去重，不宣称能证明副作用是否真的发生过。
 
-import { sha256Hex } from './nexus.js';
+import { sha256Hex } from './nexus.js?v=2026.10.7.2';
 import { canonicalJSON } from './execution.js';
 
 export const IDEMPOTENCY_POLICY_VERSION = 'idem-policy-2.4.1';

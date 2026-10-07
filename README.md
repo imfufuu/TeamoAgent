@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.7.1` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.7.2` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.7.2：网页中继离线不等于不能生图**
+
+- `generate_image` 通过 TeamoRouter 图像接口请求 GPT Image / Nano Banana，不依赖网页中继；`relay-offline:degraded` 仅描述网页工具及远端 Git 的降级，不能推断图像接口会失败或返回空结果。精简诊断也必须保留此影响范围。
+- runtime 和工具描述明确区分「按需未挂载」「被禁用」「实际调用失败」。生图仍须满足 API Key、额度、权限和预算要求，成功与否以实际返回为准。
+- 增补「出图 / 修图 / 改图 / 图生图 / 编辑照片」等按需挂载表达；结构化图表继续使用 SVG / Mermaid / DOT，不改走生图。
+- 生图延迟挂载回执只要求按新 schema 重试，不再建议用 JS 替代图像模型。回归以桩网关覆盖中继健康探测全部失败后的 GPT / Nano 两条生图链路，以及缺 Key / 网关 401 的真实错误保留；不宣称在线图像服务已实测可用。
 
 **构建 2026.10.7.1：文件状态核验与真实调用回归**
 
