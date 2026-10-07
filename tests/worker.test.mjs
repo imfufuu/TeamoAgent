@@ -167,10 +167,12 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
   await withMockFetch(async (target) => {
     const u = String(target); seen.push(u);
     if (/html\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (/lite\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html; charset=utf-8' } });
     if (/^https:\/\/www\.bing\.com\/search\?/.test(u)) {
       const url = new URL(u);
       assert.equal(url.searchParams.get('format'), 'rss');
       assert.equal(url.searchParams.get('q'), 'dubhe agent');
+      assert.equal(url.searchParams.get('mkt'), 'en-US', '英文查询 → en-US 市场（不让 Bing 按出口国家乱猜）');
       return new Response(rss, { status: 200, headers: { 'content-type': 'application/rss+xml; charset=utf-8' } });
     }
     throw new Error(`unexpected fetch ${u}`);
@@ -179,8 +181,9 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
     assert.equal(response.status, 200, body.error);
     assert.equal(body.provider, 'Bing');
     assert.equal(body.fallback, true);
-    assert.deepEqual(body.tried, ['DuckDuckGo']);
+    assert.deepEqual(body.tried, ['DuckDuckGo', 'DuckDuckGo Lite']);
     assert.match(body.warning, /DuckDuckGo 不可用（DuckDuckGo HTML 没有解析到结果/);
+    assert.match(body.warning, /DuckDuckGo Lite 不可用（DuckDuckGo Lite 没有解析到结果/);
     assert.match(body.warning, /已回退 Bing/);
     assert.equal(body.results.length, 2, '去重 + 丢私网地址');
     assert.equal(body.results[0].title, 'Dubhe Agent · GitHub');
@@ -189,16 +192,52 @@ test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自�
     assert.equal(body.results[0].source, 'Bing');
     assert.equal(body.results[1].title, 'Dubhe – Wikipedia & friends');
     assert.equal(body.results[1].snippet, 'Dubhe is a star & more.');
-    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'www.bing.com'], 'DDG 一次、Bing 一次，顺序固定');
+    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'lite.duckduckgo.com', 'www.bing.com'], 'DDG html → DDG lite → Bing，顺序固定');
   });
 });
 
-test('三个搜索源全挂 → 502 且错误里逐个列出原因', async () => {
+test('DuckDuckGo HTML 被挡但 Lite 的 POST 入口可用 → 用 Lite（表单 POST + kl=wt-wt），解析 result-link / result-snippet', async () => {
+  const challenge = '<html><body><div class="anomaly-modal__title">bots</div></body></html>';
+  const lite = `<html><body><table>
+    <tr><td>1.&nbsp;</td><td><a rel="nofollow" href="https://teamorouter.com/" class='result-link'>TeamoRouter</a></td></tr>
+    <tr><td>&nbsp;</td><td class='result-snippet'>Use one API key for <b>Claude Code</b>, Codex &amp; agents.</td></tr>
+    <tr><td>2.&nbsp;</td><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fteamorouter.com%2Fabout" class='result-link'>About</a></td></tr>
+    <tr><td>&nbsp;</td><td class='result-snippet'>Learn how it works.</td></tr>
+    <tr><td>3.&nbsp;</td><td><a rel="nofollow" href="http://10.0.0.1/x" class='result-link'>private</a></td></tr>
+  </table></body></html>`;
+  const seen = [];
+  await withMockFetch(async (target, init) => {
+    const u = String(target); seen.push([u, init && init.method]);
+    if (/html\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html' } });
+    if (/^https:\/\/lite\.duckduckgo\.com\/lite\/$/.test(u)) {
+      assert.equal(init.method, 'POST');
+      assert.equal(init.headers['Content-Type'], 'application/x-www-form-urlencoded');
+      assert.equal(String(init.body), 'q=TeamoRouter&kl=wt-wt');
+      assert.equal(init.cf, undefined, 'POST 不走边缘缓存');
+      return new Response(lite, { status: 200, headers: { 'content-type': 'text/html' } });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  }, async () => {
+    const { response, body } = await jsonCall('/api/search?q=TeamoRouter&limit=5');
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'DuckDuckGo Lite');
+    assert.deepEqual(body.tried, ['DuckDuckGo']);
+    assert.equal(body.results.length, 2, '私网地址丢弃');
+    assert.equal(body.results[0].title, 'TeamoRouter');
+    assert.match(body.results[0].snippet, /^Use one API key for Claude Code ?, Codex & agents\.$/, '标签剥掉、实体解码');
+    assert.equal(body.results[1].url, 'https://teamorouter.com/about', 'uddg 跳转链接要解包');
+    assert.equal(body.results[1].snippet, 'Learn how it works.');
+    assert.deepEqual(seen.map(([u]) => new URL(u).hostname), ['html.duckduckgo.com', 'lite.duckduckgo.com'], 'Lite 成功就不再打 Bing');
+  });
+});
+
+test('所有搜索源全挂 → 502 且错误里逐个列出原因', async () => {
   await withMockFetch(async () => new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }), async () => {
     const { response, body } = await jsonCall('/api/search?q=nothing');
     assert.equal(response.status, 502);
     assert.match(body.error, /所有搜索源都失败/);
     assert.match(body.error, /DuckDuckGo：/);
+    assert.match(body.error, /DuckDuckGo Lite：/);
     assert.match(body.error, /Bing：Bing RSS 没有解析到结果/);
   });
 });

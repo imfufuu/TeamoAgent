@@ -137,7 +137,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 52. **顶部系统状态栏取色**：`app.html` 新增 `theme-color`（+ `viewport-fit=cover`），`ui.js` 按「主题底色 × 遮罩透明度」在面板浮层 / 弹窗 / 灯箱开合与换主题时实时改写——iPhone 上打开面板时状态栏不再停在亮白。
 53. **「智能」统一**：`modelDisplayName()` 一处定义，模型按钮 / 下拉项 / 「正在连接」行 / 费用弹层 / `/status` 全部显示「智能」而不是 smart-router；路由图标按产品 LOGO 原图重新量过（轨道半径 8.6、缺口 20°、卫星点外移成鼓包、外环 2.3）。
 54. **预算 ⚠ 讲清楚**：`parallelTasks` 是并发上限不是消耗量，一波正好跑满 3 个不再算「耗尽」（之前「工具 9/128 · 外部 2/32 ⚠」的根因）；脚注 ⚠ 后面写出到底哪一路用尽。
-55. **搜索回退链**：Worker `/api/search` 由 SearXNG（配置时）→ DuckDuckGo HTML → **Bing RSS** 依次回退（DuckDuckGo 对 Cloudflare 出口普遍返回 202 人机页），响应带 `tried` / `warning`，三源全挂才 502；Worker v1.7.1。
+55. **搜索回退链**：Worker `/api/search` 由 SearXNG（配置时）→ DuckDuckGo HTML → **DuckDuckGo Lite（POST 表单，同一出口上常常仍可用）** → **Bing RSS（按查询语种带 mkt）** 依次回退（DuckDuckGo HTML 对 Cloudflare 出口普遍返回 202 人机页），响应带 `tried` / `warning`，三源全挂才 502；Worker v1.7.1。
 56. **设置页 ↔ 会话区同步**：`mountSettings` 新增 `onSettingChanged` 回调 → `ui.syncToolbar()`，快速 / 沙箱 / 联网 / 思考四颗 pill、能力行、主题按钮随设置页开关即时刷新。
 57. **其它**：视频识别默认模型改为 Gemini 3.5 Flash Lite；设置页新增「清除临时缓存」（只清 Cache Storage / sessionStorage / 中继探测，不碰会话、密钥、设置、记忆）；管理员模式下 `/key` 不可用（别名即口令，首尾各露几位等于整段泄露）；文档页三处写明与 TeamoRouter 互不隶属；菜单 / 弹层弹入动效加重（.44s、过冲 1.42、起点 .78）；长效记忆空状态加插画并重写文案。
 

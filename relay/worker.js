@@ -10,7 +10,7 @@
  * 端点：
  *   GET /api/health                    → 版本与 capabilities
  *   GET /api/fetch?url=...             → 有 SSRF 护栏的单页抓取（text/raw）
- *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → Bing RSS 依次回退
+ *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → DuckDuckGo Lite（POST）→ Bing RSS 依次回退
  *   GET /api/crawl?url=...             → 同源、有限页数/深度的 HTML 正文抓取
  *   GET /api/file?url=...              → 跨域二进制文件拉取（图片 / PDF / 视频 / ZIP，≤ 16MB，原样回传 + CORS）
  *                                      可选 max_pages、max_depth、max_bytes、max_chars
@@ -298,6 +298,39 @@ async function searchSearXNG(query, limit, env = {}, signal) {
   if (!results.length) throw new Error('SearXNG 没有返回可用结果');
   return { provider: 'SearXNG', results };
 }
+// DuckDuckGo Lite（POST 表单）：同一个出口 IP 上 html.duckduckgo.com GET 被 202 人机页挡住时，lite 的 POST 入口往往还能正常返回
+// （2026-10-07 实测）。结果是表格：<a class='result-link' href=...>标题</a> + <td class='result-snippet'>摘要</td>。
+function parseDuckDuckGoLite(html, limit) {
+  const source = String(html || '');
+  const anchors = [...source.matchAll(/<a\b[^>]*\bclass\s*=\s*(["'])result-link\1[^>]*>[\s\S]*?<\/a\s*>/gi)];
+  const results = [];
+  for (let i = 0; i < anchors.length && results.length < limit; i++) {
+    const match = anchors[i];
+    const tagEnd = match[0].indexOf('>');
+    const hrefMatch = /\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/i.exec(match[0].slice(0, tagEnd + 1));
+    const url = unwrapDuckUrl(hrefMatch && (hrefMatch[1] || hrefMatch[2] || hrefMatch[3]));
+    if (!url) continue;
+    const title = htmlToText(match[0].slice(tagEnd + 1).replace(/<\/a\s*>$/i, ''));
+    const start = (match.index || 0) + match[0].length;
+    const next = anchors[i + 1] ? anchors[i + 1].index : Math.min(source.length, start + 2000);
+    const seg = source.slice(start, next);
+    const sn = /<td\b[^>]*\bclass\s*=\s*(["'])result-snippet\1[^>]*>([\s\S]*?)<\/td>/i.exec(seg);
+    const snippet = htmlToText(sn ? sn[2] : '').slice(0, 500);
+    const item = normalizeSearchResult({ title, url, snippet }, 'DuckDuckGo Lite');
+    if (item && !results.some((r) => r.url === item.url)) results.push(item);
+  }
+  return results;
+}
+async function searchDuckDuckGoLite(query, limit, signal) {
+  const response = await guardedFetch('https://lite.duckduckgo.com/lite/', {
+    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
+    method: 'POST', body: new URLSearchParams({ q: query, kl: 'wt-wt' }).toString(), contentType: 'application/x-www-form-urlencoded',
+    accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+  });
+  const results = parseDuckDuckGoLite(response.body, limit);
+  if (!results.length) throw new Error('DuckDuckGo Lite 没有解析到结果（可能被上游限流）');
+  return { provider: 'DuckDuckGo Lite', results, truncated: response.truncated };
+}
 async function searchDuckDuckGo(query, limit, signal) {
   const endpoint = new URL('https://html.duckduckgo.com/html/');
   endpoint.searchParams.set('q', query);
@@ -333,6 +366,9 @@ async function searchBing(query, limit, signal) {
   endpoint.searchParams.set('q', query);
   endpoint.searchParams.set('format', 'rss');
   endpoint.searchParams.set('count', String(Math.max(limit, 10)));
+  // 市场提示：数据中心出口不带 cookie 时 Bing 会按出口国家乱猜市场，给出一堆无关结果；按查询语种显式指定
+  endpoint.searchParams.set('mkt', /[\u3040-\u30ff]/.test(query) ? 'ja-JP' : (/[\u4e00-\u9fff]/.test(query) ? 'zh-CN' : 'en-US'));
+  endpoint.searchParams.set('setlang', /[\u3040-\u30ff]/.test(query) ? 'ja' : (/[\u4e00-\u9fff]/.test(query) ? 'zh-hans' : 'en'));
   const response = await guardedFetch(endpoint.toString(), {
     limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
     accept: 'application/rss+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5',
@@ -346,6 +382,7 @@ async function searchWeb(query, limit, env = {}, signal) {
   const providers = [];
   if (String(env.SEARXNG_URL || '').trim()) providers.push(['SearXNG', () => searchSearXNG(query, limit, env, signal)]);
   providers.push(['DuckDuckGo', () => searchDuckDuckGo(query, limit, signal)]);
+  providers.push(['DuckDuckGo Lite', () => searchDuckDuckGoLite(query, limit, signal)]);
   providers.push(['Bing', () => searchBing(query, limit, signal)]);
   for (const [name, run] of providers) {
     try {
@@ -444,7 +481,7 @@ async function crawlSite({ url, maxPages = 3, maxDepth = 1, maxBytesPerPage = 25
 
 // ── 带重定向护栏的 fetch ───────────────────────────────────────
 // Cloudflare fetch 自动跟随重定向，但 follow=manual 后我们自己跟，每跳校验。
-async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, maxRedirects = 5, timeoutMs = FETCH_TIMEOUT_MS, accept = '*/*', signal, allowedOrigin, binary = false } = {}) {
+async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, maxRedirects = 5, timeoutMs = FETCH_TIMEOUT_MS, accept = '*/*', signal, allowedOrigin, binary = false, method = 'GET', body = null, contentType = '' } = {}) {
   let current = await guardUrl(urlStr);
   let hops = 0;
   while (hops++ <= maxRedirects) {
@@ -453,11 +490,13 @@ async function guardedFetch(urlStr, { limit = MAX_FETCH_BYTES, cache = true, max
       ? AbortSignal.any([timeoutSignal, signal])
       : (signal || timeoutSignal);
     const init = {
+      method,
       signal: requestSignal,
-      headers: { 'User-Agent': UA, 'Accept': accept, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8' },
+      headers: { 'User-Agent': UA, 'Accept': accept, 'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8', ...(contentType ? { 'Content-Type': contentType } : {}) },
       redirect: 'manual', // 自己处理以便每跳校验
     };
-    if (cache) init.cf = { cacheTtlByStatus: { '200-299': 300, '404': 30, '500-599': 0 }, cacheEverything: true };
+    if (body != null && method !== 'GET') init.body = body;
+    if (cache && method === 'GET') init.cf = { cacheTtlByStatus: { '200-299': 300, '404': 30, '500-599': 0 }, cacheEverything: true };
     const res = await fetch(current, init);
     // 3xx 自己跟
     if ([301, 302, 303, 307, 308].includes(res.status)) {
