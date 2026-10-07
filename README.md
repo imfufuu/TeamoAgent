@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.29` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.30` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.30：P7 修正——供应链可验证性弱**
+
+66. **签名提交 + 分支保护**：自动化提交改用 SSH 签名密钥（公钥 `tools/allowed_signers`，已登记为账号签名密钥，GitHub 显示 Verified；提交者为账号 noreply 邮箱而不再是临时身份）；`main` 开启 Require signed commits + 禁止 force-push / 删除 + 对管理员生效。历史提交不改写，`.30` 之前仍是未签名。
+67. **每个构建号一个 annotated tag + Release**（`v2026.10.5.N`，签名；Release 正文带清单摘要）。
+68. **部署清单**：`pages.yml` 打包前 `tools/build-manifest.mjs` 生成 `build.json`（commit / 版本 / 每文件 sha256 与大小 / 整份摘要）；`tools/verify-build.mjs [--fetch]` 任何人可逐文件核对；设置 → 关于 → 部署提交显示 sha 并链到 GitHub，版本不一致标黄。
+69. **文档写明边界**：签名 + 清单只覆盖完整性与来源，不覆盖无害性与运行时行为；信任链止于 GitHub；第三方 CDN 与模型网关不在清单内。
 
 **构建 2026.10.5.29：沙箱文件视图一致性——JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误**
 
@@ -495,6 +502,26 @@ Python 沙箱首次使用需从 CDN 加载 Pyodide 运行时；本地代理（se
 > legacy「Deploy from a branch」已弃用；若旧仓库还是 legacy，先到 Settings 切换一次）。
 
 注意：应用内全部使用相对路径（css/js/worker），因此部署在子路径（`/<仓库名>/`）下无需任何改动。
+
+### 供应链可验证性（P7，构建 .30 起）
+
+**先说边界**：下面这些手段只覆盖**完整性与来源**——「线上的字节 = 仓库某个提交的字节」「该提交由持有签名密钥的人推出」。它们**不证明代码无害、不证明运行时行为与文档一致**；那两件事要靠读代码、跑测试和你自己的判断。
+
+1. **提交与标签签名**：构建 .30 起所有自动化提交与标签用 SSH 密钥签名（公钥见 [`tools/allowed_signers`](./tools/allowed_signers)，已登记为 GitHub 账号的签名密钥），GitHub 上显示 **Verified**。本地核验：
+   ```bash
+   git config gpg.ssh.allowedSignersFile tools/allowed_signers
+   git log --format='%h %G? %s' -20        # G = 有效签名；.30 之前的历史提交是 N（未签名，历史不改写）
+   git tag -v v2026.10.5.30
+   ```
+   `main` 分支已开启保护：**Require signed commits**、禁止 force-push / 删除、对管理员同样生效（`GET /repos/imfufuu/dubhe-agent/branches/main/protection/required_signatures` → `enabled: true`）。
+2. **每个构建号一个 annotated tag + Release**：`v2026.10.5.N`，Release 正文附该构建的 `build.json` 清单摘要。
+3. **部署清单**：`pages.yml` 打包前运行 `tools/build-manifest.mjs`，在产物根目录写 [`build.json`](https://imfufuu.github.io/dubhe-agent/build.json)（commit sha、版本号、每个文件的 sha256 与大小、整份清单的 sha256）。应用内 **设置 → 关于 → 部署提交** 直接显示该 sha 并链到 GitHub；若清单版本与当前运行的 `APP_VERSION` 不一致会标黄提示（浏览器缓存与部署不同步）。任何人可核对：
+   ```bash
+   git clone https://github.com/imfufuu/dubhe-agent && cd dubhe-agent
+   node tools/verify-build.mjs            # 线上 build.json 声明的提交 vs 仓库该提交，逐文件比 sha256
+   node tools/verify-build.mjs --fetch    # 再把线上每个文件下载一遍，确认服务器实际发出的字节 = 清单 = 仓库
+   ```
+4. **仍然做不到的**：无法证明 GitHub Actions runner 未被篡改（信任链止于 GitHub）；无法证明第三方 CDN（Pyodide、KaTeX 字体等 `cdn.jsdelivr.net`）发出的内容（它们不在清单内，由 CSP 限定来源）；无法证明模型网关的行为。
 
 ### 本地运行
 

@@ -24,6 +24,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # P7 供应链可验证性：把「这次发布 = 哪个提交 + 每个文件的 sha256」写进产物根目录的 build.json，
+      # 线上 /build.json 可被任何人拉取，用 tools/verify-build.mjs 与仓库该提交逐文件比对。
+      - name: 生成部署清单 build.json
+        run: node tools/build-manifest.mjs --out build.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

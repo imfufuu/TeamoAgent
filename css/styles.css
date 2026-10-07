@@ -1523,6 +1523,9 @@ a { color: var(--fg); }
 .set-about-row { display: flex; justify-content: space-between; padding: 7px 0; font-size: var(--ui-fs-12_5px, 12.5px); }
 .set-about-row span { color: var(--fg-3); }
 .set-about-row b { font-weight: 600; color: var(--fg); max-width: 60%; text-align: right; word-break: break-all; }
+.set-about-row b a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+.set-about-row b.warn { color: #b45309; font-weight: 500; }
+[data-theme="dark"] .set-about-row b.warn { color: #fbbf24; }
 .set-danger { display: flex; gap: 8px; flex-wrap: wrap; }
 .ghost-btn { padding: 7px 13px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg-2); font-size: var(--ui-fs-12px, 12px); cursor: pointer; transition: all .18s; }
 .ghost-btn:hover { border-color: var(--fg); color: var(--fg); }

@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.29';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.30';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { DEFAULT_TURN_BUDGET } from './execution.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
@@ -137,6 +137,42 @@ export function openSettingsModal({ store } = {}) {
   m.classList.add('open');
   setTimeout(() => $('#set-key').focus(), 100);
   relayCheck().then((msg) => { const el = $('#set-relay-msg'); if (el) el.textContent = msg; });
+  loadBuildInfo().then((info) => paintBuildInfo($('#set-about-commit'), info, APP_VERSION));
+}
+
+// ── 部署提交（P7 供应链可验证性）：读同源 build.json（Pages 部署时由 tools/build-manifest.mjs 生成）──
+// 显示 commit 短 sha + 文件数 + 清单摘要；若清单里的版本号与当前运行的 APP_VERSION 不一致，说明浏览器缓存
+// 与线上部署不是同一份（或有人改了文件却没走 Pages 流程），要明说。本地 file:// / 开发服务器没有 build.json 时显示「非 Pages 部署」。
+let buildInfoCache = null;
+export async function loadBuildInfo({ fetchImpl = (typeof fetch === 'function' ? fetch : null), url = 'build.json' } = {}) {
+  if (buildInfoCache) return buildInfoCache;
+  if (!fetchImpl) return { ok: false, reason: 'no-fetch' };
+  try {
+    const res = await fetchImpl(`${url}?x=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return { ok: false, reason: `http-${res.status}` };
+    const j = await res.json();
+    if (!j || j.schema !== 'dubhe-build-manifest/1' || !j.commit) return { ok: false, reason: 'bad-schema' };
+    buildInfoCache = { ok: true, commit: String(j.commit), version: String(j.version || ''), fileCount: Number(j.file_count) || 0, manifestSha: String(j.manifest_sha256 || ''), builtAt: String(j.built_at || ''), repository: String(j.repository || 'imfufuu/dubhe-agent') };
+    return buildInfoCache;
+  } catch { return { ok: false, reason: 'network' }; }
+}
+export function formatBuildInfo(info, appVersion) {
+  if (!info || !info.ok) return { text: info && info.reason === 'http-404' ? '非 Pages 部署（无 build.json）' : '未知（拉不到 build.json）', mismatch: false, href: '' };
+  const short = info.commit.slice(0, 12);
+  const mismatch = !!(info.version && appVersion && info.version !== appVersion);
+  const text = `${short} · ${info.fileCount} 个文件 · 清单 ${info.manifestSha.slice(0, 10)}…${mismatch ? ` ⚠ 线上为 ${info.version}，本页运行的是 ${appVersion}（浏览器缓存与部署不一致，请强刷）` : ''}`;
+  return { text, mismatch, href: `https://github.com/${info.repository}/commit/${info.commit}` };
+}
+function paintBuildInfo(el, info, appVersion) {
+  if (!el) return;
+  const f = formatBuildInfo(info, appVersion);
+  el.textContent = '';
+  if (f.href) {
+    const a = document.createElement('a');
+    a.href = f.href; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.textContent = f.text;
+    el.appendChild(a);
+  } else el.textContent = f.text;
+  el.classList.toggle('warn', f.mismatch);
 }
 
 export function closeSettingsModal() {

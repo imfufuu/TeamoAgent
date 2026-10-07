@@ -6,3 +6,5 @@ __pycache__/
 # 本地中继（server.py）的工作区：Agent 在这里 clone/改文件，绝不入库
 workspace/
 .test-results/
+# Pages 部署时由 tools/build-manifest.mjs 生成，不入库（入库会让清单自引用）
+build.json

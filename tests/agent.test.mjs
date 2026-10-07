@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.29';
+} from '../js/api.js?v=2026.10.5.30';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.29');
+const api = await import('../js/api.js?v=2026.10.5.30');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.29');
+  const api = await import('../js/api.js?v=2026.10.5.30');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.29');
+  assert.equal(APP_VERSION, '2026.10.5.30');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.29/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.30/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.29/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.30/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -9034,7 +9034,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.29'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.30'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9076,7 +9076,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.29');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.30');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9341,7 +9341,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.29：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.30：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9551,7 +9551,7 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
-group('2026.10.5.29：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+group('2026.10.5.30：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
 
 test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
   const sb = await import('../js/sandbox.js');
@@ -9646,6 +9646,95 @@ test('失败归类：文件找不到 = 状态 / 视图问题（FILE_NOT_FOUND，
   assert.equal(ex.classifyToolFailure({ name: 'execute_python', result: '沙箱创建失败：Pyodide 不可用' }).kind, 'ENVIRONMENT');
   assert.equal(ex.classifyToolFailure({ name: 'write_file', result: '无权写入该路径' }).kind, 'PERMISSION');
   assert.equal(ex.FAILURE_KIND_META.FILE_NOT_FOUND.label, '文件不存在');
+});
+
+group('P7 修正：供应链可验证性弱 → 部署清单 build.json / 应用内显示部署提交 / verify-build 核对 / 签名与分支保护（文档写明边界）');
+
+test('tools/build-manifest.mjs：清单只含站点内容（排除 .git / node_modules / 点文件 / build.json），路径排序、sha256 与整份摘要稳定', async () => {
+  const fsp = await import('node:fs');
+  const os = await import('node:os');
+  const pathMod = await import('node:path');
+  const bm = await import('../tools/build-manifest.mjs');
+  const root = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'dubhe-manifest-'));
+  const put = (rel, content) => { const abs = pathMod.join(root, rel); fsp.mkdirSync(pathMod.dirname(abs), { recursive: true }); fsp.writeFileSync(abs, content); };
+  put('app.html', '<html>');
+  put('js/config.js', "export const APP_VERSION = '2026.10.5.30';\n");
+  put('assets/x.bin', Buffer.from([1, 2, 3]));
+  put('.github/workflows/ci.yml', 'x'); put('.gitignore', 'x'); put('node_modules/a/index.js', 'x'); put('build.json', '{}'); put('.git/HEAD', 'ref');
+  put('tests/t.mjs', 'y');
+  const m = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-07T00:00:00Z') });
+  assert.equal(m.schema, 'dubhe-build-manifest/1');
+  assert.equal(m.commit, 'abc123');
+  assert.equal(m.version, '2026.10.5.30', '版本号从 js/config.js 读');
+  assert.deepEqual(Object.keys(m.files), ['app.html', 'assets/x.bin', 'js/config.js', 'tests/t.mjs'], '排序 + 排除规则');
+  assert.equal(m.file_count, 4);
+  assert.equal(m.files['assets/x.bin'].size, 3);
+  assert.equal(m.files['assets/x.bin'].sha256, '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
+  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.30';\n".length + 1);
+  assert.match(m.manifest_sha256, /^[0-9a-f]{64}$/);
+  const m2 = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-08T00:00:00Z') });
+  assert.equal(m2.manifest_sha256, m.manifest_sha256, '清单摘要只依赖路径与内容，不依赖时间');
+  put('app.html', '<html>!');
+  assert.notEqual(bm.buildManifest({ root, commit: 'abc123' }).manifest_sha256, m.manifest_sha256);
+  fsp.rmSync(root, { recursive: true, force: true });
+  // 真实仓库：能跑、含关键文件、不含点文件 / node_modules
+  const real = bm.buildManifest({ root: new URL('..', import.meta.url).pathname, commit: 'x' });
+  for (const k of ['app.html', 'js/agent.js', 'js/config.js', 'sw.js', 'assets/moderation/nsfw-inception-v3/model.json']) assert.ok(real.files[k], `${k} 应在清单内`);
+  assert.ok(!Object.keys(real.files).some((k) => k.startsWith('.') || k.startsWith('node_modules/') || k === 'build.json'));
+  assert.equal(real.version, cfg.APP_VERSION);
+});
+
+test('tools/verify-build.mjs diffManifests：线上多 / 仓库多 / sha 不同三类差异都能列出；一致为空', async () => {
+  const { diffManifests } = await import('../tools/verify-build.mjs');
+  const a = { files: { 'a.js': { sha256: '1' }, 'b.js': { sha256: '2' } } };
+  assert.deepEqual(diffManifests(a, { files: { 'a.js': { sha256: '1' }, 'b.js': { sha256: '2' } } }), []);
+  const p = diffManifests(a, { files: { 'a.js': { sha256: '9' }, 'c.js': { sha256: '3' } } });
+  assert.deepEqual(p.map((x) => `${x.kind}:${x.path}`).sort(), ['missing-in-deploy:c.js', 'missing-in-repo:b.js', 'sha-mismatch:a.js']);
+});
+
+test('pages.yml 打包前生成 build.json；build.json 不入库；settings 读清单显示部署提交并在版本不一致时标黄', async () => {
+  const fsp = await import('node:fs');
+  const pages = fsp.readFileSync(new URL('../.github/workflows/pages.yml', import.meta.url), 'utf8');
+  assert.match(pages, /- name: 生成部署清单 build\.json\n\s+run: node tools\/build-manifest\.mjs --out build\.json/);
+  assert.ok(pages.indexOf('build-manifest.mjs') < pages.indexOf('upload-pages-artifact'), '清单必须在打包之前生成');
+  assert.match(pages, /setup-node@v4/);
+  const gi = fsp.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  assert.match(gi, /^build\.json$/m);
+  assert.ok(!fsp.existsSync(new URL('../build.json', import.meta.url)), '仓库里不能有 build.json（会让清单自引用）');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(app, /<div class="set-about-row"><span>部署提交<\/span><b id="set-about-commit" class="mono"/);
+  const st = await import('../js/settings.js');
+  // loadBuildInfo：mock fetch
+  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.30', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
+  const info = await st.loadBuildInfo({ fetchImpl: async (u) => { assert.match(String(u), /^build\.json\?x=\d+$/); return { ok: true, json: async () => good }; } });
+  assert.equal(info.ok, true); assert.equal(info.commit, good.commit);
+  const f1 = st.formatBuildInfo(info, '2026.10.5.30');
+  assert.equal(f1.mismatch, false);
+  assert.match(f1.text, /^de07a1d7e735 · 202 个文件 · 清单 abcdef0123…$/);
+  assert.equal(f1.href, 'https://github.com/imfufuu/dubhe-agent/commit/de07a1d7e7350000000000000000000000000000');
+  const f2 = st.formatBuildInfo(info, '2026.1.1.1');
+  assert.equal(f2.mismatch, true);
+  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.30，本页运行的是 2026\.1\.1\.1/);
+  assert.equal(st.formatBuildInfo({ ok: false, reason: 'http-404' }).text, '非 Pages 部署（无 build.json）');
+  assert.equal(st.formatBuildInfo({ ok: false, reason: 'network' }).mismatch, false);
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.set-about-row b\.warn \{ color: #b45309;/);
+});
+
+test('签名与边界：allowed_signers 公钥文件格式正确；README 写明「签名 + 清单只覆盖完整性与来源，不覆盖无害性与运行时行为」', async () => {
+  const fsp = await import('node:fs');
+  const signers = fsp.readFileSync(new URL('../tools/allowed_signers', import.meta.url), 'utf8');
+  const lines = signers.split('\n').filter((l) => l.trim() && !l.startsWith('#'));
+  assert.ok(lines.length >= 1);
+  for (const l of lines) assert.match(l, /^\S+@\S+ namespaces="git" ssh-ed25519 AAAA[0-9A-Za-z+/]+=*$/, l);
+  const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  assert.match(readme, /### 供应链可验证性（P7，构建 \.30 起）/);
+  assert.match(readme, /只覆盖\*\*完整性与来源\*\*/);
+  assert.match(readme, /\*\*不证明代码无害、不证明运行时行为与文档一致\*\*/);
+  assert.match(readme, /git config gpg\.ssh\.allowedSignersFile tools\/allowed_signers/);
+  assert.match(readme, /node tools\/verify-build\.mjs --fetch/);
+  assert.match(readme, /Require signed commits/);
+  assert.match(readme, /仍然做不到的/);
 });
 
 for (const item of queue) {

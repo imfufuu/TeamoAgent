@@ -1,0 +1,4 @@
+# Git SSH 签名的允许签名者（gpg.ssh.allowedSignersFile）。本地核验：
+#   git config gpg.ssh.allowedSignersFile tools/allowed_signers && git log --show-signature -5
+# 格式：<principal（提交者邮箱）> namespaces="git" <公钥>
+258719308+imfufuu@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINlQGZsaYxd3PRaSr0cCi/75SmFzdAQ3xgLwGpNFBKnr
