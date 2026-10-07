@@ -1229,7 +1229,9 @@ export function createBudgetGovernor(budget = {}, { now = () => Date.now(), star
       const ev = { channel, amount: n, spent: spent[channel], limit: limitOf(channel), at: now(), ...(meta ? { meta } : {}) };
       events.push(ev);
       const limit = limitOf(channel);
-      if (limit != null && spent[channel] >= limit) exhausted.add(channel);
+      // parallelTasks 是并发上限不是消耗量：一波正好跑满 3 个并发不算「耗尽」（.26 前这里把它记成耗尽，
+      // 脚注莫名其妙带 ⚠，而工具 9/128、外部 2/32 都没满）。只有 canSpend 真被拒（n > 上限）才标。
+      if (limit != null && spent[channel] >= limit && channel !== 'parallelTasks') exhausted.add(channel);
       return { ok: true, channel, spent: spent[channel], remaining: remainingOf(channel), event: ev };
     },
     snapshot() {

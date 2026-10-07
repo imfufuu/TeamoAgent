@@ -1,16 +1,25 @@
-// ─── 内容审核：文本交给 TypeSafe Jev（System One），图片本地 NudeNet + NSFWJS ───
+// ─── 内容审核：文本交给 TypeSafe Jev（System One），图片本地 NudeNet + NSFWJS（InceptionV3）+ 不确定图远程复核 ───
 // 文本审核由 Jev（POST /v1/systemone）主审 + 本地红线规则兜底（替代传统 local:tfjs-toxicity + text-use，解决传统方法效果差的问题）；
-// 图片审核随项目放在 assets/moderation/，在浏览器本地运行。
+// 图片审核三层：① NudeNet 320n（显式部位检测）② NSFWJS InceptionV3（porn / hentai / sexy 分类，比 MobileNetV2-mid 召回高一截）
+// ③ 两层本地都没把握（灰区）的图，才交给视觉模型（REMOTE_IMAGE_REVIEW_MODEL）按严格规则复核——命中即拦截，
+// 远程不可用（无 Key / 超时 / 网络）时退回本地阈值判定，不把网络抖动变成误拦。前两层随项目放在 assets/moderation/，在浏览器本地运行。
 
 import { askJev, noul, choice, score, noulOf, choiceOf, scoreOf, confidenceOf, JEV_MODEL, JEV_TIMEOUT_MS } from './jev.js';
+import { analyzeImage } from './vision.js';
 
 export const TEXT_MODERATION_MODEL = 'jev:systemone+policy-v2';
-export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-mobilenet-v2-mid';
+export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-inception-v3';
+export const REMOTE_IMAGE_REVIEW_MODEL = 'gemini-3.5-flash-lite';   // 灰区图远程复核（便宜、快；只在本地拿不准时调用）
+export const REMOTE_IMAGE_REVIEW_MAX_PER_TURN = 3;                  // 每轮最多复核几张（视频抽帧也算），控成本
+export const REMOTE_IMAGE_REVIEW_TIMEOUT_MS = 20000;
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
-export const IMAGE_MODERATION_THRESHOLD = 0.70;
+export const IMAGE_MODERATION_THRESHOLD = 0.70;   // 本地综合分（porn+hentai+sexy）直接拦截线
+export const IMAGE_SINGLE_CLASS_BLOCK = 0.50;     // porn / hentai 单类达到即拦截（InceptionV3 单类分辨率够，不再要求三类相加）
+export const IMAGE_UNCERTAIN_THRESHOLD = 0.25;    // 综合分进入灰区 → 远程复核
+export const IMAGE_UNCERTAIN_CLASS = 0.12;        // porn / hentai 单类进入灰区线；sexy 用 2 倍
 export const MODERATION_TIMEOUT_MS = 45000;      // 纯文本回合总预算
-export const IMAGE_TURN_BUDGET_MS = 90000;       // 带图回合总预算（模型资源大，慢网络放宽）
+export const IMAGE_TURN_BUDGET_MS = 120000;      // 带图回合总预算（模型资源大 + 灰区远程复核，慢网络放宽）
 
 const JEV_MODERATION_QUESTIONS = {
   unsafe: noul(
@@ -41,10 +50,11 @@ const TIMEOUTS = Object.freeze({
   textModel: 30000,
   textClassify: 12000,
   semantic: 16000,
-  imageModel: 60000,
+  imageModel: 90000,      // InceptionV3 22.6MB：慢网络首轮下载 + 建图
   imageDecode: 8000,
   imageFetch: 10000,
-  imageClassify: 12000,
+  imageClassify: 15000,   // 299 输入比 224 重约 2.5 倍；手机 WebGL 实测仍在 1–2s 内
+  remoteReview: REMOTE_IMAGE_REVIEW_TIMEOUT_MS,
   nudityModel: 45000,
   nudityDetect: 12000,
 });
@@ -55,7 +65,10 @@ const USE_URL = '../assets/vendor/use.min.js';
 const USE_MODEL_URL = '../assets/moderation/text-use/model.json';
 const USE_VOCAB_URL = '../assets/moderation/text-use/vocab.json';
 const NSFWJS_URL = '../assets/vendor/nsfwjs.min.js';
-const NSFW_MODEL_URL = '../assets/moderation/nsfw-mobilenet-v2-mid/model.json';
+// NSFWJS InceptionV3（infinitered/nsfwjs models/inception_v3，Keras layers 格式、uint8 量化，22.6MB，输入 299）。
+// 2026-10-07 起替换 MobileNetV2-mid（4.3MB / 224）：mid 对真人裸露漏检明显，InceptionV3 是官方三档里准确率最高的一档。
+const NSFW_MODEL_URL = '../assets/moderation/nsfw-inception-v3/model.json';
+const NSFW_INPUT_SIZE = 299;
 // onnxruntime-web 1.30：入口 bundle + 动态 import 的 .mjs 胶水 + wasm 二进制（三者必须同版本）。
 // 1.17 系在新版 Chromium 上 session 创建会静默 abort（裸数字 reject），不得回退。
 const ORT_URL = '../assets/vendor/ort.min.js';
@@ -229,11 +242,11 @@ async function imageModel() {
   nsfwReady ||= withMutedWarn(async () => {
     await loadScript(NSFWJS_URL);
     if (!globalThis.nsfwjs || typeof globalThis.nsfwjs.load !== 'function') throw new Error('NSFWJS 模型运行时未初始化');
-    // 官方 mobilenet_v2_mid 是 SavedModel 转出的 graph-model（非 Keras layers），
-    // 必须 type:'graph' 走 loadGraphModel；缺省的 loadLayersModel 会报 Improper config format。
+    // 官方 inception_v3 是 Keras layers 模型（model.json 带 modelTopology.model_config），走缺省的 loadLayersModel；
+    // 千万不要像 mobilenet_v2_mid 那样按 graph 加载（那是 SavedModel 转出的 graph-model，两者不能混）。
     const tLoad = performance.now();
-    mlog('nsfwjs:model-load-start', { note: '开始加载 NSFWJS 模型（graph 格式）' });
-    const model = await globalThis.nsfwjs.load(assetUrl(NSFW_MODEL_URL), { size: 224, type: 'graph' });
+    mlog('nsfwjs:model-load-start', { note: `开始加载 NSFWJS InceptionV3（layers 格式，输入 ${NSFW_INPUT_SIZE}）` });
+    const model = await globalThis.nsfwjs.load(assetUrl(NSFW_MODEL_URL), { size: NSFW_INPUT_SIZE, type: 'layers' });
     mlog('nsfwjs:model-load-ready', { ms: ms(tLoad) });
     return { model };
   }).catch((err) => { mlog('nsfwjs:model-load-fail', { error: String(err && err.message || err).slice(0, 200) }); throw err; });
@@ -385,7 +398,7 @@ function imageSize(img) {
   return { width: img.naturalWidth || img.videoWidth || img.width || 0, height: img.naturalHeight || img.videoHeight || img.height || 0 };
 }
 
-// 审核用最大边长：NudeNet 输入 320 / NSFWJS 输入 224，1280 已远超模型需要；
+// 审核用最大边长：NudeNet 输入 320 / NSFWJS 输入 299，1280 已远超模型需要；
 // 高分辨率截图/照片先等比缩小，省掉 NSFWJS 全尺寸 fromPixels 与二次插值的耗时
 const MOD_IMAGE_MAX_DIM = 1280;
 function downscaleForModeration(img) {
@@ -478,11 +491,16 @@ function postprocessNudeNet(output, meta) {
   return nms(raw.filter((x) => x.score >= 0.25)).map((x) => ({ ...x, box: x.box.map((v) => Math.round(v)) }));
 }
 
+// NudeNet 「擦边」：拦截类部位分数在 0.18–0.32 之间、或遮挡类（*_COVERED，脸/脚/腹部除外）分数很高 → 本地没把握，交远程复核
+const NUDENET_UNCERTAIN_COVERED = new Set(['FEMALE_GENITALIA_COVERED', 'FEMALE_BREAST_COVERED', 'BUTTOCKS_COVERED', 'ANUS_COVERED']);
 export function policyNudityDecision(detections = []) {
   const hits = (detections || []).filter((d) => NUDENET_BLOCK.has(d.class) && Number(d.score) >= 0.32);
   const categories = hits.length ? ['explicit_nudity', ...new Set(hits.map((d) => d.class.toLowerCase()))] : [];
   const score = Math.max(0, ...hits.map((d) => Number(d.score) || 0));
-  return { blocked: hits.length > 0, score, categories, reason: categories.join(', '), source: 'local:nudenet-320n', detections: hits.slice(0, 8) };
+  const near = (detections || []).filter((d) => (NUDENET_BLOCK.has(d.class) && Number(d.score) >= 0.18 && Number(d.score) < 0.32)
+    || (NUDENET_UNCERTAIN_COVERED.has(d.class) && Number(d.score) >= 0.55));
+  const uncertain = !hits.length && near.length > 0;
+  return { blocked: hits.length > 0, score, categories, reason: categories.join(', '), source: 'local:nudenet-320n', detections: hits.slice(0, 8), uncertain, uncertainWhy: uncertain ? near.slice(0, 4).map((d) => `${d.class.toLowerCase()}≈${Math.round(Number(d.score) * 100) / 100}`).join(', ') : '' };
 }
 
 async function moderateNudityImage(img, signal) {
@@ -507,7 +525,7 @@ async function moderateNudityImage(img, signal) {
 
 function prefetchImageModerationAssets() {
   if (typeof document === 'undefined') return;
-  // β：TFJS + NSFWJS 资源也纳入预热——发送时冷加载 ~8.4MB 是超时 fail-open 的主因之一。
+  // β：TFJS + NSFWJS 资源也纳入预热——发送时冷加载 ~26MB（InceptionV3 22.6MB）是超时 fail-closed 的主因之一。
   for (const href of [ORT_URL, ORT_WASM_THREAD_URL, NUDENET_MODEL_URL, NSFWJS_URL, NSFW_MODEL_URL]) {
     const url = assetUrl(href);
     if ([...document.querySelectorAll('link[rel="prefetch"],link[rel="preload"]')].some((x) => x.href === url)) continue;
@@ -532,10 +550,7 @@ async function fetchWarm(href, label) {
   }
 }
 
-const NSFW_SHARD_URLS = [
-  '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard1of2',
-  '../assets/moderation/nsfw-mobilenet-v2-mid/group1-shard2of2',
-];
+const NSFW_SHARD_URLS = [1, 2, 3, 4, 5, 6].map((i) => `../assets/moderation/nsfw-inception-v3/group1-shard${i}of6`);
 const TOXIC_SHARD_URLS = [1, 2, 3, 4, 5, 6, 7].map((i) => `../assets/moderation/text-toxic/group1-shard${i}of7`);
 
 function prewarmImageModeration() {
@@ -765,7 +780,9 @@ function mergeDecisions(...rows) {
   const categories = [...new Set(rows.flatMap((r) => r && r.categories || []))];
   const score = Math.max(0, ...rows.map((r) => Number(r && r.score) || 0));
   const blocked = rows.some((r) => r && r.blocked);
-  return { blocked, score, categories, reason: categories.join(', '), parts: rows };
+  const uncertain = !blocked && rows.some((r) => r && r.uncertain);
+  const uncertainWhy = uncertain ? rows.filter((r) => r && r.uncertain && r.uncertainWhy).map((r) => r.uncertainWhy).join('; ') : '';
+  return { blocked, score, categories, reason: categories.join(', '), parts: rows, ...(uncertain ? { uncertain, uncertainWhy } : {}) };
 }
 
 function nsfwContextRisk(context = '') {
@@ -784,11 +801,66 @@ export function policyImageDecision(predictions, context = '') {
   if (porn >= 0.35) categories.push('porn');
   if (hentai >= 0.35) categories.push('hentai');
   if (sexy >= 0.35) categories.push('sexy');
-  if (nsfw >= IMAGE_MODERATION_THRESHOLD) categories.push('adult_nsfw');
-  if (contextRisk && nsfw >= IMAGE_MODERATION_THRESHOLD) categories.push('exploitative_nsfw');
-  // 图片侧从严：Porn/Hentai/Sexy 任意组合达到 NSFW 阈值即取消任务，不再要求上下文风险。
-  const blocked = nsfw >= IMAGE_MODERATION_THRESHOLD;
-  return { blocked, score: nsfw, categories, reason: categories.join(', '), source: IMAGE_MODERATION_MODEL };
+  // 图片侧从严：综合分达到阈值、或 porn / hentai 单类过半，即取消任务，不要求上下文风险。
+  const blocked = nsfw >= IMAGE_MODERATION_THRESHOLD || porn >= IMAGE_SINGLE_CLASS_BLOCK || hentai >= IMAGE_SINGLE_CLASS_BLOCK;
+  if (blocked) categories.push('adult_nsfw');
+  if (contextRisk && blocked) categories.push('exploitative_nsfw');
+  // 灰区：本地没把握（有一点 porn / hentai 信号、或 sexy 偏高、或综合分到四分之一、或文字上下文带风险词且图有一点点信号）→ 交远程复核
+  const uncertain = !blocked && (porn >= IMAGE_UNCERTAIN_CLASS || hentai >= IMAGE_UNCERTAIN_CLASS || sexy >= IMAGE_UNCERTAIN_CLASS * 2
+    || nsfw >= IMAGE_UNCERTAIN_THRESHOLD || (contextRisk && nsfw >= 0.08));
+  const r3 = (v) => Math.round(v * 1000) / 1000;
+  return { blocked, score: nsfw, categories, reason: categories.join(', '), source: IMAGE_MODERATION_MODEL, uncertain,
+    uncertainWhy: uncertain ? `porn=${r3(porn)} hentai=${r3(hentai)} sexy=${r3(sexy)}${contextRisk ? ' +context' : ''}` : '' };
+}
+
+// ── 远程复核（第三层）：只看灰区图，严格 JSON 评分 ──
+const REMOTE_REVIEW_PROMPT = [
+  'You are a strict content-safety classifier for a consumer chat app. Look at the image and answer ONLY with one JSON object, no prose, no markdown:',
+  '{"sexual":0|1|2|3,"minors":true|false,"verdict":"safe"|"unsafe"}',
+  'sexual: 0 = none; 1 = mildly suggestive (swimwear, fashion, fitness, kissing); 2 = sexualized nudity or near-nudity intended to arouse (exposed breasts/buttocks, lingerie posing, fetish, hentai/ecchi); 3 = explicit nudity, genitals, or sexual acts.',
+  'minors: true if anyone depicted is or appears to be under 18, or is drawn in a childlike style.',
+  'verdict: "unsafe" if sexual >= 2, or if minors is true and sexual >= 1; otherwise "safe". Be conservative: when in doubt about nudity, round up.',
+].join('\n');
+
+// 解析远程模型回答（纯函数，便于单测）：JSON 优先；拒答 / 安全过滤器挡住 → 视为 unsafe（模型不肯看的图，几乎都是该拦的）
+export function policyRemoteReviewDecision(answer, { model = REMOTE_IMAGE_REVIEW_MODEL } = {}) {
+  const text = String(answer == null ? '' : answer).trim();
+  const source = `remote:${model}`;
+  let obj = null;
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) { try { obj = JSON.parse(m[0]); } catch { obj = null; } }
+  if (obj && typeof obj === 'object') {
+    const sexual = Math.max(0, Math.min(3, Number(obj.sexual) || 0));
+    const minors = obj.minors === true || /^true$/i.test(String(obj.minors || ''));
+    const verdict = String(obj.verdict || '').toLowerCase();
+    const blocked = verdict === 'unsafe' || sexual >= 2 || (minors && sexual >= 1);
+    const categories = blocked ? ['adult_nsfw', ...(minors ? ['minor_sexual'] : []), `remote_sexual_${sexual}`] : [];
+    return { blocked, score: blocked ? Math.max(0.75, sexual / 3) : sexual / 3 * 0.5, categories, reason: categories.join(', '), source, sexual, minors, verdict: verdict || (blocked ? 'unsafe' : 'safe'), parsed: true };
+  }
+  const refused = /can(?:'|’)?t|cannot|unable|not able|refuse|sorry|无法|不能|拒绝|抱歉|content.?filter|safety|blocked|policy/i.test(text) || !text;
+  return { blocked: refused, score: refused ? 0.75 : 0, categories: refused ? ['adult_nsfw', 'remote_refusal'] : [], reason: refused ? 'remote_refusal' : '', source, parsed: false, raw: text.slice(0, 200) };
+}
+
+async function remoteImageReview(dataUrl, { apiKey, signal, model = REMOTE_IMAGE_REVIEW_MODEL } = {}) {
+  const hooks = testHooks();
+  if (typeof hooks.remoteReview === 'function') return hooks.remoteReview(dataUrl, { apiKey, signal, model });
+  if (!apiKey) return { blocked: false, score: 0, categories: [], skipped: 'no-api-key', source: `remote:${model}` };
+  const t0 = performance.now();
+  let answer;
+  try {
+    answer = await withAbort(analyzeImage({ apiKey, prompt: REMOTE_REVIEW_PROMPT, dataUrl, model, signal }), signal, 'remoteReview', timeoutFor('remoteReview', TIMEOUTS.remoteReview));
+  } catch (err) {
+    if (isAbortError(err)) throw err;
+    // 网关安全过滤器直接 4xx（Gemini 常见：prompt blocked / SAFETY）→ 视为模型拒看 → unsafe；其它错误（超时 / 网络 / 5xx）→ 跳过，退回本地判定
+    const msg = String(err && err.message || err);
+    const safetyBlocked = Number(err && err.status) >= 400 && Number(err && err.status) < 500 && /safety|blocked|prohibited|content.?filter|violat/i.test(`${msg} ${err && err.body || ''}`);
+    mlog('remote-review:error', { ms: ms(t0), status: err && err.status, safetyBlocked, error: msg.slice(0, 160) });
+    if (safetyBlocked) return { blocked: true, score: 0.75, categories: ['adult_nsfw', 'remote_refusal'], reason: 'remote_refusal', source: `remote:${model}`, parsed: false };
+    return { blocked: false, score: 0, categories: [], skipped: isTimeoutError(err) ? 'timeout' : 'error', error: msg, source: `remote:${model}` };
+  }
+  const d = policyRemoteReviewDecision(answer, { model });
+  mlog('remote-review:verdict', { ms: ms(t0), blocked: d.blocked, sexual: d.sexual, minors: d.minors, parsed: d.parsed });
+  return d;
 }
 
 async function imageFromDataUrl(dataUrl, signal) {
@@ -918,9 +990,11 @@ export async function moderateText({ text, attachments = [], apiKey = '', signal
 
 export const VIDEO_MODERATION_FRAMES = 5; // 每段视频均匀抽 5 帧参与审核（与 ui-attachments.captureVideoFrames 一致）
 
-export async function moderateImages({ attachments = [], text = '', signal } = {}) {
+export async function moderateImages({ attachments = [], text = '', signal, apiKey = '', remoteReview = true } = {}) {
   throwIfAborted(signal);
   const tAll = performance.now();
+  let remoteLeft = remoteReview && apiKey ? REMOTE_IMAGE_REVIEW_MAX_PER_TURN : 0;
+  const remoteSkipWhy = !remoteReview ? 'disabled' : (!apiKey ? 'no-api-key' : '');
   const localImgs = (attachments || [])
     .filter((a) => a && a.kind === 'image' && /^data:image\//.test(String(a.dataUrl || '')));
   // 视频附件：上传时均匀抽的 5 帧（ui-attachments.captureVideoFrames）当作图片一起过 NudeNet + NSFWJS；
@@ -991,8 +1065,20 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
         if (!isTimeoutError(err)) console.warn('[Dubhe Agent] 本地 NSFWJS 图片审核失败，保留 NudeNet 结果', err);
         nsfw = { blocked: false, score: 0, categories: [], error: String(err && err.message || err), source: IMAGE_MODERATION_MODEL };
       }
-      const merged = mergeDecisions(nudity, nsfw);
-      mlog(`image#${i + 1}:final`, { blocked: merged.blocked, score: Math.round((merged.score || 0) * 1000) / 1000, cats: merged.categories, 总耗时: ms(tImg) });
+      let merged = mergeDecisions(nudity, nsfw);
+      // 第三层：两层本地都没把握的灰区图 → 远程复核（每轮封顶 REMOTE_IMAGE_REVIEW_MAX_PER_TURN 张；远程失败不降级，退回本地判定）
+      if (merged.uncertain) {
+        if (remoteLeft > 0) {
+          remoteLeft -= 1;
+          mlog(`image#${i + 1}:remote-review-start`, { why: merged.uncertainWhy, model: REMOTE_IMAGE_REVIEW_MODEL });
+          const rr = await remoteImageReview(a.dataUrl, { apiKey, signal });
+          if (rr && rr.blocked) merged = { ...mergeDecisions(nudity, nsfw, rr), uncertain: false, remote: rr };
+          else merged = { ...merged, remote: rr };
+        } else {
+          mlog(`image#${i + 1}:remote-review-skip`, { why: remoteSkipWhy || 'per-turn-cap', local: merged.uncertainWhy });
+        }
+      }
+      mlog(`image#${i + 1}:final`, { blocked: merged.blocked, score: Math.round((merged.score || 0) * 1000) / 1000, cats: merged.categories, uncertain: merged.uncertain || undefined, remote: merged.remote ? (merged.remote.skipped || merged.remote.verdict || (merged.remote.blocked ? 'unsafe' : 'safe')) : undefined, 总耗时: ms(tImg) });
       decisions.push(merged);
     } catch (err) {
       if (isAbortError(err)) throw err;
@@ -1013,19 +1099,19 @@ export async function moderateImages({ attachments = [], text = '', signal } = {
   return out;
 }
 
-export async function moderateUserTurn({ text, attachments = [], apiKey = '', signal } = {}) {
+export async function moderateUserTurn({ text, attachments = [], apiKey = '', signal, remoteImageReview = true } = {}) {
   throwIfAborted(signal);
   const t0 = performance.now();
   const imgCount = (attachments || []).filter((a) => a && (a.kind === 'image' || a.source === 'video')).length;
   const hasImage = imgCount > 0 || textImageCandidates(text).length > 0;
   const bypass = policyImagePromptBypass(text, hasImage);
   if (bypass.blocked) { mlog('turn:blocked-by-prompt-bypass', {}); return { blocked: true, text: bypass, image: { blocked: false, score: 0, categories: [], skipped: 'policy-preblocked' } }; }
-  // 带图回合预算放宽到 90s（模型资源最大 26MB，慢网络友好）；纯文本仍 45s（Jev + 规则层即时可用）
+  // 带图回合预算放宽到 120s（模型资源 ~26MB + 灰区远程复核，慢网络友好）；纯文本仍 45s（Jev + 规则层即时可用）
   const budget = imgCount > 0 ? IMAGE_TURN_BUDGET_MS : MODERATION_TIMEOUT_MS;
-  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 文本引擎: 'Jev (System One)', 总预算: `${budget}ms（带图超时将 fail-closed 拦截，纯文本 fail-open 放行）` });
+  mlog('turn:start', { 文本长度: (text || '').length, 图片数: imgCount, 文本引擎: 'Jev (System One)', 图片引擎: `${IMAGE_MODERATION_MODEL}${remoteImageReview !== false && apiKey ? ` → 灰区复核 ${REMOTE_IMAGE_REVIEW_MODEL}` : ''}`, 总预算: `${budget}ms（带图超时将 fail-closed 拦截，纯文本 fail-open 放行）` });
   const task = Promise.all([
     moderateText({ text, attachments, apiKey, signal }),
-    moderateImages({ text, attachments, signal }),
+    moderateImages({ text, attachments, signal, apiKey, remoteReview: remoteImageReview !== false }),
   ]);
   const [textResult, imageResult] = await withAbort(task, signal, 'moderation', timeoutFor('moderation', budget));
   if (textResult.blocked) {

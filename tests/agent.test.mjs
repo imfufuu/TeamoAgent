@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.26';
+} from '../js/api.js?v=2026.10.5.27';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.26');
+const api = await import('../js/api.js?v=2026.10.5.27');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.26');
+  const api = await import('../js/api.js?v=2026.10.5.27');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4826,7 +4826,7 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
     '../assets/moderation/text-toxic/model.json',
     '../assets/moderation/text-use/model.json',
     '../assets/moderation/text-use/vocab.json',
-    '../assets/moderation/nsfw-mobilenet-v2-mid/model.json',
+    '../assets/moderation/nsfw-inception-v3/model.json',
     '../assets/moderation/nudenet-320n/model.onnx',
   ];
   for (const rel of paths) assert.ok(fsp.existsSync(new URL(rel, import.meta.url)), `${rel} 应随项目存在`);
@@ -4834,7 +4834,10 @@ test('内容审核使用项目内下载模型，不调用 DeepSeek/网关审核'
   assert.match(src, /local:tfjs-toxicity/);
   assert.match(src, /local:nudenet-320n/);
   assert.match(src, /nsfwjs/);
-  assert.doesNotMatch(src, /deepseek|chat\/completions|authHeaders|gatewayBase/i);
+  // 远程只有「灰区图复核」一条路，且必须经 vision.analyzeImage（统一网关 / 故障切换 / 计费口径），moderation.js 自己不拼请求
+  assert.doesNotMatch(src, /chat\/completions|authHeaders|gatewayBase/i);
+  assert.match(src, /import \{ analyzeImage \} from '\.\/vision\.js'/);
+  assert.match(src, /REMOTE_IMAGE_REVIEW_MODEL = 'gemini-3\.5-flash-lite'/);
   const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
   const icons = fsp.readFileSync(new URL('../js/icons.js', import.meta.url), 'utf8');
   assert.match(main, /contentModeration = true/);
@@ -4850,9 +4853,77 @@ test('内容审核策略：成人色情、公序良俗、高危犯罪与 NSFW �
   assert.equal(mod.policyTextHeuristic('未成年儿童 裸照 色情').blocked, true);
   assert.equal(mod.policyTextHeuristic('怎么自制手枪和子弹').blocked, true);
   assert.equal(mod.IMAGE_MODERATION_THRESHOLD, 0.70);
-  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.69 }], 'adult consensual').blocked, false);
+  assert.equal(mod.IMAGE_SINGLE_CLASS_BLOCK, 0.50);
+  // porn / hentai 单类过半即拦；综合分 0.70 仍拦；低于单类线但有信号 → 灰区（交远程复核）
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.49 }], 'adult consensual').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.49 }], 'adult consensual').uncertain, true);
+  assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.50 }], 'adult consensual').blocked, true);
   assert.equal(mod.policyImageDecision([{ className: 'Porn', probability: 0.70 }], 'adult consensual').blocked, true);
   assert.equal(mod.policyImageDecision([{ className: 'Sexy', probability: 0.4 }, { className: 'Hentai', probability: 0.31 }], 'adult consensual').blocked, true);
+  assert.equal(mod.policyImageDecision([{ className: 'Sexy', probability: 0.3 }, { className: 'Neutral', probability: 0.7 }], '').blocked, false);
+  assert.equal(mod.policyImageDecision([{ className: 'Sexy', probability: 0.3 }, { className: 'Neutral', probability: 0.7 }], '').uncertain, true);
+  const clean = mod.policyImageDecision([{ className: 'Neutral', probability: 0.97 }, { className: 'Drawing', probability: 0.02 }, { className: 'Sexy', probability: 0.01 }], '');
+  assert.equal(clean.blocked, false); assert.equal(clean.uncertain, false);
+  // NudeNet：拦截类 0.18–0.32 擦边 / 遮挡类高分 → 灰区；明确命中 → 直接拦
+  assert.equal(mod.policyNudityDecision([{ class: 'FEMALE_BREAST_EXPOSED', score: 0.25, box: [0, 0, 1, 1] }]).uncertain, true);
+  assert.equal(mod.policyNudityDecision([{ class: 'FEMALE_BREAST_COVERED', score: 0.8, box: [0, 0, 1, 1] }]).uncertain, true);
+  assert.equal(mod.policyNudityDecision([{ class: 'FACE_FEMALE', score: 0.9, box: [0, 0, 1, 1] }]).uncertain, false);
+  assert.equal(mod.policyNudityDecision([{ class: 'FEMALE_BREAST_EXPOSED', score: 0.4, box: [0, 0, 1, 1] }]).blocked, true);
+  // 远程复核回答解析：JSON 判定 / 拒答视为 unsafe / 明确 safe 放行
+  assert.equal(mod.policyRemoteReviewDecision('{"sexual":2,"minors":false,"verdict":"unsafe"}').blocked, true);
+  assert.equal(mod.policyRemoteReviewDecision('```json\n{"sexual":1,"minors":true,"verdict":"safe"}\n```').blocked, true, '未成年 + 任何性暗示 → 拦');
+  assert.equal(mod.policyRemoteReviewDecision('{"sexual":1,"minors":false,"verdict":"safe"}').blocked, false);
+  assert.equal(mod.policyRemoteReviewDecision('{"sexual":0,"minors":false,"verdict":"safe"}').blocked, false);
+  assert.equal(mod.policyRemoteReviewDecision("I'm sorry, I can't help with that image.").blocked, true, '拒答 = 模型不肯看 = 该拦');
+  assert.equal(mod.policyRemoteReviewDecision('').blocked, true);
+  assert.equal(mod.policyRemoteReviewDecision('{"sexual":3,"minors":false,"verdict":"unsafe"}').source, 'remote:gemini-3.5-flash-lite');
+});
+test('图片审核三层：本地放行不调远程；灰区才调远程且每轮封顶；远程失败退回本地判定而不是降级拦截', async () => {
+  const mod = await import('../js/moderation.js');
+  const old = globalThis.__DubheModerationTestHooks;
+  const calls = [];
+  const mk = (preds, nudity = []) => ({
+    decodeImage: async () => ({ width: 10, height: 10 }),
+    nudityDecision: async () => mod.policyNudityDecision(nudity),
+    imageModel: { classify: async () => preds },
+    remoteReview: async (dataUrl, { apiKey, model }) => { calls.push({ dataUrl: dataUrl.slice(0, 30), apiKey, model }); return mod.policyRemoteReviewDecision('{"sexual":2,"minors":false,"verdict":"unsafe"}'); },
+  });
+  const img = (n) => ({ kind: 'image', name: `p${n}.png`, dataUrl: `data:image/png;base64,${'A'.repeat(20)}${n}` });
+  try {
+    // 1) 干净图：本地明确放行，远程零调用
+    globalThis.__DubheModerationTestHooks = mk([{ className: 'Neutral', probability: 0.98 }, { className: 'Sexy', probability: 0.01 }]);
+    let r = await mod.moderateImages({ attachments: [img(1)], apiKey: 'sk-teamo-x' });
+    assert.equal(r.blocked, false); assert.equal(calls.length, 0);
+    // 2) 灰区图：调远程，远程说 unsafe → 拦截，分类带 remote 来源
+    globalThis.__DubheModerationTestHooks = mk([{ className: 'Neutral', probability: 0.6 }, { className: 'Sexy', probability: 0.3 }, { className: 'Porn', probability: 0.1 }]);
+    r = await mod.moderateImages({ attachments: [img(2)], apiKey: 'sk-teamo-x' });
+    assert.equal(r.blocked, true); assert.equal(calls.length, 1); assert.equal(calls[0].model, 'gemini-3.5-flash-lite'); assert.equal(calls[0].apiKey, 'sk-teamo-x');
+    assert.ok(r.categories.includes('adult_nsfw'));
+    // 3) 灰区但开关关闭 / 没有 Key：不调远程，按本地判定放行（不是 degraded）
+    calls.length = 0;
+    r = await mod.moderateImages({ attachments: [img(3)], apiKey: 'sk-teamo-x', remoteReview: false });
+    assert.equal(r.blocked, false); assert.equal(r.degraded, undefined); assert.equal(calls.length, 0);
+    r = await mod.moderateImages({ attachments: [img(3)], apiKey: '' });
+    assert.equal(r.blocked, false); assert.equal(calls.length, 0);
+    // 4) 每轮封顶 3 张：5 张灰区图只复核 3 张
+    globalThis.__DubheModerationTestHooks = { ...mk([{ className: 'Neutral', probability: 0.6 }, { className: 'Sexy', probability: 0.3 }]), remoteReview: async (u) => { calls.push(u); return { blocked: false, score: 0.1, categories: [], source: 'remote:gemini-3.5-flash-lite', parsed: true }; } };
+    r = await mod.moderateImages({ attachments: [1, 2, 3, 4, 5].map(img), apiKey: 'sk-teamo-x' });
+    assert.equal(calls.length, mod.REMOTE_IMAGE_REVIEW_MAX_PER_TURN); assert.equal(r.blocked, false);
+    // 5) 远程超时 / 出错：退回本地判定（放行，不是 degraded 拦截）
+    calls.length = 0;
+    globalThis.__DubheModerationTestHooks = { ...mk([{ className: 'Neutral', probability: 0.6 }, { className: 'Sexy', probability: 0.3 }]), remoteReview: async () => ({ blocked: false, score: 0, categories: [], skipped: 'timeout', source: 'remote:gemini-3.5-flash-lite' }) };
+    r = await mod.moderateImages({ attachments: [img(6)], apiKey: 'sk-teamo-x' });
+    assert.equal(r.blocked, false); assert.equal(r.degraded, undefined);
+    // 6) NudeNet 擦边（0.25）但 NSFWJS 干净 → 仍属灰区 → 远程判 unsafe → 拦
+    globalThis.__DubheModerationTestHooks = mk([{ className: 'Neutral', probability: 0.95 }], [{ class: 'FEMALE_BREAST_EXPOSED', score: 0.25, box: [0, 0, 1, 1] }]);
+    r = await mod.moderateImages({ attachments: [img(7)], apiKey: 'sk-teamo-x' });
+    assert.equal(r.blocked, true);
+    // 7) 本地明确命中：直接拦，不花远程调用
+    calls.length = 0;
+    globalThis.__DubheModerationTestHooks = mk([{ className: 'Porn', probability: 0.8 }]);
+    r = await mod.moderateImages({ attachments: [img(8)], apiKey: 'sk-teamo-x' });
+    assert.equal(r.blocked, true); assert.equal(calls.length, 0);
+  } finally { globalThis.__DubheModerationTestHooks = old; }
 });
 test('文本审核确实执行本地模型判定，而不是只有敏感词规则', async () => {
   const mod = await import('../js/moderation.js');
@@ -5116,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.26');
+  assert.equal(APP_VERSION, '2026.10.5.27');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.26/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.27/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.26/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.27/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7889,7 +7960,7 @@ test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模�
       assert.ok(!re.test(code), `${mod}.js 使用了 ${name} 但既未 import / 声明，也未经 deps 注入`);
     }
   }
-  assert.match(ui, /const \{ renderFiles, openFileViewer \} = installFilesPanel\(/);
+  assert.match(ui, /const \{ renderFiles, openFileViewer, closeViewer \} = installFilesPanel\(/);
   assert.match(ui, /const attachments = installAttachments\(/);
   assert.match(ui, /attachments\.takePending\(\)/);
   assert.doesNotMatch(ui, /function openFileViewer\(|function openLightbox\(|async function addFiles\(/, '旧实现不应残留在 ui.js');
@@ -8052,11 +8123,40 @@ test('工具芯片：每条命令只显示 ✓ / ✗ 图标 + 耗时（无中文
 });
 test('smart-router 图标与 TeamoRouter 产品 LOGO 一致（粗实线外环 + 三段弧 + 三卫星点 + 实心核心）', async () => {
   const { ROUTER_ICON_SVG } = await import('../js/smartrouter.js');
-  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="13\.2" stroke="currentColor" stroke-width="2\.1"\/>/, '外环加粗且全实色');
+  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="13\.3" stroke="currentColor" stroke-width="2\.3"\/>/, '外环加粗且全实色');
   assert.doesNotMatch(ROUTER_ICON_SVG, /stroke-opacity/, '不再带淡色透明度');
-  assert.equal((ROUTER_ICON_SVG.match(/stroke-width="2\.6"/g) || []).length, 3, '三段轨道弧');
-  assert.equal((ROUTER_ICON_SVG.match(/r="2\.1" fill="currentColor"/g) || []).length, 3, '三个卫星点');
-  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3\.1" fill="currentColor"\/>/, '实心核心');
+  const arcs = [...ROUTER_ICON_SVG.matchAll(/<path d="M([\d.]+) ([\d.]+) A8\.600 8\.600 0 0 1 ([\d.]+) ([\d.]+)" stroke="currentColor" stroke-width="2\.5"/g)];
+  assert.equal(arcs.length, 3, '三段轨道弧（半径 8.6，.27 对照产品 LOGO 重量）');
+  const ang = (x, y) => ((Math.atan2(x - 16, 16 - y) * 180 / Math.PI) + 360) % 360;
+  for (const [, x1, y1, x2, y2] of arcs) {
+    // 每段弧从缺口中心 +10° 到下一缺口中心 −10°：三段 100° 弧 + 三个 20° 缺口（0° / 120° / 240°）
+    const a = ang(+x1, +y1), b = ang(+x2, +y2);
+    assert.ok(Math.abs(((b - a + 360) % 360) - 100) < 0.5, `弧长应为 100°，实际 ${((b - a + 360) % 360).toFixed(1)}`);
+    assert.ok(Math.abs((a % 120) - 10) < 0.5, `弧起点应在缺口中心 +10°，实际 ${a.toFixed(1)}`);
+  }
+  const dots = [...ROUTER_ICON_SVG.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="2\.05" fill="currentColor"\/>/g)];
+  assert.equal(dots.length, 3, '三个卫星点');
+  for (const [, x, y] of dots) {
+    const d = Math.hypot(+x - 16, +y - 16);
+    assert.ok(Math.abs(d - 8.9) < 0.01, `卫星点应落在轨道外侧 0.3（半径 8.9），实际 ${d.toFixed(3)}`);
+    assert.ok([60, 180, 300].some((t) => Math.abs(ang(+x, +y) - t) < 0.5), '卫星点在三段弧正中');
+  }
+  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3" fill="currentColor"\/>/, '实心核心');
+});
+test('smart-router 对用户一律显示「智能」：模型按钮 / 下拉项 / 连接行 / 费用弹层都走 modelDisplayName', async () => {
+  const fsp = await import('node:fs');
+  const sr = await import('../js/smartrouter.js');
+  assert.equal(sr.modelDisplayName('__smart_router__'), '智能');
+  assert.equal(sr.modelDisplayName('__system__'), 'system-commands');
+  assert.equal(sr.modelDisplayName('gpt-5.6-sol'), 'gpt-5.6-sol');
+  const picker = fsp.readFileSync(new URL('../js/ui-model-picker.js', import.meta.url), 'utf8');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const pop = fsp.readFileSync(new URL('../js/ui-popovers.js', import.meta.url), 'utf8');
+  for (const src of [picker, ui, pop]) assert.doesNotMatch(src, /['"`>]smart[-_]router['"`<]/, '界面不得出现 smart-router / smart_router 字样');
+  assert.match(picker, /name = SMART_ROUTER_LABEL;/);
+  assert.match(picker, /router-name">\$\{esc\(SMART_ROUTER_LABEL\)\}/);
+  assert.match(ui, /正在连接 <b class="mono">\$\{esc\(modelDisplayName\(m\.model \|\| store\.state\.model\)\)\}/);
+  assert.match(pop, /modelDisplayName\(headModel\)/);
 });
 
 group('2026.10.5.18：下架 DeepSeek 免费档 / analyze_video 视频识别 / 设置页识图·视频模型 / 启动屏网络明细');
@@ -8103,7 +8203,7 @@ test('设置页「多模态模型」：两个下拉 + 默认值进 state + setti
   assert.match(settings, /bindModelSelect\('#set-vision-model', 'visionModel', resolveVisionModel\)/);
   assert.match(settings, /bindModelSelect\('#set-video-model', 'videoModel', resolveVideoModel\)/);
   assert.match(settings, /function syncMultimodalSelects\(store\)/);
-  assert.equal((state.match(/visionModel: 'deepseek-v4-flash-vision-exp', videoModel: 'gemini-3.8-flash'/g) || []).length, 2, '初始 state 与旧快照补默认两处都要有');
+  assert.equal((state.match(/visionModel: 'deepseek-v4-flash-vision-exp', videoModel: 'gemini-3.5-flash-lite', imageRemoteReview: true/g) || []).length, 2, '初始 state 与旧快照补默认两处都要有');
   assert.match(agent, /visionModel: settings\.visionModel \|\| null,\s*videoModel: settings\.videoModel \|\| null,/);
   assert.match(agent, /visionModel: turn\.visionModel,\s*videoModel: turn\.videoModel,\s*sandboxEnabled: turn\.sandboxEnabled,/, '主回合工具 ctx 透传');
   assert.match(agent, /visionModel: visionModel \|\| null, videoModel: videoModel \|\| null/, '子智能体工具 ctx 透传');
@@ -8206,7 +8306,8 @@ test('视频附件：上传时抽帧（海报 + 均匀 5 帧），帧只给审�
   assert.match(ua, /const t = d \? \(\(i \+ 0\.5\) \/ n\) \* d : 0;/, '均匀抽帧：(i+0.5)/n · duration');
   assert.match(ua, /poster: cap\.poster,/);
   assert.match(ua, /frames: cap\.frames,/);
-  assert.match(ua, /无法抽帧审核，未加入/, '解码失败 → 拒收而不是无审核放行');
+  assert.match(ua, /catch \(err\) \{ toast\(`\$\{f\.name\}：\$\{err\.message\}（未加入）`/, '解码失败 → 拒收而不是无审核放行（提示里不提「抽帧 / 审核」这类内部流程）');
+  assert.doesNotMatch(ua, /帧待审核|抽帧审核|通过审核后/, '用户提示不念内部审核流程（.27）');
   assert.match(ua, /attach-chip-thumb is-video/.source ? /attach-chip-thumb\$\{a\.source === 'video' \? ' is-video' : ''\}/ : /x/, '芯片用海报缩略图');
   assert.match(agent, /if \(a && Array\.isArray\(a\.frames\)\) \{ videoFrames\.set\(a, a\.frames\); delete a\.frames; \}/, '帧在入消息前摘掉');
   assert.match(agent, /const moderation = await runContentModeration\(userText, forModeration\);/);
@@ -8394,16 +8495,17 @@ test('全局「气泡弹入」动效：统一 --pop-* 令牌 + bubbleIn 关键�
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   const ui = readUiSource();
-  assert.match(css, /--pop-dur: \.34s;/);
-  assert.match(css, /--pop-ease: cubic-bezier\(\.22, 1\.18, \.32, 1\);/, '轻微过冲的弹入曲线');
+  assert.match(css, /--pop-dur: \.44s;/, '.27：弹入时长加到 .44s（之前 .34s 看不清）');
+  assert.match(css, /--pop-ease: cubic-bezier\(\.18, 1\.42, \.28, 1\);/, '过冲更明显的弹入曲线');
+  assert.match(css, /--pop-scale: \.78;/, '起点缩放 .78');
   assert.match(css, /--pop-out-dur: \.14s;/, '收起要快');
-  assert.match(css, /@keyframes bubbleIn \{\n\s+from \{ opacity: 0; transform: translate3d\(var\(--pop-dx, 0px\), var\(--pop-dy, 6px\), 0\) scale\(\.9\); \}\n\s+to \{ opacity: 1; transform: translate3d\(0, 0, 0\) scale\(1\); \}\n\}/, '只动 transform + opacity');
+  assert.match(css, /@keyframes bubbleIn \{\n\s+from \{ opacity: 0; transform: translate3d\(var\(--pop-dx, 0px\), var\(--pop-dy, 12px\), 0\) scale\(var\(--pop-scale, \.78\)\); \}\n\s+to \{ opacity: 1; transform: translate3d\(0, 0, 0\) scale\(1\); \}\n\}/, '只动 transform + opacity');
   assert.match(css, /\.bubble-in \{ animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: var\(--pop-origin, top left\); \}/, '通用类');
   // 下拉菜单：open 态 transition 走同一曲线，origin 在按钮下沿
-  assert.match(css, /\.dd-menu \{[\s\S]*?transform: translate3d\(0, -6px, 0\) scale\(\.9\); transform-origin: top left;[\s\S]*?\}\n\.dd-menu\.open \{[\s\S]*?transform var\(--pop-dur\) var\(--pop-ease\)/);
-  assert.match(css, /\.attach-menu \{[\s\S]*?animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: bottom left; --pop-dy: 8px;/, '附件菜单从回形针上方冒出');
-  assert.match(css, /\.tok-pop:not\(\[hidden\]\) \{ animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: top left; --pop-dy: -8px; \}/);
-  assert.match(css, /\.tok-pop\[data-place="above"\]:not\(\[hidden\]\) \{ transform-origin: bottom left; --pop-dy: 8px; \}/, '弹层在锚点上方时 origin 翻转');
+  assert.match(css, /\.dd-menu \{[\s\S]*?transform: translate3d\(0, -14px, 0\) scale\(var\(--pop-scale, \.78\)\); transform-origin: top left;[\s\S]*?\}\n\.dd-menu\.open \{[\s\S]*?transform var\(--pop-dur\) var\(--pop-ease\)/);
+  assert.match(css, /\.attach-menu \{[\s\S]*?animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: bottom left; --pop-dy: 14px;/, '附件菜单从回形针上方冒出');
+  assert.match(css, /\.tok-pop:not\(\[hidden\]\) \{ animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: top left; --pop-dy: -14px; \}/);
+  assert.match(css, /\.tok-pop\[data-place="above"\]:not\(\[hidden\]\) \{ transform-origin: bottom left; --pop-dy: 14px; \}/, '弹层在锚点上方时 origin 翻转');
   assert.match(ui, /pop\.dataset\.place = top >= r\.bottom \? 'below' : 'above';/, 'JS 按摆放方向写 data-place');
   assert.match(css, /\.cmd-card \{[\s\S]*?animation: bubbleIn var\(--pop-dur\) var\(--pop-ease\) both; transform-origin: top center; --pop-dy: -14px;/);
   assert.match(css, /\.md-chart-tooltip\.show \{[^}]*transform var\(--pop-dur\) var\(--pop-ease\)/, '图表提示同曲线');
@@ -8926,7 +9028,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.26'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.27'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -8968,7 +9070,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.26');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.27');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9231,6 +9333,180 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
     assert.doesNotMatch(sub, new RegExp(`'${legacy}'`), `subagents.js 仍引用 ${legacy}`);
     assert.doesNotMatch(nexus, new RegExp(`'${legacy}'`), `nexus.js invariantCore 仍引用 ${legacy}`);
   }
+});
+
+group('2026.10.5.27：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+
+test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
+  const fsp = await import('node:fs');
+  const fp = fsp.readFileSync(new URL('../js/ui-files-panel.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  assert.match(fp, /function stopViewerMedia\(\) \{[\s\S]*?querySelectorAll\('video, audio'\)[\s\S]*?m\.pause\(\);[\s\S]*?m\.removeAttribute\('src'\); m\.load\(\);/);
+  assert.match(fp, /function closeViewer\(\) \{\s*stopViewerMedia\(\);/);
+  assert.match(fp, /\$\('#fv-close'\)\.addEventListener\('click', \(\) => closeViewer\(\)\);/, '✕ 走 closeViewer');
+  assert.match(fp, /stopViewerMedia\(\);\n\s+viewer\.innerHTML = `<div class="file-viewer-head mono">/, '切到别的文件前先停旧媒体');
+  assert.match(fp, /return \{ renderFiles, openFileViewer, closeViewer, downloadFile \};/);
+  assert.match(ui, /if \(v && viewerCloser\) viewerCloser\(\);/, '收起面板也停');
+  assert.match(ui, /viewerCloser = closeViewer;/);
+});
+
+test('#2 图片审核：NSFWJS 换 InceptionV3（layers / 299）+ 灰区远程复核默认开、可在设置关；agent 把开关透传给 moderateUserTurn', async () => {
+  const fsp = await import('node:fs');
+  const mod = fsp.readFileSync(new URL('../js/moderation.js', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const settings = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  const m = await import('../js/moderation.js');
+  assert.equal(m.IMAGE_MODERATION_MODEL, 'local:nudenet-320n+nsfwjs-inception-v3');
+  assert.equal(m.REMOTE_IMAGE_REVIEW_MODEL, 'gemini-3.5-flash-lite');
+  assert.equal(m.REMOTE_IMAGE_REVIEW_MAX_PER_TURN, 3);
+  assert.equal(m.IMAGE_TURN_BUDGET_MS, 120000);
+  assert.match(mod, /nsfwjs\.load\(assetUrl\(NSFW_MODEL_URL\), \{ size: NSFW_INPUT_SIZE, type: 'layers' \}\)/);
+  assert.match(mod, /NSFW_SHARD_URLS = \[1, 2, 3, 4, 5, 6\]\.map/);
+  assert.match(mod, /if \(merged\.uncertain\) \{\s*if \(remoteLeft > 0\) \{/, '只有灰区才进远程');
+  assert.match(mod, /if \(nudity\.blocked\) \{[^\n]*decisions\.push\(nudity\); continue; \}/, 'NudeNet 明确命中直接拦，不花远程');
+  assert.match(agent, /remoteImageReview: store\.state\.settings\.imageRemoteReview !== false/);
+  assert.match(app, /<input type="checkbox" id="set-image-review"\/>/);
+  assert.match(app, /灰区图片远程复核/);
+  assert.match(settings, /bindSw\('#set-image-review', 'imageRemoteReview'\);/);
+  assert.match(settings, /\$\('#set-image-review'\)\.checked = store\.state\.settings\.imageRemoteReview !== false;/);
+  assert.ok(!fsp.existsSync(new URL('../assets/moderation/nsfw-mobilenet-v2-mid', import.meta.url)), '旧 mobilenet 资产删掉（省 4.3MB 预热流量）');
+});
+
+test('#3 用户提示不念内部审核流程：拦截气泡只说「该内容已被审核」，上传 toast 不提抽帧 / 待审核 / 通过审核', async () => {
+  const fsp = await import('node:fs');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const ua = fsp.readFileSync(new URL('../js/ui-attachments.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(agent, /帧命中/);
+  assert.match(agent, /: '该内容已被审核', \/\/ 命中的是第几帧/);
+  assert.doesNotMatch(ua, /待审核|抽帧审核|通过审核后/);
+  assert.match(ua, /已作为视频附件加入\$\{durationSec \? `（约 \$\{Math\.round\(durationSec\)\} 秒）` : ''\}，发送后 Agent 会调用 analyze_video 识别/);
+});
+
+test('#4 顶部系统状态栏取色：app.html 带 theme-color，ui.js 按主题底色 × 遮罩透明度实时改写（面板 / 弹窗 / 灯箱 / 换主题）', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  assert.match(app, /<meta name="theme-color" id="theme-color" content="#ffffff" \/>/);
+  assert.match(app, /viewport-fit=cover/);
+  assert.match(ui, /function syncThemeColor\(\) \{/);
+  assert.match(ui, /const base = dark \? \[11, 11, 11\] : \[255, 255, 255\];/, '与 styles.css --bg 对齐（#ffffff / #0b0b0b）');
+  assert.match(ui, /if \(lb && !lb\.hidden\) overlay = \[8, 8, 8, 0\.88\];/);
+  assert.match(ui, /else if \(\$\$\('\.modal\.open'\)\.length\) overlay = \[10, 10, 10, 0\.4\];/);
+  assert.match(ui, /overlay = \[10, 10, 10, 0\.35\]/);
+  assert.match(ui, /syncThemeToggle\(\);\n\s+syncThemeColor\(\);\n\s+\};/, 'applyTheme 末尾同步');
+  assert.match(ui, /backdrop\.classList\.toggle\('show', show\);\n\s+syncThemeColor\(\);/, 'updateBackdrop 末尾同步');
+  assert.match(ui, /mo\.observe\(n, \{ attributes: true, attributeFilter: \['class', 'hidden'\] \}\)/, '弹窗 / 灯箱开合用属性观察兜底');
+  // 混色算式自检：浅色 + 面板遮罩 = #a6a6a6，深色 + 面板遮罩 = #0b0b0b 附近
+  const mix = (base, ov) => base.map((c, i) => Math.round(c * (1 - ov[3]) + ov[i] * ov[3]));
+  assert.deepEqual(mix([255, 255, 255], [10, 10, 10, 0.35]), [169, 169, 169]);
+  assert.deepEqual(mix([11, 11, 11], [10, 10, 10, 0.35]), [11, 11, 11]);
+});
+
+test('#7 并发任务是上限不是消耗：一波正好跑满不算耗尽；脚注 ⚠ 必须写出是哪一路用尽', async () => {
+  const ex = await import('../js/execution.js');
+  const gov = ex.createBudgetGovernor({ maxToolCalls: 128, maxParallelTasks: 3, maxExternalSideEffects: 32, maxRetries: 2 });
+  gov.spend('parallelTasks', 3, { batch: 'parallel' });
+  for (let i = 0; i < 9; i++) gov.spend('toolCalls', 1);
+  gov.spend('externalSideEffects', 2);
+  assert.deepEqual(gov.exhaustedChannels, [], '3/3 并发 + 工具 9/128 + 外部 2/32 不该有任何「耗尽」');
+  assert.equal(ex.summarizeBudgetForUI(gov).exhausted.length, 0, '脚注不再莫名带 ⚠');
+  assert.equal(gov.spend('parallelTasks', 4).ok, false, '超过并发上限仍拒绝');
+  assert.deepEqual(gov.exhaustedChannels, ['parallelTasks'], '真被拒才标');
+  const g2 = ex.createBudgetGovernor({ maxRetries: 2 });
+  g2.spend('retries', 2);
+  assert.deepEqual(g2.exhaustedChannels, ['retries'], '消耗型通道到顶仍算耗尽');
+  const ui = readUiSource();
+  assert.match(ui, /\$\{exhausted\.length \? ` ⚠ \$\{exhausted\.map\(\(c\) => BUDGET_CHANNEL_LABEL\[c\] \|\| c\)\.join\('、'\)\}已用尽` : ''\}/, '⚠ 后面跟通道名');
+});
+
+test('#9 设置页开关 → 会话区同步：mountSettings 回调 onSettingChanged，main 接到 ui.syncToolbar，四颗 pill + 能力行 + 主题一起刷', async () => {
+  const fsp = await import('node:fs');
+  const settings = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  assert.match(settings, /export function mountSettings\(store, \{ onRelayChanged, onKeySaved, onSettingChanged \} = \{\}\)/);
+  assert.match(settings, /onChange && onChange\(el\.checked\);\n\s+changed\(key, el\.checked\);/, '每个开关都回调');
+  assert.match(settings, /changed\('theme', v\);/);
+  assert.match(settings, /changed\('reasoningLevel', v\);/);
+  assert.match(main, /onSettingChanged: \(\) => \{ if \(ui && ui\.syncToolbar\) ui\.syncToolbar\(\); \}/);
+  assert.match(ui, /function syncToolbar\(\) \{[\s\S]*?syncSandbox\(\);[\s\S]*?syncWeb\(\);[\s\S]*?syncFast\(\);[\s\S]*?syncThinking\(\);[\s\S]*?syncThemeToggle\(\); syncThemeColor\(\);[\s\S]*?syncCapLine\(\);/);
+  assert.match(ui, /const ui = \{\n\s+setStatus,\n\s+syncToolbar,/);
+});
+
+test('#10 视频识别默认模型改为 Gemini 3.5 Flash Lite（设置档位 / state 默认 / 旧快照补默认三处一致）', async () => {
+  const cfg2 = await import('../js/config.js');
+  assert.equal(cfg2.DEFAULT_VIDEO_MODEL, 'gemini-3.5-flash-lite');
+  assert.equal(cfg2.resolveVideoModel(undefined), 'gemini-3.5-flash-lite');
+  assert.equal(cfg2.resolveVideoModel('not-a-model'), 'gemini-3.5-flash-lite');
+  assert.equal(cfg2.VIDEO_MODELS.find((m) => m.id === 'gemini-3.5-flash-lite').tag, '便宜 · 最快 · 默认');
+  assert.equal(cfg2.VIDEO_MODELS.find((m) => m.id === 'gemini-3.8-flash').tag, '均衡');
+  const { createStore } = await import('../js/state.js');
+  assert.equal(createStore().state.settings.videoModel, 'gemini-3.5-flash-lite');
+  assert.equal(createStore().state.settings.imageRemoteReview, true);
+});
+
+test('#11 设置 → 清除临时缓存：只清 Cache Storage / sessionStorage / 中继探测，不碰 localStorage（会话 / 密钥 / 设置 / 记忆）', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(app, /<button type="button" id="set-clear-cache" class="ghost-btn">清除临时缓存<\/button>/);
+  assert.match(app, /不含会话、密钥、设置与长效记忆/);
+  const { clearTransientCaches } = await import('../js/settings.js');
+  const deleted = [];
+  const stores = { 'dubhe-static-v1': ['a', 'b', 'c'], 'dubhe-moderation-v1': ['m1', 'm2'] };
+  const oldCaches = globalThis.caches; const oldSS = globalThis.sessionStorage; const oldLS = globalThis.localStorage;
+  let lsTouched = false;
+  globalThis.caches = {
+    keys: async () => Object.keys(stores),
+    open: async (n) => ({ keys: async () => stores[n].map((k) => ({ url: k })) }),
+    delete: async (n) => { deleted.push(n); return true; },
+  };
+  globalThis.sessionStorage = { length: 4, clear() { this.length = 0; } };
+  globalThis.localStorage = new Proxy({}, { get() { lsTouched = true; return () => {}; } });
+  try {
+    const r = await clearTransientCaches();
+    assert.deepEqual(r, { cacheStores: 2, cacheEntries: 5, sessionKeys: 4, relayProbeReset: true });
+    assert.deepEqual(deleted, ['dubhe-static-v1', 'dubhe-moderation-v1']);
+    assert.equal(lsTouched, false, 'localStorage 一个字节都不碰');
+  } finally {
+    if (oldCaches === undefined) delete globalThis.caches; else globalThis.caches = oldCaches;
+    if (oldSS === undefined) delete globalThis.sessionStorage; else globalThis.sessionStorage = oldSS;
+    if (oldLS === undefined) delete globalThis.localStorage; else globalThis.localStorage = oldLS;
+  }
+  // 没有 caches API 的环境（http / 旧浏览器）：不报错、返回 0
+  const r0 = await clearTransientCaches();
+  assert.equal(r0.cacheStores, 0);
+});
+
+test('#12 管理员模式下 /key 不可用：别名 = 口令，首尾各露几位等于整段泄露', async () => {
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/ui-system-commands.js', import.meta.url), 'utf8');
+  assert.match(src, /import \{ isAdminAlias \} from '\.\/adminkey\.js';/);
+  assert.match(src, /if \(isAdminAlias\(k\)\) out = '管理员模式下 \/key 不可用：管理员口令与实际密钥都不回显。/);
+  assert.match(src, /'\/key —— 查看 API Key 尾号（完整 Key 不回显；管理员模式下不可用）'/);
+});
+
+test('#13 文档页写明与 TeamoRouter 互不隶属（首屏声明 + 用户协议条款 + 页脚）', async () => {
+  const fsp = await import('node:fs');
+  const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
+  assert.ok((docs.match(/互不隶属/g) || []).length >= 3, '首屏声明 + 协议条款 + 页脚（更新日志里再提一次不算）');
+  assert.match(docs, /<p class="lede affiliation-note"><strong>独立项目声明：<\/strong>Dubhe Agent 是独立开发的开源前端应用，与 <strong>TeamoRouter<\/strong> 及其运营方<strong>互不隶属<\/strong>/);
+  assert.match(docs, /不存在授权、合作、代理或背书关系/);
+  assert.match(docs, /<li><strong>与 TeamoRouter 互不隶属<\/strong>：/);
+  assert.match(docs, /独立项目，与 TeamoRouter 互不隶属<\/span>/);
+});
+
+test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布局），文案说清是什么 / 谁写 / 能做什么', async () => {
+  const ui = readUiSource();
+  assert.match(ui, /const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 160 112"/);
+  assert.match(ui, /const empty = el\('div', 'files-empty mem-empty'\);/);
+  assert.match(ui, /智能体会把值得长期记住的事记在这里，并在之后的每个会话里带上/);
+  assert.match(ui, /由智能体在对话中自行记录，这里只做查看与多选删除/);
+  assert.doesNotMatch(ui, /还没有长效记忆。重要约定由智能体自行记下，不能在这里手写。/);
+  const fsp = await import('node:fs');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(css, /\.mem-empty\.files-empty \{ padding: 18px 12px 22px; \}/);
+  assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
 for (const item of queue) {

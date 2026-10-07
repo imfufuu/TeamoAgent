@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.26';
-import { isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.27';
+import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.26';
+import { getTransport } from './api.js?v=2026.10.5.27';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,16 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.26';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.26';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.26';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.26';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.26';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.26';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.26';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.26';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.26';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.26';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.27';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.27';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.27';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.27';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.27';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.27';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.27';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.27';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.27';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.27';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.26';
+} from './ui-markdown.js?v=2026.10.5.27';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.26';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.27';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -158,11 +158,31 @@ export function mountUI(store, agent) {
     }
   }
   store.state.settings.theme = readThemePreference(store.state.settings.theme || 'light');
+  // ── 顶部系统状态栏取色（iOS Safari / Android Chrome 读 <meta name="theme-color">）──
+  // 页面自己的遮罩（沙箱面板浮层 / 设置与 Key 弹窗 / 图片灯箱）只盖住 viewport，系统状态栏那条不归 CSS 管：
+  // 之前没有 theme-color，面板一开整页变暗、状态栏还是亮白，像没刷新。这里按「主题底色 × 遮罩透明度」算出同样的颜色写进去。
+  const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+  const themeOverlayNodes = () => ['#overlay-backdrop', '#key-modal', '#settings-modal', '#img-lightbox'].map((sel) => $(sel)).filter(Boolean);
+  function syncThemeColor() {
+    if (!themeColorMeta) return;
+    const dark = document.documentElement.dataset.theme === 'dark';
+    const base = dark ? [11, 11, 11] : [255, 255, 255];
+    // 与 styles.css 对齐：.overlay-backdrop rgba(10,10,10,.35)、.modal rgba(10,10,10,.4)、.img-lightbox rgba(8,8,8,.88)
+    let overlay = null;
+    const lb = $('#img-lightbox');
+    if (lb && !lb.hidden) overlay = [8, 8, 8, 0.88];
+    else if ($$('.modal.open').length) overlay = [10, 10, 10, 0.4];
+    else if (($('#overlay-backdrop') || {}).classList?.contains('show')) overlay = [10, 10, 10, 0.35]; // backdrop 常量在后面才定义（初始化时 applyTheme 已在跑）
+    const rgb = overlay ? base.map((c, i) => Math.round(c * (1 - overlay[3]) + overlay[i] * overlay[3])) : base;
+    const hex = `#${rgb.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+    if (themeColorMeta.getAttribute('content') !== hex) themeColorMeta.setAttribute('content', hex);
+  }
   const applyTheme = ({ persist = true } = {}) => {
     const theme = store.state.settings.theme === 'dark' ? 'dark' : 'light';
     document.documentElement.dataset.theme = theme;
     if (persist) writeThemePreference(theme);
     syncThemeToggle();
+    syncThemeColor();
   };
   applyTheme();
   window.addEventListener('storage', (event) => {
@@ -476,6 +496,28 @@ function validateApiKey(s) {
     btn.disabled = n === 0;
     btn.textContent = n ? `删除 ${n}` : '删除';
   }
+// 长效记忆空状态插画：两张记忆卡（后一张斜一点）+ 书签 + 浮动的小星标；与文件面板 FILES_EMPTY_ART 同一套线稿语言（1.4 描边 / currentColor / var(--bg) 填充）
+const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 160 112" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <defs><linearGradient id="meg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="currentColor" stop-opacity=".10"/><stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>
+  <ellipse cx="80" cy="98" rx="52" ry="7" fill="url(#meg)"/>
+  <g class="fe-back" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" opacity=".5" transform="rotate(-6 80 60)">
+    <rect x="50" y="34" width="60" height="44" rx="5" fill="var(--bg)"/>
+    <path d="M60 46h26M60 55h38M60 64h20" stroke-opacity=".6" stroke-linecap="round"/>
+  </g>
+  <g class="fe-stack" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round">
+    <rect x="44" y="44" width="68" height="48" rx="5" fill="var(--bg)"/>
+    <path d="M96 44v16l-5-4-5 4V44" fill="var(--bg)" stroke-opacity=".9"/>
+    <path d="M54 58h26M54 67h42M54 76h30" stroke-opacity=".5" stroke-linecap="round"/>
+    <circle cx="50" cy="51" r="1.5" fill="currentColor" stroke="none" opacity=".6"/>
+  </g>
+  <g class="fe-drop" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M124 18l2.6 6.4 6.4 2.6-6.4 2.6L124 36l-2.6-6.4-6.4-2.6 6.4-2.6Z" fill="var(--bg)"/>
+    <path d="M113 40l1.3 3.2 3.2 1.3-3.2 1.3L113 49l-1.3-3.2-3.2-1.3 3.2-1.3Z" fill="var(--bg)" stroke-opacity=".7"/>
+  </g>
+  <g class="fe-sparks" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity=".5">
+    <path d="M30 30v6M27 33h6"/><path d="M136 62v4M134 64h4"/><circle cx="26" cy="70" r="1.4" fill="currentColor" stroke="none"/>
+  </g>
+</svg>`;
   function renderMemory() {
     const box = $('#memory-list');
     if (!box) return;
@@ -483,7 +525,12 @@ function validateApiKey(s) {
     box.innerHTML = '';
     memSelected = new Set([...memSelected].filter((i) => i >= 0 && i < list.length));
     if (!list.length) {
-      box.innerHTML = '<div class="mem-empty">还没有长效记忆。重要约定由智能体自行记下，不能在这里手写。</div>';
+      // 空状态：与文件面板同一套「插画 + 一句话 + 补充说明」；说清它是什么、谁来写、能在这里做什么
+      const empty = el('div', 'files-empty mem-empty');
+      empty.setAttribute('aria-label', '暂无长效记忆');
+      empty.innerHTML = `${MEM_EMPTY_ART}<p class="files-empty-text">智能体会把值得长期记住的事记在这里，并在之后的每个会话里带上</p><p class="files-empty-sub">例如你的称呼、偏好的语言与格式、长期项目背景。由智能体在对话中自行记录，这里只做查看与多选删除</p>`;
+      box.innerHTML = '';
+      box.appendChild(empty);
       memSelected = new Set();
       syncMemDelBtn();
       return;
@@ -847,9 +894,18 @@ function validateApiKey(s) {
     const show = (mqSidebar.matches && sidebar.classList.contains('sidebar-open'))
       || (mqPanel.matches && !panel.classList.contains('collapsed'));
     backdrop.classList.toggle('show', show);
+    syncThemeColor();
   }
+  // 弹窗 / 灯箱的开合散落在各模块（settings.js / ui-lightbox.js / Key 弹窗），统一用属性观察兜底同步状态栏取色
+  if (typeof MutationObserver === 'function') {
+    const mo = new MutationObserver(() => syncThemeColor());
+    for (const n of themeOverlayNodes()) mo.observe(n, { attributes: true, attributeFilter: ['class', 'hidden'] });
+  }
+  let viewerCloser = null; // installFilesPanel 之后才有（它在本函数定义之后才挂载，初始化时 setPanelCollapsed(true) 已经在跑）
   function setPanelCollapsed(v) {
     panel.classList.toggle('collapsed', v);
+    // 收起面板 = 看不见查看器了：把里面的视频 / 音频一并停掉（否则声音在背后继续放）
+    if (v && viewerCloser) viewerCloser();
     // 以前这里把按钮内容整体替换成两个方块符号字符：既丢掉了 pill 的「SVG 图标 + 中文文字」统一外观，
     // 又在窄屏下把按钮压到 30 多像素宽（点不中）。改成切状态类 + 提示语，外观与其它 pill 一致。
     const btn = $('#panel-toggle');
@@ -930,7 +986,8 @@ function validateApiKey(s) {
     }
   }, true);
   // ── 沙箱文件面板：见 ui-files-panel.js（文件树 / 下载 ZIP / 单文件 / 预览窗）──
-  const { renderFiles, openFileViewer } = installFilesPanel({ store, agent, toast, fmtSize, highlightCode, sanitizeSvgRaw, safeImgSrc });
+  const { renderFiles, openFileViewer, closeViewer } = installFilesPanel({ store, agent, toast, fmtSize, highlightCode, sanitizeSvgRaw, safeImgSrc });
+  viewerCloser = closeViewer;
   renderFiles();
 
   // ── 消息渲染 ──────────────────────────────────────────────────────────
@@ -1002,7 +1059,7 @@ function validateApiKey(s) {
       // 旧逻辑 showHead 会判 false 导致「无图标无审核员」，这里强制显示
       const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
-      // 智能路由器：消息头显示路由图标 + smart-router（不暴露真实模型）
+      // 智能路由器：消息头显示路由图标 + 「智能」（不暴露真实模型）
       const headIsRouter = isSmartRouter(m.userModel);
       const headModel = m.model || store.state.model;
       let headName, headIcon;
@@ -1013,7 +1070,7 @@ function validateApiKey(s) {
         headName = 'Moderator · 审核员';
         headIcon = providerIcon(providerOf(headModel));
       } else if (headIsRouter) {
-        headName = '智能';
+        headName = SMART_ROUTER_LABEL;
         headIcon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
       } else {
         headName = headModel;
@@ -1095,7 +1152,8 @@ function validateApiKey(s) {
     if (budgetBits.length) {
       const span = document.createElement('span');
       span.className = `foot-budget${exhausted.length ? ' bad' : ''}`;
-      span.textContent = `${line ? ' · ' : ''}${budgetBits.join(' · ')}${exhausted.length ? ' ⚠' : ''}`;
+      // 耗尽的是哪一路要写出来：脚注只列了两路，⚠ 却可能来自重试 / 记忆写入 / 时长，不写名字用户看不懂
+      span.textContent = `${line ? ' · ' : ''}${budgetBits.join(' · ')}${exhausted.length ? ` ⚠ ${exhausted.map((c) => BUDGET_CHANNEL_LABEL[c] || c).join('、')}已用尽` : ''}`;
       span.title = exhausted.length
         ? `本轮预算已耗尽：${exhausted.map((c) => BUDGET_CHANNEL_LABEL[c] || c).join('、')}。可在「设置 → 执行预算」调高上限（下一轮生效），或新开一轮对话`
         : '本轮执行预算：工具调用 / 外部副作用（抓取、检索、生图、识图、委派）已用 / 上限；上限可在「设置 → 执行预算」调整';
@@ -1262,7 +1320,7 @@ function validateApiKey(s) {
     const hiddenThink = thinkOn && !m.reasoning && (m.thoughtHidden || (m.usage && m.usage.reasoning) || (m.thinkingBlocks && m.thinkingBlocks.length));
     if (live && noOutputYet && !thinkOn) {
       // 连接动画：请求已发出但首字未到（网关排队 / TTFB 慢），明确提示当前状态
-      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(m.model || store.state.model)}</b>，等待首个响应…</span></div>`;
+      html += `<div class="connect-line"><span class="connect-ring" aria-hidden="true"></span><span>正在连接 <b class="mono">${esc(modelDisplayName(m.model || store.state.model))}</b>，等待首个响应…</span></div>`;
     }
     html += m.model === '__system__' ? sysReplyHtml(m.text) : renderMarkdown(m.text || '');
     if (live && !noOutputYet) html += '<span class="cursor"></span>';
@@ -2616,8 +2674,18 @@ function validateApiKey(s) {
   if (!store.state.apiKey) setTimeout(openKeyModal, 600);
 
   // ── 暴露给 agent hooks ───────────────────────────────────────────────
+  // 设置页改了开关后把会话区所有「镜像」同步一遍：四颗 pill、能力行、主题按钮（settings.js 不 import ui.js，经 main.js 回调进来）
+  function syncToolbar() {
+    try { syncSandbox(); } catch { /* noop */ }
+    try { syncWeb(); } catch { /* noop */ }
+    try { syncFast(); } catch { /* noop */ }
+    try { syncThinking(); } catch { /* noop */ }
+    try { syncThemeToggle(); syncThemeColor(); } catch { /* noop */ }
+    try { syncCapLine(); } catch { /* noop */ }
+  }
   const ui = {
     setStatus,
+    syncToolbar,
     refreshKeyBtn: updateKeyBtn,   // main.js 解封成功后刷新按钮文案
     // 刷新页面后：外置在 IndexedDB 的重数据取回来了 → 重绘消息（附件图片、芯片里的生成图）
     // 与文件面板（沙箱里的图），并把沙箱重新灌进 agent（createAgent 建 fs 时它们还没回来）

@@ -73,7 +73,7 @@ ok('mountUI 返回 hooks 对象', ui && typeof ui.setStatus === 'function');
 ok('UI 挂载成功时通知启动页关闭', bootCompletionCount === 1, `调用 ${bootCompletionCount} 次`);
 ok('生图模型下拉与目录保持一致（4 项）', $('#image-model').options.length === 4, `实际 ${$('#image-model').options.length}`);
 ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
-ok('默认模型卡片显示 smart-router', $('#model-btn-name').textContent === 'smart-router', $('#model-btn-name').textContent);
+ok('默认模型卡片显示「智能」（不是 smart-router）', $('#model-btn-name').textContent === '智能', $('#model-btn-name').textContent);
 const expectedLogo = document.createElement('span'); expectedLogo.innerHTML = ROUTER_ICON_SVG;
 ok('模型卡片使用 TeamoRouter 原生产品图标', $('#model-btn-icon svg')?.outerHTML === expectedLogo.querySelector('svg')?.outerHTML);
 ok('文件面板 ZIP 按钮存在', !!$('#download-zip'));

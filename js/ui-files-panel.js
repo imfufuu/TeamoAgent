@@ -283,6 +283,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
         </div>
       </div>`;
     }
+    stopViewerMedia();
     viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-size">${fmtSize(byteLen)}</span><span class="fv-actions">`
       + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
@@ -295,10 +296,26 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
       const mo = new MutationObserver(() => { if (!vid || !vid.isConnected || !viewer.classList.contains('open')) { release(); mo.disconnect(); } });
       mo.observe(viewer, { childList: true, attributes: true, attributeFilter: ['class'] });
     }
-    $('#fv-close').addEventListener('click', () => viewer.classList.remove('open'));
+    $('#fv-close').addEventListener('click', () => closeViewer());
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
     const pdfBox = $('.fv-pdf', viewer);
     if (pdfBox) renderPdfPreview(pdfBox, rawStr, path);
+  }
+
+  // 关闭查看器：只摘 .open 类的话 <video> 还挂在 DOM 里继续出声（.26 前的 bug：点 ✕ 后音频照放）。
+  // 先把所有媒体元素停掉并卸载源，再收起；下一次 openFileViewer 会整体重建 innerHTML。
+  function stopViewerMedia() {
+    const viewer = $('#file-viewer');
+    if (!viewer) return;
+    for (const m of viewer.querySelectorAll('video, audio')) {
+      try { m.pause(); } catch { /* noop */ }
+      try { m.removeAttribute('src'); m.load(); } catch { /* noop */ }
+    }
+  }
+  function closeViewer() {
+    stopViewerMedia();
+    const viewer = $('#file-viewer');
+    if (viewer) viewer.classList.remove('open');
   }
 
   const FV_PDF_PAGES = 6;
@@ -329,5 +346,5 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
       + got.images.map((img) => `<figure class="fv-pdf-page"><img src="${esc(img.dataUrl)}" alt="第 ${img.page} 页" loading="lazy"><figcaption>第 ${img.page} 页</figcaption></figure>`).join('')
       + more;
   }
-  return { renderFiles, openFileViewer, downloadFile };
+  return { renderFiles, openFileViewer, closeViewer, downloadFile };
 }

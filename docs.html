@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.26" />
+<meta name="app-version" content="2026.10.5.27" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -134,6 +134,7 @@
   code { font: 12px var(--mono); background: color-mix(in srgb, var(--fg) 7%, transparent); border-radius: 4px; padding: 1px 6px; }
 
   /* ── 协议卡片 ── */
+  .affiliation-note { font-size: 13px; line-height: 1.8; color: var(--fg-2); border-left: 2px solid var(--line); padding-left: 14px; margin-top: 14px; }
   .legal-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 22px 26px; margin-bottom: 18px; }
   .legal-card h3 { font-family: var(--serif); font-weight: 500; font-size: 17px; margin: 18px 0 10px; display: flex; gap: 10px; align-items: baseline; }
   .legal-card h3:first-child { margin-top: 0; }
@@ -203,6 +204,7 @@
     <p class="kicker">Documentation · V1.7</p>
     <h1>更新日志与协议。</h1>
     <p class="lede">查看 V1.7 Stable 的重点更新、历史版本概览，以及使用本应用前应了解的协议与隐私约定。</p>
+    <p class="lede affiliation-note"><strong>独立项目声明：</strong>Dubhe Agent 是独立开发的开源前端应用，与 <strong>TeamoRouter</strong> 及其运营方<strong>互不隶属</strong>，不存在授权、合作、代理或背书关系。TeamoRouter 仅是本应用默认兼容的第三方模型网关之一（你也可以自行更换中继）；「TeamoRouter」名称与标识归其权利人所有，在本应用中仅作兼容性说明之用。</p>
   </section>
 
   <!-- ══════════════ 第 1 页：更新日志 ══════════════ -->
@@ -212,7 +214,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.26</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.27</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -231,6 +233,7 @@
           <li><span class="tag add">ADD</span><span><strong><code>analyze_video</code> 视频识别（构建 .18）</strong>：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 <code>uploads/</code>，工具逻辑照搬 <code>analyze_image</code>，以 <code>file</code> 部件交给 Gemini，全文写入 <code>internal/ocr/*.video.md</code> 并按 usage 计费；视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。</span></li>
           <li><span class="tag add">ADD</span><span><strong>沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 .19）</strong>：视频附件进入前本地抽帧——0.3 秒海报图作为芯片 / 气泡的首帧缩略图，再均匀抽 5 帧交给与图片同一条 NudeNet + NSFWJS 审核流水线（任一帧命中即拦截，抽不到帧视为失败关闭；帧只用于审核，入消息前摘掉）；气泡点击原地播放，文件面板里 <code>uploads/*.mp4</code> 不再显示为二进制，专属图标 + 直接 <code>&lt;video&gt;</code> 播放（blob URL，关闭即回收）。CSP 新增 <code>media-src</code>。</span></li>
           <li><span class="tag add">ADD</span><span><strong><code>download_file</code> 跨域文件拉取（构建 .19）</strong>：经 Worker <code>/api/file</code>（v1.7.0）把任意 http(s) 资源原始字节写入沙箱 <code>uploads/</code>（≤ 16 MB，拒绝私网地址，≤ 5 次跳转，文件名取 Content-Disposition → URL → MIME 推断）；中继无 <code>file</code> 能力时自动从工具表剔除。输入框粘贴裸链接或回形针菜单「从链接添加」也走同一条通道，与本地文件相同的分类与审核流程。工具总数 39。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>15 项修正（构建 .27）</strong>：图片审核升级为三层——NSFWJS 换 <strong>InceptionV3</strong>（22.6MB / 299）、NudeNet 320n、两层都拿不准的灰区图交 <strong>Gemini 3.5 Flash Lite</strong> 严格复核（每轮 ≤ 3 张，可在设置关闭）；拦截与上传提示不再出现「抽帧 / 第 X 帧命中 / 待审核」等内部流程；沙箱视频关闭 / 切换 / 收面板即静音；新增 <code>theme-color</code>，iPhone 顶部状态栏随面板 / 弹窗 / 主题取色；智能路由在所有位置显示「智能」，图标按 TeamoRouter LOGO 重量；预算脚注 ⚠ 不再被「并发 3/3」误触发并写出通道名；Worker v1.7.1 搜索回退链 SearXNG → DuckDuckGo → Bing RSS；设置页开关即时同步顶栏；视频识别默认 Gemini 3.5 Flash Lite；设置新增「清除临时缓存」；管理员模式 <code>/key</code> 不可用；文档页写明与 TeamoRouter 互不隶属；菜单弹入动效加重；长效记忆空状态加插画。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>工具选择熵过高（构建 .26）</strong>：工具表以前 39 份 schema 全量下发、只按能力位摘除不选择。现在 ① 9 个本地小工具合成 <code>text_tool</code>（<code>action=regex|hash|codec|unicode</code>）与 <code>data_tool</code>（<code>kind=csv|date|units|qr</code>）两把伞，<code>TOOL_DEFS</code> 39 → 32，旧名字保留为执行别名；② <code>selectToolsForTurn()</code> 两层下发：核心 12 个每轮必带，其余按用户消息关键词 / 附件类型 / 近两轮用量 / 点名按需挂载，系统提示只列未挂载工具的名字；③ 模型调用未挂载工具时内核回「该工具本轮未启用，可用 execute_javascript 完成」并当场挂载、留 <code>tool-lazy-mount</code> 审计；④ p2-eval 每条语料标 <code>expectedTools</code>，新增 <code>tool_misselect_rate</code>（3.3%）/ <code>tool_miss_rate</code>（0%）/ <code>tools.length</code> 中位数（12）进基线门禁（退化 &gt; 5pt 或中位数 &gt; 18 即红）。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>缺少外部验证闭环（构建 .25）</strong>：新增 <code>tools/run-tests.mjs</code> 统一入口（<code>npm ci && npm test</code>），逐个跑 <code>tests/</code> 下全部 21 个 <code>.mjs</code> + python 护栏并解析各自的通过项数；<code>ci.yml</code> 改为一文件一 step（<code>if: !cancelled()</code>），<code>npm ci</code> 装 jsdom，语法检查扩到 <code>relay/ sw.js tools/</code>，末步把计数写成 <code>::notice::</code> + job summary；README 顶部加 CI / Pages 徽章，测试数字以 Actions 产出为准、文档不再手填；主单测自检「ci.yml step 集合 == ls tests/*.mjs」。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>巨型单文件（构建 .24）</strong>：<code>agent.js</code> 抽出 <code>toolrunner.js</code>（单个工具调用的执行与记账 + 同波调度，<code>createToolRunner(deps)</code> 注入）与 <code>turnfinalizer.js</code>（回合收尾记账），149 KB → 96 KB，<code>runLoop</code> 只管调度；<code>ui.js</code> 再拆 <code>ui-markdown.js / ui-model-picker.js / ui-popovers.js / ui-command-palette.js / ui-system-commands.js</code>，4,198 → 2,816 行、222 KB → 149 KB；<code>nexus.js</code> 不拆，文件头写死拥有 / 不拥有边界。契约测试行数上限 4,200 → 3,000，新增字节上限与「子模块不得反向依赖 ui.js / agent.js」断言；行为零变化。</span></li>
@@ -324,6 +327,7 @@
       <h3><span class="no">02</span>软件性质与许可</h3>
       <ul>
         <li>本应用为纯前端静态网页：对话、沙箱、文件均在你自己的浏览器中运行；模型推理经你配置的 API Key 通过 TeamoRouter 网关完成。</li>
+        <li><strong>与 TeamoRouter 互不隶属</strong>：作者与 TeamoRouter 及其运营方之间不存在隶属、授权、合作、代理或背书关系；TeamoRouter 的服务条款、计费、可用性与数据处理由其自行负责，你使用其 API Key 产生的费用与争议应直接与 TeamoRouter 解决。本应用中出现的「TeamoRouter」名称、标识与「智能路由」图标仅用于说明兼容的网关与模型来源。</li>
         <li>授予你个人的、不可转让的、免费的使用许可，仅限本协议允许的用途；保留所有未明示授予的权利。</li>
         <li>不提供任何明示或默示的适销性、准确性、不中断或无错误的保证。</li>
       </ul>
@@ -470,7 +474,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.26</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.27 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

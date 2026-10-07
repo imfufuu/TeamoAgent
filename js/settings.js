@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.26';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.27';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { DEFAULT_TURN_BUDGET } from './execution.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
@@ -109,6 +109,7 @@ export function openSettingsModal({ store } = {}) {
   if ($('#set-cpp')) $('#set-cpp').checked = store.state.settings.remoteCppEnabled !== false;
   $('#set-web').checked = store.state.settings.webEnabled !== false;
   $('#set-fast').checked = !!store.state.settings.fastMode;
+  if ($('#set-image-review')) $('#set-image-review').checked = store.state.settings.imageRemoteReview !== false;
   $('#set-thinking').checked = store.state.settings.thinking !== false;
   syncSeg('#set-reason', store.state.settings.reasoningLevel || 'medium');
   syncBudgetInputs(store);
@@ -155,7 +156,10 @@ function bindSeg(sel, onChange) {
   });
 }
 
-export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
+export function mountSettings(store, { onRelayChanged, onKeySaved, onSettingChanged } = {}) {
+  // 设置页改了开关 / 档位 / 主题后通知外部（main.js → ui.syncToolbar）：顶栏 pill、能力行、主题按钮要跟着变，
+  // 不然「设置里开了快速模式，会话区那颗 ⚡ 还是灰的」（.27 修）
+  const changed = (key, value) => { try { onSettingChanged && onSettingChanged(key, value); } catch { /* 不影响设置本身 */ } };
   const btn = $('#settings-btn');
   if (btn) btn.addEventListener('click', () => openSettingsModal({ store }));
   $('#settings-close').addEventListener('click', closeSettingsModal);
@@ -192,6 +196,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
     document.documentElement.dataset.theme = v;
     writeThemePreference(v);
     store.notify();
+    changed('theme', v);
   });
   bindSeg('#set-fontsize', (v) => applyFontSizeValue(v));
 
@@ -201,12 +206,14 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
       store.state.settings[key] = el.checked;
       store.notify();
       onChange && onChange(el.checked);
+      changed(key, el.checked);
     });
   };
   bindSw('#set-sandbox', 'sandboxEnabled');
   if ($('#set-cpp')) bindSw('#set-cpp', 'remoteCppEnabled');
   bindSw('#set-web', 'webEnabled');
   bindSw('#set-fast', 'fastMode');
+  bindSw('#set-image-review', 'imageRemoteReview');
   const reasonRow = document.getElementById('set-reason-row');
   const syncReasonRow = () => { if (reasonRow) reasonRow.hidden = !$('#set-thinking').checked; };
   bindSw('#set-thinking', 'thinking', syncReasonRow);
@@ -241,6 +248,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   bindSeg('#set-reason', (v) => {
     store.state.settings.reasoningLevel = v;
     store.notify();
+    changed('reasoningLevel', v);
   });
 
   // 识图 / 视频识别模型：全局设置（不随会话），analyze_image / analyze_pdf / analyze_video 读取
@@ -255,6 +263,23 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
   bindModelSelect('#set-vision-model', 'visionModel', resolveVisionModel);
   bindModelSelect('#set-video-model', 'videoModel', resolveVideoModel);
 
+  // 清除临时缓存：只动「丢了也能重建」的东西——Cache Storage（SW 离线资源：模型 / 审核资产 / 静态文件）、sessionStorage、
+  // 中继探测缓存；会话 / 密钥 / 设置 / 长效记忆（localStorage + IndexedDB）一律不碰。不刷新页面，下次用到的资源按需重新下载。
+  const cacheBtn = $('#set-clear-cache');
+  if (cacheBtn) cacheBtn.addEventListener('click', async () => {
+    cacheBtn.disabled = true;
+    const label = cacheBtn.textContent;
+    cacheBtn.textContent = '清除中…';
+    try {
+      const r = await clearTransientCaches();
+      const note = $('#set-cache-note');
+      if (note) note.textContent = `已清除：${r.cacheStores} 个离线缓存（${r.cacheEntries} 条资源）· ${r.sessionKeys} 条页面临时状态 · 中继探测已重置。会话 / 密钥 / 设置 / 长效记忆未动；模型与审核资产下次用到时重新下载`;
+      toast(`✓ 临时缓存已清除（${r.cacheStores} 个离线缓存 · ${r.cacheEntries} 条资源）`, 'ok', 4200);
+      onRelayChanged && onRelayChanged();
+    } catch (err) {
+      toast(`清除失败：${err && err.message ? err.message : String(err)}`, 'err', 5000);
+    } finally { cacheBtn.disabled = false; cacheBtn.textContent = label; }
+  });
   $('#set-clear-chat').addEventListener('click', () => {
     if (!confirm('确认清空当前会话的所有消息与文件？此操作不可撤销。')) return;
     store.state.messages = [];
@@ -267,6 +292,23 @@ export function mountSettings(store, { onRelayChanged, onKeySaved } = {}) {
     try { localStorage.clear(); } catch {}
     location.reload();
   });
+}
+
+// 临时缓存清理（纯函数化，便于单测）：返回清掉了什么。任何一项不可用（非 https / 旧浏览器）都跳过而不是报错。
+export async function clearTransientCaches() {
+  const out = { cacheStores: 0, cacheEntries: 0, sessionKeys: 0, relayProbeReset: false };
+  if (typeof caches !== 'undefined' && caches && typeof caches.keys === 'function') {
+    const names = await caches.keys();
+    for (const n of names) {
+      try { out.cacheEntries += (await (await caches.open(n)).keys()).length; } catch { /* 数不出来就不数 */ }
+      try { if (await caches.delete(n)) out.cacheStores += 1; } catch { /* 单个失败不影响其它 */ }
+    }
+  }
+  try {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage) { out.sessionKeys = sessionStorage.length; sessionStorage.clear(); }
+  } catch { /* 隐私模式可能抛 */ }
+  try { resetRelayProbe(); out.relayProbeReset = true; } catch { /* noop */ }
+  return out;
 }
 
 export function applyFontSizeValue(value, { persist = true } = {}) {

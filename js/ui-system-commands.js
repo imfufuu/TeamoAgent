@@ -2,10 +2,12 @@
 // 拥有：handleSystemCommand(input)——本地执行、不走网关的斜杠命令：/help /status /models /use /theme /clear /p2 /p2f /exp /resume …，
 //       以及把结果作为一次性草稿消息写入通道（state.js 对 __system__ 不落盘）。
 // 不拥有：进入/退出通道（ui-model-picker.js）、消息渲染与滚动——均经 deps 注入；本文件绝不 import ui.js。
-import { APP_RELEASE, APP_VERSION } from './config.js?v=2026.10.5.26';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.26';
+import { APP_RELEASE, APP_VERSION } from './config.js?v=2026.10.5.27';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.27';
 import { formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
-import { fmtSpan } from './ui-markdown.js?v=2026.10.5.26';
+import { fmtSpan } from './ui-markdown.js?v=2026.10.5.27';
+import { modelDisplayName } from './smartrouter.js';
+import { isAdminAlias } from './adminkey.js';
 
 export function installSystemCommands({ store, agent, toast, inSystem, isSystemIsolated, chatModels, selectModel, applyTheme, rebuildMessages, renderSessions, renderFiles, updateStats, scrollToBottom }) {
   // ── /system 隐藏通道：命令识别器（本地执行，不走网关）──
@@ -29,7 +31,7 @@ export function installSystemCommands({ store, agent, toast, inSystem, isSystemI
         '/models —— 列出可用模型',
         '/theme dark|light —— 切换深/浅主题',
         '/cache [clear] —— 查看离线缓存 / 清空后自动重建',
-        '/key —— 查看 API Key 尾号（完整 Key 不回显）',
+        '/key —— 查看 API Key 尾号（完整 Key 不回显；管理员模式下不可用）',
         '/export —— 导出全部会话记录（JSON 下载）',
         '/clear —— 清空通道草稿（真实会话不受影响）',
         '/p2 [report|policy|fault|exp] —— P2（v2.5）：策略版本 / 统一指标 / 审计三层目标 / 故障注入 / 策略实验',
@@ -52,7 +54,7 @@ export function installSystemCommands({ store, agent, toast, inSystem, isSystemI
       const pw = [...log].reverse().find((e) => e.stage === 'prewarm:done');
       out = [
         `版本：${APP_RELEASE} · 构建 ${APP_VERSION}`,
-        `当前模型：${store.state.model === '__system__' ? '（未选择，处于 /system 通道）' : store.state.model}`,
+        `当前模型：${store.state.model === '__system__' ? '（未选择，处于 /system 通道）' : modelDisplayName(store.state.model)}`,
         `可用模型：${chatModels().length} 个`,
         `调试浮窗：${globalThis.__dubheDebugActive && globalThis.__dubheDebugActive() ? '开启' : '关闭'}`,
         `审核模型预热：${pw ? `已完成（NudeNet ${pw.nudenet ? '✓' : '✗'} / NSFWJS ${pw.nsfwjs ? '✓' : '✗'}${pw.toxicity != null ? ` / Toxicity ${pw.toxicity ? '✓' : '✗'}` : ''}）` : '尚未执行（发图或打开页面 2 秒后自动开始）'}`,
@@ -161,7 +163,9 @@ export function installSystemCommands({ store, agent, toast, inSystem, isSystemI
       }
     } else if (name === 'key') {
       const k = store.state.apiKey || '';
-      out = k ? `API Key：${k.slice(0, 10)}…${k.slice(-4)}（已配置；完整 Key 不回显）` : '尚未配置 API Key（普通对话需要；/system 通道本身不需要）';
+      // 管理员模式：别名本身就是口令（admin-8 位），首尾各露几位等于整段泄露；真实密钥明文从不落盘也不上屏 → 此命令直接不可用
+      if (isAdminAlias(k)) out = '管理员模式下 /key 不可用：管理员口令与实际密钥都不回显。要换回普通 API Key 请点底部「管理员」按钮重新填写。';
+      else out = k ? `API Key：${k.slice(0, 10)}…${k.slice(-4)}（已配置；完整 Key 不回显）` : '尚未配置 API Key（普通对话需要；/system 通道本身不需要）';
     } else if (name === 'export') {
       try {
         const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), version: APP_VERSION, sessions: store.state.sessions }, null, 2)], { type: 'application/json' });

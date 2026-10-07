@@ -2,7 +2,7 @@
 // 按钮 / 相机 / 拖拽 / 粘贴 四个入口 → 统一 addFiles：图片缩放与 MIME 白名单、文本 / PDF（原样入沙箱，交给 analyze_pdf）/ ZIP（解包进沙箱）、
 // 大小上限与芯片渲染。对外只暴露 { hasPending, takePending, addFiles }，发送逻辑取走后自动清空。
 import { ICON } from './icons.js';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.26';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.27';
 import { relayDownload, relaySupports, relayAvailable, RELAY_FILE_MAX_BYTES } from './net.js';
 
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -195,7 +195,7 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
           const ext = (f.name.toLowerCase().split('.').pop() || 'mp4');
           const mime = VIDEO_MIME_RE.test(f.type) ? f.type : (ext === 'webm' ? 'video/webm' : ext === 'mov' ? 'video/quicktime' : ext === 'm4v' ? 'video/x-m4v' : 'video/mp4');
           let cap;
-          try { cap = await captureVideoFrames(f); } catch (err) { toast(`${f.name}：${err.message}（无法抽帧审核，未加入）`, 'err', 5200); continue; }
+          try { cap = await captureVideoFrames(f); } catch (err) { toast(`${f.name}：${err.message}（未加入）`, 'err', 5200); continue; }
           const durationSec = cap.durationSec || 0;
           pending.push({
             id: Math.random().toString(36).slice(2),
@@ -212,7 +212,7 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
             frames: cap.frames,   // 均匀 5 帧：仅供本地审核，agent.send 会在入消息前摘掉
             originalName: f.name,
           });
-          toast(`${f.name}：已作为视频附件加入（${durationSec ? `约 ${Math.round(durationSec)} 秒，` : ''}已抽 ${cap.frames.length} 帧待审核），发送后 Agent 会调用 analyze_video 识别`, 'ok', 4200);
+          toast(`${f.name}：已作为视频附件加入${durationSec ? `（约 ${Math.round(durationSec)} 秒）` : ''}，发送后 Agent 会调用 analyze_video 识别`, 'ok', 4200);
         } else if (ZIP_RE.test(f.name) || f.type === 'application/zip' || f.type === 'application/x-zip-compressed') {
           if (f.size > MAX_ZIP) { toast(`${f.name}：ZIP 超过 12MB`, 'err'); continue; }
           pending.push({
@@ -225,7 +225,7 @@ export function installAttachments({ composer, toast, safeImgSrc, fmtSize }) {
             source: 'zip',
             originalName: f.name,
           });
-          toast(`${f.name}：已添加 ZIP，发送并通过审核后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
+          toast(`${f.name}：已添加 ZIP，发送后写入 uploads/，请用 unzip_file 解压`, 'ok', 4200);
         } else if (TEXT_RE.test(f.name) || f.type.startsWith('text/') || f.type === 'application/json') {
           if (f.size > MAX_TEXT) { toast(`${f.name}：文本超过 512KB`, 'err'); continue; }
           pending.push({ id: Math.random().toString(36).slice(2), kind: 'text', name: f.name, mime: f.type || 'text/plain', size: f.size, text: await readAs('text', f) });

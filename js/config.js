@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.7';
-export const APP_VERSION = '2026.10.5.26';
+export const APP_VERSION = '2026.10.5.27';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -183,11 +183,11 @@ export const VISION_MODELS = [
 ];
 export const DEFAULT_VISION_MODEL = 'deepseek-v4-flash-vision-exp';
 export const VIDEO_MODELS = [
-  { id: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite', tag: '便宜 · 最快',   note: '约 $0.0004 / 分钟视频 · 实测 11s 短片 6 秒出结果' },
-  { id: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash',      tag: '均衡 · 默认',   note: '约 $0.0008 / 分钟视频 · 动作时间线 + 字幕转录都稳' },
+  { id: 'gemini-3.5-flash-lite',  label: 'Gemini 3.5 Flash Lite', tag: '便宜 · 最快 · 默认', note: '约 $0.0004 / 分钟视频 · 实测 11s 短片 6 秒出结果' },
+  { id: 'gemini-3.8-flash',       label: 'Gemini 3.8 Flash',      tag: '均衡',          note: '约 $0.0008 / 分钟视频 · 动作时间线 + 字幕转录都稳' },
   { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro',        tag: '效果最好',      note: '约 $0.0024 / 分钟视频 · 带时间轴的细致描述、语音线索更全' },
 ];
-export const DEFAULT_VIDEO_MODEL = 'gemini-3.8-flash';
+export const DEFAULT_VIDEO_MODEL = 'gemini-3.5-flash-lite';
 export function resolveVisionModel(id) {
   return VISION_MODELS.some((m) => m.id === id) ? id : DEFAULT_VISION_MODEL;
 }

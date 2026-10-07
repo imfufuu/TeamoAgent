@@ -55,13 +55,26 @@ await test('nsfwjs / toxicity / use 运行时无 Function 构造调用（CSP 安
 
 // ── 模型资产 ──
 group('审核模型资产');
-await test('NSFWJS mobilenet_v2_mid 为 SavedModel(graph-model)，与 moderation.js 的 type:"graph" 配对', () => {
-  const model = JSON.parse(read('../assets/moderation/nsfw-mobilenet-v2-mid/model.json'));
-  assert.equal(model.format, 'graph-model');
+await test('NSFWJS InceptionV3 为 Keras layers 模型（uint8 量化 / 输入 299），与 moderation.js 的 size:299 + type:"layers" 配对', () => {
+  const model = JSON.parse(read('../assets/moderation/nsfw-inception-v3/model.json'));
+  assert.notEqual(model.format, 'graph-model', 'inception_v3 不是 graph-model：传 type:"graph" 会走 loadGraphModel 直接挂');
+  assert.ok(model.modelTopology && model.modelTopology.model_config, 'layers 模型应带 modelTopology.model_config');
   const src = read('../js/moderation.js');
-  assert.match(src, /type:\s*'graph'/, 'nsfwjs.load 缺 type:"graph" 会走 loadLayersModel → Improper config format');
+  assert.match(src, /nsfw-inception-v3\/model\.json/);
+  assert.match(src, /const NSFW_INPUT_SIZE = 299/);
+  assert.match(src, /size: NSFW_INPUT_SIZE, type: 'layers'/, 'nsfwjs.load 必须按 layers 加载并指定 299 输入');
+  assert.doesNotMatch(src, /type:\s*'graph'/, '旧 mobilenet 的 type:"graph" 不得残留');
   const shards = model.weightsManifest.flatMap((w) => w.paths);
-  for (const s of shards) assert.ok(exists(`../assets/moderation/nsfw-mobilenet-v2-mid/${s}`), `权重分片缺失：${s}`);
+  assert.equal(shards.length, 6);
+  let total = 0;
+  for (const s of shards) {
+    assert.ok(exists(`../assets/moderation/nsfw-inception-v3/${s}`), `权重分片缺失：${s}`);
+    total += fs.statSync(new URL(`../assets/moderation/nsfw-inception-v3/${s}`, import.meta.url)).size;
+  }
+  assert.ok(total > 22_000_000 && total < 23_000_000, `InceptionV3 权重应约 22.4MB，实际 ${total}`);
+  const weights = model.weightsManifest.flatMap((w) => w.weights);
+  assert.ok(weights.every((w) => w.quantization && w.quantization.dtype === 'uint8'), '应为 uint8 量化版本（否则 90MB）');
+  assert.ok(!exists('../assets/moderation/nsfw-mobilenet-v2-mid/model.json'), '旧 mobilenet_v2_mid 资产应已移除');
 });
 await test('text-toxic 权重分片完整且 4 字节对齐（V1.3.1 入库时曾是 5.6KB 坏片）', () => {
   const model = JSON.parse(read('../assets/moderation/text-toxic/model.json'));
@@ -221,7 +234,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   assert.match(ui, /moderating: \['连接模型中'/, '审核状态应对用户显示「连接模型中」');
   assert.match(ui, /moderationNotice \|\| !prev \|\| prev.role === 'user'/, '审核消息应强制显示头部（图标+审核员）');
   const mod = read('../js/moderation.js');
-  assert.match(mod, /IMAGE_TURN_BUDGET_MS = 90000/, '带图回合预算应为 90s');
+  assert.match(mod, /IMAGE_TURN_BUDGET_MS = 120000/, '带图回合预算应为 120s（含灰区远程复核）');
   assert.match(mod, /degraded/, '图像模型未就绪应标记 degraded');
   assert.match(mod, /prewarm:fetch/, '预热应逐文件上报下载进度');
   assert.match(main, /__dubhePrewarmImageModeration && globalThis.__dubhePrewarmImageModeration\('startup'\)/, '启动应自动预热');
@@ -397,7 +410,7 @@ await test('品牌图标静态、连接圈保留旋转；智能路由卡使用�
   assert.doesNotMatch(css, /halfspin/);
   assert.match(css, /\.connect-ring \{[^}]*animation:\s*spin \.8s linear infinite/);
   assert.match(ui, /icon = `<span class=\"router-ico\">\$\{ROUTER_ICON_SVG\}<\/span>`/);
-  assert.match(ui, /name = 'smart-router'/);
+  assert.match(ui, /name = SMART_ROUTER_LABEL;/);
   assert.match(router, /export const ROUTER_ICON_SVG/);
 });
 await test('相机专用入口自动编辑，保存回用 addFiles，普通附件流程不变', () => {

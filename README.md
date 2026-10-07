@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.26` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.27` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,18 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.27：15 项修正——审核三层 / 「智能」/ 搜索回退 / 状态栏取色 / 设置同步等**
+
+49. **图片审核三层**：NSFWJS 由 MobileNetV2-mid（4.3MB / 224）换成官方 **InceptionV3**（22.6MB uint8 / 299，Keras layers 格式），porn / hentai 单类 ≥ 0.5 或综合 ≥ 0.7 直接拦；NudeNet 320n 不变；两层本地都拿不准的**灰区图**（有一点 porn / hentai 信号、sexy 偏高、NudeNet 擦边 0.18–0.32 或遮挡类高分）才交给 **Gemini 3.5 Flash Lite** 按严格 JSON 规则复核（sexual 0–3 / minors / verdict；拒答视为 unsafe），每轮最多 3 张，远程失败退回本地判定而不是误拦；设置页「灰区图片远程复核」可关。带图回合预算 90s → 120s。
+50. **用户提示瘦身**：拦截气泡只说「该内容已被审核」，上传 toast 不再出现「抽 5 帧 / 待审核 / 通过审核后」这类内部流程；命中帧与层级只进审核日志。
+51. **沙箱视频关闭即静音**：文件查看器 ✕ / 切换文件 / 收起面板都先 `pause()` + 卸载 `src`，之前只摘 `.open` 类导致音频在背后继续播。
+52. **顶部系统状态栏取色**：`app.html` 新增 `theme-color`（+ `viewport-fit=cover`），`ui.js` 按「主题底色 × 遮罩透明度」在面板浮层 / 弹窗 / 灯箱开合与换主题时实时改写——iPhone 上打开面板时状态栏不再停在亮白。
+53. **「智能」统一**：`modelDisplayName()` 一处定义，模型按钮 / 下拉项 / 「正在连接」行 / 费用弹层 / `/status` 全部显示「智能」而不是 smart-router；路由图标按产品 LOGO 原图重新量过（轨道半径 8.6、缺口 20°、卫星点外移成鼓包、外环 2.3）。
+54. **预算 ⚠ 讲清楚**：`parallelTasks` 是并发上限不是消耗量，一波正好跑满 3 个不再算「耗尽」（之前「工具 9/128 · 外部 2/32 ⚠」的根因）；脚注 ⚠ 后面写出到底哪一路用尽。
+55. **搜索回退链**：Worker `/api/search` 由 SearXNG（配置时）→ DuckDuckGo HTML → **Bing RSS** 依次回退（DuckDuckGo 对 Cloudflare 出口普遍返回 202 人机页），响应带 `tried` / `warning`，三源全挂才 502；Worker v1.7.1。
+56. **设置页 ↔ 会话区同步**：`mountSettings` 新增 `onSettingChanged` 回调 → `ui.syncToolbar()`，快速 / 沙箱 / 联网 / 思考四颗 pill、能力行、主题按钮随设置页开关即时刷新。
+57. **其它**：视频识别默认模型改为 Gemini 3.5 Flash Lite；设置页新增「清除临时缓存」（只清 Cache Storage / sessionStorage / 中继探测，不碰会话、密钥、设置、记忆）；管理员模式下 `/key` 不可用（别名即口令，首尾各露几位等于整段泄露）；文档页三处写明与 TeamoRouter 互不隶属；菜单 / 弹层弹入动效加重（.44s、过冲 1.42、起点 .78）；长效记忆空状态加插画并重写文案。
 
 **构建 2026.10.5.26：P6 修正——工具选择熵过高**
 

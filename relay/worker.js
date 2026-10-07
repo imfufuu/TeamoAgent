@@ -10,7 +10,7 @@
  * 端点：
  *   GET /api/health                    → 版本与 capabilities
  *   GET /api/fetch?url=...             → 有 SSRF 护栏的单页抓取（text/raw）
- *   GET /api/search?q=...              → SearXNG（配置时）优先，DuckDuckGo HTML 回退
+ *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → Bing RSS 依次回退
  *   GET /api/crawl?url=...             → 同源、有限页数/深度的 HTML 正文抓取
  *   GET /api/file?url=...              → 跨域二进制文件拉取（图片 / PDF / 视频 / ZIP，≤ 16MB，原样回传 + CORS）
  *                                      可选 max_pages、max_depth、max_bytes、max_chars
@@ -25,7 +25,7 @@
  *   · CORS 全开供静态站点直连；公开部署建议再用 Cloudflare Rate Limiting 限流
  */
 
-const WORKER_VERSION = '1.7.0';
+const WORKER_VERSION = '1.7.1';
 const UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 Dubhe-Agent-Relay/${WORKER_VERSION}`;
 const MAX_FETCH_BYTES = 4_000_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024; // /api/file：与前端视频附件上限一致；Worker 128MB 内存，16MB 一次性缓冲安全
@@ -309,21 +309,64 @@ async function searchDuckDuckGo(query, limit, signal) {
   if (!results.length) throw new Error('DuckDuckGo HTML 没有解析到结果（可能被上游限流）');
   return { provider: 'DuckDuckGo', results, truncated: response.truncated };
 }
-async function searchWeb(query, limit, env = {}, signal) {
-  let primaryError = '';
-  if (String(env.SEARXNG_URL || '').trim()) {
-    try {
-      const result = await searchSearXNG(query, limit, env, signal);
-      if (result) return { query, ...result, fallback: false, warning: '' };
-    } catch (err) { primaryError = String(err && err.message || err).slice(0, 240); }
-  }
-  const result = await searchDuckDuckGo(query, limit, signal);
-  return {
-    query,
-    ...result,
-    fallback: !!primaryError,
-    warning: primaryError ? `SearXNG 不可用，已回退 DuckDuckGo：${primaryError}` : (env.SEARXNG_URL ? '' : '未配置 SearXNG，使用 DuckDuckGo HTML 适配器'),
+// DuckDuckGo 从 2026-10 起对 Cloudflare 出口 IP 普遍返回 202 + 「anomaly / challenge」人机页（html 与 lite 两个入口都一样），
+// 解析不到结果就等于搜索整条链路挂掉。Bing 的 RSS 输出（/search?format=rss）不需要 Key、对数据中心 IP 也稳定，作为第二回退。
+function parseBingRss(xml, limit) {
+  const source = String(xml || '');
+  const items = [...source.matchAll(/<item>([\s\S]*?)<\/item>/gi)];
+  const pick = (block, tag) => {
+    const m = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(block);
+    if (!m) return '';
+    return decodeEntities(String(m[1]).replace(/^<!\[CDATA\[([\s\S]*?)\]\]>$/, '$1'));
   };
+  const results = [];
+  for (const it of items) {
+    const block = it[1];
+    const item = normalizeSearchResult({ title: htmlToText(pick(block, 'title')), url: pick(block, 'link'), snippet: htmlToText(pick(block, 'description')) }, 'Bing');
+    if (item && !results.some((r) => r.url === item.url)) results.push(item);
+    if (results.length >= limit) break;
+  }
+  return results;
+}
+async function searchBing(query, limit, signal) {
+  const endpoint = new URL('https://www.bing.com/search');
+  endpoint.searchParams.set('q', query);
+  endpoint.searchParams.set('format', 'rss');
+  endpoint.searchParams.set('count', String(Math.max(limit, 10)));
+  const response = await guardedFetch(endpoint.toString(), {
+    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
+    accept: 'application/rss+xml,application/xml;q=0.9,text/xml;q=0.8,*/*;q=0.5',
+  });
+  const results = parseBingRss(response.body, limit);
+  if (!results.length) throw new Error('Bing RSS 没有解析到结果');
+  return { provider: 'Bing', results, truncated: response.truncated };
+}
+async function searchWeb(query, limit, env = {}, signal) {
+  const errors = [];
+  const providers = [];
+  if (String(env.SEARXNG_URL || '').trim()) providers.push(['SearXNG', () => searchSearXNG(query, limit, env, signal)]);
+  providers.push(['DuckDuckGo', () => searchDuckDuckGo(query, limit, signal)]);
+  providers.push(['Bing', () => searchBing(query, limit, signal)]);
+  for (const [name, run] of providers) {
+    try {
+      const result = await run();
+      if (!result) continue;
+      const fallback = errors.length > 0;
+      return {
+        query,
+        ...result,
+        fallback,
+        tried: errors.map((e) => e.provider),
+        warning: fallback
+          ? `${errors.map((e) => `${e.provider} 不可用（${e.error}）`).join('；')}，已回退 ${name}`
+          : (env.SEARXNG_URL || name !== 'DuckDuckGo' ? '' : '未配置 SearXNG，使用 DuckDuckGo HTML 适配器'),
+      };
+    } catch (err) {
+      if (signal && signal.aborted) throw err;
+      errors.push({ provider: name, error: String(err && err.message || err).slice(0, 160) });
+    }
+  }
+  throw new Error(`所有搜索源都失败：${errors.map((e) => `${e.provider}：${e.error}`).join('；')}`);
 }
 
 async function crawlSite({ url, maxPages = 3, maxDepth = 1, maxBytesPerPage = 250_000, maxCharsPerPage = 12_000, signal } = {}) {

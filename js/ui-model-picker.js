@@ -4,12 +4,12 @@
 // 不拥有：会话切换、消息渲染、能力条。这些经 deps 注入（rebuildMessages / renderSessions / renderFiles / updateStats /
 //       syncCapLine / syncWeb / getBusy / openKeyModal），本文件绝不 import ui.js。
 // deps 里 renderFiles / syncWeb 在 mountUI 中定义得比本模块晚：调用方必须以惰性箭头函数传入。
-import { $, el, esc } from './ui-markdown.js?v=2026.10.5.26';
-import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.26';
+import { $, el, esc } from './ui-markdown.js?v=2026.10.5.27';
+import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.27';
 import { isJevModel } from './jev.js';
 import { ICON, providerIcon } from './icons.js';
-import { ROUTER_ICON_SVG, isSmartRouter } from './smartrouter.js';
-import { fetchModels } from './api.js?v=2026.10.5.26';
+import { ROUTER_ICON_SVG, isSmartRouter, SMART_ROUTER_LABEL, SMART_ROUTER_PROVIDER_LABEL } from './smartrouter.js';
+import { fetchModels } from './api.js?v=2026.10.5.27';
 import { effectiveApiKey } from './adminkey.js';
 
 export function installModelPicker({ store, agent, toast, getBusy, openKeyModal, rebuildMessages, renderSessions, renderFiles, updateStats, syncCapLine, syncWeb }) {
@@ -66,7 +66,7 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
     for (const p of order) {
       const g = el('div', 'dd-group');
       const isRouterGroup = p === SMART_ROUTER_PROVIDER;
-      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(isRouterGroup ? 'TEAMOROUTER' : p)}</span>`));
+      g.appendChild(el('div', 'dd-group-title', `${isRouterGroup ? `<span class="router-group-ico">${ROUTER_ICON_SVG}</span>` : providerIcon(p)}<span>${esc(isRouterGroup ? SMART_ROUTER_PROVIDER_LABEL : p)}</span>`));
       for (const m of sortModelsInFamily(groups.get(p))) {
         const item = el('button', 'dd-item' + (m.id === store.state.model ? ' active' : ''));
         item.type = 'button';
@@ -76,9 +76,9 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
         const cheap = !!hit.cheap || free || /haiku|mini|lite|-free$/i.test(m.id);
         const isRouter = isSmartRouter(m.id);
         item.innerHTML = isRouter
-          ? `<span class="dd-item-id mono router-name">smart-router</span>
+          ? `<span class="dd-item-id mono router-name">${esc(SMART_ROUTER_LABEL)}</span>
             <span class="dd-item-badges">
-              <span class="badge hot">智能</span>
+              <span class="badge hot" title="按任务类型 / 难度自动选模型">自动路由</span>
             </span>`
           : `<span class="dd-item-id mono">${esc(m.id)}</span>
             <span class="dd-item-badges">
@@ -176,8 +176,8 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
       prov = 'Dubhe Agent';
     } else if (router) {
       icon = `<span class="router-ico">${ROUTER_ICON_SVG}</span>`;
-      name = 'smart-router';
-      prov = 'TEAMOROUTER';
+      name = SMART_ROUTER_LABEL;
+      prov = SMART_ROUTER_PROVIDER_LABEL;
     } else {
       icon = providerIcon(providerOf(store.state.model));
       name = store.state.model;

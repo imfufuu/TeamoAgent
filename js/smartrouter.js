@@ -157,6 +157,14 @@ export function isSmartRouter(modelId) {
 
 // 路由器徽章的图标 & 显示名
 // 路由器图标 = TeamoRouter 产品 LOGO（粗实线外环 + 三段轨道弧 + 三个卫星点 + 实心核心）。
-// 2026.10.5.21：按产品 LOGO 原稿重绘为「粗体」版本——外环 2.0 全实色、轨道弧 2.6、卫星点 r=2.1、核心 r=3.1，
-// 不再沿用顶栏淡色 APP_LOGO 的 18% / 55% 透明度，避免在 pill / 下拉里看起来与产品 LOGO 不一致。
-export const ROUTER_ICON_SVG = '<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13.2" stroke="currentColor" stroke-width="2.1"/><path d="M22.128 21.142 A8.000 8.000 0 0 1 9.872 21.142" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><path d="M8.482 18.736 A8.000 8.000 0 0 1 14.611 8.122" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><path d="M17.389 8.122 A8.000 8.000 0 0 1 23.518 18.736" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="3.1" fill="currentColor"/><circle cx="16.000" cy="24.000" r="2.1" fill="currentColor"/><circle cx="9.072" cy="12.000" r="2.1" fill="currentColor"/><circle cx="22.928" cy="12.000" r="2.1" fill="currentColor"/></svg>';
+// 2026.10.5.27：对照产品 LOGO 原图重新量过——轨道半径 8 → 8.6（更贴近外环）、弧线 2.6 → 2.5、缺口半角 10°、
+// 卫星点 r 2.1 → 2.05 并外移 0.3 成「鼓包」、外环 2.1 → 2.3、核心 r 3.1 → 3.0；几何由 tools 内脚本按角度算出，不要手改坐标。
+export const SMART_ROUTER_LABEL = '智能';
+export const SMART_ROUTER_PROVIDER_LABEL = 'TEAMOROUTER';
+// 任何要把模型 ID 给用户看的地方都走这里：路由器显示「智能」，/system 显示 system-commands，其余原样
+export function modelDisplayName(modelId) {
+  if (modelId === SMART_ROUTER_ID) return SMART_ROUTER_LABEL;
+  if (modelId === '__system__') return 'system-commands';
+  return String(modelId || '');
+}
+export const ROUTER_ICON_SVG = '<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="16" cy="16" r="13.3" stroke="currentColor" stroke-width="2.3"/><path d="M17.493 7.531 A8.600 8.600 0 0 1 24.081 18.941" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/><path d="M22.588 21.528 A8.600 8.600 0 0 1 9.412 21.528" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/><path d="M7.919 18.941 A8.600 8.600 0 0 1 14.507 7.531" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" fill="none"/><circle cx="16" cy="16" r="3" fill="currentColor"/><circle cx="23.708" cy="11.550" r="2.05" fill="currentColor"/><circle cx="16.000" cy="24.900" r="2.05" fill="currentColor"/><circle cx="8.292" cy="11.550" r="2.05" fill="currentColor"/></svg>';

@@ -3,12 +3,13 @@
 //       token 构成与本轮费用弹层（showTokBreak）。
 // 不拥有：会话统计文字（updateStats 留在 ui.js）、能力条弹层（ui-capability.js 复用这里的 hide/place）。
 // 只读 store，不改状态；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.5.26';
-import { providerOf, systemPrompt } from './config.js?v=2026.10.5.26';
+import { $, esc } from './ui-markdown.js?v=2026.10.5.27';
+import { providerOf, systemPrompt } from './config.js?v=2026.10.5.27';
 import { providerIcon } from './icons.js';
 import { estimateTokens } from './context.js';
 import { tokenBreakdown, formatTokBreak } from './commands.js';
 import { priceBadgeFor, formatUsd } from './pricing.js';
+import { modelDisplayName } from './smartrouter.js';
 
 export function installPopovers({ store }) {
   function hideTokPop() {
@@ -72,7 +73,7 @@ export function installPopovers({ store }) {
       const s = turnInfo.summary;
       const headModel = (turnInfo.headMsg && turnInfo.headMsg.model) || store.state.model;
       const rateBadge = priceBadgeFor(headModel, { fastMode: !!(turnInfo.headMsg && turnInfo.headMsg.fastMode) });
-      html += `<div class="tok-row total"><span>对话模型 (${esc(rateBadge || headModel)})</span><span>${esc(formatUsd(s.chatUsd))}</span></div>`;
+      html += `<div class="tok-row total"><span>对话模型 (${esc(rateBadge || modelDisplayName(headModel))})</span><span>${esc(formatUsd(s.chatUsd))}</span></div>`;
       if (s.visionUsd > 0) html += `<div class="tok-row"><span>识图模型</span><span>${esc(formatUsd(s.visionUsd))}</span></div>`;
       if (s.imageUsd > 0) html += `<div class="tok-row"><span>生图模型</span><span>${esc(formatUsd(s.imageUsd))}</span></div>`;
       if (s.subagentUsd > 0) html += `<div class="tok-row"><span>子智能体</span><span>${esc(formatUsd(s.subagentUsd))}</span></div>`;

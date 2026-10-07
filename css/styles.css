@@ -249,6 +249,9 @@ a { color: var(--fg); }
 .side-section.grow { flex: 1 1 auto; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 .mem-list { max-height: 168px; overflow: auto; display: flex; flex-direction: column; gap: 6px; }
 .mem-empty { font-size: var(--ui-fs-11_5px, 11.5px); color: var(--fg-3); padding: 4px 2px 6px; line-height: 1.45; }
+/* 长效记忆空状态复用文件面板的插画布局；星标用同一浮动节奏，错半拍 */
+.mem-empty.files-empty { padding: 18px 12px 22px; }
+.mem-empty-art .fe-drop { transform-origin: 124px 27px; animation-delay: .6s; }
 .mem-bubble {
   display: block; width: 100%; text-align: left;
   padding: 8px 10px; border-radius: 12px; font-size: var(--ui-fs-12px, 12px); line-height: 1.45;
@@ -323,13 +326,13 @@ a { color: var(--fg); }
   background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: var(--shadow-lg); max-height: min(420px, 60vh); overflow: hidden auto;
   /* 全局气泡弹入（见动效层 --pop-*）：从按钮下沿冒出来，收起时快速淡出 */
-  opacity: 0; transform: translate3d(0, -6px, 0) scale(.9); transform-origin: top left; pointer-events: none;
+  opacity: 0; transform: translate3d(0, -14px, 0) scale(var(--pop-scale, .78)); transform-origin: top left; pointer-events: none;
   transition: opacity var(--pop-out-dur) var(--pop-out-ease), transform var(--pop-out-dur) var(--pop-out-ease), visibility 0s linear var(--pop-out-dur);
   visibility: hidden;
 }
 .dd-menu.open {
   opacity: 1; transform: translate3d(0, 0, 0) scale(1); pointer-events: auto; visibility: visible;
-  transition: opacity .16s ease-out, transform var(--pop-dur) var(--pop-ease), visibility 0s;
+  transition: opacity .2s ease-out, transform var(--pop-dur) var(--pop-ease), visibility 0s;
 }
 /* 搜索框固定在菜单顶部；层级显式高于分组标题（模型系列图标层在其之下）*/
 .dd-search-wrap { position: sticky; top: 0; z-index: 3; background: var(--bg); padding: 10px; border-bottom: 1px solid var(--line); }
@@ -912,7 +915,7 @@ a { color: var(--fg); }
   display: flex; flex-direction: column; gap: 3px; width: max-content; min-width: 176px; padding: 6px;
   border: 1px solid var(--line-2); border-radius: 12px; background: var(--bg);
   box-shadow: var(--shadow-lg);
-  animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: bottom left; --pop-dy: 8px;
+  animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: bottom left; --pop-dy: 14px;
 }
 .attach-menu-item {
   display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px;
@@ -2171,13 +2174,15 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
    · 菜单项再用 rowIn / chipIn 以 25–40ms 错落跟进，整体节奏「容器先到、内容随后」。
    使用：animation: bubbleIn var(--pop-dur) var(--pop-ease) both; 或 open 态 transition 同参。*/
 :root {
-  --pop-dur: .34s;
-  --pop-ease: cubic-bezier(.22, 1.18, .32, 1);
+  /* .27：弹入加重——时长 .34 → .44s、过冲更明显（1.18 → 1.42）、起点缩到 .78 并多位移 ~1 倍，菜单「从按钮里冒出来」看得见 */
+  --pop-dur: .44s;
+  --pop-ease: cubic-bezier(.18, 1.42, .28, 1);
+  --pop-scale: .78;
   --pop-out-dur: .14s;
   --pop-out-ease: cubic-bezier(.4, 0, .9, .6);
 }
 @keyframes bubbleIn {
-  from { opacity: 0; transform: translate3d(var(--pop-dx, 0px), var(--pop-dy, 6px), 0) scale(.9); }
+  from { opacity: 0; transform: translate3d(var(--pop-dx, 0px), var(--pop-dy, 12px), 0) scale(var(--pop-scale, .78)); }
   to { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
@@ -2287,8 +2292,8 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .ft-row:hover { transform: translateX(2px); }
 .ft-row.just-changed { animation: rowIn .22s var(--ease-out) both, glowOnce 1.6s var(--ease-out) .1s both; }
 /* Token / 路由弹层：从锚点弹出 */
-.tok-pop:not([hidden]) { animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: top left; --pop-dy: -8px; }
-.tok-pop[data-place="above"]:not([hidden]) { transform-origin: bottom left; --pop-dy: 8px; }
+.tok-pop:not([hidden]) { animation: bubbleIn var(--pop-dur) var(--pop-ease) both; transform-origin: top left; --pop-dy: -14px; }
+.tok-pop[data-place="above"]:not([hidden]) { transform-origin: bottom left; --pop-dy: 14px; }
 .tok-pop .tok-row { animation: rowIn .24s var(--ease-out) both; }
 .tok-pop .tok-row:nth-child(2) { animation-delay: 30ms; } .tok-pop .tok-row:nth-child(3) { animation-delay: 60ms; } .tok-pop .tok-row:nth-child(n+4) { animation-delay: 90ms; }
 /* 模型下拉：前几项错落进入，选中项打勾位移 */

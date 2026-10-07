@@ -22,7 +22,7 @@ test('Worker health advertises versioned fetch/search/crawl capabilities', async
   const { response, body } = await jsonCall('/api/health');
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
-  assert.equal(body.version, '1.7.0');
+  assert.equal(body.version, '1.7.1');
   assert.equal(body.relay, 'dubhe-cf-worker', 'health identifier remains stable for compatibility');
   assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl', 'file']);
   assert.equal(body.limits.file_bytes, 16 * 1024 * 1024);
@@ -32,7 +32,7 @@ test('Worker root banner uses the Dubhe Agent identity', async () => {
   const response = await worker.fetch(makeRequest('/'));
   const text = await response.text();
   assert.equal(response.status, 200);
-  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.7\.0/);
+  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.7\.1/);
   assert.match(text, /GET  \/api\/file\?url=/);
 });
 
@@ -152,6 +152,54 @@ test('DuckDuckGo HTML adapter parses result links and records the provider', asy
     assert.equal(body.results[0].url, 'https://docs.example.org/guide?a=1&b=2');
     assert.match(body.results[0].snippet, /useful primary-source summary/i);
     assert.equal(body.results[1].url, 'https://news.example.net/story');
+  });
+});
+
+test('DuckDuckGo 返回人机挑战页（202 anomaly，无 result__a）→ 自动回退 Bing RSS，并在 warning 里说明', async () => {
+  const challenge = '<!DOCTYPE html><html><head><title>DuckDuckGo</title></head><body><div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div><form id="challenge-form"></form></body></html>';
+  const rss = `<?xml version="1.0" encoding="utf-8" ?><rss version="2.0"><channel><title>Bing: dubhe agent</title>
+    <item><title>Dubhe Agent &#183; GitHub</title><link>https://github.com/imfufuu/dubhe-agent</link><description>Browser-side &lt;b&gt;agent&lt;/b&gt; with sandbox.</description><pubDate>Tue, 07 Oct 2026 00:00:00 GMT</pubDate></item>
+    <item><title><![CDATA[Dubhe – Wikipedia &amp; friends]]></title><link>https://en.wikipedia.org/wiki/Dubhe</link><description><![CDATA[Dubhe is a star &amp; more.]]></description></item>
+    <item><title>dup</title><link>https://github.com/imfufuu/dubhe-agent</link><description>duplicate url</description></item>
+    <item><title>private</title><link>http://127.0.0.1/admin</link><description>must be dropped</description></item>
+  </channel></rss>`;
+  const seen = [];
+  await withMockFetch(async (target) => {
+    const u = String(target); seen.push(u);
+    if (/html\.duckduckgo\.com/.test(u)) return new Response(challenge, { status: 202, headers: { 'content-type': 'text/html; charset=utf-8' } });
+    if (/^https:\/\/www\.bing\.com\/search\?/.test(u)) {
+      const url = new URL(u);
+      assert.equal(url.searchParams.get('format'), 'rss');
+      assert.equal(url.searchParams.get('q'), 'dubhe agent');
+      return new Response(rss, { status: 200, headers: { 'content-type': 'application/rss+xml; charset=utf-8' } });
+    }
+    throw new Error(`unexpected fetch ${u}`);
+  }, async () => {
+    const { response, body } = await jsonCall(`/api/search?q=${encodeURIComponent('dubhe agent')}&limit=5`);
+    assert.equal(response.status, 200, body.error);
+    assert.equal(body.provider, 'Bing');
+    assert.equal(body.fallback, true);
+    assert.deepEqual(body.tried, ['DuckDuckGo']);
+    assert.match(body.warning, /DuckDuckGo 不可用（DuckDuckGo HTML 没有解析到结果/);
+    assert.match(body.warning, /已回退 Bing/);
+    assert.equal(body.results.length, 2, '去重 + 丢私网地址');
+    assert.equal(body.results[0].title, 'Dubhe Agent · GitHub');
+    assert.equal(body.results[0].url, 'https://github.com/imfufuu/dubhe-agent');
+    assert.equal(body.results[0].snippet, 'Browser-side agent with sandbox.');
+    assert.equal(body.results[0].source, 'Bing');
+    assert.equal(body.results[1].title, 'Dubhe – Wikipedia & friends');
+    assert.equal(body.results[1].snippet, 'Dubhe is a star & more.');
+    assert.deepEqual(seen.map((u) => new URL(u).hostname), ['html.duckduckgo.com', 'www.bing.com'], 'DDG 一次、Bing 一次，顺序固定');
+  });
+});
+
+test('三个搜索源全挂 → 502 且错误里逐个列出原因', async () => {
+  await withMockFetch(async () => new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } }), async () => {
+    const { response, body } = await jsonCall('/api/search?q=nothing');
+    assert.equal(response.status, 502);
+    assert.match(body.error, /所有搜索源都失败/);
+    assert.match(body.error, /DuckDuckGo：/);
+    assert.match(body.error, /Bing：Bing RSS 没有解析到结果/);
   });
 });
 
