@@ -4,14 +4,15 @@
   "type": "module",
   "description": "Dubhe Agent — browser-based agent built on the TeamoRouter LLM gateway",
   "scripts": {
-    "test": "node tests/agent.test.mjs",
+    "test": "node tools/run-tests.mjs",
+    "test:unit": "node tests/agent.test.mjs",
+    "test:list": "node tools/run-tests.mjs --list",
     "eval:nexus": "node tests/run-nexus-eval.mjs",
     "test:dom": "node tests/dom-smoke.mjs",
     "test:app": "node tests/app-boot.mjs",
     "test:live": "node tests/live-smoke.mjs && node tests/live-check.mjs && node tests/live-web.mjs",
     "test:pyodide": "node tests/pyodide-worker.test.mjs",
     "test:kernel": "node tests/execution-kernel-smoke.mjs",
-    "test:all": "node tests/agent.test.mjs && node tests/worker.test.mjs && node tests/execution-kernel-smoke.mjs && node tests/recovery-kernel-smoke.mjs && node tests/p2-kernel-smoke.mjs && node tests/p3-kernel-smoke.mjs && node tests/p2-eval.mjs && node tests/assets-integrity.mjs && node tests/dom-smoke.mjs && node tests/p3-dom-smoke.mjs && node tests/app-boot.mjs && python3 tests/server_checks.py",
     "start": "python3 server.py",
     "test:server": "python3 tests/server_checks.py",
     "audit:mobile": "node tests/mobile-layout.mjs",
@@ -22,10 +23,14 @@
     "test:p1": "node tests/recovery-kernel-smoke.mjs",
     "test:p2": "node tests/p2-kernel-smoke.mjs && node tests/p2-eval.mjs",
     "test:p3": "node tests/p3-kernel-smoke.mjs && node tests/p3-dom-smoke.mjs",
-    "test:worker": "node tests/worker.test.mjs"
+    "test:worker": "node tests/worker.test.mjs",
+    "test:all": "node tools/run-tests.mjs"
   },
-  "version": "1.6.0",
+  "version": "1.7.0",
   "dependencies": {
     "jsdom": "^29.1.1"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

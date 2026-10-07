@@ -1,6 +1,13 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.24` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.25` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+
+[![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
+[![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
+
+```bash
+npm ci && npm test   # 一条命令跑完 tests/ 下全部 21 个 .mjs + python 护栏；每个文件通过多少项由 CI 产出（见 Actions → 任一 run 的 Summary）
+```
 
 ## TL;DR
 
@@ -121,6 +128,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.25：P5 修正——缺少外部验证闭环**
+
+42. **一个测试入口**：`npm test` = `tools/run-tests.mjs`，逐个跑 `tests/*.mjs`（21 个）+ `py_compile server.py` + `tests/server_checks.py`，解析每个文件的通过项数，跳过 / 失败分开记，失败不互相阻断，最后一张表 + 一行汇总。
+43. **CI 一文件一 step**：`ci.yml` 对 `tests/` 下每个 `.mjs` 各一个 step（`if: !cancelled()`），`npm ci` 装 jsdom，语法检查覆盖 `js/ relay/ sw.js tools/`，末步 `--summary` 写 `::notice::` + job summary；`tests/agent.test.mjs` 自检「ci.yml step 集合 == ls tests/*.mjs」。
+44. **数字由 CI 产出**：README 顶部 CI / Pages 徽章 + `npm ci && npm test`；文档不再手填「N 项通过」，以 Actions 最近一次 run 的汇总为准。
 
 **构建 2026.10.5.24：P4 修正——巨型单文件**
 
@@ -405,10 +418,17 @@ npm run test:live     # = live-smoke（协议层）+ live-check（图像与工�
 以及一次完整的 Agent 工具循环（`claude-sonnet-5` 自己按 enum 传真实 ID）。产物与
 `report.json` 输出到 `/tmp/dubhe-live`（可用 `DUBHE_LIVE_OUT` 覆盖）。
 
-五层离线测试（DOM / app-boot / pyodide 三层需相应 devDependency，未安装时自动跳过，CI 不依赖）：
+测试入口只有一个：`npm test`（= `node tools/run-tests.mjs`，CI 跑的就是它）。它按文件逐个执行 `tests/*.mjs`
+与两条 python 护栏，解析每个文件的通过项数，失败不互相阻断，最后给出一张表和一行汇总；CI 把同一行写进
+job summary（`::notice::`），**文档里不再手填测试数字——以 Actions 最近一次 run 的汇总为准**。
 
 ```bash
-npm test              # tests/agent.test.mjs：解析/状态机/纯函数（无 DOM）
+npm ci && npm test    # 全部（jsdom 随 npm ci 安装；无 key / puppeteer / pyodide 的文件自己打印「⏭ 跳过」并以 0 退出）
+npm run test:list     # 列出会跑哪些文件（tests/agent.test.mjs 里有自检：ci.yml 的 step 必须与 ls tests/*.mjs 一一对应）
+node tools/run-tests.mjs tests/dom-smoke.mjs   # 单跑一个文件，输出原样透传
+
+# 分组别名（都只是上面某个子集）
+npm run test:unit     # tests/agent.test.mjs：解析/状态机/纯函数/源码契约（无 DOM）
 npm run test:dom      # tests/dom-smoke.mjs ：挂载 UI 驱动交互路径
 npm run test:app      # tests/app-boot.mjs  ：跑真实 js/main.js —— 弹窗填 Key → 选模型
                       #                       → 发送 → 工具调用 → 文件面板目录树 → 关沙箱后委派
@@ -421,15 +441,10 @@ npm run test:integrity # tests/assets-integrity.mjs：审核资产完整性—�
 npm run test:browser  # tests/moderation-browser.mjs：真实 Chromium 端到端审核——NSFW 拦截 / 良性放行 /
                       # 中文不误杀 / 无 CSP pageerror（需 puppeteer，没装自动跳过）
 npm run audit:mobile  # 真 Chrome 量移动端布局（需 puppeteer）：无横向溢出 / 无重叠 / 触控目标 ≥36px
-npm run test:all      # 前四连 + 资产完整性（含 server_checks）
 ```
 
 `test:app` 是唯一覆盖「入口装配 + hook 接线」的一层：混版缓存、hook 缺失这类故障在纯函数
 单测与挂载冒烟里都不会露馅，只有从 `main.js` 开始跑才能抓到。
-
-```bash
-node tests/dom-smoke.mjs
-```
 
 ## 部署
 

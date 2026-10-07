@@ -5,3 +5,4 @@ __pycache__/
 
 # 本地中继（server.py）的工作区：Agent 在这里 clone/改文件，绝不入库
 workspace/
+.test-results/

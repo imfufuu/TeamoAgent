@@ -1,7 +1,7 @@
 // ─── DOM 冒烟测试（tests/dom-smoke.mjs）─────────────────────────────────
 // 用 jsdom 真实挂载 index.html + mountUI，驱动关键交互路径，验证「接线」是否正确
 // （元素 id、事件绑定、渲染分支、状态机动画、下载与文件面板）。
-// 依赖可选：未安装 jsdom 时自动跳过（CI 只跑 agent.test.mjs，不依赖本文件）。
+// 依赖 jsdom（npm ci 会装；CI 必跑本文件，未安装时本地自动跳过）。
 //   node tests/dom-smoke.mjs          # 需 npm i -D jsdom
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

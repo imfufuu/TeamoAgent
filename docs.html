@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.24" />
+<meta name="app-version" content="2026.10.5.25" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -212,7 +212,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.24</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.25</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -231,6 +231,7 @@
           <li><span class="tag add">ADD</span><span><strong><code>analyze_video</code> 视频识别（构建 .18）</strong>：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 <code>uploads/</code>，工具逻辑照搬 <code>analyze_image</code>，以 <code>file</code> 部件交给 Gemini，全文写入 <code>internal/ocr/*.video.md</code> 并按 usage 计费；视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。</span></li>
           <li><span class="tag add">ADD</span><span><strong>沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 .19）</strong>：视频附件进入前本地抽帧——0.3 秒海报图作为芯片 / 气泡的首帧缩略图，再均匀抽 5 帧交给与图片同一条 NudeNet + NSFWJS 审核流水线（任一帧命中即拦截，抽不到帧视为失败关闭；帧只用于审核，入消息前摘掉）；气泡点击原地播放，文件面板里 <code>uploads/*.mp4</code> 不再显示为二进制，专属图标 + 直接 <code>&lt;video&gt;</code> 播放（blob URL，关闭即回收）。CSP 新增 <code>media-src</code>。</span></li>
           <li><span class="tag add">ADD</span><span><strong><code>download_file</code> 跨域文件拉取（构建 .19）</strong>：经 Worker <code>/api/file</code>（v1.7.0）把任意 http(s) 资源原始字节写入沙箱 <code>uploads/</code>（≤ 16 MB，拒绝私网地址，≤ 5 次跳转，文件名取 Content-Disposition → URL → MIME 推断）；中继无 <code>file</code> 能力时自动从工具表剔除。输入框粘贴裸链接或回形针菜单「从链接添加」也走同一条通道，与本地文件相同的分类与审核流程。工具总数 39。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>缺少外部验证闭环（构建 .25）</strong>：新增 <code>tools/run-tests.mjs</code> 统一入口（<code>npm ci && npm test</code>），逐个跑 <code>tests/</code> 下全部 21 个 <code>.mjs</code> + python 护栏并解析各自的通过项数；<code>ci.yml</code> 改为一文件一 step（<code>if: !cancelled()</code>），<code>npm ci</code> 装 jsdom，语法检查扩到 <code>relay/ sw.js tools/</code>，末步把计数写成 <code>::notice::</code> + job summary；README 顶部加 CI / Pages 徽章，测试数字以 Actions 产出为准、文档不再手填；主单测自检「ci.yml step 集合 == ls tests/*.mjs」。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>巨型单文件（构建 .24）</strong>：<code>agent.js</code> 抽出 <code>toolrunner.js</code>（单个工具调用的执行与记账 + 同波调度，<code>createToolRunner(deps)</code> 注入）与 <code>turnfinalizer.js</code>（回合收尾记账），149 KB → 96 KB，<code>runLoop</code> 只管调度；<code>ui.js</code> 再拆 <code>ui-markdown.js / ui-model-picker.js / ui-popovers.js / ui-command-palette.js / ui-system-commands.js</code>，4,198 → 2,816 行、222 KB → 149 KB；<code>nexus.js</code> 不拆，文件头写死拥有 / 不拥有边界。契约测试行数上限 4,200 → 3,000，新增字节上限与「子模块不得反向依赖 ui.js / agent.js」断言；行为零变化。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>能力门控不透明（构建 .23）</strong>：<code>dispatch_subagent</code>（思考档位需 Max/Ultra）、<code>crawl_site</code>（中继未声明 crawl）、<code>execute_cpp</code>（远程 C++ 已关）等被门控剔除的工具，以前只进审计记录。现在顶栏能力条每个胶囊可点，弹出当前工具表 diff（可用 N / 总数、已禁用清单 + 原因 + 直达开关，点完原地重算），有裁剪时能力条末尾显示「已禁用 N」；原因文案表 <code>DROP_REASON_LABEL</code> 由 UI 与系统提示共用，模型看到的「本轮不可用」与用户看到的是同一份。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>沙箱文件不保证跨轮持久（构建 .22）</strong>：以前回合结束只提交「最终回答里提到过」的文件，<code>fetch_url</code> 落盘的 <code>internal/web/*.md</code>、识图结果、下载件都可能静默蒸发。现在 <code>internal/</code> 与 <code>uploads/</code> 无条件保留（取消 / 出错也保留），<code>outputs/</code> 等自由路径仍按引用判定；工具结果写明持久契约（「已持久」/「未提及将被丢弃」）；Edited File(s) 折叠把被丢弃的文件划线并标「已丢弃 · 回答未引用」，告诉用户怎么保留。</span></li>
@@ -468,7 +469,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.24</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.25</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

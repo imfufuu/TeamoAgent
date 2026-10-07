@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.24';
+} from '../js/api.js?v=2026.10.5.25';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.24');
+const api = await import('../js/api.js?v=2026.10.5.25');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.24');
+  const api = await import('../js/api.js?v=2026.10.5.25');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.24');
+  assert.equal(APP_VERSION, '2026.10.5.25');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.24/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.25/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.24/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.25/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8906,7 +8906,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.24'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.25'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -8948,7 +8948,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.24');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.25');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -8963,6 +8963,66 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
   assert.match(nexus.slice(0, 4000), /本文件【拥有】/);
   assert.match(nexus.slice(0, 4000), /本文件【不拥有】/);
   assert.match(nexus.slice(0, 4000), /新增能力的落点规则/);
+});
+
+group('P5 修正：缺少外部验证闭环 → ci.yml 覆盖 tests/ 全部 .mjs（一文件一 step）/ npm test 单入口 / 测试计数由 CI 产出 / README 徽章');
+
+test('ci.yml：tests/ 下每个 .mjs 有且只有一个 step，经 tools/run-tests.mjs 执行；语法检查覆盖 relay/sw/tools；npm ci；汇总步骤', async () => {
+  const fsp = await import('node:fs');
+  const ci = fsp.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  const files = fsp.readdirSync(new URL('../tests/', import.meta.url)).filter((f) => f.endsWith('.mjs')).sort();
+  assert.ok(files.length >= 21, `tests/*.mjs 至少 21 个（当前 ${files.length}）`);
+  const runSteps = [...ci.matchAll(/^\s*run: node tools\/run-tests\.mjs tests\/([\w.-]+\.mjs)\s*$/gm)].map((m) => m[1]).sort();
+  assert.deepEqual(runSteps, files, 'ci.yml 的测试 step 必须与 ls tests/*.mjs 一一对应（不多不少、不重复）');
+  assert.match(ci, /^\s*run: npm ci\s*$/m, 'jsdom 经 npm ci 安装（dom-smoke / p3-dom-smoke / app-boot 依赖它）');
+  assert.doesNotMatch(ci, /playwright/, 'DOM 冒烟用 jsdom，不装浏览器');
+  assert.match(ci, /for f in js\/\*\.js relay\/\*\.js sw\.js tools\/\*\.mjs; do node --check "\$f" \|\| exit 1; done/);
+  assert.match(ci, /run: node tools\/run-tests\.mjs server\.py\s*$/m);
+  assert.match(ci, /run: node tools\/run-tests\.mjs tests\/server_checks\.py\s*$/m);
+  assert.match(ci, /run: node tools\/run-tests\.mjs --summary\s*$/m, '最后一步汇总计数');
+  // 每个测试 step 都带 if: !cancelled()：前面失败不阻断后面，整体仍失败
+  const testStepBlocks = ci.split(/\n(?=\s*- name: )/).filter((b) => /run: node tools\/run-tests\.mjs/.test(b));
+  for (const b of testStepBlocks) assert.match(b, /if: \$\{\{ !cancelled\(\) \}\}/, `step 缺 if: !cancelled()：${b.split('\n')[0].trim()}`);
+});
+
+test('tools/run-tests.mjs：解析各测试文件的收尾计数；跳过与失败分开；--list 与 tests/*.mjs 一致', async () => {
+  const rt = await import('../tools/run-tests.mjs?t=' + Date.now()).catch((e) => { throw new Error('run-tests.mjs 应可作为模块导入：' + e.message); });
+  assert.equal(rt.parseCount('... \n398 项测试全部通过 ✅\n'), 398);
+  assert.equal(rt.parseCount('65 项护栏自检通过 ✅'), 65);
+  assert.equal(rt.parseCount('审核资产完整性：38 通过 / 0 失败 ✅'), 38);
+  assert.equal(rt.parseCount('P2 内核冒烟：40/40 通过 ✅'), 40);
+  assert.equal(rt.parseCount('# tests 16\n# pass 16\n# fail 0'), 16);
+  assert.equal(rt.parseCount('✅ Dubhe Helix 2.5 · P0 离线基准评测（N=240）与全部架构不变量校验通过。'), 240);
+  assert.equal(rt.parseCount('  ✓ a\n  ✓ b\n  ✓ c\nDOM 冒烟测试全部通过 ✅'), 3, '没有数字收尾行就数 ✓');
+  assert.equal(rt.isSkipped('⏭  tests/live-web.mjs 跳过：未设置 DUBHE_API_KEY'), true);
+  assert.equal(rt.isSkipped('跳过 DOM 冒烟测试：未安装 jsdom'), true);
+  assert.equal(rt.isSkipped('  ✓ ok\n全部通过'), false);
+  const fsp = await import('node:fs');
+  const files = fsp.readdirSync(new URL('../tests/', import.meta.url)).filter((f) => f.endsWith('.mjs')).sort().map((f) => `tests/${f}`);
+  assert.deepEqual(rt.listTestFiles(), files);
+  assert.equal(rt.PYTHON_CHECKS.length, 2);
+  // 需要外部资源的文件都要能「无依赖时以 0 退出并打印跳过」：touch-density 以前是硬 import puppeteer
+  const touch = fsp.readFileSync(new URL('../tests/touch-density.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(touch, /^import puppeteer from 'puppeteer';/m);
+  assert.match(touch, /tests\/touch-density\.mjs 跳过：未安装 puppeteer/);
+});
+
+test('package.json：scripts.test 一条命令跑全部（= CI）；README 顶部有 CI 徽章 + npm test，测试数字不手填', async () => {
+  const fsp = await import('node:fs');
+  const pkg = JSON.parse(fsp.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.scripts.test, 'node tools/run-tests.mjs');
+  assert.equal(pkg.scripts['test:unit'], 'node tests/agent.test.mjs');
+  assert.ok(pkg.dependencies && pkg.dependencies.jsdom, 'jsdom 在 package.json 里，npm ci 即装');
+  assert.ok(fsp.existsSync(new URL('../package-lock.json', import.meta.url)), 'npm ci 需要 lock 文件入库');
+  const gi = fsp.readFileSync(new URL('../.gitignore', import.meta.url), 'utf8');
+  assert.doesNotMatch(gi, /^package(?:-lock)?\.json$/m, '.gitignore 不得再忽略 package.json / package-lock.json');
+  assert.match(gi, /^\.test-results\/$/m);
+  const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
+  const head = readme.slice(0, 1200);
+  assert.match(head, /\[!\[CI\]\(https:\/\/github\.com\/imfufuu\/dubhe-agent\/actions\/workflows\/ci\.yml\/badge\.svg\?branch=main\)\]\(https:\/\/github\.com\/imfufuu\/dubhe-agent\/actions\/workflows\/ci\.yml\)/, 'CI 徽章可点进 Actions');
+  assert.match(head, /npm ci && npm test/);
+  assert.match(readme, /文档里不再手填测试数字/);
+  assert.doesNotMatch(readme, /npm test\s+#\s*tests\/agent\.test\.mjs/, 'npm test 不再只是主单测');
 });
 
 for (const item of queue) {

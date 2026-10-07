@@ -1,7 +1,7 @@
 // ─── P3 DOM 冒烟（tests/p3-dom-smoke.mjs）─────────────────────────────────
 // 用 jsdom 真挂载 app.html + mountUI，验证编辑直播预览在界面这一层接通：
 //   ① 编辑直播折叠行（Editing Files）+ 预览窗（最近 N 行 / 行号 / 写入中游标 / 节流字段）
-// 依赖可选：未安装 jsdom 时自动跳过（CI 不依赖本文件）。
+// 依赖 jsdom（npm ci 会装；CI 必跑本文件，未安装时本地自动跳过）。
 //   node tests/p3-dom-smoke.mjs          # 需 npm i -D jsdom
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';

@@ -4,12 +4,12 @@
 // 不拥有：会话切换、消息渲染、能力条。这些经 deps 注入（rebuildMessages / renderSessions / renderFiles / updateStats /
 //       syncCapLine / syncWeb / getBusy / openKeyModal），本文件绝不 import ui.js。
 // deps 里 renderFiles / syncWeb 在 mountUI 中定义得比本模块晚：调用方必须以惰性箭头函数传入。
-import { $, el, esc } from './ui-markdown.js?v=2026.10.5.24';
-import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.24';
+import { $, el, esc } from './ui-markdown.js?v=2026.10.5.25';
+import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.25';
 import { isJevModel } from './jev.js';
 import { ICON, providerIcon } from './icons.js';
 import { ROUTER_ICON_SVG, isSmartRouter } from './smartrouter.js';
-import { fetchModels } from './api.js?v=2026.10.5.24';
+import { fetchModels } from './api.js?v=2026.10.5.25';
 import { effectiveApiKey } from './adminkey.js';
 
 export function installModelPicker({ store, agent, toast, getBusy, openKeyModal, rebuildMessages, renderSessions, renderFiles, updateStats, syncCapLine, syncWeb }) {

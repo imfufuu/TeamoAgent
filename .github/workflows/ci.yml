@@ -1,5 +1,13 @@
 name: CI
 
+# P5：外部验证闭环。规则——
+#   · tests/ 下每一个 .mjs 都在这里有且只有一个 step（tests/agent.test.mjs 里有自检：ci.yml 覆盖 == ls tests/*.mjs）；
+#   · 每个 step 都经 tools/run-tests.mjs 执行，它把「该文件通过了多少项」解析出来写进 job summary；
+#     最后一步汇总成一行 ::notice::，文档里引用的测试数字以这里产出的为准，不手填；
+#   · 需要外部资源的文件（真实网关 key / puppeteer / pyodide）自己打印「⏭ 跳过」并以 0 退出，在汇总里记 skipped；
+#   · 任一 step 失败不阻断后续 step（if: !cancelled()），但 job 整体失败。
+# 本地复现：`npm ci && npm test`（与这里完全同一套）。
+
 on:
   push:
     branches: ['**']
@@ -10,32 +18,89 @@ permissions:
 
 jobs:
   test:
-    name: 单元测试 + 语法检查
+    name: 全部测试 + 语法检查
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: 运行单测
-        run: node tests/agent.test.mjs
-      - name: P0 执行内核独立验收（统一状态机/预算与风险治理/工具契约校验）
-        run: node tests/execution-kernel-smoke.mjs
-      - name: P1 可恢复执行独立验收（检查点/幂等账本/交互确认/记忆生命周期/轨迹级评测）
-        run: node tests/recovery-kernel-smoke.mjs
-      - name: P2 内核独立验收（统一执行上下文 / 策略版本化 / 审计三层目标 / 指标门禁 / 故障注入 / 实验）
-        run: node tests/p2-kernel-smoke.mjs
-      - name: P2 分层评测集（10 类 × 12 条 = N=120；P/R/F1 + 95% Wilson CI + 基线 5pt 门禁）
-        run: node tests/p2-eval.mjs
-      - name: P3 增量独立验收（编辑直播预览半截 JSON / Unicode 字段无损）
-        run: node tests/p3-kernel-smoke.mjs
-      - name: 审核资产完整性（ORT 版本/模型分片/CSP 炸点/fail-closed 钉子）
-        run: node tests/assets-integrity.mjs
-      - name: 服务端语法检查
-        run: python3 -m py_compile server.py
-      - name: 本地中继护栏自检（git 白名单 / SSRF / HTML 抽取）
-        run: python3 tests/server_checks.py
-      - name: 前端模块语法检查
+          cache: npm
+      - name: 安装依赖（jsdom；DOM / 装配冒烟需要，不装浏览器）
+        run: npm ci
+      - name: '语法检查（js/*.js relay/*.js sw.js tools/*.mjs）'
         run: |
-          for f in js/*.js; do node --check "$f" || exit 1; done
+          for f in js/*.js relay/*.js sw.js tools/*.mjs; do node --check "$f" || exit 1; done
           echo "全部 JS 模块语法通过"
+      - name: 服务端语法检查（python3 -m py_compile server.py）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs server.py
+      - name: tests/server_checks.py · 本地中继护栏自检（git 白名单 / SSRF / HTML 抽取）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/server_checks.py
+      - name: tests/agent.test.mjs · 主单测（解析 / 状态机 / 纯函数 / 源码契约）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/agent.test.mjs
+      - name: tests/app-boot.mjs · 应用装配冒烟（真实 js/main.js，jsdom）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/app-boot.mjs
+      - name: tests/assets-integrity.mjs · 审核资产完整性（ORT 版本 / 模型分片 / CSP 炸点 / fail-closed 钉子）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/assets-integrity.mjs
+      - name: tests/dom-smoke.mjs · DOM 冒烟（jsdom 挂载 mountUI 驱动交互路径）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/dom-smoke.mjs
+      - name: tests/execution-kernel-smoke.mjs · P0 执行内核独立验收（统一状态机 / 预算与风险治理 / 工具契约校验）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/execution-kernel-smoke.mjs
+      - name: tests/live-agent-cheap.mjs · 真实网关：便宜的 Agent 工具循环（无 DUBHE_API_KEY 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/live-agent-cheap.mjs
+      - name: tests/live-check.mjs · 真实网关：图像与工具循环（无 DUBHE_API_KEY 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/live-check.mjs
+      - name: tests/live-smoke.mjs · 真实网关：协议层冒烟（无 DUBHE_API_KEY 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/live-smoke.mjs
+      - name: tests/live-web.mjs · 真实网关：联网能力实测（无 DUBHE_API_KEY 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/live-web.mjs
+      - name: tests/mobile-layout.mjs · 移动端布局审计（真 Chromium；无 puppeteer 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/mobile-layout.mjs
+      - name: tests/moderation-browser.mjs · 内容审核端到端（真 Chromium；无 puppeteer 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/moderation-browser.mjs
+      - name: tests/p2-eval.mjs · P2 分层评测集（10 类 × 12 条 = N=120；P/R/F1 + 95% Wilson CI + 基线 5pt 门禁）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/p2-eval.mjs
+      - name: tests/p2-kernel-smoke.mjs · P2 内核独立验收（统一执行上下文 / 策略版本化 / 审计三层目标 / 指标门禁 / 故障注入 / 实验）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/p2-kernel-smoke.mjs
+      - name: tests/p3-dom-smoke.mjs · P3 DOM 冒烟（编辑直播预览接线，jsdom）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/p3-dom-smoke.mjs
+      - name: tests/p3-kernel-smoke.mjs · P3 增量独立验收（编辑直播预览半截 JSON / Unicode 字段无损）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/p3-kernel-smoke.mjs
+      - name: tests/persist.mjs · 刷新后对话 / 附件 / 沙箱持久化（真 Chromium + IndexedDB；无 puppeteer 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/persist.mjs
+      - name: tests/pyodide-worker.test.mjs · Python 沙箱 Worker 真实运行（无 pyodide 包则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/pyodide-worker.test.mjs
+      - name: tests/recovery-kernel-smoke.mjs · P1 可恢复执行独立验收（检查点 / 幂等账本 / 交互确认 / 记忆生命周期 / 轨迹级评测）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/recovery-kernel-smoke.mjs
+      - name: tests/run-nexus-eval.mjs · Helix 2.5 离线基准评测（N=240）与架构不变量校验
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/run-nexus-eval.mjs
+      - name: tests/touch-density.mjs · 触屏密度真机检查（真 Chromium；无 puppeteer 则跳过）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/touch-density.mjs
+      - name: tests/worker.test.mjs · Cloudflare 中继 Worker 单测（Mock fetch，不请求外网）
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/worker.test.mjs
+      - name: '汇总测试计数（::notice:: + job summary）'
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs --summary

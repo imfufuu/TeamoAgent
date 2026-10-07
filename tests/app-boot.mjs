@@ -2,7 +2,7 @@
 // 与 dom-smoke 的区别：这里跑的是**真实入口 js/main.js**（含 store→agent→ui 的 hook 接线），
 // 通过 UI 事件路径（Key 弹窗 → 模型菜单 → 输入框 → 发送按钮）驱动一整轮对话 + 一次工具调用。
 // 专门用来抓「挂载/接线」级故障——例如混版缓存下 hook 缺失导致 send() 抛错、界面毫无反应。
-// 依赖可选：未安装 jsdom 时自动跳过（CI 不依赖本文件）。
+// 依赖 jsdom（npm ci 会装；CI 必跑本文件，未安装时本地自动跳过）。
 //   node tests/app-boot.mjs
 import fs from 'node:fs';
 import path from 'node:path';
