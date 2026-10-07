@@ -6,6 +6,20 @@
 //   4. 三层时序与程序性记忆内核（会话工作记忆 + 压缩前记忆刷盘 Flush + 跨会话 BM25 检索 Recall）
 //   5. 闭环自演进技能引擎（轨迹蒸馏 → 耗时/成功率遥测 → 坑点记录 → agentskills.io SKILL.md 双向编解码）
 //   6. 执行自省与防死循环护栏（Turn Recovery：重复调用检测、连续报错归因、长链路任务账本）
+//
+// ─── 边界声明（P4 巨型单文件治理：本文件不再拆分，但边界必须写死在这里）───────────────
+// 本文件【拥有】（纯函数 / 无 DOM / 不持有跨回合状态，状态一律由调用方的 store 传入传出）：
+//   · Helix 2.5 提示词编排：四层缓存不变量编译、技能直注、工作区规范自发现、记忆召回（BM25）与刷盘；
+//   · 回合内决策：快慢路径与能力向量（profile / escalation）、本地工具优先路由、子智能体仲裁、前提自校验与降级诊断；
+//   · 轨迹与审计分析：Turn Recovery 护栏、任务账本、全链路遥测、SHA-256 追加哈希链与跨 Store 对账、混淆矩阵评测；
+//   · 面向 UI / 系统命令的只读报告格式化（formatObservabilityReport / formatNexusAcceptanceReport 等）。
+// 本文件【不拥有】：
+//   · 模型请求循环与消息组装（agent.js buildMessages / runLoop）、工具调度与单次调用的执行记账（toolrunner.js）、
+//     回合收尾落盘顺序（turnfinalizer.js）、工具实现（tools.js）、子智能体运行（agent.js runSubagent）；
+//   · P0–P2 执行内核：状态机 / 预算 / 契约校验（execution.js）、检查点与幂等（recovery.js / idempotency.js）、
+//     策略版本与指标门禁（policy.js / metrics.js）、审计三层目标（audit.js）、记忆写入门槛（memorylife.js）；
+//   · 任何 DOM、localStorage、fetch 副作用。这里的函数拿到什么就算什么，不偷读全局。
+// 新增能力的落点规则：改「模型看到什么 / 怎么选路径 / 事后怎么评」→ 这里；改「怎么执行 / 怎么扣预算 / 怎么落盘」→ 去对应内核文件。
 
 import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics, evaluateMemoryGatekeeperConfusionMatrix, computeWilsonConfidenceInterval } from './memory.js';
 export { computeWilsonConfidenceInterval };

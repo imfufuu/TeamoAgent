@@ -14,7 +14,9 @@ import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 // ui.js 已拆分：源码级断言读 UI 层整体（ui.js + ui-files-panel.js + ui-lightbox.js + quickviz.js）
-const readUi = () => ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
+const readUi = () => ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
+// P4：agent.js 已拆出 toolrunner.js（工具执行与记账）/ turnfinalizer.js（回合收尾）；「agent 收尾应做 X」类断言读三者整体
+const readAgent = () => ['../js/agent.js', '../js/toolrunner.js', '../js/turnfinalizer.js'].map(read).join('\n');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));
 
 let passed = 0, failed = 0;
@@ -327,7 +329,7 @@ await test('审计三层目标：完整性与完备性分开报告，真实性�
   assert.match(aud, /AUDIT_GOALS/, '应集中定义三个审计目标');
   assert.match(aud, /authenticity[\s\S]{0,200}covered: false/, '真实性必须如实标记为不覆盖（需硬件远程证明）');
   assert.match(aud, /reconcileAudit/, '完备性必须靠对账，而不是只验链');
-  const agent = read('../js/agent.js');
+  const agent = readAgent();
   assert.match(agent, /reconcileAudit/, 'agent 收尾应做审计对账');
 });
 await test('统一指标面板：12 指标 × 7 维切分 + 基线门禁接进 agent', () => {
@@ -335,7 +337,7 @@ await test('统一指标面板：12 指标 × 7 维切分 + 基线门禁接进 a
   assert.match(met, /METRIC_DEFS/, '指标定义应集中');
   assert.match(met, /METRIC_DIMENSIONS/, '必须有维度切分（只看总分会掩盖某一类退化）');
   assert.match(met, /export function evaluateMetricGate/, '必须有基线门禁');
-  const agent = read('../js/agent.js');
+  const agent = readAgent();
   assert.match(agent, /buildMetricSnapshot/, 'agent 每轮应产出指标快照');
   assert.match(agent, /evaluateMetricGate/, 'agent 应跑指标门禁');
 });
@@ -353,7 +355,7 @@ await test('策略实验：默认关闭灰度、对照语义干净，样本只�
   const ex = read('../js/experiments.js');
   assert.match(ex, /EXPERIMENT_REGISTRY/, '实验应集中注册');
   assert.match(ex, /enabled: false/, '灰度必须默认关闭（未开启时行为与之前完全一致）');
-  const agent = read('../js/agent.js');
+  const agent = readAgent();
   assert.match(agent, /inExperiment/, '只有真正进入变体才可用实验参数改写行为');
   assert.match(agent, /appendExperimentSample/, '在线样本要落盘');
 });

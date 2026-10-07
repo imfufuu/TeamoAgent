@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.23` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.24` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -121,6 +121,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.24：P4 修正——巨型单文件**
+
+39. **agent.js 第一刀**：`js/toolrunner.js`（689 行）承接「单个工具调用的执行与记账」——契约预检 → 风险分级/确认闸门 → 预算扣减 → 幂等回放 → 执行 → 结果核验 → 自动重试 → 检查点 → 审计轨迹，以及同波调度 `batchToolCalls / planToolWaves / runWithCategoryLimits`；`createToolRunner({ store, emit, getFs, runSubagent })` 注入而非 import，无反向依赖。`js/turnfinalizer.js`（275 行）承接 runLoop `finally` 的 P0/P1/P2 收尾记账。agent.js 149 KB → 96 KB，`runLoop` ≈1,200 → ≈840 行。
+40. **ui.js 第三刀**：`ui-markdown.js`（830 行，模块级纯函数：`$ / el / esc / renderMarkdown / renderAttachments …`）、`ui-model-picker.js`（254 行）、`ui-popovers.js`（88 行）、`ui-command-palette.js`（93 行）、`ui-system-commands.js`（202 行）各以 `install*(deps)` 注入并返回最小 API；ui.js 4,198 → 2,816 行 / 222 KB → 149 KB，`mountUI` ≈2,500 → ≈2,100 行。契约测试：行数上限 4,200 → 3,000，新增字节上限（ui.js < 160 KB、agent.js < 110 KB）与「子模块不得 import ui.js / agent.js」断言。
+41. **nexus.js 不拆但立界**：文件头写死「拥有（提示词编排 / 回合内决策 / 轨迹与审计分析 / 只读报告格式化）/ 不拥有（请求循环、工具执行、收尾落盘、P0–P2 内核、任何 DOM/存储/网络副作用）/ 新能力落点规则」。
 
 **构建 2026.10.5.23：P3 修正——能力门控不透明**
 

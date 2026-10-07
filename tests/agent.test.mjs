@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.23';
+} from '../js/api.js?v=2026.10.5.24';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,10 +28,10 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.23');
+const api = await import('../js/api.js?v=2026.10.5.24');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
-const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
+const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
 function readUiSource() {
   const fsp = _fs;
   return UI_SOURCE_PARTS.map((rel) => fsp.readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
@@ -685,8 +685,8 @@ test('renderMarkdown：完整 Markdown（markdown-it）+ KaTeX 公式', async ()
   globalThis.katex = loadUmd('../assets/katex/katex.min.js').katex;
   assert.equal(typeof globalThis.markdownit, 'function', 'markdown-it UMD 加载失败');
   assert.equal(typeof globalThis.katex, 'object', 'katex UMD 加载失败');
-  // 全新模块实例（顶部静态 import 的实例已在无全局环境下把引擎缓存为 null）
-  const { renderMarkdown } = await import('../js/ui.js?md=' + Date.now());
+  // 全新模块实例（顶部静态 import 的实例已在无全局环境下把引擎缓存为 null）。P4 后引擎缓存住在 ui-markdown.js，必须直接重载它
+  const { renderMarkdown } = await import('../js/ui-markdown.js?md=' + Date.now());
   // 表格
   const table = renderMarkdown('| 模型 | 价格 |\n|---|---|\n| A | $0 |');
   assert.ok(table.includes('<table>') && table.includes('<th>模型</th>'), '表格渲染');
@@ -881,7 +881,7 @@ test('renderMarkdown：markdown-it 缺失时回退精简渲染器', async () => 
   const savedMd = globalThis.markdownit;
   globalThis.markdownit = undefined;
   // 重新载入模块以获得未初始化状态的渲染器
-  const { renderMarkdown } = await import('../js/ui.js?fallback=' + Date.now());
+  const { renderMarkdown } = await import('../js/ui-markdown.js?fallback=' + Date.now());
   const out = renderMarkdown('**粗** 和 `code` 与 $x^2$');
   assert.ok(out.includes('<strong>粗</strong>'), '回退渲染加粗');
   assert.ok(out.includes('<code>code</code>'), '回退渲染行内代码');
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.23');
+  const api = await import('../js/api.js?v=2026.10.5.24');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.23');
+  assert.equal(APP_VERSION, '2026.10.5.24');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.23/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.24/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.23/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.24/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7715,7 +7715,8 @@ test('planToolWaves：无依赖的读写同波并行，路径冲突（含目录�
 });
 test('Agent 主循环已改用 planToolWaves（按原始下标回填结果）', async () => {
   const fsp = await import('node:fs');
-  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  // P4：工具调度段已从 agent.js 抽到 toolrunner.js
+  const src = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
   assert.match(src, /for \(const b of planToolWaves\(calls\)\)/);
   assert.doesNotMatch(src, /for \(const b of batchToolCalls\(calls\)\)/);
   assert.match(src, /group\.forEach\(\(n, m\) => \{ out\[n\] = rs\[m\]; \}\)/);
@@ -7828,32 +7829,45 @@ test('runWithCategoryLimits：网络类 ≤ 4、本地 ≤ 8 并发，结果按�
   assert.equal(plannedConcurrency(items.map((i) => i.name)), 12);
   assert.equal(plannedConcurrency(['read_file', 'read_file']), 2);
   const fsp = await import('node:fs');
-  const src = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const src = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
   assert.match(src, /const rs = await runWithCategoryLimits\(items, \(n\) => runOne\(calls\[n\]\)\)/);
 });
 test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模块，mountUI 只保留装配调用', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  for (const [mod, fn] of [['ui-files-panel', 'installFilesPanel'], ['ui-lightbox', 'installLightbox'], ['ui-attachments', 'installAttachments'], ['ui-capability', 'installCapabilityPop'], ['quickviz', 'renderQuickChart']]) {
+  for (const [mod, fn] of [['ui-files-panel', 'installFilesPanel'], ['ui-lightbox', 'installLightbox'], ['ui-attachments', 'installAttachments'], ['ui-capability', 'installCapabilityPop'], ['quickviz', 'renderQuickChart'],
+    // P4：Markdown 渲染 / 模型选择器 / Token·路由弹层 / 命令面板
+    ['ui-markdown', 'renderMarkdown'], ['ui-model-picker', 'installModelPicker'], ['ui-popovers', 'installPopovers'], ['ui-command-palette', 'installCommandPalette'], ['ui-system-commands', 'installSystemCommands']]) {
     const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
     assert.match(src, new RegExp(`export function ${fn}\\(`), `${mod}.js 应导出 ${fn}`);
     assert.match(ui, new RegExp(`from '\\./${mod}\\.js\\?v=`), `ui.js 应以 ?v= 引入 ${mod}.js`);
     assert.doesNotMatch(src, /from '\.\/ui\.js/, `${mod}.js 不得反向依赖 ui.js（避免循环依赖）`);
   }
-  assert.ok(ui.split('\n').length < 4200, `ui.js 应保持在 4200 行以内（当前 ${ui.split('\n').length}）`);
+  assert.ok(ui.split('\n').length < 3000, `ui.js 应保持在 3000 行以内（当前 ${ui.split('\n').length}）`);
+  // P4 验收：字节上限（ui.js < 160 KB，agent.js < 110 KB），防止「行数达标、单行塞爆」
+  assert.ok(Buffer.byteLength(ui, 'utf8') < 160 * 1024, `ui.js 应小于 160 KB（当前 ${Buffer.byteLength(ui, 'utf8')} B）`);
+  const agentSrcP4 = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.ok(Buffer.byteLength(agentSrcP4, 'utf8') < 110 * 1024, `agent.js 应小于 110 KB（当前 ${Buffer.byteLength(agentSrcP4, 'utf8')} B）`);
+  for (const mod of ['toolrunner', 'turnfinalizer']) {
+    const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
+    assert.doesNotMatch(src, /from '\.\/agent\.js/, `${mod}.js 不得反向依赖 agent.js`);
+    assert.match(agentSrcP4, new RegExp(`from '\\./${mod}\\.js\\?v=`), `agent.js 应以 ?v= 引入 ${mod}.js`);
+  }
   // 拆分最容易漏的就是「原来靠 ui.js 模块作用域拿到的名字」：凡在子模块里用到的 ui.js 导入名 / 模块级助手，
   // 必须自己 import、自己声明，或经 install*(deps) 注入——否则运行时 ReferenceError（上线前真踩过 ICON / safeImgSrc）。
-  const uiImported = [...ui.matchAll(/^import\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(',').map((x) => x.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean));
   // $ / $$ 故意不查：正则字面量里的引号会让简易去字符串器失准；它们缺失时页面根本挂不起来，dom-smoke 必然报
+  // （P4 起 ui.js 也从 ui-markdown.js 导入 $ / $$，所以要在这里显式剔除）
+  const uiImported = [...ui.matchAll(/^import\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(',').map((x) => x.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean)).filter((n) => n !== '$' && n !== '$$');
   const uiHelpers = ['el', 'esc', 'fmtSize', 'safeImgSrc', 'safeHref', 'sanitizeSvgRaw', 'highlightCode', 'toast', 'renderMarkdown', 'sandboxPath', 'headingSlug'];
-  for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'ui-capability', 'quickviz']) {
+  for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'ui-capability', 'quickviz', 'ui-markdown', 'ui-model-picker', 'ui-popovers', 'ui-command-palette', 'ui-system-commands']) {
     const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
     // 去注释时放过 URL 里的 //（xmlns="http://www.w3.org/2000/svg" 这类内联 SVG 会把整行吃掉）
     const code = src.replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1').replace(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');
     const provided = new Set();
-    for (const m of code.matchAll(/^import\s*\{([^}]*)\}/gm)) m[1].split(',').forEach((x) => provided.add(x.trim().split(/\s+as\s+/).pop().trim()));
-    for (const m of code.matchAll(/^(?:export )?(?:const|let|function|async function)\s+([A-Za-z_$][\w$]*)/gm)) provided.add(m[1]);
-    for (const m of code.matchAll(/export function install\w+\(\{([^}]*)\}/g)) m[1].split(',').forEach((x) => provided.add(x.trim().split('=')[0].trim()));
+    // 声明 / import 从原文收集：简易去字符串器遇到正则字面量里的引号（如 esc 的 /[&<>"']/g）会吞掉后面整段代码
+    for (const m of src.matchAll(/^import\s*\{([^}]*)\}/gm)) m[1].split(',').forEach((x) => provided.add(x.trim().split(/\s+as\s+/).pop().trim()));
+    for (const m of src.matchAll(/^(?:export )?(?:const|let|function|async function)\s+([A-Za-z_$][\w$]*)/gm)) provided.add(m[1]);
+    for (const m of src.matchAll(/export function install\w+\(\{([^}]*)\}/g)) m[1].split(',').forEach((x) => provided.add(x.trim().split('=')[0].trim()));
     const escapeRe = (x) => x.replace(/[$]/g, '\\$&');
     for (const name of new Set([...uiImported, ...uiHelpers])) {
       if (!name || provided.has(name)) continue;
@@ -8067,7 +8081,8 @@ test('设置页「多模态模型」：两个下拉 + 默认值进 state + setti
   const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   const settings = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
   const state = fsp.readFileSync(new URL('../js/state.js', import.meta.url), 'utf8');
-  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8')
+    + fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8'); // P4：toolCtxFor 住在 toolrunner.js
   assert.match(app, /<h4>多模态模型<\/h4>/);
   assert.match(app, /<select id="set-vision-model" class="set-select"/);
   assert.match(app, /<select id="set-video-model" class="set-select"/);
@@ -8119,7 +8134,7 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(await executeTool('analyze_video', { path: 'uploads/big.mp4' }, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /超过 16MB 上限/);
   assert.match(await executeTool('analyze_video', { path: 'uploads/none.mp4' }, { fs, onUi: () => {}, apiKey: 'sk-teamo-x' }), /找不到 uploads\/none\.mp4/);
   // 其余触点
-  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const agent = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8'); // P4：toolAccessSet 住在 toolrunner.js
   assert.match(agent, /case 'analyze_video': return \{ reads: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\], writes: \[\] \};/);
   for (const [file, re] of [
     ['../js/context.js', /m\.name === 'analyze_video'/],
@@ -8252,7 +8267,8 @@ test('download_file 工具：定义 / 契约 / 能力门控 / 网络类限流 / 
   if (risk) assert.equal(risk.level, 'L3');
   const agentSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.match(agentSrc, /if \(t\.name === 'download_file'\) return relayOk && settings\.webEnabled !== false && relaySupports\('file'\);/);
-  assert.match(agentSrc, /case 'download_file': return \{ reads: \[\], writes: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\] \};/);
+  const toolrunnerSrc = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
+  assert.match(toolrunnerSrc, /case 'download_file': return \{ reads: \[\], writes: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\] \};/);
   assert.match(agentSrc, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file'\]\)/);
   const cfgSrc = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   assert.match(cfgSrc, /- download_file：把 http\(s\) 链接指向的文件/);
@@ -8516,7 +8532,8 @@ test('设置页「执行预算」：两路上限可调（写 settings.executionB
   assert.match(agent, /nexusState\.budgetGov = budgetGov;/);
   assert.match(agent, /formatBudgetForecast\(nexusState && nexusState\.budgetGov, \{ tools: turnTools \}\),\n\s+formatBudgetNote\(iteration, TOOL_LOOP_MAX\),/, '预警并入 ephemeral，紧挨循环次数提示');
   assert.match(agent, /budget: summarizeBudgetForUI\(exec\.budgetGov\) \|\| undefined,/);
-  assert.equal((agent.match(/formatBudgetRecovery\(/g) || []).length, 3, '三处拦截文本都带恢复路径');
+  const toolrunner = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
+  assert.equal(((agent + toolrunner).match(/formatBudgetRecovery\(/g) || []).length, 3, '三处拦截文本都带恢复路径（P4 后住在 toolrunner.js）');
   assert.match(ui, /budgetBits\.push\(`工具 \$\{b\.toolCalls\[0\]\}\/\$\{b\.toolCalls\[1\] == null \? '∞' : b\.toolCalls\[1\]\}`\)/);
   assert.match(ui, /budgetBits\.push\(`外部 \$\{b\.external\[0\]\}\/\$\{b\.external\[1\] == null \? '∞' : b\.external\[1\]\}`\)/);
   assert.match(ui, /span\.className = `foot-budget\$\{exhausted\.length \? ' bad' : ''\}`;/);
@@ -8884,6 +8901,68 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
   assert.match(css, /\.cap-line \.cap-pill \{ font: inherit; color: inherit;[^}]*cursor: pointer;/);
   assert.match(css, /\.cap-line \.cap-pill-drop \{ color: #b45309; \}/);
   assert.match(css, /\.tok-pop \.cap-drop \{ display: grid;/);
+});
+
+group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
+
+test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.24'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const ag = await import('../js/agent.js');
+  assert.equal(typeof tr.createToolRunner, 'function');
+  const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
+  assert.equal(typeof runner.runToolCalls, 'function');
+  assert.equal(typeof runner.toolCtxFor, 'function');
+  for (const name of ['batchToolCalls', 'planToolWaves', 'toolAccessSet', 'toolCallsConflict', 'runWithCategoryLimits', 'plannedConcurrency', 'toolCategoryOf', 'PARALLEL_TOOLS', 'NETWORK_TOOLS', 'PARALLEL_LIMITS']) {
+    assert.ok(name in tr, `toolrunner 应导出 ${name}`);
+    assert.strictEqual(ag[name], tr[name], `agent.js 应原样转发 ${name}（旧 import 路径不变）`);
+  }
+  const fsp = await import('node:fs');
+  const trSrc = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
+  const agSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  // 契约预检 → 预算 → 执行 → 核验 → 审计 全链路都在 toolrunner；agent.js 只剩装配一行
+  for (const re of [/validateToolCallPre\(/, /spend\(/, /executeTool\(/, /validateToolResultPost\(/, /beginToolRun\(|endToolRun\(/, /planReplay\(/, /buildCheckpoint\(/]) assert.match(trSrc, re);
+  assert.match(agSrc, /const \{ runToolCalls \} = createToolRunner\(\{ store, emit, getFs: \(\) => fs, runSubagent \}\);/, 'fs 回合内会换成临时层，必须以 getter 注入');
+  assert.doesNotMatch(agSrc, /async function runToolCalls\(/, 'agent.js 不再内联 runToolCalls');
+  assert.equal((agSrc.match(/runToolCalls\(/g) || []).length, 1, '只剩 runLoop 里一处调用');
+});
+
+test('turnfinalizer.js：finalizeTurn(ctx) 承接 runLoop finally 尾段（P0/P1/P2 收尾 → syncFS → notify → onTurnTiming），同步且不反向依赖 agent.js', async () => {
+  const tf = await import('../js/turnfinalizer.js');
+  assert.equal(typeof tf.finalizeTurn, 'function');
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/turnfinalizer.js', import.meta.url), 'utf8');
+  const agSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src.replace(/^\s*\/\/.*$/gm, ''), /\bawait\b/, '收尾必须同步：调用方在 finally 里不 await');
+  assert.doesNotMatch(src, /from '\.\/agent\.js/);
+  for (const re of [/EXECUTION_STATES\.INTERRUPTED/, /evaluateTrajectory\(/, /summarizeCheckpointHealth\(/, /reconcileAudit\(/, /buildMetricSnapshot\(/, /appendExperimentSample\(/, /evaluateExecutionKernelAcceptance\(/, /recordRouteLatencySample\(/, /syncFS\(\);\s*\n\s*store\.notify\(\);\s*\n\s*emit\('onTurnTiming'/]) assert.match(src, re);
+  assert.match(agSrc, /finalizeTurn\(\{\s*store, emit, syncFS, fs, turnMemoryPlan, status,\s*capabilities, exec, machine, nexusState, sessionId, t0, telemetry, turn, turnPlan,\s*\}\);/);
+  // 这些收尾调用不该再留在 agent.js
+  for (const re of [/reconcileAudit\(/, /buildMetricSnapshot\(/, /appendExperimentSample\(/, /evaluateNexusAcceptanceMetrics\(/]) assert.doesNotMatch(agSrc, re);
+});
+
+test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command-palette / ui-system-commands 各自成模块，ui.js 只保留装配与旧路径再导出', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const md = await import('../js/ui-markdown.js');
+  for (const name of ['$', '$$', 'el', 'esc', 'safeHref', 'safeImgSrc', 'sandboxPath', 'headingSlug', 'renderMarkdown', 'renderAttachments', 'videoBlobUrl', 'highlightCode', 'sanitizeSvgRaw', 'hydrateSandboxMedia', 'bindFoldRows', 'fmtSize', 'fmtSpan', 'contextBudgetLabel', 'sysReplyHtml']) {
+    assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
+  }
+  const uiMod = await import('../js/ui.js');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.24');
+  assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
+  assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
+  assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
+  assert.match(ui, /renderFiles: \(\) => renderFiles\(\), updateStats, syncCapLine, syncWeb: \(\) => syncWeb\(\),/, 'renderFiles / syncWeb 定义在后，必须惰性注入');
+  assert.match(ui, /const \{ hideTokPop, placeTokPop, showRouterPop, showTokBreak \} = installPopovers\(\{/);
+  assert.match(ui, /const \{ handleSystemCommand \} = installSystemCommands\(\{/);
+  assert.match(ui, /installCommandPalette\(\{\s*store, agent, toast, chatModels, selectModel, openFileViewer, setPanelCollapsed, handleSystemCommand,/);
+  for (const re of [/function renderModelMenu\(/, /function selectModel\(/, /function showTokBreak\(/, /function collectCmds\(/, /async function handleSystemCommand\(/, /function renderMarkdown\(/, /^const \$ = /m]) assert.doesNotMatch(ui, re, `ui.js 不应再内联 ${re}`);
+  const sys = fsp.readFileSync(new URL('../js/ui-system-commands.js', import.meta.url), 'utf8');
+  assert.match(sys, /isSystemIsolated\(\) \? '已隔离，未写入' : '当前'/, '/status 不再直接读 preSystem 闭包变量');
+  const nexus = fsp.readFileSync(new URL('../js/nexus.js', import.meta.url), 'utf8');
+  assert.match(nexus.slice(0, 4000), /本文件【拥有】/);
+  assert.match(nexus.slice(0, 4000), /本文件【不拥有】/);
+  assert.match(nexus.slice(0, 4000), /新增能力的落点规则/);
 });
 
 for (const item of queue) {

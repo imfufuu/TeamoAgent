@@ -206,7 +206,7 @@ click($('#attach-btn'));
 ok('点击附件按钮展开附件菜单', $('#attach-menu')?.hidden === false && $('#attach-btn')?.getAttribute('aria-expanded') === 'true');
 click($('#attach-btn'));
 ok('再次点击附件按钮收起附件菜单', $('#attach-menu')?.hidden === true && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
-const readUiSrc = () => ['js/ui.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/ui-capability.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const readUiSrc = () => ['js/ui.js', 'js/ui-markdown.js', 'js/ui-model-picker.js', 'js/ui-popovers.js', 'js/ui-command-palette.js', 'js/ui-system-commands.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/ui-capability.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 const photoEditorSource = readUiSrc();
 ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
 const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));

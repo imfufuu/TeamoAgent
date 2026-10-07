@@ -1,7 +1,7 @@
 // Dubhe Agent · 全屏预览（Lightbox，从 ui.js 的 mountUI 拆出，V1.7.1）
 // 支持光栅图片 / 内联 SVG / 语法渲染图表（Mermaid / Flow / Mind）的全屏查看，缩放、拖动、键盘与滚轮。
 // 自带事件委派（document 级 click / keydown），installLightbox() 调一次即可；返回 { openLightbox, closeLightbox }。
-import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.23';
+import { zoomLightboxState, lightboxWheelFactor } from './lightbox.js?v=2026.10.5.24';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
