@@ -1965,6 +1965,18 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   font-family: var(--mono); letter-spacing: .02em;
 }
 .cap-line:empty { display: none; }
+/* P3 修正：能力条胶囊可点 → 工具表 diff 弹层；有门控裁剪时末尾多一个「已禁用 N」 */
+.cap-line .cap-pill { font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 4px; }
+.cap-line .cap-pill:hover, .cap-line .cap-pill:focus-visible { color: var(--fg); outline: none; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+.cap-line .cap-pill-drop { color: #b45309; }
+[data-theme="dark"] .cap-line .cap-pill-drop { color: #fbbf24; }
+.cap-line .cap-sep { white-space: pre; }
+.tok-pop .cap-drop-h { font-size: var(--ui-fs-10_5px, 10.5px); color: #b45309; letter-spacing: .08em; margin: 8px 0 4px; font-family: var(--mono); border-top: 1px solid var(--line); padding-top: 8px; }
+[data-theme="dark"] .tok-pop .cap-drop-h { color: #fbbf24; }
+.tok-pop .cap-drop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 4px 0; font-size: var(--ui-fs-12px, 12px); color: var(--fg-2); align-items: baseline; }
+.tok-pop .cap-drop .cap-tool { font-family: var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tok-pop .cap-drop .cap-why { grid-column: 1; font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); line-height: 1.45; }
+.tok-pop .cap-drop .cap-fix { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: var(--ui-fs-11px, 11px); white-space: nowrap; }
 
 .conv-stats { cursor: pointer; }
 .conv-stats:hover { color: var(--fg); }

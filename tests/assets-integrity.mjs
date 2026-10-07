@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 // ui.js 已拆分：源码级断言读 UI 层整体（ui.js + ui-files-panel.js + ui-lightbox.js + quickviz.js）
-const readUi = () => ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'].map(read).join('\n');
+const readUi = () => ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));
 
 let passed = 0, failed = 0;

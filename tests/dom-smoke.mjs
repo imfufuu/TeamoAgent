@@ -206,7 +206,7 @@ click($('#attach-btn'));
 ok('点击附件按钮展开附件菜单', $('#attach-menu')?.hidden === false && $('#attach-btn')?.getAttribute('aria-expanded') === 'true');
 click($('#attach-btn'));
 ok('再次点击附件按钮收起附件菜单', $('#attach-menu')?.hidden === true && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
-const readUiSrc = () => ['js/ui.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const readUiSrc = () => ['js/ui.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/ui-capability.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 const photoEditorSource = readUiSrc();
 ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
 const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));
@@ -673,6 +673,47 @@ console.log('\n⑱ 设置页字号 / 深度思考 / 本地会话数回归');
   } finally {
     globalThis.fetch = oldFetch;
   }
+}
+
+// ─── P3 修正：能力门控不透明 ───
+console.log('\n⑲ 顶栏能力条 → 工具表 diff 弹层（P3 修正：能力门控不透明）');
+{
+  const { renderCapabilityPopHtml } = await import(path.join(ROOT, 'js/ui-capability.js'));
+  const { DROP_REASON_LABEL } = await import(path.join(ROOT, 'js/executionContext.js'));
+  const capLine = $('#cap-line');
+  const pop = $('#tok-pop');
+  // 思考 Off（设置页刚才关掉了），中继离线，沙箱默认开
+  store.state.settings.thinking = false;
+  store.state.relayOk = false;
+  store.state.settings.webEnabled = true;
+  store.state.settings.sandboxEnabled = true;
+  store.state.model = 'gpt-5.6-sol';
+  ui.syncWeb();
+  const pills = $$('#cap-line .cap-pill');
+  ok('能力条由可点的胶囊组成（模型 / 直连 … ）', pills.length >= 2 && pills.every((p) => p.tagName === 'BUTTON'), String(pills.length));
+  ok('思考 Off 时能力条没有「思考」胶囊、末尾有「已禁用 N」胶囊', !pills.some((p) => /^思考/.test(p.textContent)) && /^已禁用 \d+$/.test(pills.at(-1).textContent), pills.map((p) => p.textContent).join('|'));
+  ok('能力条 data-dropped 与预演结果一致', capLine.dataset.dropped === String(agent.previewToolTable().dropped.length));
+  click(pills[0]);
+  ok('点击胶囊后弹层打开且标题为「能力 · 工具表」', !pop.hidden && pop.dataset.kind === 'cap' && $('.tok-pop-h').textContent === '能力 · 工具表');
+  const row = $('#tok-pop .cap-drop[data-tool="dispatch_subagent"]');
+  ok('弹层列出 dispatch_subagent', !!row);
+  ok('原因文案 = 思考档位需 Max/Ultra（与 DROP_REASON_LABEL 同源）', !!row && row.querySelector('.cap-why').textContent === '思考档位需 Max/Ultra' && DROP_REASON_LABEL['capability-dispatch-off'] === '思考档位需 Max/Ultra', row && row.textContent);
+  ok('中继离线：fetch_url / crawl_site 也在清单里并说明「网页中继未通过健康检查」', ['fetch_url', 'crawl_site'].every((t) => { const r = $(`#tok-pop .cap-drop[data-tool="${t}"]`); return r && /网页中继未通过健康检查/.test(r.textContent); }));
+  ok('弹层里的工具清单 = previewToolTable().dropped（UI 列表就是实际裁剪）', $$('#tok-pop .cap-drop').map((n) => n.dataset.tool).join(',') === agent.previewToolTable().dropped.map((d) => d.name).join(','));
+  const fixBtn = row && row.querySelector('.cap-fix[data-fix="reasoning-max"]');
+  ok('dispatch_subagent 条目带直达开关「切到 Max」', !!fixBtn && fixBtn.textContent === '切到 Max');
+  click(fixBtn);
+  await new Promise((r) => setTimeout(r, 0));
+  ok('点「切到 Max」后思考打开且档位为 max', store.state.settings.thinking === true && store.state.settings.reasoningLevel === 'max');
+  ok('切到 Max 后 dispatch_subagent 条目消失（弹层原地重算）', !pop.hidden && !$('#tok-pop .cap-drop[data-tool="dispatch_subagent"]'));
+  ok('能力条同步显示「思考 Max」', $$('#cap-line .cap-pill').some((p) => p.textContent === '思考 Max'), $$('#cap-line .cap-pill').map((p) => p.textContent).join('|'));
+  // 中继在线 + 全部开关打开 → 没有裁剪
+  store.state.relayOk = true;
+  ui.syncWeb();
+  const html = renderCapabilityPopHtml({ allowed: ['a', 'b'], dropped: [], total: 2, tier: { displayTier: 'Max', canDispatch: true } });
+  ok('纯函数 renderCapabilityPopHtml：无裁剪时给「全部工具可用」且显示 2 / 2', /全部工具可用/.test(html) && /2 \/ 2/.test(html) && /Max（可委派）/.test(html));
+  click($('#cap-line .cap-pill')); // 能力条已重绘，重新取节点；再点一次 = 关闭
+  ok('再点胶囊关闭弹层', pop.hidden === true);
 }
 
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');

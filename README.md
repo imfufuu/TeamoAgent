@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.22` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.23` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 ## TL;DR
 
@@ -121,6 +121,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.23：P3 修正——能力门控不透明**
+
+36. **dropped 原因有了统一文案**：`DROP_REASON_LABEL` / `DROP_REASON_FIX` / `formatDroppedTools()` 放在 `executionContext.js`，UI 弹层与系统提示共用；`deriveToolWhitelistFromBits()` 按开关态预演工具表，与整轮 `deriveToolWhitelist` 逐项一致。
+37. **模型与用户看同一份工具表 diff**：`agent.previewToolTable()`；`turn.dropped` 进系统提示（【联网】段的「未列出的 X（原因）」+ 新增【工具表】段），端到端断言预演表 = 请求体 `tools`。
+38. **能力条可点**：新拆 `js/ui-capability.js`——胶囊按钮 + 「已禁用 N」提示 + 弹层逐条列出被禁用工具、原因与直达开关（切到 Max / 打开联网 / 打开沙箱 / 重新探测中继 / 打开设置），点完原地重算。
 
 **构建 2026.10.5.22：P2 修正——沙箱文件不保证跨轮持久**
 

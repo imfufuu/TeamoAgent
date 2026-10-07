@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.22';
+} from '../js/api.js?v=2026.10.5.23';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,10 +28,10 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.22');
+const api = await import('../js/api.js?v=2026.10.5.23');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
-const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/quickviz.js'];
+const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
 function readUiSource() {
   const fsp = _fs;
   return UI_SOURCE_PARTS.map((rel) => fsp.readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.22');
+  const api = await import('../js/api.js?v=2026.10.5.23');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5107,11 +5107,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.22');
+  assert.equal(APP_VERSION, '2026.10.5.23');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.22/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.23/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.22/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.23/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7834,7 +7834,7 @@ test('runWithCategoryLimits：网络类 ≤ 4、本地 ≤ 8 并发，结果按�
 test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模块，mountUI 只保留装配调用', async () => {
   const fsp = await import('node:fs');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
-  for (const [mod, fn] of [['ui-files-panel', 'installFilesPanel'], ['ui-lightbox', 'installLightbox'], ['ui-attachments', 'installAttachments'], ['quickviz', 'renderQuickChart']]) {
+  for (const [mod, fn] of [['ui-files-panel', 'installFilesPanel'], ['ui-lightbox', 'installLightbox'], ['ui-attachments', 'installAttachments'], ['ui-capability', 'installCapabilityPop'], ['quickviz', 'renderQuickChart']]) {
     const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
     assert.match(src, new RegExp(`export function ${fn}\\(`), `${mod}.js 应导出 ${fn}`);
     assert.match(ui, new RegExp(`from '\\./${mod}\\.js\\?v=`), `ui.js 应以 ?v= 引入 ${mod}.js`);
@@ -7846,7 +7846,7 @@ test('ui.js 拆分：文件面板 / 全屏预览 / 附件 / 图表各自成模�
   const uiImported = [...ui.matchAll(/^import\s*\{([^}]*)\}/gm)].flatMap((m) => m[1].split(',').map((x) => x.trim().split(/\s+as\s+/).pop().trim()).filter(Boolean));
   // $ / $$ 故意不查：正则字面量里的引号会让简易去字符串器失准；它们缺失时页面根本挂不起来，dom-smoke 必然报
   const uiHelpers = ['el', 'esc', 'fmtSize', 'safeImgSrc', 'safeHref', 'sanitizeSvgRaw', 'highlightCode', 'toast', 'renderMarkdown', 'sandboxPath', 'headingSlug'];
-  for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'quickviz']) {
+  for (const mod of ['ui-files-panel', 'ui-lightbox', 'ui-attachments', 'ui-capability', 'quickviz']) {
     const src = fsp.readFileSync(new URL(`../js/${mod}.js`, import.meta.url), 'utf8');
     // 去注释时放过 URL 里的 //（xmlns="http://www.w3.org/2000/svg" 这类内联 SVG 会把整行吃掉）
     const code = src.replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1').replace(/`(?:[^`\\]|\\.)*`|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"/g, '""');
@@ -8715,6 +8715,175 @@ test('UI：Edited File(s) 折叠按 tempCommit 把丢弃项划线并标「已丢
   const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
   assert.match(main, /onTempCommit: \(m\) => ui && ui\.onTempCommit && ui\.onTempCommit\(m\),/);
   assert.match(ui, /onTempCommit\(m\) \{\n\s+const msgs = store\.state\.messages;\n\s+const \[lo, hi\] = turnRange\(msgs, msgs\.findIndex/, 'UI 重画整个回合（折叠通常在更早的消息上）');
+});
+
+group('P3 修正：能力门控不透明 → dropped[] 固定文案表（UI 与系统提示同源）/ 能力条胶囊可点弹工具表 diff + 直达开关 / 预演表 = 请求体工具表');
+
+test('DROP_REASON_LABEL 覆盖 deriveToolWhitelist 会产出的每一种 reason；DROP_REASON_FIX 只用已知 kind；formatDroppedTools 文案固定', async () => {
+  const ec = await import('../js/executionContext.js');
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/executionContext.js', import.meta.url), 'utf8');
+  const fnSrc = src.slice(src.indexOf('export function deriveToolWhitelist('), src.indexOf('export function toolName('));
+  const reasons = [...new Set([...fnSrc.matchAll(/reason: (?:bits\.relay \? )?'([a-z-]+)'(?: : '([a-z-]+)')?/g)].flatMap((m) => [m[1], m[2]].filter(Boolean)))];
+  assert.ok(reasons.length >= 8, `应扫到 ≥ 8 种 reason，实际 ${reasons.join(',')}`);
+  for (const r of reasons) assert.ok(ec.DROP_REASON_LABEL[r], `reason ${r} 缺少中文文案`);
+  assert.equal(ec.DROP_REASON_LABEL['capability-dispatch-off'], '思考档位需 Max/Ultra');
+  assert.equal(ec.DROP_REASON_LABEL['relay-crawl-unavailable'], '中继未声明 crawl');
+  assert.equal(ec.DROP_REASON_LABEL['remote-cpp-off'], '远程 C++ 已关');
+  const kinds = new Set(['reasoning-max', 'web-on', 'sandbox-on', 'relay-reprobe', 'settings']);
+  for (const [r, fix] of Object.entries(ec.DROP_REASON_FIX)) {
+    assert.ok(ec.DROP_REASON_LABEL[r], `FIX 表里的 ${r} 必须也在 LABEL 表`);
+    assert.ok(kinds.has(fix.kind) && fix.label, `${r} 的修复动作不合法`);
+  }
+  assert.equal(ec.DROP_REASON_FIX['capability-dispatch-off'].kind, 'reasoning-max');
+  assert.equal(ec.describeDropReason('capability-sandbox-off'), '顶栏「沙箱」已关');
+  assert.equal(ec.describeDropReason('something-new'), 'something-new', '未知 reason 原样回显，不吞掉');
+  assert.equal(ec.formatDroppedTools([]), '');
+  assert.equal(ec.formatDroppedTools([
+    { name: 'dispatch_subagent', reason: 'capability-dispatch-off' },
+    { name: 'crawl_site', reason: 'relay-crawl-unavailable' },
+    { name: 'execute_cpp', reason: 'remote-cpp-off' },
+  ]), '已禁用 3 个：dispatch_subagent（思考档位需 Max/Ultra）、crawl_site（中继未声明 crawl）、execute_cpp（远程 C++ 已关）');
+  assert.equal(ec.formatDroppedTools([{ name: '(unnamed)', reason: 'no-tool-name' }]), '', '无名条目不进用户可见清单');
+});
+
+test('deriveToolWhitelistFromBits 与整轮上下文 deriveToolWhitelist 逐项一致（四种开关组合），裁剪结果带 reason', async () => {
+  const ec = await import('../js/executionContext.js');
+  const ex = await import('../js/execution.js');
+  const combos = [
+    { relayOk: false, webEnabled: true, sandboxEnabled: true, remoteCppEnabled: true, canDispatch: false, search: false, crawl: false, file: false },
+    { relayOk: true, webEnabled: true, sandboxEnabled: true, remoteCppEnabled: false, canDispatch: true, search: true, crawl: false, file: true },
+    { relayOk: true, webEnabled: false, sandboxEnabled: false, remoteCppEnabled: true, canDispatch: false, search: true, crawl: true, file: true },
+    { relayOk: true, webEnabled: true, sandboxEnabled: true, remoteCppEnabled: true, canDispatch: true, search: true, crawl: true, file: true },
+  ];
+  for (const c of combos) {
+    const webOn = c.relayOk && c.webEnabled;
+    const cap = ex.buildCapabilityConstraints({
+      relayOk: c.relayOk, webEnabled: c.webEnabled, sandboxEnabled: c.sandboxEnabled, remoteCppEnabled: c.remoteCppEnabled, canDispatch: c.canDispatch,
+      overrides: { web: { search: webOn && c.search, crawl: webOn && c.crawl, file: webOn && c.file } },
+    });
+    const ctx = ec.createTurnExecutionContext({ capability: cap, claimedBits: null });
+    const full = ec.deriveToolWhitelist(ctx, TOOL_DEFS);
+    const quick = ec.deriveToolWhitelistFromBits({
+      relay: c.relayOk, web: webOn, sandbox: c.sandboxEnabled, dispatch: c.canDispatch,
+      search: webOn && c.search, crawl: webOn && c.crawl, file: webOn && c.file, remoteCpp: c.remoteCppEnabled,
+    }, TOOL_DEFS);
+    assert.deepEqual(quick.allowed.map(ec.toolName), full.allowed.map(ec.toolName), `allowed 不一致：${JSON.stringify(c)}`);
+    assert.deepEqual(quick.dropped, full.dropped, `dropped 不一致：${JSON.stringify(c)}`);
+  }
+  const off = ec.deriveToolWhitelistFromBits({ relay: true, web: true, sandbox: true, dispatch: false, search: true, crawl: false, file: true, remoteCpp: false }, TOOL_DEFS);
+  assert.deepEqual(off.dropped, [
+    { name: 'crawl_site', reason: 'relay-crawl-unavailable' },
+    { name: 'execute_cpp', reason: 'remote-cpp-off' },
+    { name: 'dispatch_subagent', reason: 'capability-dispatch-off' },
+  ].sort((a, b) => off.dropped.findIndex((d) => d.name === a.name) - off.dropped.findIndex((d) => d.name === b.name)));
+});
+
+test('端到端：思考 Off + 中继离线时，agent.previewToolTable().allowed 与请求体 tools 逐项一致；system 的【工具表】段与 dropped 同源，含「dispatch_subagent（思考档位需 Max/Ultra）」', async () => {
+  const calls = [];
+  mockFetch([openaiTextTurn('你好。')], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.relayOk = false;
+    store.state.settings.webEnabled = true;
+    store.state.settings.thinking = false;
+    store.state.settings.remoteCppEnabled = false;
+    const agent = createAgent(store, {});
+    const pv = agent.previewToolTable();
+    assert.ok(pv.dropped.some((d) => d.name === 'dispatch_subagent' && d.reason === 'capability-dispatch-off' && d.label === '思考档位需 Max/Ultra'));
+    assert.ok(pv.dropped.some((d) => d.name === 'fetch_url' && d.reason === 'relay-offline'));
+    assert.ok(pv.dropped.some((d) => d.name === 'execute_cpp' && d.reason === 'remote-cpp-off'));
+    assert.equal(pv.tier.canDispatch, false);
+    assert.equal(pv.total, TOOL_DEFS.length);
+    assert.match(pv.summary, /^已禁用 \d+ 个：/);
+    await agent.send('你好');
+    assert.equal(calls.length, 1);
+    const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
+    assert.deepEqual(sent, pv.allowed, '预演工具表必须等于真正发出去的工具表（UI 列表 = 实际工具表）');
+    const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
+    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：/);
+    assert.match(sys, /dispatch_subagent（思考档位需 Max\/Ultra）/);
+    assert.match(sys, /execute_cpp（远程 C\+\+ 已关）/);
+    assert.ok(sys.includes(`【工具表】本轮${pv.summary}`), '系统提示的清单与 previewToolTable().summary 逐字相同');
+    // 切到 Max 后预演表立刻变化：dispatch_subagent 不再被裁
+    store.state.settings.thinking = true;
+    store.state.settings.reasoningLevel = 'max';
+    const pv2 = agent.previewToolTable();
+    assert.ok(!pv2.dropped.some((d) => d.name === 'dispatch_subagent'));
+    assert.ok(pv2.allowed.includes('dispatch_subagent'));
+    assert.equal(pv2.tier.canDispatch, true);
+  } finally { globalThis.fetch = realFetch; await drainSaves(); }
+});
+
+test('端到端：中继在线但只声明 fetch/search 时，【联网】段「未列出的 crawl_site（中继未声明 crawl） / download_file（中继未声明 file） 本轮不可用」来自 dropped', async () => {
+  const calls = [];
+  const net = await import('../js/net.js');
+  net.resetRelayProbe();
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/v1/chat/completions')) {
+      const call = { url: u, opts };
+      try { call.body = JSON.parse(opts && opts.body); } catch { /* noop */ }
+      calls.push(call);
+      return openaiTextTurn('好的。');
+    }
+    if (u.includes('/api/health')) return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', version: '1.7.0', capabilities: ['fetch', 'search'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    throw new Error(`未预期的请求：${u}`);
+  };
+  try {
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.webEnabled = true;
+    store.state.settings.jevEnabled = false;
+    store.state.relayOk = true;
+    assert.equal(await net.relayAvailable(), true, '先真实探测一次，让 relaySupports 记住 health.capabilities');
+    assert.equal(net.relaySupports('search'), true);
+    assert.equal(net.relaySupports('crawl'), false);
+    const agent = createAgent(store, {});
+    await agent.send('随便聊聊');
+    assert.equal(calls.length, 1);
+    const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
+    assert.match(sys, /本轮已开启；中继健康检查通过/);
+    assert.match(sys, /实际网页工具表：search_web（网页搜索）、fetch_url（读取单个网页）。未列出的 crawl_site（中继未声明 crawl） \/ download_file（中继未声明 file） 本轮不可用。/);
+    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：crawl_site（中继未声明 crawl）、download_file（中继未声明 file）/);
+    const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
+    assert.ok(sent.includes('fetch_url') && sent.includes('search_web') && !sent.includes('crawl_site') && !sent.includes('download_file'));
+    const pv = agent.previewToolTable();
+    assert.deepEqual(sent, pv.allowed);
+    assert.ok(pv.dropped.some((d) => d.name === 'crawl_site' && d.label === '中继未声明 crawl'));
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installCapabilityPop 注入直达开关；prompt.js 接 toolTableNote；agent 把 dropped 挂到 turn / nexusState；样式到位', async () => {
+  const fsp = await import('node:fs');
+  const cap = fsp.readFileSync(new URL('../js/ui-capability.js', import.meta.url), 'utf8');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const agentSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const prompt = fsp.readFileSync(new URL('../js/prompt.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.match(cap, /import \{ DROP_REASON_FIX \} from '\.\/executionContext\.js\?v=/, '修复动作表从 executionContext 取，不在 UI 里再抄一份');
+  assert.match(cap, /export function renderCapabilityPopHtml\(preview\)/);
+  assert.match(cap, /<div class="cap-drop" data-tool="\$\{esc\(d\.name\)\}" data-reason="\$\{esc\(d\.reason\)\}">/);
+  assert.match(cap, /<button type="button" class="tok-btn cap-fix" data-fix="\$\{esc\(fix\.kind\)\}" data-tool="\$\{esc\(d\.name\)\}">\$\{esc\(fix\.label\)\}<\/button>/);
+  assert.match(cap, /if \(dropN\) bits\.push\(\['drop', `已禁用 \$\{dropN\}`\]\);/, '有裁剪时能力条末尾多一个「已禁用 N」胶囊');
+  assert.match(cap, /e\.stopPropagation\(\); \/\/ 不让 document 级「点外面关闭」把刚打开的弹层又关掉/);
+  assert.match(cap, /if \(pop && !pop\.hidden && pop\.dataset\.kind === 'cap'\) paintPop\(pop\);/, '开关变化时弹层原地重算');
+  assert.match(ui, /import \{ installCapabilityPop \} from '\.\/ui-capability\.js\?v=/);
+  assert.match(ui, /const \{ syncCapLine \} = installCapabilityPop\(\{/);
+  assert.match(ui, /setReasoning: \(lv\) => \{ store\.state\.settings\.thinking = true; store\.state\.settings\.reasoningLevel = normalizeReasoningLevel\(lv\); store\.notify\(\); syncThinking\(\); \},/);
+  assert.doesNotMatch(ui, /function syncCapLine\(\)/, '旧实现不应残留在 ui.js');
+  assert.match(agentSrc, /nexusState\.turnDropped = whitelist\.dropped;/);
+  assert.match(agentSrc, /turn\.dropped = whitelist\.dropped;/);
+  assert.match(agentSrc, /toolTableNote: formatToolTableNote\(nexusState && nexusState\.turnDropped\),/);
+  assert.match(agentSrc, /tools: turnTools, dropped: nexusState && nexusState\.turnDropped \}\)/, '【联网】段也吃同一份 dropped');
+  assert.match(prompt, /export function formatRuntime\(\{ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote \} = \{\}\)/);
+  assert.match(prompt, /const extra = join\(\[filesNote, webNote, relayNote, toolTableNote\]\);/);
+  assert.match(css, /\.cap-line \.cap-pill \{ font: inherit; color: inherit;[^}]*cursor: pointer;/);
+  assert.match(css, /\.cap-line \.cap-pill-drop \{ color: #b45309; \}/);
+  assert.match(css, /\.tok-pop \.cap-drop \{ display: grid;/);
 });
 
 for (const item of queue) {

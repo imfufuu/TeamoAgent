@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.22';
-import { createAgent } from './agent.js?v=2026.10.5.22';
-import { mountUI, toast } from './ui.js?v=2026.10.5.22';
+import { createStore } from './state.js?v=2026.10.5.23';
+import { createAgent } from './agent.js?v=2026.10.5.23';
+import { mountUI, toast } from './ui.js?v=2026.10.5.23';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.22';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.22';
-import { APP_RELEASE } from './config.js?v=2026.10.5.22';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.23';
+import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.23';
+import { APP_RELEASE } from './config.js?v=2026.10.5.23';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };

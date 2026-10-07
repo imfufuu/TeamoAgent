@@ -190,6 +190,67 @@ export function deriveToolWhitelist(ctx, allTools = []) {
   return { allowed, dropped };
 }
 
+// ─── P3 修正：能力门控不透明 ─────────────────────────────────────────────
+// dropped[].reason 以前只进审计记录；UI 与系统提示各自推导一套「为什么不可用」的说法。
+// 这里给每个 reason 一份固定中文文案 + 一个直达修复动作，UI 弹层与提示词共用，不再出现两种口径。
+export const DROP_REASON_LABEL = Object.freeze({
+  'capability-dispatch-off': '思考档位需 Max/Ultra',
+  'capability-web-off': '顶栏「联网」已关',
+  'relay-offline': '网页中继未通过健康检查',
+  'relay-search-unavailable': '中继未声明 search',
+  'relay-crawl-unavailable': '中继未声明 crawl',
+  'relay-file-unavailable': '中继未声明 file',
+  'capability-sandbox-off': '顶栏「沙箱」已关',
+  'remote-cpp-off': '远程 C++ 已关',
+  'no-tool-name': '工具定义缺少名称',
+});
+
+/** 直达开关：kind 由 UI 映射到实际操作（切档位 / 开开关 / 重探中继 / 打开设置）。 */
+export const DROP_REASON_FIX = Object.freeze({
+  'capability-dispatch-off': Object.freeze({ kind: 'reasoning-max', label: '切到 Max' }),
+  'capability-web-off': Object.freeze({ kind: 'web-on', label: '打开联网' }),
+  'relay-offline': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
+  'relay-search-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
+  'relay-crawl-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
+  'relay-file-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
+  'capability-sandbox-off': Object.freeze({ kind: 'sandbox-on', label: '打开沙箱' }),
+  'remote-cpp-off': Object.freeze({ kind: 'settings', label: '打开设置' }),
+});
+
+export function describeDropReason(reason) {
+  return DROP_REASON_LABEL[reason] || String(reason || '未知原因');
+}
+
+/** 「已禁用 N 个：a（原因）、b（原因）」——UI 弹层与系统提示同一句话；没有裁剪返回空串。 */
+export function formatDroppedTools(dropped, { max = 16 } = {}) {
+  const list = (Array.isArray(dropped) ? dropped : []).filter((d) => d && d.name && d.name !== '(unnamed)');
+  if (!list.length) return '';
+  const shown = list.slice(0, max).map((d) => `${d.name}（${describeDropReason(d.reason)}）`);
+  const more = list.length > max ? `…等 ${list.length} 个` : '';
+  return `已禁用 ${list.length} 个：${shown.join('、')}${more}`;
+}
+
+/**
+ * 从「当前开关态」直接派生工具表（不必先构造整轮上下文）。
+ * 顶栏能力条在发送前就要回答「现在能用什么、为什么不能」，口径必须与 deriveToolWhitelist 完全一致——
+ * 所以这里只是把开关态装成 deriveToolWhitelist 认识的最小 ctx 形状，再调用同一个函数。
+ */
+export function deriveToolWhitelistFromBits({
+  relay = false, web = false, sandbox = true, dispatch = false,
+  search = false, crawl = false, file = false, remoteCpp = true,
+} = {}, allTools = []) {
+  const ctx = {
+    capability: {
+      bits: { relay: !!relay, web: !!web, sandbox: !!sandbox, dispatch: !!dispatch },
+      constraints: {
+        web: { search: search === true, crawl: crawl === true, file: file === true },
+        sandbox: { remoteCpp: remoteCpp !== false },
+      },
+    },
+  };
+  return deriveToolWhitelist(ctx, allTools);
+}
+
 /** 兼容 TOOL_DEFS / OpenAI 两种形状（P0 教训：TOOL_DEFS 条目没有 .function）。 */
 export function toolName(tool) {
   if (!tool) return '';

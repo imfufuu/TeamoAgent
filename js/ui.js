@@ -1,11 +1,11 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.22';
+import { FALLBACK_MODELS, PROVIDER_ORDER, sortModelsInFamily, providerOf, isFreeModel, supportsFastMode, supportsVision, isImageModel, IMAGE_MODELS, imageModelLabel, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE, systemPrompt, SMART_ROUTER_ID, SMART_ROUTER_PROVIDER } from './config.js?v=2026.10.5.23';
 import { routeModel, isSmartRouter, ROUTER_ICON_SVG } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { isJevModel } from './jev.js';
 import { createZip, fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
 import { buildFileTree, collectPaths, treeStats, flattenTree } from './filetree.js';
-import { fetchModels, getTransport } from './api.js?v=2026.10.5.22';
+import { fetchModels, getTransport } from './api.js?v=2026.10.5.23';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens, contextBudgetFor } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -20,14 +20,15 @@ import { summarizeTurnCost, formatUsd, priceBadgeFor } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 import { formatDecisionFootprintSummary, formatDecisionFootprintForPrompt, formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.22';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.22';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.22';
-import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.22';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.22';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.22';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.22';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.22';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.23';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.23';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.5.23';
+import { openPhotoEditor } from './photo-editor.js?v=2026.10.5.23';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.23';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.23';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.23';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.23';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.23';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -144,7 +145,7 @@ const choiceHtml = (blocks) => {
   return `<div class="choice-box${count > 1 ? ' multi' : ''}" role="group" aria-label="${label}" data-choice-count="${count}" data-choice-step="0" data-choice-answers="[]"><div class="choice-head"><div class="choice-title">${count > 1 ? `请选择 · ${count} 题` : '请选择'}</div></div><div class="choice-summary" data-choice-summary></div>${groups}<div class="choice-nav"><button type="button" class="choice-back" data-choice-back disabled>← 回退</button><span class="choice-progress" data-choice-progress>1 / ${count}</span></div></div>`;
 };
 
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.22';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, renderGeoMapSvg, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.5.23';
 // :::chart 围栏正则：直接别名按长度降序，避免「柱状」抢先吃掉「柱状图」
 const CHART_FENCE_RE = new RegExp(`^:::(?:chart[ \\t]+([^\\n]+)|(${[...CHART_DIRECT_ALIASES].sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\-]/g, '\\$&')).join('|')})[ \\t]*([^\\n]*))\\n([\\s\\S]*?)^:::[ \\t]*$`, 'gm');
 
@@ -918,6 +919,18 @@ export function mountUI(store, agent) {
     for (const n of confirmNodes.values()) { try { n.remove(); } catch { /* 忽略 */ } }
     confirmNodes.clear();
   };
+  // ── 顶栏能力条 + 工具表 diff 弹层：见 ui-capability.js（P3 修正：能力门控不透明）。直达开关都是惰性闭包：syncThinking / syncWeb 在下文才定义，点击时才用到。
+  const { syncCapLine } = installCapabilityPop({
+    store, agent, toast, hideTokPop: () => hideTokPop(), placeTokPop: (anchor) => placeTokPop(anchor),
+    setReasoning: (lv) => { store.state.settings.thinking = true; store.state.settings.reasoningLevel = normalizeReasoningLevel(lv); store.notify(); syncThinking(); },
+    toggleWeb: () => { const b = $('#web-toggle'); if (b && store.state.settings.webEnabled === false) b.click(); },
+    toggleSandbox: () => { const b = $('#sandbox-toggle'); if (b && !store.state.settings.sandboxEnabled) b.click(); },
+    openSettings: () => { const b = $('#settings-btn'); if (b) b.click(); },
+    reprobeRelay: async () => {
+      store.state.relayOk = null; syncWeb(); resetRelayProbe();
+      let ok = false; try { ok = await relayAvailable(); } catch { ok = false; }
+      store.state.relayOk = ok; if (ok) store.state.settings.webEnabled = true; store.notify(); syncWeb(); },
+  });
 
   let rafPending = false;
   let rafMsg = null;
@@ -3830,19 +3843,6 @@ function validateApiKey(s) {
     }
   });
 
-
-  function syncCapLine() {
-    const eln = $('#cap-line');
-    if (!eln) return;
-    const bits = [store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? '智能' : store.state.model)]; // 通道态与模型钮同一叫法（.18）
-    if (store.state.settings.thinking !== false) bits.push(`思考 ${reasoningLevelLabel(store.state.settings.reasoningLevel)}`);
-    if (store.state.settings.sandboxEnabled) bits.push('沙箱');
-    if (store.state.relayOk === true && store.state.settings.webEnabled !== false) bits.push('联网');
-    bits.push(getTransport() === 'proxy' ? '中继' : '直连');
-    const panelOpen = $('#sandbox-panel') && !$('#sandbox-panel').classList.contains('collapsed');
-    if (panelOpen) bits.push('面板');
-    eln.textContent = bits.join('  ·  ');
-  }
 
   const statsEl = $('#conv-stats');
   if (statsEl) {
