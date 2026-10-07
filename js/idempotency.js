@@ -108,11 +108,21 @@ export function planReplay({ entry = null, contract = null, userText = '', curre
   if (!entry) return { decision: 'allow', reason: '账本无同键记录，按新调用执行' };
   const c = contract || {};
   const authorized = AUTHORIZE_RE.test(String(userText || ''));
-  // 同一轮内的重复调用（模型一次发了两个完全相同的调用）：直接复用，绝不重复执行
+  // 同一轮内的重复调用（模型一次发了两个完全相同的调用）：复用，不重复执行——
+  // 但文件系统写操作要先核对副作用是否仍然成立（Stage 3 的承诺是「核验副作用」，不是「核验参数」）：
+  // 目标文件已不在 / 内容已变（被后续工具删改、被沙箱回写覆盖）→ 按新调用重新执行，而不是拿着旧结果骗模型。
   if (entry.turnId && currentTurnId && entry.turnId === String(currentTurnId) && entry.status === 'succeeded') {
+    if (c.sideEffect === 'filesystem' && entry.artifactDigest) {
+      if (!currentArtifactDigest) {
+        return { decision: 'allow', reason: `同一轮内虽有同参数调用成功过，但目标 ${entry.artifactPath || '文件'} 当前已不存在（本轮被删除或被后续写入清掉），重新执行`, guidance: '' };
+      }
+      if (currentArtifactDigest !== entry.artifactDigest) {
+        return { decision: 'allow', reason: `同一轮内虽有同参数调用成功过，但目标 ${entry.artifactPath || '文件'} 内容已变化，本次重写是新的有效操作`, guidance: '' };
+      }
+    }
     return {
       decision: 'reuse',
-      reason: `同一轮内已有完全相同的调用成功执行过（${entry.tool}，幂等键 ${entry.key}）`,
+      reason: `同一轮内已有完全相同的调用成功执行过（${entry.tool}，幂等键 ${entry.key}）${c.sideEffect === 'filesystem' && entry.artifactDigest ? '，且目标文件当前内容与当时一致' : ''}`,
       guidance: '直接使用已有结果，不要重复执行。',
     };
   }

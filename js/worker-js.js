@@ -106,7 +106,7 @@ self.addEventListener('message', async (e) => {
     console.__flush();
     let message = String((err && err.message) || err);
     if (/is not defined|Can't find variable|is not a function/i.test(message)) {
-      message += "。未定义该名字：此沙箱为 Web Worker，无 Node API（无 require/fs/process/Buffer），无 DOM，也没有 fetch/XMLHttpRequest/WebSocket/importScripts（已被沙箱移除，代码不能联网）。仅提供 console 与 files。键=完整相对路径，例如 files['files/a.txt'] = 'hi'。失败后先探测 Object.keys(files)、typeof console，不要换 API 名盲猜。";
+      message += "。未定义该名字：此沙箱为 Web Worker，无 Node API（无 require/fs/process/Buffer），无 DOM，也没有 fetch/XMLHttpRequest/WebSocket/importScripts（已被沙箱移除，代码不能联网）。仅提供 console 与 files（无原型字典：files.constructor 为 undefined，用 Object.keys 遍历）。键=完整相对路径，例如 files['files/a.txt'] = 'hi'；对 files 的增删改会在执行结束后同步回会话文件系统。失败后先探测 Object.keys(files)、typeof console，不要换 API 名盲猜。";
     }
     post({ ok: false, logs, files: sanitizeFiles(fs, logs), error: { message, stack: (err && err.stack) || '' } });
   }

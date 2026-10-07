@@ -244,7 +244,7 @@ check('风险分级：L3 操作必须带「需确认」标记与不可逆提示�
   assert.ok(authorized.reasons.some((x) => x.includes('已明确要求')), JSON.stringify(authorized.reasons));
 });
 check('失败六分类是闭集，且分类依据真实输入而非猜测', () => {
-  assert.deepEqual(Object.values(FAILURE_KINDS).sort(), ['DATA', 'ENVIRONMENT', 'INVALID_ARGS', 'PERMISSION', 'SIDE_EFFECT_UNCERTAIN', 'TRANSIENT'].sort());
+  assert.deepEqual(Object.values(FAILURE_KINDS).sort(), ['DATA', 'ENVIRONMENT', 'FILE_NOT_FOUND', 'INVALID_ARGS', 'PERMISSION', 'SIDE_EFFECT_UNCERTAIN', 'TRANSIENT'].sort());
   const perm = classifyToolFailure({ name: 'write_file', result: '', error: { message: '路径不在允许目录内：permission denied' } });
   assert.equal(perm.kind, 'PERMISSION');
   assert.equal(perm.retryable, false, '权限类不得自动重试');

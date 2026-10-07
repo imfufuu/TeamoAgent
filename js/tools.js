@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.28';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.29';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
@@ -12,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.28';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.29';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.28';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.29';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -28,7 +28,7 @@ function looksStructuredDiagramPrompt(prompt) {
 export const TOOL_DEFS = [
   {
     name: 'execute_javascript',
-    description: '在隔离的 Web Worker 沙箱中执行 JavaScript（支持顶层 await）。仅有 console 与 files，没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是普通对象，键=完整相对路径，例 files["files/a.txt"] = "hi"。不熟悉就先探测：typeof console、Object.keys(files)。失败后先探测环境，不要换一个 API 名再猜。代码必须完整可运行。return 值或最后表达式作为结果。',
+    description: '在隔离的 Web Worker 沙箱中执行 JavaScript（支持顶层 await）。仅有 console 与 files，没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是无原型的字典对象（Object.create(null)：files.constructor 为 undefined，用 Object.keys(files) / "k" in files 判断），键=完整相对路径，例 files["files/a.txt"] = "hi"。它是会话文件系统的完整快照：此前 write_file / 其它工具 / 上一次沙箱写的文件都在里面；本次对 files 的新增、修改、delete 在执行结束后同步回会话文件系统，后续任何工具（read_file / text_tool / 下一次 execute_*）都能看到，结果末尾的 files_keys 列出同步后的键。不熟悉就先探测：typeof console、Object.keys(files)。失败后先探测环境，不要换一个 API 名再猜。代码必须完整可运行。return 值或最后表达式作为结果。',
     parameters: {
       type: 'object',
       properties: {
@@ -39,7 +39,7 @@ export const TOOL_DEFS = [
   },
   {
     name: 'execute_python',
-    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。没有 Node/浏览器宿主 API；沙箱禁网（requests / js.fetch 对任意网址都会被拒，只有装包时的 Pyodide CDN 与 PyPI 放行），要抓网页用 fetch_url。写入 FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage（通常走浏览器缓存）。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
+    description: '在 Pyodide（WebAssembly Python 3）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。FILES 是会话文件系统的完整快照（含此前 write_file / 上一次沙箱写的文件），对它的增删改在执行结束后同步回会话文件系统，后续任何工具都能看到。没有 Node/浏览器宿主 API；沙箱禁网（requests / js.fetch 对任意网址都会被拒，只有装包时的 Pyodide CDN 与 PyPI 放行），要抓网页用 fetch_url。写入 FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护。print 输出被捕获；最终结果赋给 result。code 必须完整可运行。可用 micropip / loadPackage 装第三方库（numpy、pandas 等）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage（通常走浏览器缓存）。运行时常驻，仅会话首次需下载（约 10-30 秒）。',
     parameters: {
       type: 'object',
       properties: {

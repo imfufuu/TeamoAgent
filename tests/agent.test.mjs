@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.28';
+} from '../js/api.js?v=2026.10.5.29';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.28');
+const api = await import('../js/api.js?v=2026.10.5.29');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.28');
+  const api = await import('../js/api.js?v=2026.10.5.29');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.28');
+  assert.equal(APP_VERSION, '2026.10.5.29');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.28/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.29/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.28/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.29/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -6956,10 +6956,11 @@ test('2026.10.1.13：P1-2 幂等账本——同键调用四类裁决（复用 / 
   assert.equal(id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' } }).decision, 'reuse');
   assert.equal(ledger.claim('idem-1', { tool: 'write_file', turnId: 't1' }).ok, false, '同轮同键并发登记必须被拒绝');
 
-  // 同轮已完成 → 复用（不重复执行）
+  // 同轮已完成 → 目标仍在且一致才复用（.29：同轮复用也要核验副作用）；目标不在 → 重新执行
   ledger.settle('idem-1', { status: 'succeeded', tool: 'write_file', turnId: 't1', artifactPath: 'files/a.txt', artifactDigest: 'abc' });
-  const sameTurn = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't1' });
+  const sameTurn = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't1', currentArtifactDigest: 'abc' });
   assert.equal(sameTurn.decision, 'reuse');
+  assert.equal(id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't1' }).decision, 'allow', '目标已不存在 → 不能复用');
 
   // 跨轮 + 目标状态已满足 → 复用；目标被改过 → 放行（新的有效操作）
   const crossTurn = id.planReplay({ entry: ledger.lookup('idem-1'), contract: { sideEffect: 'filesystem' }, currentTurnId: 't2', currentArtifactDigest: 'abc' });
@@ -9033,7 +9034,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.28'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.29'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9075,7 +9076,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.28');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.29');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9340,7 +9341,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.28：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.29：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9548,6 +9549,103 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
   assert.match(css, /\.mem-empty\.files-empty \{ padding: 18px 12px 22px; \}/);
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
+});
+
+group('2026.10.5.29：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+
+test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
+  const sb = await import('../js/sandbox.js');
+  const base = sb.createFS({ 'old.txt': 'o', 'internal/notes.md': 'secret' });
+  const fs = sb.createTempFS(base);
+  fs.write('files/host.txt', 'h');                       // 宿主 write_file 写的（临时层）
+  const before = fs.export();
+  assert.deepEqual(Object.keys(before).sort(), ['files/host.txt', 'internal/notes.md', 'old.txt']);
+  // 模拟 Worker 跑完：新增 probe、改 old、删 host 以外的东西都保留；internal 受保护
+  const after = { ...before, 'files/probe.txt': 'x', 'old.txt': 'o2' };
+  delete after['internal/notes.md']; // Worker 侧「删」受保护文件 → 必须被忽略
+  const r = sb.applyWorkerFiles(fs, before, after);
+  assert.equal(r.ok, true);
+  assert.equal(r.written, 2, 'probe 新增 + old 修改');
+  assert.ok(fs.has('files/host.txt'), '宿主 write_file 的文件不能被沙箱执行清掉（.28 前的 bug）');
+  assert.equal(fs.read('files/probe.txt'), 'x', '沙箱代码写的文件要留到下一次调用');
+  assert.equal(fs.read('old.txt'), 'o2');
+  assert.equal(fs.read('internal/notes.md'), 'secret', '受保护路径原样保留');
+  assert.deepEqual(fs.keys().sort(), ['files/host.txt', 'files/probe.txt', 'internal/notes.md', 'old.txt']);
+  // 第二次「调用」：导出的快照必须包含上一次的全部结果（跨调用持久）
+  const before2 = fs.export();
+  assert.equal(before2['files/probe.txt'], 'x');
+  assert.equal(before2['files/host.txt'], 'h');
+  // Worker 里 delete files[k] → 会话里也删
+  const after2 = { ...before2 }; delete after2['files/host.txt'];
+  const r2 = sb.applyWorkerFiles(fs, before2, after2);
+  assert.equal(r2.removed, 1);
+  assert.equal(fs.has('files/host.txt'), false);
+  // 真实 FS（非临时层）同样成立
+  const real = sb.createFS({ 'a.txt': '1' });
+  sb.applyWorkerFiles(real, real.export(), { 'a.txt': '1', 'b.txt': '2' });
+  assert.deepEqual(real.keys().sort(), ['a.txt', 'b.txt']);
+  // 容量超限：整体拒绝，什么都不改
+  const big = sb.createTempFS(sb.createFS({}));
+  big.write('k.txt', 'keep');
+  const { SANDBOX_STORAGE_CAP } = await import('../js/storagefmt.js');
+  const rr = sb.applyWorkerFiles(big, big.export(), { 'k.txt': 'keep', 'huge.txt': 'x'.repeat(SANDBOX_STORAGE_CAP + 1) });
+  assert.equal(rr.ok, false); assert.equal(big.read('k.txt'), 'keep'); assert.equal(big.has('huge.txt'), false);
+  const src = (await import('node:fs')).readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /fsObj\.clear\(\); fsObj\.import\(r\.files\)/, '不得再用 clear()+import() 回写');
+});
+
+test('工具描述与行为一致：files 是无原型字典（constructor 为 undefined），并写明跨调用持久契约', async () => {
+  const { TOOL_DEFS } = await import('../js/tools.js');
+  const js = TOOL_DEFS.find((t) => t.name === 'execute_javascript').description;
+  const py = TOOL_DEFS.find((t) => t.name === 'execute_python').description;
+  assert.match(js, /无原型的字典对象（Object\.create\(null\)：files\.constructor 为 undefined/);
+  assert.match(js, /会话文件系统的完整快照/);
+  assert.match(js, /同步回会话文件系统，后续任何工具（read_file \/ text_tool \/ 下一次 execute_\*）都能看到/);
+  assert.doesNotMatch(js, /files 是普通对象/);
+  assert.match(py, /FILES 是会话文件系统的完整快照/);
+  const fsp = await import('node:fs');
+  const worker = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
+  assert.match(worker, /let fs = Object\.create\(null\);/, 'Worker 侧确实是无原型字典（防 __proto__ 键投毒），描述照实写');
+  assert.match(worker, /files\.constructor 为 undefined/);
+  const cfg2 = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
+  assert.match(cfg2, /增删改会同步回去、后续工具可见/);
+});
+
+test('幂等复用先核验副作用：同轮同参数 write_file，目标文件已不在 / 已变 → 重新执行；仍一致才复用', async () => {
+  const { planReplay } = await import('../js/idempotency.js');
+  const ex = await import('../js/execution.js');
+  const contract = ex.getToolContract('write_file');
+  assert.equal(contract.sideEffect, 'filesystem');
+  const entry = { key: 'k1', tool: 'write_file', status: 'succeeded', turnId: 't1', artifactPath: 'files/a.txt', artifactDigest: 'd-abc' };
+  const missing = planReplay({ entry, contract, currentArtifactDigest: null, currentTurnId: 't1' });
+  assert.equal(missing.decision, 'allow', '目标已不存在：不能拿旧结果糊弄');
+  assert.match(missing.reason, /当前已不存在/);
+  const changed = planReplay({ entry, contract, currentArtifactDigest: 'd-xyz', currentTurnId: 't1' });
+  assert.equal(changed.decision, 'allow');
+  assert.match(changed.reason, /内容已变化/);
+  const same = planReplay({ entry, contract, currentArtifactDigest: 'd-abc', currentTurnId: 't1' });
+  assert.equal(same.decision, 'reuse');
+  assert.match(same.reason, /目标文件当前内容与当时一致/);
+  // 纯读工具同轮重复：照旧复用（没有副作用可核验）
+  const ro = planReplay({ entry: { key: 'k2', tool: 'read_file', status: 'succeeded', turnId: 't1' }, contract: ex.getToolContract('read_file'), currentTurnId: 't1' });
+  assert.equal(ro.decision, 'reuse');
+});
+
+test('失败归类：文件找不到 = 状态 / 视图问题（FILE_NOT_FOUND，先 list_files 探测），不再归成「数据错误 → 换数据源」；也不记成副作用不确定', async () => {
+  const ex = await import('../js/execution.js');
+  for (const r of ['hash：沙箱中找不到 files/a.txt', '文件不存在: files/a.txt', 'analyze_image 失败：找不到 x.png（现有图片：无）', 'ENOENT: no such file or directory']) {
+    const f = ex.classifyToolFailure({ name: 'read_file', result: r });
+    assert.equal(f.kind, 'FILE_NOT_FOUND', r);
+    assert.equal(f.retryable, false);
+    assert.equal(f.verifyFirst, false, '没有副作用，账本不该记 uncertain（否则写完再读同路径会被拦）');
+    assert.match(f.guidance, /list_files/);
+    assert.match(f.guidance, /不要换数据源/);
+    assert.match(f.handling, /list_files 探测当前文件系统状态/);
+  }
+  assert.equal(ex.classifyToolFailure({ name: 'read_file', result: '返回结构解析失败 malformed' }).kind, 'DATA', '真正的数据错误仍是 DATA');
+  assert.equal(ex.classifyToolFailure({ name: 'execute_python', result: '沙箱创建失败：Pyodide 不可用' }).kind, 'ENVIRONMENT');
+  assert.equal(ex.classifyToolFailure({ name: 'write_file', result: '无权写入该路径' }).kind, 'PERMISSION');
+  assert.equal(ex.FAILURE_KIND_META.FILE_NOT_FOUND.label, '文件不存在');
 });
 
 for (const item of queue) {

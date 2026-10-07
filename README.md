@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.28` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.29` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.29：沙箱文件视图一致性——JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误**
+
+62. **根因（V1.7 起一直存在）**：`execute_javascript / execute_python` 跑完后用 `fsObj.clear(); fsObj.import(files)` 回写，而每轮工具拿到的 `createTempFS` 临时层 `import()` 是空操作、`clear()` 会清掉本轮全部写入——于是任何一次沙箱执行都会①把本轮 `write_file` 写的文件清空②丢掉沙箱代码自己写的 `files`。表现即「write_file 成功 → 下一个 JS 调用 `files_keys: []`」「同调用能回读 `files/probe.txt`、下一调用就没了」「write_file / text_tool / list_files 三种口径」。改为**差异回写**（新增 / 修改 → `write`，Worker 里删掉的 → `remove`），对真实 FS 与临时层语义一致；受保护路径与容量超限的整体拒收逻辑不变。
+63. **幂等复用先核验副作用**：同轮同参数的文件系统写操作，复用前比对目标文件当前摘要——已不存在或已变化 → 按新调用重新执行；只有仍一致才复用（之前同轮一律按参数复用，正好违反 Stage 3「核验副作用」的承诺）。
+64. **失败归类**：新增 `FILE_NOT_FOUND`（找不到 / 文件不存在 / no such file / ENOENT），处置为「先 `list_files` 探测当前文件系统状态，再决定重写 / 改路径；不要换数据源」，不再落到 `DATA`（「改用其它路径取数」）；不记副作用不确定，避免写完再读同路径被账本拦住。
+65. **工具描述与行为一致**：`files` 如实写成「无原型字典（`Object.create(null)`，`files.constructor` 为 undefined）」，并写明它是会话文件系统的完整快照、增删改同步回去、后续任何工具可见；`execute_python` 的 `FILES` 同口径；Worker 的报错提示与系统提示同步。
 
 **构建 2026.10.5.28：5 项跟进——smart_router 命名 / 加载页 90s / 预算脚注去红 / 复核前压缩快照**
 

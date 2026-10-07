@@ -1105,6 +1105,7 @@ export const FAILURE_KINDS = Object.freeze({
   TRANSIENT: 'TRANSIENT',
   PERMISSION: 'PERMISSION',
   DATA: 'DATA',
+  FILE_NOT_FOUND: 'FILE_NOT_FOUND',
   SIDE_EFFECT_UNCERTAIN: 'SIDE_EFFECT_UNCERTAIN',
 });
 
@@ -1114,11 +1115,16 @@ export const FAILURE_KIND_META = Object.freeze({
   TRANSIENT: { label: '暂时性错误', handling: '有限指数退避重试', retryable: true, maxRetries: 2, verifyFirst: false },
   PERMISSION: { label: '权限错误', handling: '不重试：路径/权限不允许', retryable: false, maxRetries: 0, verifyFirst: false },
   DATA: { label: '数据错误', handling: '标记工具异常，改用其它路径取数', retryable: false, maxRetries: 0, verifyFirst: false },
+  // 文件找不到不是「数据错误」：多半是存储视图 / 路径 / 时序问题（本轮没落盘、路径写法不同、被后续步骤删掉）。
+  // 归成数据错误会把模型推向「换个数据源」，而正确动作是先探测当前文件系统状态。
+  // verifyFirst 保持 false：它没有产生副作用，账本不该把它记成 uncertain（否则模型写完文件再读同一路径会被「先核验」拦住）
+  FILE_NOT_FOUND: { label: '文件不存在', handling: '不重试同参数：先 list_files 探测当前文件系统状态，再决定重写 / 改路径', retryable: false, maxRetries: 0, verifyFirst: false },
   SIDE_EFFECT_UNCERTAIN: { label: '副作用不确定', handling: '禁止盲目重试：先核验目标状态', retryable: false, maxRetries: 0, verifyFirst: true },
 });
 
 const FAILURE_PATTERNS = [
   { kind: 'PERMISSION', re: /(?:无权|权限|不允许|拒绝|forbidden|permission|not allowed|outside|越权)/i },
+  { kind: 'FILE_NOT_FOUND', re: /(?:找不到|文件不存在|不存在的文件|no such file|does not exist|ENOENT)/i },
   { kind: 'ENVIRONMENT', re: /(?:沙箱已关闭|沙箱创建失败|沙箱不可用|未开启|不可用|不存在|未安装|未就绪|no relay|中继|Pyodide|WASM|Worker|not available|unavailable)/i },
   { kind: 'TRANSIENT', re: /(?:超时|timed?\s*out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|socket hang up|网络中断|网络|fetch failed|429|50\d|暂时|重试)/i },
   { kind: 'INVALID_ARGS', re: /(?:参数|不是合法 JSON|必须|缺少|schema|invalid)/i },
@@ -1149,9 +1155,11 @@ export function classifyToolFailure({ name = '', args = null, result = '', error
     maxRetries: retryable ? retryLimit : 0,
     verifyFirst: meta.verifyFirst,
     idempotencyKey: idempotencyKey({ turnId: '', toolName: name, args }),
-    guidance: meta.verifyFirst
-      ? '该调用可能已经产生了副作用（写入/提交/扣费），结果丢失。禁止盲目重试：先用 read_file / list_files 核验目标状态。'
-      : (retryable ? '可按有限退避重试一次，若仍失败则转入带限制作答并如实披露。' : ''),
+    guidance: kind === 'FILE_NOT_FOUND'
+      ? '文件找不到是存储视图 / 路径 / 时序问题，不是数据源问题：先用 list_files 看当前到底有哪些文件（注意完整相对路径与大小写），确认后再重写或改路径；不要换数据源。'
+      : (meta.verifyFirst
+        ? '该调用可能已经产生了副作用（写入/提交/扣费），结果丢失。禁止盲目重试：先用 read_file / list_files 核验目标状态。'
+        : (retryable ? '可按有限退避重试一次，若仍失败则转入带限制作答并如实披露。' : '')),
   };
 }
 

@@ -96,10 +96,27 @@ export function sanitizeWorkerFiles(before, after, { cap = SANDBOX_STORAGE_CAP, 
   return { ok: true, files: { ...out }, rejected, total, count };
 }
 
-function applyWorkerFiles(fsObj, before, after) {
+// 把 Worker 跑完后的文件镜像写回会话文件系统——按「差异」写，而不是 clear() + import()。
+// 根因（V1.7 → .28 一直存在）：每轮工具拿到的是 createTempFS 临时层，它的 import() 是空操作、clear() 会清掉本轮所有写入，
+// 于是任何一次 execute_javascript / execute_python 都会：① 把本轮 write_file 写的文件清空 ② 丢掉沙箱代码自己写的 files。
+// 表现就是「write_file 成功 → 下一个 JS 调用 files_keys: []」「同调用能回读 files/probe.txt，下一调用就没了」。
+// 差异写法对真实 FS（createFS）与临时层（createTempFS）语义一致：新增 / 修改 → write，Worker 里删掉的 → remove。
+export function applyWorkerFiles(fsObj, before, after) {
   const r = sanitizeWorkerFiles(before, after);
-  if (r.ok) { fsObj.clear(); fsObj.import(r.files); }
-  return r;
+  if (!r.ok) return r;
+  const prev = before && typeof before === 'object' ? before : {};
+  let written = 0, removed = 0;
+  for (const k of Object.keys(r.files)) {
+    if (!Object.prototype.hasOwnProperty.call(prev, k) || prev[k] !== r.files[k]) {
+      try { fsObj.write(k, r.files[k]); written += 1; } catch (err) { r.rejected.push({ path: k, reason: `write-failed: ${err && err.message || err}` }); }
+    }
+  }
+  for (const k of Object.keys(prev)) {
+    if (!Object.prototype.hasOwnProperty.call(r.files, k) && typeof fsObj.remove === 'function') {
+      try { fsObj.remove(k); removed += 1; } catch { /* 删不掉就保留 */ }
+    }
+  }
+  return { ...r, written, removed };
 }
 
 function noteWorkerFiles(out, r) {
