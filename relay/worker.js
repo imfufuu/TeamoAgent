@@ -38,6 +38,8 @@ const MAX_CRAWL_BYTES_PER_PAGE = 800_000;
 const MAX_CRAWL_PAGE_CHARS = 16_000;
 const FETCH_TIMEOUT_MS = 25_000;
 const SEARCH_TIMEOUT_MS = 12_000;
+// DuckDuckGo 两个入口在被挡时经常是「挂着不回」而不是 202：各给 6s 快速失败，别让回退到 Brave 要等 24s
+const DDG_TIMEOUT_MS = 6_000;
 const CRAWL_TIMEOUT_MS = 7_000;
 const CORS = {
   'access-control-allow-origin': '*',
@@ -323,7 +325,7 @@ function parseDuckDuckGoLite(html, limit) {
 }
 async function searchDuckDuckGoLite(query, limit, signal) {
   const response = await guardedFetch('https://lite.duckduckgo.com/lite/', {
-    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
+    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: DDG_TIMEOUT_MS, signal,
     method: 'POST', body: new URLSearchParams({ q: query, kl: 'wt-wt' }).toString(), contentType: 'application/x-www-form-urlencoded',
     accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
   });
@@ -335,7 +337,7 @@ async function searchDuckDuckGo(query, limit, signal) {
   const endpoint = new URL('https://html.duckduckgo.com/html/');
   endpoint.searchParams.set('q', query);
   const response = await guardedFetch(endpoint.toString(), {
-    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: SEARCH_TIMEOUT_MS, signal,
+    limit: MAX_SEARCH_BYTES, cache: false, maxRedirects: 3, timeoutMs: DDG_TIMEOUT_MS, signal,
     accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
   });
   const results = parseDuckDuckGoHtml(response.body, limit);
