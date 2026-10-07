@@ -21,7 +21,8 @@ const html = fs.readFileSync(path.join(ROOT, 'app.html'), 'utf8');
 const dom = new JSDOM(html, { url: 'http://localhost:8000/', pretendToBeVisual: true });
 const { window } = dom;
 for (const k of ['document', 'window', 'location', 'navigator', 'HTMLElement', 'Element', 'Node', 'CustomEvent', 'Event', 'MouseEvent', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'URL', 'Blob', 'FormData', 'File']) {
-  if (window[k] !== undefined) globalThis[k] = window[k];
+  // Node ≥ 21 自带只读 getter 的 globalThis.navigator，直接赋值会抛 TypeError（CI 跑 Node 22 时暴露）：改用 defineProperty 覆盖
+  if (window[k] !== undefined) Object.defineProperty(globalThis, k, { value: window[k], configurable: true, writable: true, enumerable: true });
 }
 globalThis.self = window;
 globalThis.localStorage = window.localStorage;
