@@ -12,6 +12,8 @@ export const IMAGE_MODERATION_MODEL = 'local:nudenet-320n+nsfwjs-inception-v3';
 export const REMOTE_IMAGE_REVIEW_MODEL = 'gemini-3.5-flash-lite';   // 灰区图远程复核（便宜、快；只在本地拿不准时调用）
 export const REMOTE_IMAGE_REVIEW_MAX_PER_TURN = 3;                  // 每轮最多复核几张（视频抽帧也算），控成本
 export const REMOTE_IMAGE_REVIEW_TIMEOUT_MS = 20000;
+export const REMOTE_IMAGE_REVIEW_MAX_SIDE = 512;             // 远程复核前先压一张快照：最长边 512、JPEG 0.8——分类够用，token 与上传体积降一个量级
+export const REMOTE_IMAGE_REVIEW_JPEG_QUALITY = 0.8;
 export const TEXT_MODERATION_THRESHOLD = 0.9;
 export const TEXT_ADULT_SEX_THRESHOLD = 0.92;
 export const IMAGE_MODERATION_THRESHOLD = 0.70;   // 本地综合分（porn+hentai+sexy）直接拦截线
@@ -841,6 +843,28 @@ export function policyRemoteReviewDecision(answer, { model = REMOTE_IMAGE_REVIEW
   return { blocked: refused, score: refused ? 0.75 : 0, categories: refused ? ['adult_nsfw', 'remote_refusal'] : [], reason: refused ? 'remote_refusal' : '', source, parsed: false, raw: text.slice(0, 200) };
 }
 
+// 远程复核用的压缩快照：从已解码的 img 画到 ≤ REMOTE_IMAGE_REVIEW_MAX_SIDE 的 canvas，再导出 JPEG。
+// 原图可能是 4000px 的 PNG（几 MB base64），送给视觉模型既慢又贵；判断「有没有裸露」512px 绰绰有余。
+// 画不出来（无 DOM / canvas 被污染 / 解码对象不是真图）就退回原图，复核不能因为压缩失败而跳过。
+export function snapshotForRemoteReview(img, fallbackDataUrl, { maxSide = REMOTE_IMAGE_REVIEW_MAX_SIDE, quality = REMOTE_IMAGE_REVIEW_JPEG_QUALITY } = {}) {
+  try {
+    if (typeof document === 'undefined' || !img) return { dataUrl: fallbackDataUrl, compressed: false };
+    const { width, height } = imageSize(img);
+    if (!width || !height) return { dataUrl: fallbackDataUrl, compressed: false };
+    const scale = Math.min(1, maxSide / Math.max(width, height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(width * scale));
+    c.height = Math.max(1, Math.round(height * scale));
+    const ctx = c.getContext('2d');
+    if (!ctx) return { dataUrl: fallbackDataUrl, compressed: false };
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); // 透明 PNG 压成 JPEG 时底色别变黑
+    ctx.drawImage(img, 0, 0, c.width, c.height);
+    const out = c.toDataURL('image/jpeg', quality);
+    if (!/^data:image\/jpeg;base64,/.test(out)) return { dataUrl: fallbackDataUrl, compressed: false };
+    return { dataUrl: out, compressed: true, width: c.width, height: c.height, bytes: Math.round((out.length - 23) * 0.75), fromBytes: Math.round((String(fallbackDataUrl || '').length) * 0.75) };
+  } catch { return { dataUrl: fallbackDataUrl, compressed: false }; }
+}
+
 async function remoteImageReview(dataUrl, { apiKey, signal, model = REMOTE_IMAGE_REVIEW_MODEL } = {}) {
   const hooks = testHooks();
   if (typeof hooks.remoteReview === 'function') return hooks.remoteReview(dataUrl, { apiKey, signal, model });
@@ -1070,8 +1094,9 @@ export async function moderateImages({ attachments = [], text = '', signal, apiK
       if (merged.uncertain) {
         if (remoteLeft > 0) {
           remoteLeft -= 1;
-          mlog(`image#${i + 1}:remote-review-start`, { why: merged.uncertainWhy, model: REMOTE_IMAGE_REVIEW_MODEL });
-          const rr = await remoteImageReview(a.dataUrl, { apiKey, signal });
+          const snap = snapshotForRemoteReview(img, a.dataUrl);
+          mlog(`image#${i + 1}:remote-review-start`, { why: merged.uncertainWhy, model: REMOTE_IMAGE_REVIEW_MODEL, 快照: snap.compressed ? `${snap.width}x${snap.height} JPEG ${Math.round(snap.bytes / 1024)}KB（原 ${Math.round(snap.fromBytes / 1024)}KB）` : '原图（无法压缩）' });
+          const rr = await remoteImageReview(snap.dataUrl, { apiKey, signal });
           if (rr && rr.blocked) merged = { ...mergeDecisions(nudity, nsfw, rr), uncertain: false, remote: rr };
           else merged = { ...merged, remote: rr };
         } else {

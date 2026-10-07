@@ -6,10 +6,10 @@
 //   ② 每条带直达开关（切到 Max / 打开联网 / 打开沙箱 / 重新探测中继 / 打开设置），点完原地重算，条目消失；
 //   ③ 有裁剪时能力条末尾多一个「已禁用 N」胶囊，不点开也看得见。
 // 弹层复用 #tok-pop（与 token / 智能路由弹层同一时间只开一个）。
-import { isSmartRouter } from './smartrouter.js';
+import { isSmartRouter, SMART_ROUTER_LABEL } from './smartrouter.js';
 import { reasoningLevelLabel } from './reasoning.js';
-import { getTransport } from './api.js?v=2026.10.5.27';
-import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.27';
+import { getTransport } from './api.js?v=2026.10.5.28';
+import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.28';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -49,7 +49,7 @@ export function installCapabilityPop({
     const eln = $('#cap-line');
     if (!eln) return;
     const st = store.state.settings;
-    const bits = [['model', store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? '智能' : store.state.model)]]; // 通道态与模型钮同一叫法（.18）
+    const bits = [['model', store.state.model === '__system__' ? 'system-commands' : (isSmartRouter(store.state.model) ? SMART_ROUTER_LABEL : store.state.model)]]; // 通道态与模型钮同一叫法（.18）
     if (st.thinking !== false) bits.push(['think', `思考 ${reasoningLevelLabel(st.reasoningLevel)}`]);
     if (st.sandboxEnabled) bits.push(['sandbox', '沙箱']);
     if (store.state.relayOk === true && st.webEnabled !== false) bits.push(['web', '联网']);

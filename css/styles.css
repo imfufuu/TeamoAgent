@@ -812,8 +812,8 @@ a { color: var(--fg); }
 .msg.actions-pending .msg-toolbar { margin-top: 0; }
 /* 回合脚注里的预算余额：耗尽标危险色（P1 修正） */
 .msg-foot .foot-budget { color: var(--fg-3); }
-.msg-foot .foot-budget.bad { color: #dc2626; font-weight: 600; }
-[data-theme="dark"] .msg-foot .foot-budget.bad { color: #f87171; }
+.msg-foot .foot-budget.spent { color: var(--fg-2); }
+[data-theme="dark"] .msg-foot .foot-budget.spent { color: var(--fg-2); }
 .msg.actions-pending .msg-toolbar:has(> .msg-foot[hidden]) { display: none; }
 .msg-actions { display: flex; gap: 4px; margin-top: 0; flex: 1 1 auto; min-width: 0; opacity: 0; transform: translateY(-2px); transition: all .25s var(--ease); }
 .msg:hover .msg-actions { opacity: 1; transform: none; }

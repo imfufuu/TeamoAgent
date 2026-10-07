@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.27` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.28` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.28：5 项跟进——smart_router 命名 / 加载页 90s / 预算脚注去红 / 复核前压缩快照**
+
+58. **命名改回 `smart_router`**：`SMART_ROUTER_LABEL = 'smart_router'`，模型按钮 / 下拉项 / 消息头 / 「正在连接」行 / 费用弹层 / 能力行 / `/status` 一律显示 `smart_router`（上一版误改成了中文「智能」）；测试禁止任何界面文件再硬编码 `smart-router` / `smart_router` / 「智能」。
+59. **加载页**：超时阈值 60 → **90 秒**（`BOOT_TIMEOUT_MS`），「重新加载 / 清缓存后重载」两个按钮只在超时或真实报错之后出现（去掉了 20 秒就冒出来的入口）；慢网那行改为「加载模块 · 网速较慢 · 已等待 N 秒」，不再夹带文件名（文件名在下方网络明细行）。CSP 内联脚本哈希同步更新。
+60. **预算脚注不用危险色**：`工具 N/128 · 外部 N/32 ⚠ …已用尽` 由红色改为普通次级色（`.foot-budget.spent`）。
+61. **Gemini 复核前压缩快照**：`snapshotForRemoteReview()` 把已解码图画到最长边 512 的 canvas 导出 JPEG 0.8 再送远程（4000px PNG 几 MB → 几十 KB，token 降一个量级）；无 DOM / 画布失败退回原图而不是跳过复核；审核日志记录快照尺寸与压缩前后体积。
 
 **构建 2026.10.5.27：15 项修正——审核三层 / 「智能」/ 搜索回退 / 状态栏取色 / 设置同步等**
 

@@ -532,7 +532,8 @@ await test('启动超时不再自动闪退；挂载成功取消计时且内联�
   const script = /<script>([\s\S]*?)<\/script>/.exec(app)?.[1] || '';
   const failure = /function forceReveal\(msg\)\s*\{([\s\S]*?)\n  \}/.exec(script)?.[1] || '';
   assert.ok(script, '启动兜底脚本应存在');
-  assert.match(script, /60000/, '慢网容忍窗口应为 60 秒');
+  assert.match(script, /var BOOT_TIMEOUT_MS=90000;/, '慢网容忍窗口应为 90 秒');
+  assert.match(script, /启动超过 90 秒仍未完成/);
   assert.doesNotMatch(failure, /setTimeout|boot\.remove/, '失败提示必须留在屏幕上，不能自动闪退');
   assert.match(script, /window\.__dubheBootGuard\s*=\s*\{\s*complete/);
   assert.match(ui, /bootGuard\.complete\(\)/, 'UI 挂载成功时必须同步取消超时');
@@ -559,7 +560,10 @@ await test('启动屏（V1.7.1）：第三方字体不得以解析器外链阻�
   assert.match(script, /localStorage\.getItem\('dubhe-theme'\)[\s\S]*?setAttribute\('data-theme',th\)/, '启动脚本应提前套用已保存主题');
   assert.match(script, /window\.__dubheBootGuard\s*=\s*\{\s*complete:complete,stage:setStage\}/);
   assert.match(script, /setStage\('assets'\)/);
-  assert.match(script, /if\(total>=20\) showActions\(\)/, '20 秒后应出现「重新加载」入口（仍继续等待）');
+  assert.doesNotMatch(script, /if\(total>=\d+\) showActions\(\)/, '等待期间不出现重载按钮：只有 90 秒超时 / 真实报错（forceReveal）后才显示');
+  assert.equal((script.match(/showActions\(\)/g) || []).length, 2, 'showActions 只有定义 + forceReveal 一处调用');
+  assert.match(script, /setHint\(LABEL\[name\]\.replace\('…',''\)\+' · '\+why\+' · 已等待 '\+total\+' 秒'\);/, '慢网那行只写「网速较慢 · 已等待 N 秒」，不再塞文件名');
+  assert.match(script, /var why=name==='modules'\|\|name==='assets'\?'网速较慢':'仍在执行';/);
   assert.match(script, /getRegistrations\(\)[\s\S]*?unregister\(\)[\s\S]*?caches\.keys\(\)[\s\S]*?caches\.delete\(k\)/, '「清缓存后重载」需注销 SW 并清空 CacheStorage');
   assert.doesNotMatch(script, /onclick|onload=/, 'CSP 下不得使用内联事件处理器');
   assert.equal((app.match(/<li data-step="/g) || []).length, 4, '启动屏应有 4 个真实阶段');

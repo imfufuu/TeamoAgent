@@ -157,11 +157,11 @@ export function isSmartRouter(modelId) {
 
 // 路由器徽章的图标 & 显示名
 // 路由器图标 = TeamoRouter 产品 LOGO（粗实线外环 + 三段轨道弧 + 三个卫星点 + 实心核心）。
-// 2026.10.5.27：对照产品 LOGO 原图重新量过——轨道半径 8 → 8.6（更贴近外环）、弧线 2.6 → 2.5、缺口半角 10°、
+// 2026.10.5.28：对照产品 LOGO 原图重新量过——轨道半径 8 → 8.6（更贴近外环）、弧线 2.6 → 2.5、缺口半角 10°、
 // 卫星点 r 2.1 → 2.05 并外移 0.3 成「鼓包」、外环 2.1 → 2.3、核心 r 3.1 → 3.0；几何由 tools 内脚本按角度算出，不要手改坐标。
-export const SMART_ROUTER_LABEL = '智能';
+export const SMART_ROUTER_LABEL = 'smart_router';
 export const SMART_ROUTER_PROVIDER_LABEL = 'TEAMOROUTER';
-// 任何要把模型 ID 给用户看的地方都走这里：路由器显示「智能」，/system 显示 system-commands，其余原样
+// 任何要把模型 ID 给用户看的地方都走这里：路由器统一显示 smart_router（用户要求：所有位置都用这个名字，不用中文「智能」），/system 显示 system-commands，其余原样
 export function modelDisplayName(modelId) {
   if (modelId === SMART_ROUTER_ID) return SMART_ROUTER_LABEL;
   if (modelId === '__system__') return 'system-commands';

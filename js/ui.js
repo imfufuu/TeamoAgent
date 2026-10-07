@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.27';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.28';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.27';
+import { getTransport } from './api.js?v=2026.10.5.28';
 import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,16 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.27';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.27';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.27';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.27';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.27';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.27';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.27';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.27';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.27';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.27';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.28';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.28';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.28';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.28';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.28';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.28';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.28';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.28';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.28';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.28';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.27';
+} from './ui-markdown.js?v=2026.10.5.28';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.27';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.28';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -1059,7 +1059,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       // 旧逻辑 showHead 会判 false 导致「无图标无审核员」，这里强制显示
       const showHead = moderationNotice || !prev || prev.role === 'user';
       // 用这条消息生成时实际使用的模型（而不是当前选择），切换会话/换模型后回看不再张冠李戴
-      // 智能路由器：消息头显示路由图标 + 「智能」（不暴露真实模型）
+      // 智能路由器：消息头显示路由图标 + smart_router（不暴露真实模型）
       const headIsRouter = isSmartRouter(m.userModel);
       const headModel = m.model || store.state.model;
       let headName, headIcon;
@@ -1151,7 +1151,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     foot.textContent = line;
     if (budgetBits.length) {
       const span = document.createElement('span');
-      span.className = `foot-budget${exhausted.length ? ' bad' : ''}`;
+      span.className = `foot-budget${exhausted.length ? ' spent' : ''}`; // 用尽只是信息，不用危险色（用户要求）
       // 耗尽的是哪一路要写出来：脚注只列了两路，⚠ 却可能来自重试 / 记忆写入 / 时长，不写名字用户看不懂
       span.textContent = `${line ? ' · ' : ''}${budgetBits.join(' · ')}${exhausted.length ? ` ⚠ ${exhausted.map((c) => BUDGET_CHANNEL_LABEL[c] || c).join('、')}已用尽` : ''}`;
       span.title = exhausted.length

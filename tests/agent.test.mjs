@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.27';
+} from '../js/api.js?v=2026.10.5.28';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.27');
+const api = await import('../js/api.js?v=2026.10.5.28');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.27');
+  const api = await import('../js/api.js?v=2026.10.5.28');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.27');
+  assert.equal(APP_VERSION, '2026.10.5.28');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.27/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.28/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.27/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.28/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8143,16 +8143,20 @@ test('smart-router 图标与 TeamoRouter 产品 LOGO 一致（粗实线外环 + 
   }
   assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3" fill="currentColor"\/>/, '实心核心');
 });
-test('smart-router 对用户一律显示「智能」：模型按钮 / 下拉项 / 连接行 / 费用弹层都走 modelDisplayName', async () => {
+test('智能路由器对用户一律显示 smart_router：模型按钮 / 下拉项 / 消息头 / 连接行 / 费用弹层 / 能力行都走同一个 SMART_ROUTER_LABEL', async () => {
   const fsp = await import('node:fs');
   const sr = await import('../js/smartrouter.js');
-  assert.equal(sr.modelDisplayName('__smart_router__'), '智能');
+  assert.equal(sr.SMART_ROUTER_LABEL, 'smart_router');
+  assert.equal(sr.modelDisplayName('__smart_router__'), 'smart_router');
   assert.equal(sr.modelDisplayName('__system__'), 'system-commands');
   assert.equal(sr.modelDisplayName('gpt-5.6-sol'), 'gpt-5.6-sol');
   const picker = fsp.readFileSync(new URL('../js/ui-model-picker.js', import.meta.url), 'utf8');
   const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
   const pop = fsp.readFileSync(new URL('../js/ui-popovers.js', import.meta.url), 'utf8');
-  for (const src of [picker, ui, pop]) assert.doesNotMatch(src, /['"`>]smart[-_]router['"`<]/, '界面不得出现 smart-router / smart_router 字样');
+  const cap = fsp.readFileSync(new URL('../js/ui-capability.js', import.meta.url), 'utf8');
+  for (const src of [picker, ui, pop, cap]) assert.doesNotMatch(src, /['"`>]smart[-_]router['"`<]|'智能'/, '界面不得硬编码 smart-router / smart_router / 「智能」字样——一律经 SMART_ROUTER_LABEL');
+  assert.match(cap, /isSmartRouter\(store\.state\.model\) \? SMART_ROUTER_LABEL :/);
+  assert.match(ui, /headName = SMART_ROUTER_LABEL;/);
   assert.match(picker, /name = SMART_ROUTER_LABEL;/);
   assert.match(picker, /router-name">\$\{esc\(SMART_ROUTER_LABEL\)\}/);
   assert.match(ui, /正在连接 <b class="mono">\$\{esc\(modelDisplayName\(m\.model \|\| store\.state\.model\)\)\}/);
@@ -8287,7 +8291,7 @@ test('启动屏网络明细：显示当前拉取文件名与下载速度，合�
   assert.match(script, /fmtSpeed\(netBytes\/sec\)/);
   assert.match(script, /if\(!netTimer\) netTimer=setTimeout\(paintNet,120\);/, '120ms 合并刷新');
   assert.match(script, /'资源来自本地缓存 · '/, '全缓存命中时不显示 0 速度');
-  assert.match(script, /正在拉取 '\+netLast/, '慢网提示带上当前文件');
+  assert.doesNotMatch(script, /正在拉取 '\+netLast/, '.28：慢网提示那行只写「网速较慢 · 已等待 N 秒」，文件名已在下方网络明细行');
   assert.match(script, /'已下载 '\+fmtBytes\(netBytes\)\+' \/ '\+netFiles\+' 个文件 · 用时 '/, '就绪时给出总量与用时');
   assert.match(css, /\.boot-net \{[^}]*white-space: nowrap;[^}]*\}/);
   assert.match(css, /\.boot-net:empty \{ opacity: 0; \}/);
@@ -8652,9 +8656,10 @@ test('设置页「执行预算」：两路上限可调（写 settings.executionB
   assert.equal(((agent + toolrunner).match(/formatBudgetRecovery\(/g) || []).length, 3, '三处拦截文本都带恢复路径（P4 后住在 toolrunner.js）');
   assert.match(ui, /budgetBits\.push\(`工具 \$\{b\.toolCalls\[0\]\}\/\$\{b\.toolCalls\[1\] == null \? '∞' : b\.toolCalls\[1\]\}`\)/);
   assert.match(ui, /budgetBits\.push\(`外部 \$\{b\.external\[0\]\}\/\$\{b\.external\[1\] == null \? '∞' : b\.external\[1\]\}`\)/);
-  assert.match(ui, /span\.className = `foot-budget\$\{exhausted\.length \? ' bad' : ''\}`;/);
-  assert.match(css, /\.msg-foot \.foot-budget\.bad \{ color: #dc2626; font-weight: 600; \}/);
-  assert.match(css, /\[data-theme="dark"\] \.msg-foot \.foot-budget\.bad \{ color: #f87171; \}/);
+  assert.match(ui, /span\.className = `foot-budget\$\{exhausted\.length \? ' spent' : ''\}`;/);
+  assert.match(css, /\.msg-foot \.foot-budget\.spent \{ color: var\(--fg-2\); \}/, '用尽只是信息，不用危险色');
+  assert.doesNotMatch(css, /\.foot-budget\.bad/);
+  assert.doesNotMatch(css, /\.msg-foot \.foot-budget[^\n]*#dc2626/);
 });
 
 group('P2 修正：沙箱文件不保证跨轮持久 → internal/ · uploads/ 无条件提交 / 工具结果写明持久契约 / Edited File(s) 标出丢弃项');
@@ -9028,7 +9033,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.27'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.28'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9070,7 +9075,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.27');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.28');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9335,7 +9340,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.27：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.28：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9371,6 +9376,42 @@ test('#2 图片审核：NSFWJS 换 InceptionV3（layers / 299）+ 灰区远程�
   assert.match(settings, /bindSw\('#set-image-review', 'imageRemoteReview'\);/);
   assert.match(settings, /\$\('#set-image-review'\)\.checked = store\.state\.settings\.imageRemoteReview !== false;/);
   assert.ok(!fsp.existsSync(new URL('../assets/moderation/nsfw-mobilenet-v2-mid', import.meta.url)), '旧 mobilenet 资产删掉（省 4.3MB 预热流量）');
+});
+
+test('#2b Gemini 复核前先压缩快照：最长边 512 / JPEG 0.8；无 DOM 或画布失败时退回原图而不是跳过复核', async () => {
+  const mod = await import('../js/moderation.js');
+  assert.equal(mod.REMOTE_IMAGE_REVIEW_MAX_SIDE, 512);
+  const big = 'data:image/png;base64,' + 'A'.repeat(4000);
+  // 无 DOM：退回原图
+  const r0 = mod.snapshotForRemoteReview({ width: 4000, height: 3000 }, big);
+  assert.equal(r0.compressed, false); assert.equal(r0.dataUrl, big);
+  // 假 document / canvas：记录尺寸，产出 JPEG
+  const oldDoc = globalThis.document;
+  const drawn = [];
+  globalThis.document = { createElement: (tag) => {
+    assert.equal(tag, 'canvas');
+    const c = { width: 0, height: 0 };
+    c.getContext = () => ({ fillRect() {}, drawImage: (img, x, y, w, h) => drawn.push([w, h]) });
+    c.toDataURL = (mime, q) => { assert.equal(mime, 'image/jpeg'); assert.equal(q, 0.8); return 'data:image/jpeg;base64,' + 'B'.repeat(300); };
+    return c;
+  } };
+  try {
+    const r1 = mod.snapshotForRemoteReview({ naturalWidth: 4000, naturalHeight: 3000 }, big);
+    assert.equal(r1.compressed, true);
+    assert.deepEqual([r1.width, r1.height], [512, 384], '按最长边 512 等比缩');
+    assert.deepEqual(drawn[0], [512, 384]);
+    assert.match(r1.dataUrl, /^data:image\/jpeg;base64,/);
+    assert.ok(r1.bytes < r1.fromBytes);
+    const r2 = mod.snapshotForRemoteReview({ naturalWidth: 300, naturalHeight: 200 }, big);
+    assert.deepEqual([r2.width, r2.height], [300, 200], '小图不放大');
+    // toDataURL 抛错 → 退回原图
+    globalThis.document = { createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toDataURL: () => { throw new Error('tainted'); } }) };
+    const r3 = mod.snapshotForRemoteReview({ naturalWidth: 4000, naturalHeight: 3000 }, big);
+    assert.equal(r3.compressed, false); assert.equal(r3.dataUrl, big);
+  } finally { if (oldDoc === undefined) delete globalThis.document; else globalThis.document = oldDoc; }
+  const fsp = await import('node:fs');
+  const src = fsp.readFileSync(new URL('../js/moderation.js', import.meta.url), 'utf8');
+  assert.match(src, /const snap = snapshotForRemoteReview\(img, a\.dataUrl\);[\s\S]*?remoteImageReview\(snap\.dataUrl, \{ apiKey, signal \}\)/, '流水线里送远程的是快照不是原图');
 });
 
 test('#3 用户提示不念内部审核流程：拦截气泡只说「该内容已被审核」，上传 toast 不提抽帧 / 待审核 / 通过审核', async () => {
