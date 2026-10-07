@@ -67,13 +67,13 @@ export const SUBAGENTS = [
   {
     id: 'data-analyst', name: '数据分析师', tag: 'Data Analyst',
     description: '数据清洗/统计/可视化描述，沙箱内真实计算（JS/Python），拒绝口算',
-    tools: ['execute_python', 'execute_javascript', 'execute_sql', 'evaluate_expression', 'csv_tool', 'date_calc', 'convert_units', 'read_file', 'list_files', 'write_file'],
+    tools: ['execute_python', 'execute_javascript', 'execute_sql', 'evaluate_expression', 'data_tool', 'read_file', 'list_files', 'write_file'],
     prompt: '你是数据分析师。所有统计量、聚合、分布必须写代码在沙箱计算，禁止心算。流程：理解数据结构 → 清洗（说明处理的缺失/异常值）→ 分析 → 结论（附关键数字与计算代码）。数据在 FILES/沙箱文件中时先读取再分析。',
   },
   {
     id: 'mathematician', name: '数学家', tag: 'Mathematician',
     description: '数学推导与证明，数值/符号验证可在沙箱执行（含 C++ 高精度验证）',
-    tools: [...CODE_ALL, 'evaluate_expression', 'convert_units'],
+    tools: [...CODE_ALL, 'evaluate_expression', 'data_tool'],
     prompt: '你是数学家。给出严谨推导：定义 → 引理 → 证明/计算步骤，LaTeX 记号。简单数值用 evaluate_expression；复杂再用沙箱验证。明确区分严格证明与数值证据。',
   },
   {
@@ -84,9 +84,9 @@ export const SUBAGENTS = [
   },
   {
     id: 'regex-expert', name: '正则专家', tag: 'Regex Expert',
-    description: '正则编写/解释/调优，优先用 regex 工具实测，防回溯爆炸',
-    tools: ['regex', 'codec', 'unicode', 'execute_javascript', 'read_file', 'list_files'],
-    prompt: '你是正则表达式专家。优先调用 regex 工具（match/test/replace/explain）实测，不要只口算。产出：正则 + 逐段解释 + 正例/反例（用 regex 跑过）+ 回溯风险评估。给出 JS/Python/PCRE 方言差异。',
+    description: '正则编写/解释/调优，优先用 text_tool（action=regex）实测，防回溯爆炸',
+    tools: ['text_tool', 'execute_javascript', 'read_file', 'list_files'],
+    prompt: '你是正则表达式专家。优先调用 text_tool（action=regex，op=match/test/replace/explain）实测，不要只口算。产出：正则 + 逐段解释 + 正例/反例（用 regex 跑过）+ 回溯风险评估。给出 JS/Python/PCRE 方言差异。',
   },
   {
     id: 'api-designer', name: 'API 设计师', tag: 'API Designer',

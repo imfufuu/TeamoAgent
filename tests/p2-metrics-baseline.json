@@ -1,6 +1,6 @@
 {
- "version": "2026.10.2.14",
- "generatedAt": "2026-10-02T05:53:25.865Z",
+ "version": "2026.10.5.26",
+ "generatedAt": "2026-10-07T05:47:38.212Z",
  "overall": {
   "n": 120,
   "evaluated": 120,
@@ -221,5 +221,71 @@
    "failures": 0
   }
  ],
- "failureIds": []
+ "failureIds": [],
+ "toolSelection": {
+  "n": 120,
+  "tool_misselect_rate": 0.0333,
+  "tool_miss_rate": 0,
+  "medianToolsLength": 12,
+  "maxToolsLength": 14,
+  "perClass": {
+   "normal": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   },
+   "ambiguous": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   },
+   "tool-unavailable": {
+    "n": 12,
+    "misselect": 0.0833,
+    "miss": 0
+   },
+   "tool-anomaly": {
+    "n": 12,
+    "misselect": 0.0833,
+    "miss": 0
+   },
+   "prompt-injection": {
+    "n": 12,
+    "misselect": 0.0833,
+    "miss": 0
+   },
+   "memory-conflict": {
+    "n": 12,
+    "misselect": 0.0833,
+    "miss": 0
+   },
+   "intent-change": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   },
+   "high-risk": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   },
+   "long-chain": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   },
+   "budget-exhaustion": {
+    "n": 12,
+    "misselect": 0,
+    "miss": 0
+   }
+  },
+  "misselectedIds": [
+   "tool-unavailable-12",
+   "tool-anomaly-10",
+   "prompt-injection-10",
+   "memory-conflict-02"
+  ],
+  "missedIds": []
+ }
 }

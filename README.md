@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.25` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.26` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -124,10 +124,17 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **工具集**：`execute_javascript`（Worker 隔离 + console 捕获 + files 快照）、`execute_python`（Pyodide WASM 常驻 Worker，运行时只加载一次；经典 Worker 中必须显式传 `indexURL`）、`execute_cpp`（Compiler Explorer 公共 API 远程编译执行，g++ -O2 -std=c++20，请求需 `compilerOptions.executorRequest: true`，编译器按 `semver` 字段选择——ID 数字大小≠版本）、`write_file` / `read_file` / `list_files`（虚拟 FS，随会话持久化）、`get_current_time`、`remember`（跨会话长效记忆）、`dispatch_subagent`（子智能体委派）、
 `fetch_url`（本地中继或 Worker + 联网开关）、`search_web` / `crawl_site` / `download_file`（新版 Worker + 联网开关；`download_file` 把任意 http(s) 文件原始字节拉进沙箱 `uploads/`，≤ 16 MB）、`run_git`（本地中继 `workspace/` 内 git）。
-另有本地工作台：`regex` / `hash` / `codec` / `unicode` / `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image` / `analyze_video`，以及 V1.7 新增的 `csv_tool`（CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON）/ `date_calc`（日期差、加减、工作日、时区）/ `text_tool`（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）/ `convert_units`（长度、质量、温度、速度、面积、体积、数据、时间）/ `qr_code`（本地二维码 SVG，Version 1–20，写入 `outputs/`），全部在 `js/utiltools.js`，纯本地、零依赖。
+另有本地工作台：`text_tool`（文本统计 / 去重 / 排序 / 大小写 / 折行，`action=regex|hash|codec|unicode` 分别承接原 `regex` / `hash` / `codec` / `unicode`）/ `data_tool`（`kind=csv` CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON；`kind=date` 日期差、加减、工作日；`kind=units` 长度、质量、温度、速度、面积、体积、数据、时间换算；`kind=qr` 本地二维码 SVG，Version 1–20，写入 `outputs/`）/ `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image` / `analyze_video`，实现仍在 `js/utiltools.js` / `js/worktools.js`，纯本地、零依赖。构建 .26 起工具表 32 个、分两层下发：核心 12 个每轮必带，其余按用户消息 / 附件类型 / 近几轮用量按需挂载（模型点名未挂载工具时内核当场挂载并回执）。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.26：P6 修正——工具选择熵过高**
+
+45. **9 → 2 伞工具**：`regex` / `hash` / `codec` / `unicode` 并入 `text_tool`（`action=regex|hash|codec|unicode` + `op`），`csv_tool` / `date_calc` / `convert_units` / `qr_code` 并入 `data_tool`（`kind=csv|date|units|qr`）；`TOOL_DEFS` 39 → 32。旧名字保留为执行别名（`LEGACY_TOOL_ALIASES`，旧会话回放 / 幂等账本 / 测试照常），但不再下发给模型；芯片与审计记模型实际调用的伞工具名。子智能体工具表、`nexus.js` invariantCore、提示词工具段、示例池同步改名。
+46. **两层下发**：`executionContext.js` 新增 `selectToolsForTurn({ allowed, text, attachments, recentTools, forceMount })`——核心 12 个（`execute_*` ×3、`write/read/list/delete/copy_file`、`fetch_url`、`search_web`、`analyze_image`、`dispatch_subagent`）每轮必带，其余 20 个按 `TOOL_MOUNT_RULES`（关键词正则 + `exclude` + 附件类型 pdf / video / zip / csv）、近两轮实际用量（粘性）、点名挂载；只从能力裁剪后的 `allowed` 里挑，裁掉的不会被按需「复活」；没写规则的工具按旧行为全量下发。系统提示【工具表】段只列未挂载工具的名字（≈5 token/个），【联网】段把 `crawl_site` / `download_file` 的「按需未挂载」与「不可用」分开说。`previewToolTable({ text, attachments })` 可预演同一条消息的 `mounted` / `deferred`。
+47. **未挂载调用有回执**：模型调用能力上允许但本轮没下发的工具时，`toolrunner.js` 返回「该工具本轮未启用，可用 execute_javascript 完成；内核已临时挂载 X，如确需也可直接重试一次」，同时把它挂进本轮工具表（下一次请求体里就有）、记 `tool-lazy-mount` 审计事件、芯片 ✗ + 原因、执行记录计为拦截（不是静默失败）。
+48. **误选率进门禁**：`tests/p2-eval-corpus.json` 120 条每条标 `expectedTools`（核心之外的期望工具集合；注入 / 记忆类按 `scenario.userText`），`tests/p2-eval.mjs` 用真实 `selectToolsForTurn` 复算每条的挂载表，输出 `tool_misselect_rate`（挂载了期望之外的非核心工具的回合比例，当前 3.3%）、`tool_miss_rate`（期望工具没挂载，当前 0%）、`tools.length` 中位数（12，最大 14）；三者写入 `p2-metrics-baseline.json`，门禁 = 不得相对基线退化超过 5 个百分点（复用类目准确率的容差机制）+ 中位数硬上限 18。`agent.test.mjs` 端到端 mock 三类典型消息（寒暄 / 数据任务 / 联网 + PDF 附件）断言请求体 `tools.length` 中位数 ≤ 18、`analyze_pdf` 只跟 PDF 附件走、旧名字不再下发。
 
 **构建 2026.10.5.25：P5 修正——缺少外部验证闭环**
 

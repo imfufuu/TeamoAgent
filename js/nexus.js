@@ -632,8 +632,7 @@ export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
   subagentSwarm: Object.freeze(['dispatch_subagent']),
   invariantCore: Object.freeze([
     'read_file', 'write_file', 'list_files', 'delete_file', 'copy_file', 'search_files',
-    'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'regex',
-    'hash', 'codec', 'unicode', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'qr_code',
+    'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'text_tool', 'data_tool',
     'render_mermaid', 'render_dot', 'zip_files', 'unzip_file', 'get_current_time',
     'generate_image', 'analyze_image', 'analyze_pdf', 'analyze_video', 'remember',
   ]),
@@ -1295,7 +1294,7 @@ export function buildDegradationDiagnostics({
       id: 'sandbox-switched-off',
       capability: 'execute_javascript / execute_python / execute_cpp 代码沙箱',
       status: 'paused',
-      reason: '用户已手动关闭「沙箱」开关（0ms 本地纯函数工具如 evaluate_expression / execute_sql / regex / hash 仍正常可用）',
+      reason: '用户已手动关闭「沙箱」开关（0ms 本地纯函数工具如 evaluate_expression / execute_sql / text_tool / data_tool 仍正常可用）',
       recovery: '点击输入框下方「沙箱」按钮开启，即可恢复 JS Worker 与 Pyodide WASM 代码执行',
     });
   }

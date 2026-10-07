@@ -1,6 +1,6 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.25';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.26';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
@@ -12,12 +12,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.25';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.26';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.25';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.26';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -106,67 +106,6 @@ export const TOOL_DEFS = [
     name: 'get_browser_environment',
     description: '仅在用户明确询问浏览器/设备环境时调用。只读取公开的粗略浏览器信息（浏览器主版本、OS 家族、语言、时区、取整后的视口、触屏/联网/减少动态效果偏好）；不读取 Cookie、localStorage、IP、GPS/精确位置、硬件序列号或设备 ID。',
     parameters: { type: 'object', properties: {} },
-  },
-  {
-    name: 'regex',
-    description:
-      '在本地用 JavaScript 正则处理文本（无需沙箱）。action=match 列出全部匹配与捕获组/命名组及偏移；test 只判断是否匹配；replace 替换（支持 $1 $& $<name>）；split 分割；explain 解释 pattern。' +
-      'flags 为 JS 正则标志（gimsuvyd）。Unicode 属性如 \\p{L}、\\p{Script=Han} 需带 u 或 v。text 或 path（沙箱文件）二选一。写正则、抽字段、改文本时用本工具，不要口算。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['match', 'test', 'replace', 'split', 'explain'], description: '默认 match' },
-        pattern: { type: 'string', description: '正则源码，不要写成 /foo/g 这种字面量，flags 单独传' },
-        flags: { type: 'string', description: 'g i m s u v y d 的组合，可空' },
-        text: { type: 'string', description: '待处理文本' },
-        path: { type: 'string', description: '可选：从沙箱读取文本，代替 text' },
-        replacement: { type: 'string', description: 'replace 时的替换串' },
-        limit: { type: 'integer', description: '最多返回多少处匹配，默认 250' },
-      },
-      required: ['pattern'],
-    },
-  },
-  {
-    name: 'hash',
-    description: '计算哈希/校验和（本地，无需沙箱）：md5 / sha1 / sha256 / sha384 / sha512 / crc32。text 或 path（沙箱文件；图片 data URL 按原字节）。安全场景用 sha256。',
-    parameters: {
-      type: 'object',
-      properties: {
-        algorithm: { type: 'string', enum: ['md5', 'sha1', 'sha256', 'sha384', 'sha512', 'crc32'], description: '默认 sha256' },
-        text: { type: 'string', description: '要哈希的文本（UTF-8）' },
-        path: { type: 'string', description: '可选：哈希沙箱文件字节' },
-      },
-    },
-  },
-  {
-    name: 'codec',
-    description:
-      '本地编解码：base64 / base64url / hex / url（percent-encoding）/ html 实体；action=encode 或 decode。' +
-      'action=uuid 生成 UUID v4。format=jwt 且 decode 时拆 JWT header/payload（不校验签名）。不要为这些小事去开沙箱。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['encode', 'decode', 'uuid'], description: '默认 encode' },
-        format: { type: 'string', enum: ['base64', 'base64url', 'hex', 'url', 'html', 'jwt'], description: '默认 base64；uuid 动作可省略' },
-        text: { type: 'string', description: '输入文本' },
-        path: { type: 'string', description: '可选：从沙箱读入' },
-      },
-    },
-  },
-  {
-    name: 'unicode',
-    description:
-      '查询/转换 Unicode：inspect 逐码位给出 U+XXXX、UTF-8、General_Category、Script、区块提示；from_codes 把 U+XXXX / 0xNN / 十进制码位拼成字符串；normalize（NFC/NFD/NFKC/NFKD）；escape / unescape（\\u / \\u{…}）。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['inspect', 'from_codes', 'normalize', 'escape', 'unescape'], description: '默认 inspect' },
-        text: { type: 'string', description: '待分析或转换的文本；from_codes 也可把码位写在这里' },
-        path: { type: 'string', description: '可选：从沙箱读入' },
-        form: { type: 'string', enum: ['NFC', 'NFD', 'NFKC', 'NFKD'], description: 'normalize 时的正规化形式，默认 NFC' },
-        codes: { type: 'string', description: 'from_codes 的码位串，如 U+4F60 0x41 128512' },
-      },
-    },
   },
   {
     name: 'generate_image',
@@ -446,60 +385,32 @@ export const TOOL_DEFS = [
     },
   },
   {
-    name: 'csv_tool',
-    description:
-      '本地 CSV/TSV 工作台，不必开沙箱也不要为此写 pandas。action：preview 预览（默认）、stats 每列类型/非空/唯一/最小最大均值中位数、select 按 where 过滤 + sort 排序 + columns 投影（format=markdown/csv/json）、aggregate 按 by 分组对 value 做 sum/avg/count/min/max、to_json、to_markdown。自动识别分隔符（, TAB ; |）与表头。text 或 path 二选一；结果超过 limit 行时截断。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['preview', 'stats', 'select', 'aggregate', 'to_json', 'to_markdown'], description: '默认 preview' },
-        text: { type: 'string', description: 'CSV 文本' },
-        path: { type: 'string', description: '沙箱里的 .csv/.tsv 路径（与 text 二选一）' },
-        delimiter: { type: 'string', description: '分隔符，留空自动识别；TAB 写 "\\t"' },
-        header: { type: 'boolean', description: '第一行是否表头，默认 true' },
-        where: { type: 'array', items: { type: 'string' }, description: 'select 的过滤条件，如 ["price > 100", "city contains 上海"]；运算符 = != > < >= <= contains startswith' },
-        sort: { type: 'string', description: 'select 的排序列；前缀 - 表示降序，如 "-price"' },
-        columns: { type: 'array', items: { type: 'string' }, description: 'select 要保留的列（名称或 0 起下标）' },
-        by: { type: 'string', description: 'aggregate 的分组列' },
-        value: { type: 'string', description: 'aggregate 的数值列' },
-        fn: { type: 'string', enum: ['sum', 'avg', 'count', 'min', 'max'], description: 'aggregate 聚合函数，默认 sum' },
-        format: { type: 'string', enum: ['markdown', 'csv', 'json'], description: 'select 输出格式，默认 markdown' },
-        out: { type: 'string', description: '可选：把 select/to_json 结果写到沙箱的这个路径' },
-        limit: { type: 'number', description: '最多输出行数，默认 50，上限 500' },
-      },
-    },
-  },
-  {
-    name: 'date_calc',
-    description:
-      '本地日期时间计算，不要口算也不要为此开沙箱。action：info 解析并给出 ISO/时间戳/星期/ISO 周/季度/距今（默认）、add 加时长、subtract 减时长、diff 两个时间相差多少（天/周/工作日/秒）、weekday 查星期几。日期支持 YYYY-MM-DD、YYYY-MM-DD HH:mm、ISO 8601、Unix 时间戳、today/tomorrow/yesterday；时长支持 "3 days"、"2周"、"1y 2mo"、"90 minutes"。按用户浏览器本地时区。',
-    parameters: {
-      type: 'object',
-      properties: {
-        action: { type: 'string', enum: ['info', 'add', 'subtract', 'diff', 'weekday'], description: '默认 info' },
-        date: { type: 'string', description: '起点日期/时间；留空=现在' },
-        add: { type: 'string', description: 'add 的时长，如 "45 days" / "3个月"' },
-        subtract: { type: 'string', description: 'subtract 的时长' },
-        to: { type: 'string', description: 'diff 的终点日期' },
-        format: { type: 'boolean', description: 'info 时附带本地化长格式' },
-        locale: { type: 'string', description: '格式化语言，默认 zh-CN' },
-      },
-    },
-  },
-  {
     name: 'text_tool',
     description:
-      '本地文本处理，不必开沙箱。action：stats 字数/词数/句段行/字节/阅读时长（默认）、case 大小写转换（mode=upper/lower/title/sentence/camel/pascal/snake/kebab/constant/slug）、trim 去尾随空白与首尾空行、dedupe 按行去重、sort 按行排序（numeric/order=desc/ignore_case）、reverse、number 加行号、wrap 按 width 折行、extract 抽取 what=urls/emails/numbers/hashtags/mentions/ips/dates/phones、frequency 词频 top N、replace 查找替换（regex=true 用正则，支持 $1）、truncate 截断到 length、escape/unescape（mode=html/json/regex/shell）、lorem 占位文本。text 或 path 二选一。',
+      '本地文本工作台（P6 合并 text_tool + regex + hash + codec + unicode，不必开沙箱，也不要为这些小事开 execute_javascript）。' +
+      'action：stats 字数/词数/句段行/字节/阅读时长（默认）、case 大小写转换（mode=upper/lower/title/sentence/camel/pascal/snake/kebab/constant/slug）、trim、dedupe 按行去重、sort 按行排序（numeric/order=desc/ignore_case）、reverse、number 加行号、wrap 按 width 折行、extract 抽取 what=urls/emails/numbers/hashtags/mentions/ips/dates/phones、frequency 词频 top N、replace 查找替换（regex=true 用正则，支持 $1）、truncate 截断到 length、escape/unescape（mode=html/json/regex/shell）、lorem 占位文本；' +
+      'action=regex 用 JS 正则（op=match 列出匹配与捕获组 / test / replace 支持 $1 $<name> / split / explain；flags 为 gimsuvyd，\\p{…} 需 u 或 v）；' +
+      'action=hash 算 algorithm=md5/sha1/sha256/sha384/sha512/crc32（path 时按文件原字节）；' +
+      'action=codec 做 op=encode/decode（format=base64/base64url/hex/url/html/jwt）或 op=uuid；' +
+      'action=unicode 做 op=inspect 逐码位 / from_codes（codes=U+4F60 0x41 128512）/ normalize（form=NFC/NFD/NFKC/NFKD）/ escape / unescape。text 或 path 二选一。',
     parameters: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['stats', 'case', 'trim', 'dedupe', 'sort', 'reverse', 'number', 'wrap', 'extract', 'frequency', 'replace', 'truncate', 'escape', 'unescape', 'lorem'], description: '默认 stats' },
+        action: { type: 'string', enum: ['stats', 'case', 'trim', 'dedupe', 'sort', 'reverse', 'number', 'wrap', 'extract', 'frequency', 'replace', 'truncate', 'escape', 'unescape', 'lorem', 'regex', 'hash', 'codec', 'unicode'], description: '默认 stats' },
+        op: { type: 'string', description: 'regex 的子操作 match/test/replace/split/explain（默认 match）；codec 的 encode/decode/uuid（默认 encode）；unicode 的 inspect/from_codes/normalize/escape/unescape（默认 inspect）' },
         text: { type: 'string', description: '要处理的文本' },
         path: { type: 'string', description: '沙箱文件路径（与 text 二选一）' },
+        pattern: { type: 'string', description: 'regex 的正则源码，不要写成 /foo/g 字面量，flags 单独传' },
+        flags: { type: 'string', description: 'regex 的标志 g i m s u v y d 组合，可空' },
+        limit: { type: 'integer', description: 'regex 最多返回多少处匹配，默认 250' },
+        algorithm: { type: 'string', enum: ['md5', 'sha1', 'sha256', 'sha384', 'sha512', 'crc32'], description: 'hash 的算法，默认 sha256' },
+        format: { type: 'string', enum: ['base64', 'base64url', 'hex', 'url', 'html', 'jwt'], description: 'codec 的格式，默认 base64' },
+        form: { type: 'string', enum: ['NFC', 'NFD', 'NFKC', 'NFKD'], description: 'unicode normalize 的形式，默认 NFC' },
+        codes: { type: 'string', description: 'unicode from_codes 的码位串' },
         mode: { type: 'string', description: 'case / escape / unescape 的模式' },
         what: { type: 'string', description: 'extract 要抽取的类型' },
         find: { type: 'string', description: 'replace 要找的文本或正则' },
-        replacement: { type: 'string', description: 'replace 的替换文本' },
+        replacement: { type: 'string', description: 'replace / regex replace 的替换文本' },
         regex: { type: 'boolean', description: 'replace 时 find 按正则解释' },
         ignore_case: { type: 'boolean' },
         numeric: { type: 'boolean', description: 'sort 时按数值' },
@@ -513,35 +424,46 @@ export const TOOL_DEFS = [
     },
   },
   {
-    name: 'convert_units',
+    name: 'data_tool',
     description:
-      '本地单位换算，不要口算。支持长度/质量/时间/面积/体积/速度/数据量（含 KiB 与 Mbps）/能量/功率/压强/角度/频率/温度（C/F/K）/油耗（mpg↔L/100km），含中文市制（斤、两、亩、里、尺）。传 value+from+to，或直接 text="5 km to mi"。',
+      '本地数据工作台（P6 合并 csv_tool + date_calc + convert_units + qr_code，不必开沙箱）。kind 必填：' +
+      'kind=csv 处理 CSV/TSV（小表不要写 pandas）：action=preview（默认）/ stats 每列类型统计 / select 按 where 过滤 + sort + columns 投影（format=markdown/csv/json）/ aggregate 按 by 分组对 column 做 fn=sum/avg/count/min/max / to_json / to_markdown；自动识别分隔符与表头；text 或 path 二选一；' +
+      'kind=date 做日期计算（日期一律用它算，不要口算）：action=info 解析给出 ISO/时间戳/星期/ISO 周/距今（默认）/ add / subtract / diff 相差天数、周、工作日 / weekday；日期支持 YYYY-MM-DD、ISO 8601、Unix 时间戳、today/tomorrow；时长如 "3 days"、"2周"、"1y 2mo"；' +
+      'kind=units 做单位换算（长度/质量/时间/面积/体积/速度/数据量/能量/功率/压强/角度/温度/油耗，含斤、两、亩、里、尺）：value+from+to，或 text="5 km to mi"；' +
+      'kind=qr 本地生成二维码 SVG（网址/Wi-Fi/vCard/文本，≤ 2000 字符）写入 outputs/qr-001.svg，随后必须用 ![二维码](sandbox://outputs/qr-001.svg) 嵌入正文。',
     parameters: {
       type: 'object',
       properties: {
-        value: { type: 'number', description: '数值' },
-        from: { type: 'string', description: '源单位，如 km、lb、°F、GiB、斤' },
-        to: { type: 'string', description: '目标单位' },
-        text: { type: 'string', description: '自然语言写法，如 "72 F to C"、"3 斤 to kg"' },
-        precision: { type: 'number', description: '小数位，默认 6' },
+        kind: { type: 'string', enum: ['csv', 'date', 'units', 'qr'], description: '子工具' },
+        action: { type: 'string', description: 'csv：preview/stats/select/aggregate/to_json/to_markdown；date：info/add/subtract/diff/weekday' },
+        text: { type: 'string', description: 'csv 的表格文本 / units 的自然语言写法（"72 F to C"）/ qr 要编码的内容' },
+        path: { type: 'string', description: 'csv：沙箱里的 .csv/.tsv 路径（与 text 二选一）' },
+        delimiter: { type: 'string', description: 'csv 分隔符，留空自动识别；TAB 写 "\\t"' },
+        header: { type: 'boolean', description: 'csv 第一行是否表头，默认 true' },
+        where: { type: 'array', items: { type: 'string' }, description: 'csv select 的过滤条件，如 ["price > 100", "city contains 上海"]' },
+        sort: { type: 'string', description: 'csv select 的排序列；前缀 - 表示降序' },
+        columns: { type: 'array', items: { type: 'string' }, description: 'csv select 要保留的列' },
+        by: { type: 'string', description: 'csv aggregate 的分组列' },
+        column: { type: 'string', description: 'csv aggregate 的数值列' },
+        fn: { type: 'string', enum: ['sum', 'avg', 'count', 'min', 'max'], description: 'csv aggregate 聚合函数，默认 sum' },
+        format: { type: 'string', enum: ['markdown', 'csv', 'json'], description: 'csv select 输出格式，默认 markdown' },
+        limit: { type: 'number', description: 'csv 最多输出行数，默认 50，上限 500' },
+        date: { type: 'string', description: 'date 的起点日期/时间；留空=现在' },
+        add: { type: 'string', description: 'date add 的时长' },
+        subtract: { type: 'string', description: 'date subtract 的时长' },
+        to: { type: 'string', description: 'date diff 的终点日期 / units 的目标单位' },
+        long: { type: 'boolean', description: 'date info 时附带本地化长格式' },
+        locale: { type: 'string', description: 'date 格式化语言，默认 zh-CN' },
+        value: { type: 'number', description: 'units 的数值' },
+        from: { type: 'string', description: 'units 的源单位，如 km、lb、°F、GiB、斤' },
+        precision: { type: 'number', description: 'units 小数位，默认 6' },
+        ec: { type: 'string', enum: ['L', 'M', 'Q', 'H'], description: 'qr 纠错等级，默认 M' },
+        fg: { type: 'string', description: 'qr 前景色 #rrggbb，默认 #0a0a0a' },
+        bg: { type: 'string', description: 'qr 背景色，默认 #ffffff' },
+        module: { type: 'number', description: 'qr 每个模块的像素，默认 8' },
+        out: { type: 'string', description: 'csv select/to_json 或 qr 的输出路径' },
       },
-    },
-  },
-  {
-    name: 'qr_code',
-    description:
-      '本地生成二维码（纯 JS 编码，内容不出浏览器）：网址、Wi-Fi（WIFI:T:WPA;S:名;P:密码;;）、vCard、文本都行。写入沙箱 outputs/qr-001.svg，随后必须用 ![说明](sandbox://outputs/qr-001.svg) 嵌入正文。ec 为纠错等级 L/M/Q/H（默认 M）；最长约 2000 字符。',
-    parameters: {
-      type: 'object',
-      properties: {
-        text: { type: 'string', description: '要编码的内容' },
-        ec: { type: 'string', enum: ['L', 'M', 'Q', 'H'], description: '纠错等级，默认 M' },
-        out: { type: 'string', description: '输出路径，默认 outputs/qr-NNN.svg' },
-        fg: { type: 'string', description: '前景色 #rrggbb，默认 #0a0a0a' },
-        bg: { type: 'string', description: '背景色，默认 #ffffff' },
-        module: { type: 'number', description: '每个模块的像素，默认 8' },
-      },
-      required: ['text'],
+      required: ['kind'],
     },
   },
   {
@@ -672,9 +594,44 @@ export async function executeTool(name, args, ctx) {
   }
   return stampToolDuration(out, nowMs() - t0);
 }
-async function executeToolBody(name, args, ctx) {
+// ─── P6 修正：工具选择熵过高 ───────────────────────────────────────────────
+// 9 个本地小工具合成 2 个伞工具（text_tool / data_tool）对模型下发；内部实现与旧名字的 case 分支保留，
+// 旧会话回放、幂等账本、测试仍可按旧名字执行——但旧名字不再出现在 TOOL_DEFS 里。
+export const LEGACY_TOOL_ALIASES = Object.freeze({
+  regex: 'text_tool', hash: 'text_tool', codec: 'text_tool', unicode: 'text_tool',
+  csv_tool: 'data_tool', date_calc: 'data_tool', convert_units: 'data_tool', qr_code: 'data_tool',
+});
+const TEXT_TOOL_SUBTOOLS = Object.freeze({ regex: 'regex', hash: 'hash', codec: 'codec', unicode: 'unicode' });
+const DATA_TOOL_KINDS = Object.freeze({ csv: 'csv_tool', date: 'date_calc', units: 'convert_units', qr: 'qr_code' });
+// 伞工具调用 → 内部子工具名 + 参数；非伞工具返回 null；参数不合法返回 { error }
+export function resolveUmbrellaTool(name, args) {
+  const a = args && typeof args === 'object' ? args : {};
+  if (name === 'text_tool' && TEXT_TOOL_SUBTOOLS[a.action]) {
+    const inner = TEXT_TOOL_SUBTOOLS[a.action];
+    const { action, op, ...rest } = a;
+    if (inner === 'hash') return { name: inner, args: rest };
+    return { name: inner, args: op ? { ...rest, action: String(op) } : rest };
+  }
+  if (name === 'data_tool') {
+    const inner = DATA_TOOL_KINDS[a.kind];
+    if (!inner) return { error: 'data_tool 失败：kind 必须是 csv / date / units / qr 之一' };
+    const { kind, column, long, ...rest } = a;
+    if (inner === 'csv_tool') return { name: inner, args: column != null ? { ...rest, value: column } : rest };
+    if (inner === 'date_calc') return { name: inner, args: long != null ? { ...rest, format: !!long } : rest };
+    return { name: inner, args: rest };
+  }
+  return null;
+}
+
+async function executeToolBody(outerName, outerArgs, ctx) {
   const { fs, onUi } = ctx;
-  const emit = (patch) => onUi && onUi({ name, args, ...patch });
+  // 芯片/审计一律用模型实际调用的名字；执行分支按子工具名走
+  const emit = (patch) => onUi && onUi({ name: outerName, args: outerArgs, ...patch });
+  let name = outerName;
+  let args = outerArgs;
+  const umbrella = resolveUmbrellaTool(outerName, outerArgs);
+  if (umbrella && umbrella.error) { emit({ status: 'error', error: { message: umbrella.error } }); return umbrella.error; }
+  if (umbrella) { name = umbrella.name; args = umbrella.args; }
   // 兜底防线：工具列表按开关过滤过，但缓存错配或旧上下文里的工具调用仍可能打进来
   if (name === 'execute_cpp' && ctx.remoteCpp === false) {
     return 'execute_cpp 已被用户关闭（设置 → 远程 C++）：该工具会把代码发送到 godbolt.org 远程执行。请改用 execute_javascript / execute_python 在本地沙箱完成，或告知用户需要开启远程 C++。';

@@ -1,7 +1,7 @@
 // ─── 空状态任务示例池（纯函数 + 数据，便于单测）────────────────────────
 // 卡片展示 30–50 字概括（title 长短不一，卡已拉齐宽度）；点击填入约 200 字的完整提示词（text）。
 // 任务有挑战性，但只使用真实工具：JS/Python/C++ 沙箱、文件、ZIP、生图、
-// regex/hash/codec/unicode、search_files/diff_text/json_tool。
+// text_tool（含 regex/hash/codec/unicode）/ data_tool、search_files/diff_text/json_tool。
 // 不写切模型、点回滚、未上传的图、只有 Max 才能委派、联网搜索。
 
 export const SUGGESTIONS = [
@@ -15,7 +15,7 @@ export const SUGGESTIONS = [
   },
   {
     title: '从一份夹杂垃圾行的服务日志里抽出字段，做成可校验的事件 CSV 并哈希',
-    text: '把下面日志写入 files/raw.log，用 regex 工具抽出 ts、level、service、code。忽略破行。写成 files/events.csv（表头 ts,level,service,code），再用 JavaScript 断言：行数≥5、code 都是三位数字、没有 ERROR 行丢失。最后用 hash 算 csv 的 sha256，把校验和写进 files/events.sha256。\n\n2026-09-26T10:01:02Z INFO api code=200 path=/health\n2026-09-26T10:01:03Z ERROR billing code=503 path=/pay\n[garbage]\n2026-09-26T10:01:04Z WARN api code=429 path=/v1/chat\n2026-09-26T10:01:05Z INFO worker code=201 path=/job\n2026-09-26T10:01:06Z ERROR api code=500 path=/v1/messages',
+    text: '把下面日志写入 files/raw.log，用 text_tool（action=regex）抽出 ts、level、service、code。忽略破行。写成 files/events.csv（表头 ts,level,service,code），再用 JavaScript 断言：行数≥5、code 都是三位数字、没有 ERROR 行丢失。最后用 hash 算 csv 的 sha256，把校验和写进 files/events.sha256。\n\n2026-09-26T10:01:02Z INFO api code=200 path=/health\n2026-09-26T10:01:03Z ERROR billing code=503 path=/pay\n[garbage]\n2026-09-26T10:01:04Z WARN api code=429 path=/v1/chat\n2026-09-26T10:01:05Z INFO worker code=201 path=/job\n2026-09-26T10:01:06Z ERROR api code=500 path=/v1/messages',
   },
   {
     title: '用差分测试插入排序与内置排序，一旦失败就把该组输入输出写入文件',
@@ -34,12 +34,12 @@ export const SUGGESTIONS = [
     text: '用 JavaScript 生成 120 行销售 CSV：日期 2026-07-01 起、城市（东京/大阪/京都）、品类、金额 20–800。写入 files/sales.csv。计算：各城市 GMV、金额最高的 5 单、连续 3 天低于该市均值 40% 的日期。结果写成 Markdown 表格保存 files/sales-report.md。金额保留整数，城市名保持中文。',
   },
   {
-    title: '用 unicode 工具把日文浊音做 NFC / NFD 往返，并解释每一步的码位差异',
-    text: '用 unicode 工具分别 inspect「が」与「か」+ 结合用浊点（U+3099）。再 normalize 到 NFD 与 NFC，确认往返是否回到同一字符串。把每步的码位、名称、UTF-8 字节写成 files/kana-normalize.md。最后用 JavaScript 断言 NFC(NFD(が))===が，失败则打印实际码位序列。不要只给结论不给码位。',
+    title: '用 text_tool 把日文浊音做 NFC / NFD 往返，并解释每一步的码位差异',
+    text: '用 text_tool（action=unicode, op=inspect）分别检查「が」与「か」+ 结合用浊点（U+3099）。再 normalize 到 NFD 与 NFC，确认往返是否回到同一字符串。把每步的码位、名称、UTF-8 字节写成 files/kana-normalize.md。最后用 JavaScript 断言 NFC(NFD(が))===が，失败则打印实际码位序列。不要只给结论不给码位。',
   },
   {
     title: '写一组带 u 标志的口令策略正则，并对五条样例逐条说明通过或失败原因',
-    text: '写一组 JS 正则（要带 u 标志），检查口令同时满足：长度≥10、含大写、小写、数字、以及非 ASCII 符号（例如全角感叹号）。用 regex 工具对下列样例逐条 match，输出通过/失败原因，写入 files/password-policy.md：Hello12345、Hello1234!、你好Hello12、Hello12！！、Abcdefghij1。不要在沙箱里循环口算，必须走 regex 工具。',
+    text: '写一组 JS 正则（要带 u 标志），检查口令同时满足：长度≥10、含大写、小写、数字、以及非 ASCII 符号（例如全角感叹号）。用 text_tool（action=regex）对下列样例逐条 match，输出通过/失败原因，写入 files/password-policy.md：Hello12345、Hello1234!、你好Hello12、Hello12！！、Abcdefghij1。不要在沙箱里循环口算，必须走 text_tool（action=regex）。',
   },
   {
     title: '在沙箱写一个极简 JSON Schema 校验器，跑正反用例后把 errors 数组落盘',
@@ -47,7 +47,7 @@ export const SUGGESTIONS = [
   },
   {
     title: '解码一段 JWT，核对 header 里的算法字段，并写明本工具并不校验签名',
-    text: '用 codec 工具（format=jwt, action=decode）解码：eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZWFtbyIsInJvbGUiOiJhZ2VudCIsImV4cCI6MTc5MDQwMDAwMH0.dGVhbW8. 若 padding 导致失败，先补等号再试。把 header.alg、payload.sub、payload.role 写成表格，并明确说明本工具不校验签名，因此不能据此认证。结果保存 files/jwt-audit.md。',
+    text: '用 text_tool（action=codec, op=decode, format=jwt）解码：eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZWFtbyIsInJvbGUiOiJhZ2VudCIsImV4cCI6MTc5MDQwMDAwMH0.dGVhbW8. 若 padding 导致失败，先补等号再试。把 header.alg、payload.sub、payload.role 写成表格，并明确说明本工具不校验签名，因此不能据此认证。结果保存 files/jwt-audit.md。',
   },
   {
     title: '对比两份 JSON 配置，用 diff_text 生成可应用的 unified diff 补丁文件',
@@ -108,11 +108,11 @@ export const SUGGESTIONS = [
   },
   {
     title: '用 CSV 工具清洗一份带脏数据的问卷：去重、统一日期、把年龄分桶出直方图',
-    text: '用 write_file 写入 files/survey.csv，12 行：列 id,name,age,joined,city，故意混入 2 行重复 id、年龄字段有「25岁」「三十」「-1」、日期有「2026/9/3」「3 Sep 2026」「2026-09-03」三种写法、城市大小写不一。用 csv_tool + JavaScript：去重（保留首次）、年龄解析为整数并剔除非法、日期统一为 ISO、城市首字母大写。输出清洗日志（每条改动一行）与清洗后的 files/survey.clean.csv；再按年龄分桶（<20、20–29、30–39、≥40）用 :::chart 柱状图画直方图。',
+    text: '用 write_file 写入 files/survey.csv，12 行：列 id,name,age,joined,city，故意混入 2 行重复 id、年龄字段有「25岁」「三十」「-1」、日期有「2026/9/3」「3 Sep 2026」「2026-09-03」三种写法、城市大小写不一。用 data_tool（kind=csv）+ JavaScript：去重（保留首次）、年龄解析为整数并剔除非法、日期统一为 ISO、城市首字母大写。输出清洗日志（每条改动一行）与清洗后的 files/survey.clean.csv；再按年龄分桶（<20、20–29、30–39、≥40）用 :::chart 柱状图画直方图。',
   },
   {
     title: '算出 2026 年剩余的每个月第二个星期二，并生成一个可导入的 ICS 日程文件',
-    text: '用 date_calc 与 JavaScript 配合：从 2026-10-06 起到年底，找出每个月的第二个星期二（10/11/12 月），同时给出距今天的天数。再写一个 iCalendar 文件 files/patch-tuesday.ics：每个日期一个 VEVENT（SUMMARY「补丁星期二 · 例行更新」，10:00–11:00，TZID=Asia/Tokyo，UID 唯一，DTSTAMP 取当前时间）。最后用 regex 工具校验文件里 DTSTART 的格式全部是 YYYYMMDDTHHMMSS，并告诉我校验结果。',
+    text: '用 data_tool（kind=date）与 JavaScript 配合：从 2026-10-06 起到年底，找出每个月的第二个星期二（10/11/12 月），同时给出距今天的天数。再写一个 iCalendar 文件 files/patch-tuesday.ics：每个日期一个 VEVENT（SUMMARY「补丁星期二 · 例行更新」，10:00–11:00，TZID=Asia/Tokyo，UID 唯一，DTSTAMP 取当前时间）。最后用 text_tool（action=regex）校验文件里 DTSTART 的格式全部是 YYYYMMDDTHHMMSS，并告诉我校验结果。',
   },
 ];
 

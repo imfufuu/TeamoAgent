@@ -13,17 +13,17 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.5.25';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.25';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.25';
-import { toolName } from './executionContext.js?v=2026.10.5.25';
+} from './execution.js?v=2026.10.5.26';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.26';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.26';
+import { toolName } from './executionContext.js?v=2026.10.5.26';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
 const DISPATCH_CONCURRENCY = 3;
 // 只读 / 无共享可变状态的工具可以并发（Hermes ThreadPoolExecutor 的浏览器等价物）。
 // 写沙箱、跑代码、生图、git 仍串行，避免交错后说不清基于哪一版文件。
-export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image']);
+export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image', 'text_tool']);
 const hasBadArgs = (call) => !!(call && call.args && typeof call.args === 'object' && '__raw' in call.args);
 
 export function batchToolCalls(calls) {
@@ -79,6 +79,8 @@ export function toolAccessSet(call) {
       return { reads: strList(a.path), writes: [] };
     case 'csv_tool': case 'text_tool':
       return { reads: strList(a.path), writes: strList(a.out) };
+    case 'data_tool': // P6 伞工具：kind=qr 不传 out 时写 outputs/qr-NNN.svg（路径未知 → ANY）
+      return { reads: strList(a.path), writes: a.kind === 'qr' ? outOrAny([ACCESS_ANY]) : strList(a.out) };
     case 'render_mermaid': case 'render_dot':
       return { reads: strList(a.path), writes: outOrAny([ACCESS_ANY]) };
     case 'diff_text': return { reads: [...strList(a.left_path), ...strList(a.right_path)], writes: [] };
@@ -259,7 +261,28 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
     const runOne = async (call) => {
       if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit('onToolStart', call);
-      const toolDef = toolDefByName.get(call.name) || null;
+      let toolDef = toolDefByName.get(call.name) || null;
+
+      // ①a P6 按需挂载：模型调用了能力上允许、但本轮没下发 schema 的工具 → 明确回执（不是静默失败），
+      //    同时把它挂进本轮工具表（后续迭代请求体里就有它），模型可以直接重试或改用 execute_javascript。
+      if (!toolDef && exec.deferredTools instanceof Map && exec.deferredTools.has(call.name)) {
+        const def = exec.deferredTools.get(call.name);
+        exec.deferredTools.delete(call.name);
+        if (def && !exec.toolList.some((t) => t && t.name === call.name)) exec.toolList.push(def);
+        if (def) toolDefByName.set(call.name, def);
+        exec.machine.audit.record('tool-lazy-mount', { name: call.name, mountedCount: exec.toolList.length });
+        emit('onToolEvent', call, { status: 'error', note: '本轮未启用（已临时挂载，可重试）' });
+        recordBlocked(call, {
+          reason: `工具 ${call.name} 本轮未启用（按需挂载表之外）`,
+          failure: {
+            kind: 'ENVIRONMENT', label: '工具未挂载', handling: '内核已临时挂载：可直接重试一次，或改用 execute_javascript',
+            retryable: true, maxRetries: 1, verifyFirst: false,
+            guidance: `再次调用 ${call.name}（内核已挂载），或用 execute_javascript 完成同样的事。`,
+          },
+          risk: { level: 'L0', levelLabel: '未执行', reasons: ['工具本轮未启用'], hasExternalSideEffect: false, irreversible: false, requiresConfirmation: false },
+        });
+        return `该工具本轮未启用，可用 execute_javascript 完成；内核已临时挂载 ${call.name}，如确需也可直接重试一次。`;
+      }
 
       // ① 参数 JSON 都没解析出来 → 回喂纠错，绝不产生副作用（不进契约层）
       if (hasBadArgs(call)) {

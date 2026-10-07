@@ -21,6 +21,7 @@ import {
   createBudgetGovernor, DEFAULT_TURN_BUDGET, TOOL_CONTRACTS, getToolContract, buildCapabilityConstraints,
 } from '../js/execution.js';
 import { TOOL_DEFS } from '../js/tools.js';
+import { selectToolsForTurn, CORE_TOOLS } from '../js/executionContext.js';
 import { evaluateMemoryWriteGate, resolveRecallStates } from '../js/memorylife.js';
 import { createIdempotencyLedger, planReplay } from '../js/idempotency.js';
 import { buildCheckpoint, planResume } from '../js/recovery.js';
@@ -207,6 +208,8 @@ function sampleArgsFor(tool) {
     hash: { algorithm: 'sha256', text: 'x' },
     codec: { action: 'encode', format: 'base64', text: 'x' },
     unicode: { text: 'x' },
+    text_tool: { action: 'hash', algorithm: 'sha256', text: 'x' },
+    data_tool: { kind: 'date', action: 'info', date: '2026-01-01' },
     generate_image: { prompt: 'a cat', path: 'outputs/eval.png' },
     analyze_image: { path: 'uploads/note.md' },
     zip_files: { paths: ['files/keep.txt'], output: 'outputs/eval.zip' },
@@ -240,6 +243,34 @@ for (const c of corpus.cases) {
     perCase.push({ id: c.id, class: c.class, needsAction: c.needsAction, predicted: null, error: (err && err.message) || String(err), text: c.text, expected: c.needsAction });
   }
 }
+
+// ── P6：工具选择熵——按用例复算本轮挂载表，统计误选率 / 漏挂率 / 请求体工具数中位数 ──
+// 离线评测没有模型在环，「调用了期望集合之外的工具」取其结构上界：内核**挂载**了期望集合之外的非核心工具
+// （模型只能误选挂载了的工具）。漏挂率是另一面：期望工具没挂载，模型只能点名让内核补挂。
+const toolRows = corpus.cases.map((c) => {
+  const text = (c.scenario && c.scenario.userText) || c.text || '';
+  const sel = selectToolsForTurn({ allowed: TOOL_DEFS, text, attachments: [] });
+  const mounted = sel.mounted.map((t) => t.name);
+  const expected = Array.isArray(c.expectedTools) ? c.expectedTools : [];
+  const extra = mounted.filter((n) => !CORE_TOOLS.includes(n) && !expected.includes(n));
+  const missing = expected.filter((n) => !mounted.includes(n));
+  return { id: c.id, class: c.class, text, mounted, extra, missing, misselect: extra.length > 0, miss: missing.length > 0 };
+});
+const median = (xs) => { const a = [...xs].sort((x, y) => x - y); return a.length ? (a.length % 2 ? a[(a.length - 1) / 2] : (a[a.length / 2 - 1] + a[a.length / 2]) / 2) : 0; };
+const rate = (rows, key) => (rows.length ? Number((rows.filter((r) => r[key]).length / rows.length).toFixed(4)) : 0);
+const toolSelection = {
+  n: toolRows.length,
+  tool_misselect_rate: rate(toolRows, 'misselect'),
+  tool_miss_rate: rate(toolRows, 'miss'),
+  medianToolsLength: median(toolRows.map((r) => r.mounted.length)),
+  maxToolsLength: Math.max(...toolRows.map((r) => r.mounted.length)),
+  perClass: Object.fromEntries(corpus.classes.map((cls) => {
+    const rows = toolRows.filter((r) => r.class === cls.id);
+    return [cls.id, { n: rows.length, misselect: rate(rows, 'misselect'), miss: rate(rows, 'miss') }];
+  })),
+  misselected: toolRows.filter((r) => r.misselect).map((r) => ({ id: r.id, extra: r.extra })),
+  missed: toolRows.filter((r) => r.miss).map((r) => ({ id: r.id, missing: r.missing })),
+};
 
 // ── 按类目汇总 P/R/F1 + Wilson ──
 const classes = corpus.classes.map((cls) => {
@@ -283,6 +314,17 @@ const snapshot = {
   overall,
   classes: classes.map((c) => ({ id: c.id, label: c.label, n: c.n, accuracy: c.accuracy, precision: c.precision, recall: c.recall, f1: c.f1, wilson: c.wilson, failures: c.failures.length })),
   failureIds: classes.flatMap((c) => c.failures.map((f) => f.id)),
+  // P6：工具选择指标进基线（门禁复用「不得相对基线退化超过 5 个百分点」机制）
+  toolSelection: {
+    n: toolSelection.n,
+    tool_misselect_rate: toolSelection.tool_misselect_rate,
+    tool_miss_rate: toolSelection.tool_miss_rate,
+    medianToolsLength: toolSelection.medianToolsLength,
+    maxToolsLength: toolSelection.maxToolsLength,
+    perClass: toolSelection.perClass,
+    misselectedIds: toolSelection.misselected.map((r) => r.id),
+    missedIds: toolSelection.missed.map((r) => r.id),
+  },
 };
 const previous = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : null;
 
@@ -308,6 +350,16 @@ for (const c of classes) {
 
 console.log(`\n总体：${overall.correct}/${overall.evaluated} 正确（准确率 ${pct(overall.accuracy)}，95% CI ${pct(overall.wilson.lower)}–${pct(overall.wilson.upper)}）`);
 console.log(`     宏平均 F1 ${pct(overall.macroF1)} · 宏平均准确率 ${pct(overall.macroAccuracy)}`);
+console.log(`\n工具选择（P6）：误选率 tool_misselect_rate ${pct(toolSelection.tool_misselect_rate)} · 漏挂率 tool_miss_rate ${pct(toolSelection.tool_miss_rate)} · 请求体 tools.length 中位数 ${toolSelection.medianToolsLength}（最大 ${toolSelection.maxToolsLength}，全量 ${TOOL_DEFS.length}）`);
+for (const [id, v] of Object.entries(toolSelection.perClass)) {
+  if (v.misselect || v.miss) console.log(`    · ${id}：误选 ${pct(v.misselect)} / 漏挂 ${pct(v.miss)}`);
+}
+if (toolSelection.misselected.length) {
+  const shown = VERBOSE ? toolSelection.misselected : toolSelection.misselected.slice(0, 6);
+  for (const r of shown) console.log(`      ✗ 误选 ${r.id}：多挂了 ${r.extra.join('、')}`);
+  if (!VERBOSE && toolSelection.misselected.length > shown.length) console.log(`      … 其余 ${toolSelection.misselected.length - shown.length} 条用 --verbose 查看`);
+}
+for (const r of toolSelection.missed) console.log(`      ✗ 漏挂 ${r.id}：缺 ${r.missing.join('、')}`);
 
 if (previous) {
   const regressed = classes.filter((c) => {
@@ -346,7 +398,15 @@ if (previous) {
     const p = previous.classes.find((x) => x.id === c.id);
     if (p && c.accuracy < p.accuracy - 0.05) problems.push(`${c.label} 相对基线退化超过 5 个百分点（${pct(p.accuracy)} → ${pct(c.accuracy)}）`);
   }
+  // P6 门禁：误选率 / 漏挂率 ≤ 基线 + 5pt（与类目准确率同一容差机制），中位数不得回到全量下发
+  const prevTS = previous.toolSelection;
+  if (prevTS) {
+    if (toolSelection.tool_misselect_rate > prevTS.tool_misselect_rate + 0.05) problems.push(`tool_misselect_rate 相对基线退化超过 5 个百分点（${pct(prevTS.tool_misselect_rate)} → ${pct(toolSelection.tool_misselect_rate)}）`);
+    if (toolSelection.tool_miss_rate > prevTS.tool_miss_rate + 0.05) problems.push(`tool_miss_rate 相对基线退化超过 5 个百分点（${pct(prevTS.tool_miss_rate)} → ${pct(toolSelection.tool_miss_rate)}）`);
+  }
 }
+const TOOLS_LENGTH_MEDIAN_CAP = 18;
+if (toolSelection.medianToolsLength > TOOLS_LENGTH_MEDIAN_CAP) problems.push(`请求体 tools.length 中位数 ${toolSelection.medianToolsLength} 超过上限 ${TOOLS_LENGTH_MEDIAN_CAP}`);
 if (problems.length) {
   console.error('\n❌ 分层评测未通过：');
   for (const p of problems) console.error(`  · ${p}`);

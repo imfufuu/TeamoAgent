@@ -865,6 +865,8 @@ export const TOOL_CONTRACTS = Object.freeze({
   text_tool: contract({ idempotent: true, timeoutMs: 8000, riskLevel: 'L1', note: 'out 参数写沙箱时为 filesystem 副作用' }),
   convert_units: contract({ idempotent: true, timeoutMs: 2000, riskLevel: 'L0' }),
   qr_code: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 8000, riskLevel: 'L1', verifyAfterRun: true }),
+  // P6：伞工具（csv/date/units/qr 合一）。kind=qr 必写沙箱、csv 的 out 也会写，所以按 filesystem 副作用声明并事后核验
+  data_tool: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 8000, riskLevel: 'L1', verifyAfterRun: true, note: 'P6 伞工具：kind=qr / csv out 写沙箱；date、units 纯计算' }),
   execute_sql: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L2', verifyAfterRun: true, note: 'DROP/DELETE 升为 L3' }),
   render_mermaid: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L1', verifyAfterRun: true }),
   render_dot: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 15000, riskLevel: 'L1', verifyAfterRun: true }),

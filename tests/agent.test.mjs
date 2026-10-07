@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.25';
+} from '../js/api.js?v=2026.10.5.26';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.25');
+const api = await import('../js/api.js?v=2026.10.5.26');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.25');
+  const api = await import('../js/api.js?v=2026.10.5.26');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3270,7 +3270,7 @@ test('有中继但关掉联网时不提供 fetch_url，run_git 仍在', async ()
     store.state.settings.jevEnabled = false;
     store.state.relayOk = true;
     const agent = createAgent(store, {});
-    await agent.send('随便问一句');
+    await agent.send('随便问一句，顺便看看 git 状态'); // P6：run_git 非核心工具，按关键词挂载
     const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
     assert.equal(names.includes('fetch_url'), false, `关联网不该有 fetch_url：${names.join(',')}`);
     assert.ok(names.includes('run_git'), 'git 不跟联网开关走');
@@ -3303,7 +3303,7 @@ test('没有本地中继时，只摘掉 fetch_url，run_git 仍走内置沙箱 G
       store.state.model = 'gpt-5.6-sol';
       store.state.relayOk = false; // main.js 启动探测的结论
       const agent = createAgent(store, {});
-      await agent.send('随便问一句');
+      await agent.send('随便问一句，顺便看看 git 状态'); // P6：run_git 按关键词挂载
       const names = (calls[0].body.tools || []).map((t) => t.function?.name || t.name);
       assert.equal(names.includes('fetch_url'), false, `没中继就不该提供 fetch_url：${names.join(',')}`);
       assert.equal(names.includes('run_git'), true, 'run_git 无中继时也应提供内置沙箱 Git');
@@ -3366,7 +3366,7 @@ test('启动期误判离线时，实际可用的 Cloudflare Worker 会在联网�
     store.state.settings.jevEnabled = false;
     store.state.relayOk = false; // 启动期可能误判；公开 Worker 实际可用
     const agent = createAgent(store, { onRelayStatus: (ok, meta) => relayEvents.push({ ok, meta }) });
-    await agent.send('请联网搜索 Dubhe Agent 的公开说明');
+    await agent.send('请联网搜索 Dubhe Agent 的公开说明，再把官网整站抓一遍'); // P6：crawl_site 按关键词挂载
     assert.equal(store.state.relayOk, true, '实时复探成功后纠正 Store 中的离线状态');
     assert.equal(net.currentRelay()?.label, 'public', '应选中健康检查通过的 Cloudflare Worker');
     assert.equal(net.relaySupports('search'), true);
@@ -4459,17 +4459,26 @@ test('pdfToImages 在无 Canvas 环境给出可读失败', async () => {
 });
 
 group('本地代码小工具（regex / hash / codec / unicode）');
-test('工具已注册，关闭沙箱仍可用，提示词点名', () => {
+test('P6：regex / hash / codec / unicode 并入 text_tool（旧名字不再注册但仍可执行），提示词点名', async () => {
   const names = TOOL_DEFS.map((t) => t.name);
-  for (const n of ['regex', 'hash', 'codec', 'unicode']) {
-    assert.ok(names.includes(n), `应注册 ${n}`);
-    const d = TOOL_DEFS.find((t) => t.name === n);
-    assert.ok(d.parameters && d.parameters.properties, `${n} 要有参数表`);
-  }
-  assert.ok(!cfg.systemPrompt().includes('execute_javascript：') || /regex \/ hash \/ codec \/ unicode/.test(cfg.systemPrompt()));
-  assert.match(cfg.systemPrompt(), /regex \/ hash \/ codec \/ unicode/);
-  const re = TOOL_DEFS.find((t) => t.name === 'regex');
-  assert.ok(re.parameters.required.includes('pattern'));
+  for (const n of ['regex', 'hash', 'codec', 'unicode']) assert.ok(!names.includes(n), `${n} 不应再单独出现在 TOOL_DEFS（已并入 text_tool）`);
+  const tt = TOOL_DEFS.find((t) => t.name === 'text_tool');
+  assert.ok(tt.parameters && tt.parameters.properties, 'text_tool 要有参数表');
+  for (const a of ['regex', 'hash', 'codec', 'unicode']) assert.ok(tt.parameters.properties.action.enum.includes(a), `text_tool.action 应含 ${a}`);
+  for (const k of ['op', 'pattern', 'flags', 'algorithm', 'format', 'form', 'codes']) assert.ok(tt.parameters.properties[k], `text_tool 缺参数 ${k}`);
+  assert.match(cfg.systemPrompt(), /text_tool：本地文本工作台/);
+  assert.match(cfg.systemPrompt(), /action=regex/);
+  const { LEGACY_TOOL_ALIASES, resolveUmbrellaTool } = await import('../js/tools.js');
+  for (const n of ['regex', 'hash', 'codec', 'unicode']) assert.equal(LEGACY_TOOL_ALIASES[n], 'text_tool');
+  assert.deepEqual(resolveUmbrellaTool('text_tool', { action: 'regex', op: 'replace', pattern: 'a', text: 'a', replacement: 'b' }), { name: 'regex', args: { action: 'replace', pattern: 'a', text: 'a', replacement: 'b' } });
+  assert.deepEqual(resolveUmbrellaTool('text_tool', { action: 'hash', algorithm: 'md5', text: 'x' }), { name: 'hash', args: { algorithm: 'md5', text: 'x' } });
+  assert.equal(resolveUmbrellaTool('text_tool', { action: 'stats', text: 'x' }), null, '原生 text_tool 动作不转发');
+  assert.equal(resolveUmbrellaTool('read_file', { path: 'a' }), null);
+  // 伞工具路径与旧名字路径结果一致
+  const fs = createFS();
+  const viaUmbrella = await executeTool('text_tool', { action: 'regex', op: 'match', pattern: 'o+', flags: 'g', text: 'foo boo' }, { fs, onUi: () => {} });
+  const viaLegacy = await executeTool('regex', { action: 'match', pattern: 'o+', flags: 'g', text: 'foo boo' }, { fs, onUi: () => {} });
+  assert.equal(viaUmbrella.replace(/\[执行耗时 \d+ms\]/, ''), viaLegacy.replace(/\[执行耗时 \d+ms\]/, ''));
 });
 test('regex：match 捕获组 / replace / explain / 非法 flags', async () => {
   const fs = createFS({ 'notes/a.txt': 'foo1 foo22 bar' });
@@ -5107,11 +5116,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.25');
+  assert.equal(APP_VERSION, '2026.10.5.26');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.25/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.26/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.25/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.26/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -7626,14 +7635,19 @@ test('新工具已接入全部触点：TOOL_DEFS / 契约 / 并行表 / 只读�
   const fsp = await import('node:fs');
   const cfg = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   const names = TOOL_DEFS.map((t) => t.name);
-  for (const n of ['csv_tool', 'date_calc', 'text_tool', 'convert_units', 'qr_code']) {
+  // P6：csv_tool / date_calc / convert_units / qr_code 并入 data_tool；对模型只下发 text_tool + data_tool 两个伞工具
+  for (const n of ['csv_tool', 'date_calc', 'convert_units', 'qr_code']) assert.ok(!names.includes(n), `${n} 不应再单独出现在 TOOL_DEFS（已并入 data_tool）`);
+  for (const n of ['text_tool', 'data_tool']) {
     assert.ok(names.includes(n), `TOOL_DEFS 缺 ${n}`);
     assert.ok(TOOL_CONTRACTS[n], `契约缺 ${n}`);
     assert.ok(CAPABILITY_GATED_TOOL_GROUPS.invariantCore.includes(n), `invariantCore 缺 ${n}`);
     assert.ok(cfg.includes(n), `系统提示缺 ${n}`);
   }
-  assert.ok(PARALLEL_TOOLS.has('date_calc') && PARALLEL_TOOLS.has('convert_units') && PARALLEL_TOOLS.has('json_tool'));
-  assert.ok(!PARALLEL_TOOLS.has('write_file') && !PARALLEL_TOOLS.has('qr_code'), '写沙箱的工具仍串行');
+  const dt = TOOL_DEFS.find((t) => t.name === 'data_tool');
+  assert.deepEqual(dt.parameters.properties.kind.enum, ['csv', 'date', 'units', 'qr']);
+  assert.deepEqual(dt.parameters.required, ['kind']);
+  assert.ok(PARALLEL_TOOLS.has('date_calc') && PARALLEL_TOOLS.has('convert_units') && PARALLEL_TOOLS.has('json_tool') && PARALLEL_TOOLS.has('text_tool'));
+  assert.ok(!PARALLEL_TOOLS.has('write_file') && !PARALLEL_TOOLS.has('qr_code') && !PARALLEL_TOOLS.has('data_tool'), '写沙箱的工具仍串行（data_tool 含 qr/csv out）');
   for (const ghost of ['encode_decode', 'generate_chart']) assert.ok(!CAPABILITY_GATED_TOOL_GROUPS.invariantCore.includes(ghost), `invariantCore 不应含不存在的 ${ghost}`);
   for (const n of CAPABILITY_GATED_TOOL_GROUPS.invariantCore) assert.ok(names.includes(n), `invariantCore 的 ${n} 必须真实存在`);
   // 端到端：qr_code 写 outputs/，csv_tool 读沙箱文件
@@ -8105,7 +8119,7 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(def.description, /不要传 model/);
   assert.match(def.description, /16MB/);
   assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'prompt']);
-  assert.equal(TOOL_DEFS.length, 39, '工具总数 37 → 38（analyze_video）→ 39（download_file）');
+  assert.equal(TOOL_DEFS.length, 32, '工具总数 37 → 38（analyze_video）→ 39（download_file）→ 32（P6：9 个本地小工具合成 text_tool + data_tool）');
   const c = ex.getToolContract('analyze_video');
   assert.equal(c.sideEffect, 'remote');
   assert.equal(c.external, true);
@@ -8818,9 +8832,14 @@ test('端到端：思考 Off + 中继离线时，agent.previewToolTable().allowe
     await agent.send('你好');
     assert.equal(calls.length, 1);
     const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
-    assert.deepEqual(sent, pv.allowed, '预演工具表必须等于真正发出去的工具表（UI 列表 = 实际工具表）');
+    // P6：请求体 = 能力裁剪后再按需挂载；预演表给同一条消息必须逐项一致，且是 allowed 的子集
+    const pvMsg = agent.previewToolTable({ text: '你好' });
+    assert.deepEqual(sent, pvMsg.mounted, '预演挂载表必须等于真正发出去的工具表（UI 口径 = 实际工具表）');
+    assert.ok(sent.every((n) => pv.allowed.includes(n)), '发出去的工具必须都在能力允许表内');
+    assert.ok(sent.length <= 18 && sent.length >= 8, `寒暄一句只带核心工具：${sent.length}`);
     const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
     assert.match(sys, /【工具表】本轮已禁用 \d+ 个：/);
+    assert.match(sys, /另有 \d+ 个工具本轮按需未挂载：/);
     assert.match(sys, /dispatch_subagent（思考档位需 Max\/Ultra）/);
     assert.match(sys, /execute_cpp（远程 C\+\+ 已关）/);
     assert.ok(sys.includes(`【工具表】本轮${pv.summary}`), '系统提示的清单与 previewToolTable().summary 逐字相同');
@@ -8868,8 +8887,9 @@ test('端到端：中继在线但只声明 fetch/search 时，【联网】段「
     assert.match(sys, /【工具表】本轮已禁用 \d+ 个：crawl_site（中继未声明 crawl）、download_file（中继未声明 file）/);
     const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
     assert.ok(sent.includes('fetch_url') && sent.includes('search_web') && !sent.includes('crawl_site') && !sent.includes('download_file'));
-    const pv = agent.previewToolTable();
-    assert.deepEqual(sent, pv.allowed);
+    const pv = agent.previewToolTable({ text: '随便聊聊' });
+    assert.deepEqual(sent, pv.mounted, 'P6：请求体 = 预演的按需挂载表');
+    assert.ok(sent.every((n) => pv.allowed.includes(n)));
     assert.ok(pv.dropped.some((d) => d.name === 'crawl_site' && d.label === '中继未声明 crawl'));
   } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
 });
@@ -8894,8 +8914,8 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
   assert.doesNotMatch(ui, /function syncCapLine\(\)/, '旧实现不应残留在 ui.js');
   assert.match(agentSrc, /nexusState\.turnDropped = whitelist\.dropped;/);
   assert.match(agentSrc, /turn\.dropped = whitelist\.dropped;/);
-  assert.match(agentSrc, /toolTableNote: formatToolTableNote\(nexusState && nexusState\.turnDropped\),/);
-  assert.match(agentSrc, /tools: turnTools, dropped: nexusState && nexusState\.turnDropped \}\)/, '【联网】段也吃同一份 dropped');
+  assert.match(agentSrc, /toolTableNote: formatToolTableNote\(nexusState && nexusState\.turnDropped, nexusState && nexusState\.turnDeferred\),/); // P6 起多带 deferred
+  assert.match(agentSrc, /tools: turnTools, dropped: nexusState && nexusState\.turnDropped, deferred: nexusState && nexusState\.turnDeferred \}\)/, '【联网】段也吃同一份 dropped（P6 起再加 deferred）');
   assert.match(prompt, /export function formatRuntime\(\{ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote \} = \{\}\)/);
   assert.match(prompt, /const extra = join\(\[filesNote, webNote, relayNote, toolTableNote\]\);/);
   assert.match(css, /\.cap-line \.cap-pill \{ font: inherit; color: inherit;[^}]*cursor: pointer;/);
@@ -8906,7 +8926,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.25'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.26'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -8948,7 +8968,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.25');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.26');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9023,6 +9043,194 @@ test('package.json：scripts.test 一条命令跑全部（= CI）；README 顶�
   assert.match(head, /npm ci && npm test/);
   assert.match(readme, /文档里不再手填测试数字/);
   assert.doesNotMatch(readme, /npm test\s+#\s*tests\/agent\.test\.mjs/, 'npm test 不再只是主单测');
+});
+
+group('P6 修正：工具选择熵过高 → 两层下发（核心 12 必带 + 按需挂载）/ 9 → 2 伞工具 / 未挂载调用回执 / p2-eval 误选率门禁');
+
+test('selectToolsForTurn：核心 12 必带；其余按关键词 / 附件 / 近几轮用量 / 点名挂载；exclude 生效；没写规则的工具不会悄悄消失', async () => {
+  const ec = await import('../js/executionContext.js');
+  const { TOOL_DEFS } = await import('../js/tools.js');
+  assert.deepEqual([...ec.CORE_TOOLS], ['execute_javascript', 'execute_python', 'execute_cpp', 'write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'fetch_url', 'search_web', 'analyze_image', 'dispatch_subagent']);
+  const names = (r) => r.mounted.map((t) => t.name);
+  const hello = ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '你好' });
+  assert.deepEqual(names(hello), [...ec.CORE_TOOLS].filter((n) => TOOL_DEFS.some((t) => t.name === n)).sort((a, b) => TOOL_DEFS.findIndex((t) => t.name === a) - TOOL_DEFS.findIndex((t) => t.name === b)), '寒暄只带核心工具（保持 TOOL_DEFS 原序）');
+  assert.equal(hello.deferred.length, TOOL_DEFS.length - 12);
+  assert.ok(hello.deferred.every((d) => d.reason === 'on-demand'));
+  // 关键词
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '帮我生成一个二维码指向 https://x.y' })).includes('data_tool'));
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '把这段话的 sha256 算出来' })).includes('text_tool'));
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '画一张海报' })).includes('generate_image'));
+  assert.ok(!names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '画个折线图' })).includes('generate_image'), 'exclude：统计图不挂 generate_image');
+  // 附件类型
+  const pdf = ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '这份讲了什么', attachments: [{ name: 'paper.pdf', kind: 'text' }] });
+  assert.ok(names(pdf).includes('analyze_pdf') && pdf.reasons.analyze_pdf === 'attachment:pdf');
+  assert.ok(!names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '这份讲了什么' })).includes('analyze_pdf'), '没有 PDF 附件就不带 analyze_pdf');
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '看看', attachments: [{ name: 'clip.mp4', source: 'video' }] })).includes('analyze_video'));
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '看看', attachments: [{ name: 'a.zip' }] })).includes('unzip_file'));
+  assert.ok(names(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '看看', attachments: [{ name: 'sales.csv', kind: 'text' }] })).includes('data_tool'));
+  // 粘性 + 点名 + 强制
+  const sticky = ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '继续', recentTools: ['render_mermaid'] });
+  assert.ok(names(sticky).includes('render_mermaid') && sticky.reasons.render_mermaid === 'recent');
+  const mention = ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '用 json_tool 看看' });
+  assert.ok(names(mention).includes('json_tool') && mention.reasons.json_tool === 'mentioned');
+  assert.equal(ec.selectToolsForTurn({ allowed: TOOL_DEFS, text: '嗯', forceMount: ['run_git'] }).reasons.run_git, 'forced');
+  // 只从 allowed 里挑：被能力裁掉的不会被按需「复活」
+  const noWeb = TOOL_DEFS.filter((t) => t.name !== 'crawl_site');
+  assert.ok(!names(ec.selectToolsForTurn({ allowed: noWeb, text: '把官网整站抓一遍' })).includes('crawl_site'));
+  // 没写规则的工具按旧行为全量下发
+  const ghost = ec.selectToolsForTurn({ allowed: [...TOOL_DEFS, { name: 'ghost_tool', parameters: {} }], text: '你好' });
+  assert.equal(ghost.reasons.ghost_tool, 'no-rule');
+  // 每个非核心工具都有规则（否则两层下发名存实亡）
+  for (const t of TOOL_DEFS) if (!ec.CORE_TOOLS.includes(t.name)) assert.ok(ec.TOOL_MOUNT_RULES[t.name], `${t.name} 缺按需挂载规则`);
+  // 提示词一行只列名字
+  assert.match(ec.formatDeferredTools(hello.deferred), /^另有 \d+ 个工具本轮按需未挂载：get_current_time、/);
+  assert.equal(ec.formatDeferredTools([]), '');
+  // recentToolNames：只看最近两轮
+  const msgs = [
+    { role: 'user', text: 'a' }, { role: 'assistant', toolCalls: [{ name: 'run_git' }] },
+    { role: 'user', text: 'b' }, { role: 'assistant', toolCalls: [{ name: 'json_tool' }] },
+    { role: 'user', text: 'c' }, { role: 'assistant', toolCalls: [{ name: 'diff_text' }] },
+    { role: 'user', text: 'd' },
+  ];
+  assert.deepEqual(ec.recentToolNames(msgs), ['diff_text', 'json_tool']);
+});
+
+test('P6 验收：三类典型消息的请求体 tools.length 中位数 ≤ 18（寒暄 / 数据任务 / 联网任务），且 analyze_pdf 只在有 PDF 附件时出现', async () => {
+  const calls = [];
+  globalThis.fetch = async (url, opts) => {
+    const u = String(url);
+    if (u.includes('/v1/chat/completions')) {
+      const call = { url: u, opts };
+      try { call.body = JSON.parse(opts && opts.body); } catch { /* noop */ }
+      calls.push(call);
+      return openaiTextTurn('好的。');
+    }
+    if (u.includes('/api/health')) return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', version: '1.7.0', capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    throw new Error(`未预期的请求：${u}`);
+  };
+  const net = await import('../js/net.js');
+  let agent = null;
+  try {
+    const samples = [
+      { text: '你好' },
+      { text: '把这份 CSV 按月聚合成表，再算一下环比' },
+      { text: '搜一下 Dubhe Agent 的公开说明并抓取官网整站，最后把 PDF 下载到沙箱', attachments: [{ name: 'spec.pdf', kind: 'text', text: '%PDF-1.4' }] },
+    ];
+    const lengths = [];
+    for (const smp of samples) {
+      // 每条消息一个全新会话：不让上一条的粘性挂载影响样本
+      const store = createStore();
+      store.state.apiKey = 'sk-teamo-test';
+      store.state.model = 'gpt-5.6-sol';
+      store.state.settings.webEnabled = true;
+      store.state.settings.jevEnabled = false;
+      store.state.settings.thinking = true;
+      store.state.settings.reasoningLevel = 'max';
+      store.state.relayOk = true;
+      net.resetRelayProbe();
+      assert.equal(await net.relayAvailable(), true);
+      agent = createAgent(store, {});
+      await agent.send(smp.text, smp.attachments || []);
+      const last = calls[calls.length - 1];
+      const names = (last.body.tools || []).map((t) => (t.function && t.function.name) || t.name);
+      lengths.push(names.length);
+      for (const core of ['execute_javascript', 'write_file', 'read_file', 'fetch_url', 'search_web', 'analyze_image', 'dispatch_subagent']) assert.ok(names.includes(core), `${smp.text}：核心工具 ${core} 必带`);
+      assert.equal(names.includes('analyze_pdf'), !!(smp.attachments && smp.attachments.length), `${smp.text}：analyze_pdf 只跟 PDF 附件走`);
+      assert.ok(!names.includes('regex') && !names.includes('csv_tool') && !names.includes('qr_code'), '旧名字不再下发');
+      const sys = last.body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
+      assert.match(sys, /工具表分两层下发/);
+      if (names.length < TOOL_DEFS.length) assert.match(sys, /按需未挂载/);
+    }
+    const sorted = [...lengths].sort((a, b) => a - b);
+    const median = sorted[1];
+    assert.ok(median <= 18, `tools.length 中位数 ${median}（样本 ${lengths.join('/')}）必须 ≤ 18`);
+    assert.ok(Math.max(...lengths) < TOOL_DEFS.length, `没有一类消息还在全量下发（${lengths.join('/')} vs ${TOOL_DEFS.length}）`);
+    assert.ok(lengths[1] > lengths[0] && lengths[2] > lengths[0], '任务消息比寒暄多挂工具');
+    const pv = agent.previewToolTable({ text: samples[1].text });
+    assert.ok(pv.mounted.includes('data_tool') && pv.mounted.includes('evaluate_expression') && pv.deferred.includes('generate_image'));
+    assert.equal(pv.total, TOOL_DEFS.length);
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('P6：模型调用本轮未挂载的工具 → 内核回「该工具本轮未启用，可用 execute_javascript 完成」并当场挂载，下一次请求体里就有它，审计留 tool-lazy-mount', async () => {
+  const calls = [];
+  mockFetch([
+    openaiToolTurn('c1', 'json_tool', JSON.stringify({ action: 'parse', text: '{"a":1}' })),
+    openaiToolTurn('c2', 'json_tool', JSON.stringify({ action: 'parse', text: '{"a":2}' })),
+    openaiTextTurn('解析完成。'),
+  ], calls);
+  try {
+    const store = storeNoWeb(createStore());
+    store.state.apiKey = 'sk-teamo-test';
+    store.state.model = 'gpt-5.6-sol';
+    store.state.settings.jevEnabled = false;
+    const agent = createAgent(store, {});
+    await agent.send('你好');
+    assert.equal(calls.length, 3);
+    const toolsOf = (c) => (c.body.tools || []).map((t) => (t.function && t.function.name) || t.name);
+    assert.ok(!toolsOf(calls[0]).includes('json_tool'), '寒暄一句不会预先挂 json_tool');
+    const firstResult = calls[1].body.messages.filter((m) => m.role === 'tool').map((m) => String(m.content)).pop();
+    assert.match(firstResult, /该工具本轮未启用，可用 execute_javascript 完成/);
+    assert.match(firstResult, /已临时挂载 json_tool/);
+    assert.ok(toolsOf(calls[1]).includes('json_tool'), '回执之后的请求体里已经挂上 json_tool');
+    const secondResult = calls[2].body.messages.filter((m) => m.role === 'tool').map((m) => String(m.content)).pop();
+    assert.match(secondResult, /"a": 2|a.*2/, '重试后真正执行');
+    const rec = store.state.lastExecutionRecord;
+    assert.ok(rec && rec.toolCallCount === 2, `两次调用都进内核：${rec && rec.toolCallCount}`);
+    assert.equal(rec.blockedCount, 1, '第一次按「未挂载」记为被拦（不是静默失败）');
+    assert.equal(rec.violations.length, 0, JSON.stringify(rec.violations));
+    const last = store.state.messages[store.state.messages.length - 1];
+    assert.match(last.text, /解析完成/);
+    const chips = store.state.messages.filter((m) => m.role === 'assistant' && Array.isArray(m.toolCalls)).flatMap((m) => m.toolCalls);
+    assert.ok(chips.some((c) => c.name === 'json_tool' && c.status === 'error' && /未启用/.test(c.errorNote || '')), '芯片显示 ✗ + 原因');
+  } finally { globalThis.fetch = realFetch; await drainSaves(); }
+});
+
+test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_rate / tool_miss_rate 且进基线门禁；基线中位数 ≤ 18', async () => {
+  const fsp = await import('node:fs');
+  const corpus = JSON.parse(fsp.readFileSync(new URL('../tests/p2-eval-corpus.json', import.meta.url), 'utf8'));
+  const { TOOL_DEFS } = await import('../js/tools.js');
+  const ec = await import('../js/executionContext.js');
+  const names = TOOL_DEFS.map((t) => t.name);
+  for (const c of corpus.cases) {
+    assert.ok(Array.isArray(c.expectedTools), `${c.id} 缺 expectedTools`);
+    for (const n of c.expectedTools) {
+      assert.ok(names.includes(n), `${c.id} 期望了不存在的工具 ${n}`);
+      assert.ok(!ec.CORE_TOOLS.includes(n), `${c.id}：expectedTools 只列核心之外的工具（${n}）`);
+    }
+    if (c.scenario && c.scenario.tool) assert.ok(!['regex', 'hash', 'codec', 'unicode', 'csv_tool', 'date_calc', 'convert_units', 'qr_code'].includes(c.scenario.tool), `${c.id} 场景仍用旧工具名`);
+  }
+  const baseline = JSON.parse(fsp.readFileSync(new URL('../tests/p2-metrics-baseline.json', import.meta.url), 'utf8'));
+  assert.ok(baseline.toolSelection, '基线缺 toolSelection');
+  assert.equal(typeof baseline.toolSelection.tool_misselect_rate, 'number');
+  assert.equal(typeof baseline.toolSelection.tool_miss_rate, 'number');
+  assert.ok(baseline.toolSelection.tool_misselect_rate <= 0.1, `基线误选率 ${baseline.toolSelection.tool_misselect_rate}`);
+  assert.ok(baseline.toolSelection.tool_miss_rate <= 0.05, `基线漏挂率 ${baseline.toolSelection.tool_miss_rate}`);
+  assert.ok(baseline.toolSelection.medianToolsLength <= 18);
+  const src = fsp.readFileSync(new URL('../tests/p2-eval.mjs', import.meta.url), 'utf8');
+  assert.match(src, /tool_misselect_rate 相对基线退化超过 5 个百分点/);
+  assert.match(src, /tool_miss_rate 相对基线退化超过 5 个百分点/);
+  assert.match(src, /const TOOLS_LENGTH_MEDIAN_CAP = 18;/);
+  // 工具表 39 → 32，旧名字全部有别名，且仍可执行（旧会话回放 / 幂等账本）
+  const { LEGACY_TOOL_ALIASES, executeTool } = await import('../js/tools.js');
+  assert.deepEqual(Object.keys(LEGACY_TOOL_ALIASES).sort(), ['codec', 'convert_units', 'csv_tool', 'date_calc', 'hash', 'qr_code', 'regex', 'unicode']);
+  for (const [legacy, umbrella] of Object.entries(LEGACY_TOOL_ALIASES)) {
+    assert.ok(!names.includes(legacy) && names.includes(umbrella));
+    const { TOOL_CONTRACTS } = await import('../js/execution.js');
+    assert.ok(TOOL_CONTRACTS[legacy] && TOOL_CONTRACTS[umbrella], `${legacy}/${umbrella} 契约都要在`);
+  }
+  const fs = createFS();
+  assert.match(await executeTool('date_calc', { action: 'diff', date: '2026-01-01', to: '2026-01-11' }, { fs, onUi: () => {} }), /10 天/);
+  assert.match(await executeTool('data_tool', { kind: 'date', action: 'diff', date: '2026-01-01', to: '2026-01-11' }, { fs, onUi: () => {} }), /10 天/);
+  assert.match(await executeTool('data_tool', { kind: 'csv', action: 'aggregate', text: 'k,v\na,1\nb,2', column: 'v', fn: 'sum' }, { fs, onUi: () => {} }), /3/);
+  assert.match(await executeTool('data_tool', { text: 'x' }, { fs, onUi: () => {} }), /kind 必须是 csv \/ date \/ units \/ qr 之一/);
+  // 子智能体 / nexus 不再引用旧名字
+  const sub = fsp.readFileSync(new URL('../js/subagents.js', import.meta.url), 'utf8');
+  const nexus = fsp.readFileSync(new URL('../js/nexus.js', import.meta.url), 'utf8');
+  for (const legacy of Object.keys(LEGACY_TOOL_ALIASES)) {
+    assert.doesNotMatch(sub, new RegExp(`'${legacy}'`), `subagents.js 仍引用 ${legacy}`);
+    assert.doesNotMatch(nexus, new RegExp(`'${legacy}'`), `nexus.js invariantCore 仍引用 ${legacy}`);
+  }
 });
 
 for (const item of queue) {
