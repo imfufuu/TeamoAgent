@@ -1,5 +1,5 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.32';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, isImageGenModel, imageModelLabel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.33';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { DEFAULT_TURN_BUDGET } from './execution.js';
 import { NEXUS_ARCHITECTURE_SPEC } from './nexus.js';
@@ -75,13 +75,17 @@ function syncMultimodalSelects(store) {
   const settings = (store && store.state && store.state.settings) || {};
   const vision = resolveVisionModel(settings.visionModel);
   const video = resolveVideoModel(settings.videoModel);
+  // 生图模型随会话保存（store.state.imageModel），不在 settings 里；不在目录内的值退回默认
+  const image = isImageGenModel(store && store.state && store.state.imageModel) ? store.state.imageModel : DEFAULT_IMAGE_MODEL;
+  fillModelSelect($('#set-image-model'), IMAGE_MODELS, image);
   fillModelSelect($('#set-vision-model'), VISION_MODELS, vision);
   fillModelSelect($('#set-video-model'), VIDEO_MODELS, video);
   const note = $('#set-mm-note');
   if (note) {
     const vi = VISION_MODELS.find((m) => m.id === vision) || {};
     const vd = VIDEO_MODELS.find((m) => m.id === video) || {};
-    note.textContent = `识图 ${vision}：${vi.note || ''}｜视频 ${video}：${vd.note || ''}。按实际 token 计费，换模型立即生效。`;
+    const im = IMAGE_MODELS.find((m) => m.id === image) || {};
+    note.textContent = `生图 ${image}：${im.note || ''}｜识图 ${vision}：${vi.note || ''}｜视频 ${video}：${vd.note || ''}。按实际 token 计费，换模型立即生效。`;
   }
 }
 
@@ -165,7 +169,8 @@ export function formatBuildInfo(info, appVersion) {
   if (!info || !info.ok) return { text: info && info.reason === 'http-404' ? '非 Pages 部署（无 build.json）' : '未知（拉不到 build.json）', mismatch: false, href: '' };
   const short = info.commit.slice(0, 12);
   const mismatch = !!(info.version && appVersion && info.version !== appVersion);
-  const text = `${short} · ${info.fileCount} 个文件 · 清单 ${info.manifestSha.slice(0, 10)}…${mismatch ? ` ⚠ 线上为 ${info.version}，本页运行的是 ${appVersion}（浏览器缓存与部署不一致，请强刷）` : ''}`;
+  // 一行放得下：短 sha · 文件数 · 清单前 8 位（整段可悬停 / 点击看全量）；不匹配时另起说明
+  const text = `${short} · ${info.fileCount} 文件 · 清单 ${info.manifestSha.slice(0, 8)}${mismatch ? ` ⚠ 线上 ${info.version} / 本页 ${appVersion}，请强刷` : ''}`;
   return { text, mismatch, href: `https://github.com/${info.repository}/commit/${info.commit}` };
 }
 function paintBuildInfo(el, info, appVersion) {
@@ -302,6 +307,15 @@ export function mountSettings(store, { onRelayChanged, onKeySaved, onSettingChan
       syncMultimodalSelects(store);
     });
   };
+  // 生图模型：写进当前会话（与旧模型菜单里的行为一致），不是全局设置
+  const imgSel = $('#set-image-model');
+  if (imgSel) imgSel.addEventListener('change', () => {
+    const id = isImageGenModel(imgSel.value) ? imgSel.value : DEFAULT_IMAGE_MODEL;
+    store.state.imageModel = id;
+    store.notify();
+    syncMultimodalSelects(store);
+    toast(`生图模型已切换为 ${imageModelLabel(id)}（由 Agent 的 generate_image 工具调用，随当前会话保存）`, 'ok');
+  });
   bindModelSelect('#set-vision-model', 'visionModel', resolveVisionModel);
   bindModelSelect('#set-video-model', 'videoModel', resolveVideoModel);
 

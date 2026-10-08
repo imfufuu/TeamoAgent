@@ -154,7 +154,7 @@ export function getModelPricing(modelId) {
   if (base.startsWith('gpt-5.4-mini')) return { input: 0.75, output: 4.5, cachedInput: 0.075, fastMultiplier: 2.0, id: base, kind: 'chat', isFast };
   if (base.startsWith('gpt-5')) return { input: 2.5, output: 15.0, cachedInput: 0.25, fastMultiplier: 2.0, id: base, kind: 'chat', isFast };
   if (base.startsWith('gpt-image')) return { ...IMAGE_MODEL_PRICING['gpt-image-2.5-sunburst'], id: base, kind: 'image' };
-  if (base.includes('flash-image')) return { ...IMAGE_MODEL_PRICING['gemini-3.1-flash-image'], id: base, kind: 'image' };
+  if (base.includes('flash-image') || /nano[-_]?banana/.test(base)) return { ...IMAGE_MODEL_PRICING['gemini-3.1-flash-image'], id: base, kind: 'image', label: /nano[-_]?banana/.test(base) ? 'Nano Banana 2.1（按 Nano Banana 2 估算）' : IMAGE_MODEL_PRICING['gemini-3.1-flash-image'].label };
   if (base.startsWith('gemini-3.1-pro')) return { input: 2.0, output: 12.0, cachedInput: 0.2, id: base, kind: 'chat' };
   if (base.startsWith('gemini-3.5-flash-lite')) return { input: 0.3, output: 2.5, cachedInput: 0.03, id: base, kind: 'chat' };
   if (base.startsWith('gemini-3.5-flash')) return { input: 1.5, output: 9.0, cachedInput: 0.15, id: base, kind: 'chat' };

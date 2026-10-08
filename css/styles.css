@@ -365,12 +365,7 @@ a { color: var(--fg); }
 .badge.vision { display: inline-flex; align-items: center; padding: 1px 4px; }
 .badge.vision svg { width: 11px; height: 11px; }
 .dd-empty { padding: 20px; text-align: center; color: var(--fg-3); }
-/* 生图模型行：吸附在菜单底部，与搜索框同层级（贴住滚动容器边缘）*/
-.dd-foot {
-  position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 8px;
-  background: var(--bg); border-top: 1px solid var(--line); padding: 8px 10px;
-}
-.dd-foot label { font-size: var(--ui-fs-10px, 10px); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--fg-3); white-space: nowrap; cursor: help; }
+/* .33：生图模型选择器已迁到设置页（#set-image-model），模型菜单不再有 dd-foot */
 .dd-select {
   flex: 1; min-width: 0; font-size: var(--ui-fs-11_5px, 11.5px); padding: 5px 7px; border: 1px solid var(--line);
   border-radius: 7px; background: var(--bg-soft); color: var(--fg); outline: none;
@@ -1529,6 +1524,8 @@ a { color: var(--fg); }
 .set-about-row span { color: var(--fg-3); }
 .set-about-row b { font-weight: 600; color: var(--fg); max-width: 60%; text-align: right; word-break: break-all; }
 .set-about-row b a { color: inherit; text-decoration: underline dotted; text-underline-offset: 3px; }
+#set-about-commit { max-width: 72%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; word-break: normal; font-weight: 500; }
+#set-about-commit a { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; vertical-align: bottom; }
 .set-about-row b.warn { color: #b45309; font-weight: 500; }
 [data-theme="dark"] .set-about-row b.warn { color: #fbbf24; }
 .set-danger { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -1,6 +1,6 @@
 // ─── 本地工作台工具：搜文件 / 差分 / JSON / 复制删除 ───────────────────
 // 纯函数，浏览器与 Node 都能跑。不碰网关、不执行任意代码。
-import { dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.32';
+import { dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.33';
 
 const MAX_HAY = 400000;
 const MAX_HITS = 80;

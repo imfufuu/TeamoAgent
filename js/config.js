@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.7';
-export const APP_VERSION = '2026.10.5.32';
+export const APP_VERSION = '2026.10.5.33';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -164,10 +164,12 @@ export function sortModelsInFamily(models) {
 // 不可作为对话模型直接选择：统一由主智能体通过 generate_image 工具调用，
 // 保留 Agent 的工具循环特性（生成→写沙箱→可继续编辑/下载）。
 export const IMAGE_MODELS = [
-  { id: 'gemini-3.1-flash-image', label: 'Nano Banana 2',          note: 'Gemini 3.1 Flash Image · 高质量文生图' },
-  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', note: '高质感写实' },
-  { id: 'gpt-image-2.5-flare',    label: 'GPT Image 2.5 Flare',    note: '风格化/插画' },
-  { id: 'gpt-image-2',            label: 'GPT Image 2',            note: '均衡·默认' },
+  { id: 'gpt-image-2',            label: 'GPT Image 2',            tag: '均衡 · 默认',  note: '均衡·默认' },
+  { id: 'gpt-image-2.5-sunburst', label: 'GPT Image 2.5 Sunburst', tag: '写实',        note: '高质感写实' },
+  { id: 'gpt-image-2.5-flare',    label: 'GPT Image 2.5 Flare',    tag: '插画',        note: '风格化/插画' },
+  { id: 'gemini-3.1-flash-image', label: 'Nano Banana 2',          tag: 'Gemini 原生', note: 'Gemini 3.1 Flash Image · 高质量文生图' },
+  // 网关 2026-10 新上的 nano-banana-2-1：名字不带 -image-，之前被当成对话模型混进模型菜单（.33 修）。与 Nano Banana 2 同走 Gemini generateContent。
+  { id: 'nano-banana-2-1',        label: 'Nano Banana 2.1',        tag: 'Gemini 原生 · 新', note: 'Nano Banana 2.1 · 走 Gemini generateContent；价目暂按 Nano Banana 2 估算' },
 ];
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 // 识图模型（analyze_image / analyze_pdf 页图）与视频识别模型（analyze_video）：
@@ -240,6 +242,10 @@ const IMAGE_MODEL_ALIASES = (() => {
   put('nanobanana', 'gemini-3.1-flash-image');
   put('nanobanana2', 'gemini-3.1-flash-image');
   put('banana', 'gemini-3.1-flash-image');
+  put('nano banana 2.1', 'nano-banana-2-1');
+  put('nano banana 2 1', 'nano-banana-2-1');
+  put('nanobanana21', 'nano-banana-2-1');
+  put('nano-banana-2-1', 'nano-banana-2-1');
   return map;
 })();
 
@@ -313,7 +319,8 @@ export function isImageModel(modelId) {
   const m = String(modelId || '').toLowerCase();
   // 识图实验模型只给 analyze_image 工具用，不进对话选择器
   if (m === 'deepseek-v4-flash-vision-exp' || /flash-vision/.test(m)) return true;
-  return /(^|-)image(-|$)/.test(m);
+  // 生图家族的常见命名：…-image-… / nano-banana / dall-e / imagen / flux / seedream / stable-diffusion / kolors / hunyuan-image
+  return /(^|-)image(-|$)|nano[-_]?banana|dall-?e|(^|-)imagen(-|$)|(^|-)flux(-|$)|seedream|stable-?diffusion|kolors|hunyuan-image/.test(m);
 }
 
 // GPT 系列支持 Fast mode（service_tier: "fast"，2x 计费）

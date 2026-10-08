@@ -62,7 +62,7 @@ ui.onAssistantStart(liveMsg);
 
 const fold = $('.edited-files');
 ok('写文件折叠行已渲染', !!fold);
-ok('直播期间显示 Editing Files（不是 Edited Files）', /Editing File/.test(fold.querySelector('.chip-name').textContent), fold.querySelector('.chip-name').textContent);
+ok('直播期间显示 Editing Files（不是 Edited Files）', /Editing file/.test(fold.querySelector('.chip-name').textContent), fold.querySelector('.chip-name').textContent);
 ok('折叠行在直播期间自动展开（能看到预览窗）', fold.classList.contains('expanded'));
 ok('路径来自半截 JSON（流式期间也能拿到路径）', fold.textContent.includes('tmp/live.md'), fold.textContent.slice(0, 80));
 const win = $('.edited-files .edit-preview');
@@ -79,7 +79,7 @@ const doneMsg = store.updateMessage(liveMsg.id, { toolCalls: [{ id: 'call-live-1
 agent.getStatus = realGetStatus;
 ui.onAssistantDone(doneMsg);
 const fold2 = $('.edited-files');
-ok('完成后折叠行变回 Edited File（不再直播）', /Edited File/.test(fold2.querySelector('.chip-name').textContent), fold2.querySelector('.chip-name').textContent);
+ok('完成后折叠行变回 Edited File（不再直播）', /Edited file/.test(fold2.querySelector('.chip-name').textContent), fold2.querySelector('.chip-name').textContent);
 ok('完成后自动折叠（不占版面）', !fold2.classList.contains('expanded'));
 ok('展开后预览窗仍在（回看最后一次写入）', !!$('.edited-files .edit-preview'));
 
@@ -100,7 +100,7 @@ ui.onTempCommit(store.updateMessage(m2b.id, { tempCommit: { committed: ['outputs
 const folds = $$('.edited-files');
 ok('丢弃清单只画一块（上一回合的折叠不受影响）', folds.length === 2 && $$('.edited-files.has-discarded').length === 1, String(folds.length));
 const fold3 = folds[1];
-ok('标题仍是 Edited Files 2（按 write_file 计数）', /Edited Files 2/.test(fold3.querySelector('.chip-name').textContent), fold3.querySelector('.chip-name').textContent);
+ok('标题仍是 Edited Files 2（按 write_file 计数）', /Edited files 2/.test(fold3.querySelector('.chip-name').textContent), fold3.querySelector('.chip-name').textContent);
 const items = [...fold3.querySelectorAll('li')];
 ok('列表 3 项：2 个 write_file + 1 个脚本生成的被丢弃产物', items.length === 3, String(items.length));
 const dropped = [...fold3.querySelectorAll('li.fold-discarded')];

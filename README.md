@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.32` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.33` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -144,6 +144,14 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.33：5 项跟进——视频加入反馈 / 部署提交行 / 折叠头文案 / nano-banana-2-1 / 生图模型迁设置**
+
+76. **视频附件加入即时反馈**：点「加入」立刻出「正在读取视频…」提示（抽帧 + 读 16 MB base64 在手机上要几秒，之前这段时间没有任何反馈），完成后先画芯片再出「已作为视频附件加入」；`toast()` 现在返回元素并带 `dismiss()`。
+77. **设置 → 关于 → 部署提交** 一行放得下：`短 sha · N 文件 · 清单前 8 位`，`nowrap + ellipsis`，不再在哈希中间换行。
+78. **折叠头文案**：`Edited file(s)` / `Editing file(s)` / `Explored file(s)` / `Ran command(s)`——第二个词统一不大写。
+79. **`nano-banana-2-1` 归入生图**：网关新上的 ID 不带 `-image-`，之前混进对话模型菜单；`isImageModel()` 补齐生图家族命名（nano-banana / dall-e / imagen / flux / seedream / stable-diffusion / kolors / hunyuan-image），并把它加入 `IMAGE_MODELS`（走 Gemini generateContent，价目暂按 Nano Banana 2 估算）。
+80. **生图模型选择迁到设置 → 多模态模型**（排在识图之前）：模型菜单不再有底部生图行；仍随会话保存（`store.state.imageModel`），切会话自动同步。
 
 **构建 2026.10.5.32：Dubhe Helix 3.0 · DC**
 

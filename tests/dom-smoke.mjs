@@ -71,8 +71,8 @@ const click = (n) => n.dispatchEvent(new window.MouseEvent('click', { bubbles: t
 console.log('\n挂载与初始状态');
 ok('mountUI 返回 hooks 对象', ui && typeof ui.setStatus === 'function');
 ok('UI 挂载成功时通知启动页关闭', bootCompletionCount === 1, `调用 ${bootCompletionCount} 次`);
-ok('生图模型下拉与目录保持一致（4 项）', $('#image-model').options.length === 4, `实际 ${$('#image-model').options.length}`);
-ok('生图模型下拉默认 gpt-image-2', $('#image-model').value === 'gpt-image-2', $('#image-model').value);
+ok('.33：模型菜单里不再有生图模型行（迁到设置页）', !$('#image-model') && !$('#model-menu .dd-foot'));
+ok('设置页有生图模型选择器（挂载前为空，打开设置时填充）', !!$('#set-image-model'));
 ok('默认模型卡片显示 smart_router', $('#model-btn-name').textContent === 'smart_router', $('#model-btn-name').textContent);
 const expectedLogo = document.createElement('span'); expectedLogo.innerHTML = ROUTER_ICON_SVG;
 ok('模型卡片使用 TeamoRouter 原生产品图标', $('#model-btn-icon svg')?.outerHTML === expectedLogo.querySelector('svg')?.outerHTML);
@@ -85,11 +85,9 @@ const ddItems = () => $$('#model-menu .dd-item-id').map((n) => n.textContent);
 ok('模型菜单已渲染分组', $$('#model-menu .dd-group').length >= 5, `分组 ${$$('#model-menu .dd-group').length}`);
 ok('菜单中没有 gpt-image 系列', !ddItems().some((i) => i.includes('gpt-image')), ddItems().filter((i) => i.includes('image')).join(','));
 ok('菜单不含识图专用模型 deepseek-v4-flash-vision-exp', !ddItems().includes('deepseek-v4-flash-vision-exp'));
+ok('菜单中没有 nano-banana-2-1（生图模型，.33 起被 isImageModel 识别）', !ddItems().some((i) => /nano[-_]?banana/.test(i)), ddItems().filter((i) => i.includes('banana')).join(','));
 ok('菜单不含已下线的 gemini-3.1-flash-lite-preview', !ddItems().includes('gemini-3.1-flash-lite-preview'));
-ok('生图模型行在搜索框之后（DOM 顺序）', (() => {
-  const kids = [...$('#model-menu').children].map((c) => c.className.split(' ')[0]);
-  return kids[0] === 'dd-search-wrap' && kids[kids.length - 1] === 'dd-foot';
-})(), JSON.stringify([...$('#model-menu').children].map((c) => c.className)));
+ok('搜索框仍在菜单最前（DOM 顺序）', [...$('#model-menu').children][0].className.split(' ')[0] === 'dd-search-wrap', JSON.stringify([...$('#model-menu').children].map((c) => c.className)));
 // ⑦ 层级：jsdom 不抓外链样式表 → 直接校验 CSS 源码声明
 const cssText = fs.readFileSync(path.join(ROOT, 'css/styles.css'), 'utf8');
 const wrapZ = Number(/\.dd-search-wrap\s*\{[^}]*z-index:\s*(\d+)/.exec(cssText)?.[1] || 0);
@@ -99,7 +97,7 @@ ok('⑦ 分组标题为定位元素（受 z-index 约束）', /\.dd-group-title\
 $('#model-search').value = 'deepseek';
 $('#model-search').dispatchEvent(new window.Event('input', { bubbles: true }));
 ok('搜索后仅剩 DeepSeek 分组', $$('#model-menu .dd-group').length === 1 && $('#model-menu .dd-group-title').textContent.includes('DeepSeek'));
-ok('搜索后生图行仍在末尾', $('#model-menu').lastElementChild.className.startsWith('dd-foot'));
+ok('搜索后菜单末尾是分组而不是别的残留', $('#model-menu').lastElementChild.className.startsWith('dd-group'));
 $('#model-search').value = '';
 $('#model-search').dispatchEvent(new window.Event('input', { bubbles: true }));
 
@@ -129,7 +127,7 @@ ok('侧栏出现两个会话', !!byTitle('A会话') && !!byTitle('B会话'), $$(
 click(byTitle('A会话'));
 ok('切到会话 A 恢复 claude-opus-5（互不污染）', store.state.model === 'claude-opus-5', store.state.model);
 ok('按钮文案随之更新', $('#model-btn-name').textContent === 'claude-opus-5', $('#model-btn-name').textContent);
-ok('生图模型下拉同步 gpt-image-2.5-flare', $('#image-model').value === 'gpt-image-2.5-flare', $('#image-model').value);
+ok('切会话后会话级生图模型随之恢复 gpt-image-2.5-flare', store.state.imageModel === 'gpt-image-2.5-flare', store.state.imageModel);
 click(byTitle('B会话'));
 ok('切回会话 B 恢复 gpt-5.5', store.state.model === 'gpt-5.5', store.state.model);
 const normalModel = store.state.model;
@@ -623,7 +621,7 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
   const ran = $('.ran-commands');
   const explored = $('.explored-files');
   ok('其他命令进入唯一 Ran Commands 折叠行', !!ran && $$('.ran-commands').length === 1);
-  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran Commands 5', ran && ran.querySelector('.chip-name').textContent);
+  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran commands 5', ran && ran.querySelector('.chip-name').textContent);
   ok('analyze_image 不再作为命令 chip，图片路径进入 Explored Files', !!explored
     && /uploads\/screenshot\.png/.test(explored.textContent)
     && !ran.textContent.includes('analyze_image'));
@@ -660,6 +658,12 @@ console.log('\n⑱ 设置页字号 / 深度思考 / 本地会话数回归');
     window.localStorage.setItem('dubhe-agent-state', JSON.stringify({ sessions: [] })); // 旧错 key：不得影响计数
     openSettingsModal({ store });
     ok('本地存储按 v2 实际显示会话数而非旧 key 的 0', $('#set-about-store').textContent.startsWith('3 个会话'), $('#set-about-store').textContent);
+    const imgSel = $('#set-image-model');
+    ok('.33：设置页生图模型选择器与目录一致（5 项，含 nano-banana-2-1）', imgSel.options.length === 5 && [...imgSel.options].some((o) => o.value === 'nano-banana-2-1'), `实际 ${imgSel.options.length}`);
+    ok('设置页生图选择器显示当前会话的生图模型', imgSel.value === store.state.imageModel, `${imgSel.value} vs ${store.state.imageModel}`);
+    imgSel.value = 'nano-banana-2-1'; imgSel.dispatchEvent(new window.Event('change', { bubbles: true }));
+    ok('改生图模型写入当前会话 store.state.imageModel', store.state.imageModel === 'nano-banana-2-1', store.state.imageModel);
+    imgSel.value = 'gpt-image-2'; imgSel.dispatchEvent(new window.Event('change', { bubbles: true }));
     window.localStorage.setItem('dubhe-fontsize', 'small');
     applyFontSize();
     click($('#set-fontsize [data-v="large"]'));

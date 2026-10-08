@@ -4,12 +4,12 @@
 // 不拥有：会话切换、消息渲染、能力条。这些经 deps 注入（rebuildMessages / renderSessions / renderFiles / updateStats /
 //       syncCapLine / syncWeb / getBusy / openKeyModal），本文件绝不 import ui.js。
 // deps 里 renderFiles / syncWeb 在 mountUI 中定义得比本模块晚：调用方必须以惰性箭头函数传入。
-import { $, el, esc } from './ui-markdown.js?v=2026.10.5.32';
-import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.32';
+import { $, el, esc } from './ui-markdown.js?v=2026.10.5.33';
+import { FALLBACK_MODELS, isImageModel, providerOf, SMART_ROUTER_ID, PROVIDER_ORDER, SMART_ROUTER_PROVIDER, sortModelsInFamily, isFreeModel, supportsVision, supportsFastMode, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, imageModelLabel } from './config.js?v=2026.10.5.33';
 import { isJevModel } from './jev.js';
 import { ICON, providerIcon } from './icons.js';
 import { ROUTER_ICON_SVG, isSmartRouter, SMART_ROUTER_LABEL, SMART_ROUTER_PROVIDER_LABEL } from './smartrouter.js';
-import { fetchModels } from './api.js?v=2026.10.5.32';
+import { fetchModels } from './api.js?v=2026.10.5.33';
 import { effectiveApiKey } from './adminkey.js';
 
 export function installModelPicker({ store, agent, toast, getBusy, openKeyModal, rebuildMessages, renderSessions, renderFiles, updateStats, syncCapLine, syncWeb }) {
@@ -51,8 +51,6 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
       item.addEventListener('click', () => selectModel('__system__'));
       g.appendChild(item);
       ddMenu.appendChild(g);
-      const foot = $('.dd-foot', ddMenu);
-      if (foot) ddMenu.appendChild(foot);
       return;
     }
     const list = mergedModels().filter((m) => !q || m.id.toLowerCase().includes(q));
@@ -92,8 +90,6 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
       ddMenu.appendChild(g);
     }
     if (!order.length) ddMenu.appendChild(el('div', 'dd-empty', '无匹配模型'));
-    const foot = $('.dd-foot', ddMenu);
-    if (foot) ddMenu.appendChild(foot); // 生图模型行始终排在分组之后（sticky bottom 生效）
   }
   // ── /system 通道隔离（.17）：进入时收起真实会话现场、换一次性草稿；
   // state.js 的 commit 对 __system__ 直接跳过 → 真实会话零写入，退出后原样恢复 ──
@@ -188,32 +184,17 @@ export function installModelPicker({ store, agent, toast, getBusy, openKeyModal,
     $('#model-btn-provider').textContent = prov;
     syncImageModelSelect();
   }
-  // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定，切会话时同步显示
+  // 生图模型（由 Agent 调用，不作为对话模型）：与会话绑定。.33 起选择器在设置 → 多模态模型（#set-image-model，settings.js 负责填充与 change）；
+  // 这里只在切会话 / 切模型时把当前会话的值同步过去，并把旧版本 / 导入会话里不在目录内的值退回默认。
   function syncImageModelSelect() {
-    const sel = $('#image-model');
-    if (!sel) return;
-    if (!sel.options.length) {
-      for (const m of IMAGE_MODELS) {
-        const o = document.createElement('option');
-        o.value = m.id;
-        o.textContent = `${m.label}（${m.note}）`;
-        o.title = `模型 ID：${m.id}`;
-        sel.appendChild(o);
-      }
-    }
-    // 会话里存的值可能来自旧版本/导入：不在目录内就退回默认，避免 select 显示空值
     let want = store.state.imageModel;
     if (!IMAGE_MODELS.some((m) => m.id === want)) {
       want = DEFAULT_IMAGE_MODEL;
       store.state.imageModel = want;
     }
-    if (sel.value !== want) sel.value = want;
+    const sel = $('#set-image-model');
+    if (sel && sel.options.length && sel.value !== want) sel.value = want;
   }
-  $('#image-model')?.addEventListener('change', (e) => {
-    store.state.imageModel = e.target.value;
-    store.notify();
-    toast(`生图模型已切换为 ${imageModelLabel(e.target.value)}（由 Agent 的 generate_image 工具调用）`, 'ok');
-  });
   const openMenu = () => {
     renderModelMenu();
     // fixed 定位（脱离侧栏 overflow:hidden 裁剪），按按钮实际位置摆放

@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.32';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.33';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.32';
+import { getTransport } from './api.js?v=2026.10.5.33';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,16 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.32';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.32';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.32';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.32';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.32';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.32';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.32';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.32';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.32';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.32';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.33';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.33';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.33';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.33';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.33';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.33';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.33';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.33';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.33';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.33';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.32';
+} from './ui-markdown.js?v=2026.10.5.33';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.32';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.33';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -55,11 +55,10 @@ export function toast(msg, type = 'info', ms = 2600) {
   const t = el('div', `toast ${type}`, `<span>${esc(msg)}</span>`);
   wrap.appendChild(t);
   requestAnimationFrame(() => t.classList.add('in'));
-  setTimeout(() => {
-    t.classList.remove('in');
-    t.classList.add('leaving');
-    setTimeout(() => t.remove(), 350);
-  }, ms);
+  const dismiss = () => { if (!t.isConnected) return; t.classList.remove('in'); t.classList.add('leaving'); setTimeout(() => t.remove(), 350); };
+  setTimeout(dismiss, ms);
+  t.dismiss = dismiss; // 调用方可提前收掉（例如「正在处理视频…」在处理完成时）
+  return t;
 }
 
 // ── 主 UI ───────────────────────────────────────────────────────────────
@@ -1212,7 +1211,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const cancelled = children.some((chip) => chip.dataset.cancelled === 'true');
     const failed = children.some((chip) => chip.classList.contains('fail'));
     const label = $('.chip-name', fold);
-    if (label) label.textContent = total === 1 ? 'Ran Command' : `Ran Commands ${total}`;
+    if (label) label.textContent = total === 1 ? 'Ran command' : `Ran commands ${total}`;
     fold.classList.toggle('done', allDone);
     fold.classList.toggle('live', getBusy() && !allDone);
     fold.classList.toggle('ok', allDone && !failed && !cancelled);
@@ -1800,7 +1799,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       } else if (node) node.remove();
       return $('.edited-files', wrap) || afterEl;
     };
-    const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored File', 'Explored Files', chips, pathsOfExplored);
+    const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored file', 'Explored files', chips, pathsOfExplored);
     paintEditFold(afterRead, live);
     // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
     paintTurnMeta(wrap, m);

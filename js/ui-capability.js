@@ -8,8 +8,8 @@
 // 弹层复用 #tok-pop（与 token / 智能路由弹层同一时间只开一个）。
 import { isSmartRouter, SMART_ROUTER_LABEL } from './smartrouter.js';
 import { reasoningLevelLabel } from './reasoning.js';
-import { getTransport } from './api.js?v=2026.10.5.32';
-import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.32';
+import { getTransport } from './api.js?v=2026.10.5.33';
+import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.33';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));

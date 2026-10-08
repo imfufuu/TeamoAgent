@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.32';
+} from '../js/api.js?v=2026.10.5.33';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.32');
+const api = await import('../js/api.js?v=2026.10.5.33');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3121,7 +3121,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.32');
+  const api = await import('../js/api.js?v=2026.10.5.33');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4301,18 +4301,19 @@ test('代码块语言在左侧、复制始终可见；用户气泡反色链接',
   assert.match(hl, /\.msg-user \.bubble\.md-body a \{ color: var\(--bg\)/);
   assert.match(html, /assets\/hljs\/highlight\.min\.js/);
   assert.match(ui, /bubble md-body/);
-  assert.match(ui, /Explored File/);
-  assert.match(ui, /Explored Files/);
+  assert.match(ui, /Explored file/);
+  assert.match(ui, /Explored files/);
   // P3（v2.5.1）：写文件折叠行的文案移到 editpreview.js —— 直播「Editing Files」/ 完成「Edited Files N」
   const ep = fsp.readFileSync(new URL('../js/editpreview.js', import.meta.url), 'utf8');
   assert.match(ui, /editFoldLabel/, '写文件折叠行文案应由 editpreview 统一给出（直播/完成两态）');
-  assert.match(ep, /Editing Files/, '写入期间显示 Editing Files');
+  assert.match(ep, /Editing files/, '写入期间显示 Editing files（.33：第二个词小写）');
   assert.match(ep, /Edited Files/i, '完成后显示 Edited Files N');
   assert.match(ui, /\$\{many\} \$\{paths\.length\}/, '多文件才在标题后加数量');
   assert.match(ui, /连续 Edited \/ Explored File/, '同一轮连续 write_file / read_file 合并成一块');
   assert.match(ui, /FILE_FOLD_TOOLS = new Set\(\['write_file', 'read_file', 'analyze_image', 'analyze_pdf', 'analyze_video'\]\)/, '文件读写与识图从命令芯片组移出');
   assert.match(ui, /pathsOfAnalyze/, 'analyze_image 路径合并到 Explored Files');
-  assert.match(ui, /Ran Commands \${total}/, '其余命令统一折叠到 Ran Commands');
+  assert.match(ui, /Ran commands \${total}/, '其余命令统一折叠到 Ran commands（.33：第二个词首字母不大写）');
+  assert.doesNotMatch(ui, /'Ran Command'|`Ran Commands|'Explored File'|'Explored Files'/, '折叠头文案第二个词统一小写');
   assert.match(ui, /tool-call-chip/, '命令输出仍可逐项展开查看');
   assert.match(ui, /hasToolOutput/, '空字符串出参也必须被认定为已返回');
   assert.match(ui, /callIds/, '同工具分组必须能按全部 call id 回填状态与出参');
@@ -5190,11 +5191,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.32');
+  assert.equal(APP_VERSION, '2026.10.5.33');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.32/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.33/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.32/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.33/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8318,7 +8319,9 @@ test('视频附件：上传时抽帧（海报 + 均匀 5 帧），帧只给审�
   assert.match(ua, /const t = d \? \(\(i \+ 0\.5\) \/ n\) \* d : 0;/, '均匀抽帧：(i+0.5)/n · duration');
   assert.match(ua, /poster: cap\.poster,/);
   assert.match(ua, /frames: cap\.frames,/);
-  assert.match(ua, /catch \(err\) \{ toast\(`\$\{f\.name\}：\$\{err\.message\}（未加入）`/, '解码失败 → 拒收而不是无审核放行（提示里不提「抽帧 / 审核」这类内部流程）');
+  assert.match(ua, /catch \(err\) \{ doneBusy\(\); toast\(`\$\{f\.name\}：\$\{err\.message\}（未加入）`/, '解码失败 → 拒收而不是无审核放行（提示里不提「抽帧 / 审核」这类内部流程）');
+  assert.match(ua, /const busyToast = toast\(`\$\{f\.name\}：正在读取视频…`, 'info', 30000\);/, '.33：点「加入」立刻有反馈，不等抽帧 + 读 base64 完成');
+  assert.match(ua, /doneBusy\(\);\s*\n\s*renderAttachChips\(\);[^\n]*\n\s*toast\(`\$\{f\.name\}：已作为视频附件加入/, '完成后收掉忙碌提示、先画芯片再提示');
   assert.doesNotMatch(ua, /帧待审核|抽帧审核|通过审核后/, '用户提示不念内部审核流程（.27）');
   assert.match(ua, /attach-chip-thumb is-video/.source ? /attach-chip-thumb\$\{a\.source === 'video' \? ' is-video' : ''\}/ : /x/, '芯片用海报缩略图');
   assert.match(agent, /if \(a && Array\.isArray\(a\.frames\)\) \{ videoFrames\.set\(a, a\.frames\); delete a\.frames; \}/, '帧在入消息前摘掉');
@@ -9044,7 +9047,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.32'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.33'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9086,7 +9089,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.32');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.33');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9351,7 +9354,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.32：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.33：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9561,7 +9564,7 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
-group('2026.10.5.32：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+group('2026.10.5.33：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
 
 test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
   const sb = await import('../js/sandbox.js');
@@ -9668,19 +9671,19 @@ test('tools/build-manifest.mjs：清单只含站点内容（排除 .git / node_m
   const root = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'dubhe-manifest-'));
   const put = (rel, content) => { const abs = pathMod.join(root, rel); fsp.mkdirSync(pathMod.dirname(abs), { recursive: true }); fsp.writeFileSync(abs, content); };
   put('app.html', '<html>');
-  put('js/config.js', "export const APP_VERSION = '2026.10.5.32';\n");
+  put('js/config.js', "export const APP_VERSION = '2026.10.5.33';\n");
   put('assets/x.bin', Buffer.from([1, 2, 3]));
   put('.github/workflows/ci.yml', 'x'); put('.gitignore', 'x'); put('node_modules/a/index.js', 'x'); put('build.json', '{}'); put('.git/HEAD', 'ref');
   put('tests/t.mjs', 'y');
   const m = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-07T00:00:00Z') });
   assert.equal(m.schema, 'dubhe-build-manifest/1');
   assert.equal(m.commit, 'abc123');
-  assert.equal(m.version, '2026.10.5.32', '版本号从 js/config.js 读');
+  assert.equal(m.version, '2026.10.5.33', '版本号从 js/config.js 读');
   assert.deepEqual(Object.keys(m.files), ['app.html', 'assets/x.bin', 'js/config.js', 'tests/t.mjs'], '排序 + 排除规则');
   assert.equal(m.file_count, 4);
   assert.equal(m.files['assets/x.bin'].size, 3);
   assert.equal(m.files['assets/x.bin'].sha256, '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
-  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.32';\n".length + 1);
+  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.33';\n".length + 1);
   assert.match(m.manifest_sha256, /^[0-9a-f]{64}$/);
   const m2 = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-08T00:00:00Z') });
   assert.equal(m2.manifest_sha256, m.manifest_sha256, '清单摘要只依赖路径与内容，不依赖时间');
@@ -9715,16 +9718,16 @@ test('pages.yml 打包前生成 build.json；build.json 不入库；settings 读
   assert.match(app, /<div class="set-about-row"><span>部署提交<\/span><b id="set-about-commit" class="mono"/);
   const st = await import('../js/settings.js');
   // loadBuildInfo：mock fetch
-  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.32', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
+  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.33', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
   const info = await st.loadBuildInfo({ fetchImpl: async (u) => { assert.match(String(u), /^build\.json\?x=\d+$/); return { ok: true, json: async () => good }; } });
   assert.equal(info.ok, true); assert.equal(info.commit, good.commit);
-  const f1 = st.formatBuildInfo(info, '2026.10.5.32');
+  const f1 = st.formatBuildInfo(info, '2026.10.5.33');
   assert.equal(f1.mismatch, false);
-  assert.match(f1.text, /^de07a1d7e735 · 202 个文件 · 清单 abcdef0123…$/);
+  assert.match(f1.text, /^de07a1d7e735 · 202 文件 · 清单 abcdef01$/, '.33：一行放得下（短 sha · 文件数 · 清单前 8 位），不再换行错位');
   assert.equal(f1.href, 'https://github.com/imfufuu/dubhe-agent/commit/de07a1d7e7350000000000000000000000000000');
   const f2 = st.formatBuildInfo(info, '2026.1.1.1');
   assert.equal(f2.mismatch, true);
-  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.32，本页运行的是 2026\.1\.1\.1/);
+  assert.match(f2.text, /⚠ 线上 2026\.10\.5\.33 \/ 本页 2026\.1\.1\.1，请强刷/);
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'http-404' }).text, '非 Pages 部署（无 build.json）');
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'network' }).mismatch, false);
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -9968,6 +9971,52 @@ test('界面动效偏好：auto / on / off 三态，on 覆盖系统 reduce，off
     for (const line of body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('@'))) assert.ok(line.includes('html:not([data-motion="on"])'), `reduce 块里每条规则都要带门控：${line.slice(0, 80)}`);
   }
   assert.ok((css.match(/html\[data-motion="off"\] /g) || []).length >= 15, '强制「关」有完整的一套退化规则');
+});
+
+group('2026.10.5.33：视频加入即时反馈 / 部署提交行不换行 / 折叠头第二词小写 / nano-banana-2-1 归入生图 / 生图模型迁到设置页');
+
+test('nano-banana-2-1 是生图模型：进 IMAGE_MODELS、isImageModel 命中、不进对话模型菜单、计费归 image、别名可解析', async () => {
+  const c = await import('../js/config.js');
+  const pricing = await import('../js/pricing.js');
+  assert.ok(c.IMAGE_MODELS.some((m) => m.id === 'nano-banana-2-1'));
+  assert.equal(c.IMAGE_MODELS.length, 5);
+  assert.ok(c.IMAGE_MODELS.every((m) => m.tag && m.label && m.note), '设置页下拉需要 label · tag');
+  assert.equal(c.DEFAULT_IMAGE_MODEL, 'gpt-image-2');
+  for (const id of ['nano-banana-2-1', 'nano-banana-2', 'gpt-image-3', 'dall-e-4', 'flux-2-pro', 'imagen-4']) assert.equal(c.isImageModel(id), true, id);
+  for (const id of ['gpt-5.5', 'gemini-3.8-flash', 'deepseek-v4-flash', 'claude-sonnet-5', 'glm-5-flash']) assert.equal(c.isImageModel(id), false, id);
+  assert.equal(c.resolveImageModel('Nano Banana 2.1').id, 'nano-banana-2-1');
+  assert.equal(c.resolveImageModel('nano banana 2').id, 'gemini-3.1-flash-image', '旧别名不受影响');
+  const p = pricing.getModelPricing('nano-banana-2-1');
+  assert.equal(p.kind, 'image'); assert.match(p.label, /按 Nano Banana 2 估算/);
+  const api = (await import('node:fs')).readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
+  assert.match(api, /\/nano\[-_ \]\?banana\/\.test\(m\)/, 'nano-banana-2-1 与 Nano Banana 2 同走 Gemini generateContent');
+});
+
+test('生图模型选择器迁到设置 → 多模态模型：模型菜单无 dd-foot / #image-model；#set-image-model 写入当前会话；切会话同步', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /dd-foot|id="image-model"/);
+  assert.match(app, /<div class="set-title">生图模型<\/div>[\s\S]*?<select id="set-image-model" class="set-select"/);
+  assert.ok(app.indexOf('id="set-image-model"') < app.indexOf('id="set-vision-model"'), '生图排在识图之前');
+  const picker = fsp.readFileSync(new URL('../js/ui-model-picker.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(picker, /\.dd-foot|#image-model'/);
+  assert.match(picker, /const sel = \$\('#set-image-model'\);\s*if \(sel && sel\.options\.length && sel\.value !== want\) sel\.value = want;/);
+  const st = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  assert.match(st, /fillModelSelect\(\$\('#set-image-model'\), IMAGE_MODELS, image\);/);
+  assert.match(st, /store\.state\.imageModel = id;\s*store\.notify\(\);/, '写进当前会话而不是全局 settings');
+  assert.match(st, /随当前会话保存/);
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /\.dd-foot \{/);
+});
+
+test('折叠头文案第二个词统一小写：Edited file(s) / Editing file(s) / Explored file(s) / Ran command(s)', async () => {
+  const { editFoldLabel } = await import('../js/editpreview.js');
+  assert.equal(editFoldLabel(1), 'Edited file'); assert.equal(editFoldLabel(3), 'Edited files 3');
+  assert.equal(editFoldLabel(1, { live: true }), 'Editing file'); assert.equal(editFoldLabel(2, { live: true }), 'Editing files 2');
+  const ui = readUiSource();
+  assert.match(ui, /total === 1 \? 'Ran command' : `Ran commands \$\{total\}`/);
+  assert.match(ui, /'Explored file', 'Explored files'/);
+  for (const bad of ['Edited File', 'Editing File', 'Explored File', 'Ran Command']) assert.ok(!new RegExp(`'${bad}s?'`).test(ui), `${bad} 不应再出现在界面文案里`);
 });
 
 for (const item of queue) {

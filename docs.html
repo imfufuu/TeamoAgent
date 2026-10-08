@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.32" />
+<meta name="app-version" content="2026.10.5.33" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -214,7 +214,7 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.32</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.33</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-05</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>五件本地工具</strong>：<code>csv_tool</code>（预览 / 过滤 / 排序 / 聚合 / 转 JSON）、<code>date_calc</code>（日期差、加减、工作日、时区）、<code>text_tool</code>（统计 / 去重 / 排序 / 大小写 / 包裹 / 对齐）、<code>convert_units</code>（八大类单位）、<code>qr_code</code>（本地生成二维码 SVG，Version 1–20，与 python-qrcode 逐位一致）。工具总数 36，子智能体按角色获得对应权限。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>沙箱安全加固</strong>：JS Worker 在执行用户代码前拆除 fetch / XMLHttpRequest / WebSocket / EventSource / importScripts / Worker / BroadcastChannel / IndexedDB / Cache，私有化 postMessage 防伪造结果帧；Python Worker 的 fetch 改为白名单（仅 Pyodide CDN 与 PyPI），其余联网原语移除；日志（500 条 / 1 MB）、返回值（200 KB）、文件（128 MB / 5000 个）设硬上限；主线程回写时逐键校验路径（拒绝绝对路径、<code>..</code>、反斜杠、控制字符、原型键），<code>internal/</code> 与 <code>.git/</code> 不可被沙箱代码增删改，超容量整体回滚。</span></li>
@@ -233,6 +233,7 @@
           <li><span class="tag add">ADD</span><span><strong><code>analyze_video</code> 视频识别（构建 .18）</strong>：视频附件（mp4 / webm / mov / m4v，≤ 16 MB）原样写入 <code>uploads/</code>，工具逻辑照搬 <code>analyze_image</code>，以 <code>file</code> 部件交给 Gemini，全文写入 <code>internal/ocr/*.video.md</code> 并按 usage 计费；视频档位只收录实测能真正收到视频的 Gemini 3.5 Flash Lite / 3.8 Flash / 3.1 Pro。工具总数 38。</span></li>
           <li><span class="tag add">ADD</span><span><strong>沙箱视频可播放 + 首帧缩略图 + 抽帧审核（构建 .19）</strong>：视频附件进入前本地抽帧——0.3 秒海报图作为芯片 / 气泡的首帧缩略图，再均匀抽 5 帧交给与图片同一条 NudeNet + NSFWJS 审核流水线（任一帧命中即拦截，抽不到帧视为失败关闭；帧只用于审核，入消息前摘掉）；气泡点击原地播放，文件面板里 <code>uploads/*.mp4</code> 不再显示为二进制，专属图标 + 直接 <code>&lt;video&gt;</code> 播放（blob URL，关闭即回收）。CSP 新增 <code>media-src</code>。</span></li>
           <li><span class="tag add">ADD</span><span><strong><code>download_file</code> 跨域文件拉取（构建 .19）</strong>：经 Worker <code>/api/file</code>（v1.7.0）把任意 http(s) 资源原始字节写入沙箱 <code>uploads/</code>（≤ 16 MB，拒绝私网地址，≤ 5 次跳转，文件名取 Content-Disposition → URL → MIME 推断）；中继无 <code>file</code> 能力时自动从工具表剔除。输入框粘贴裸链接或回形针菜单「从链接添加」也走同一条通道，与本地文件相同的分类与审核流程。工具总数 39。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>5 项跟进（构建 .33）</strong>：视频附件点「加入」立刻有「正在读取」反馈；设置页「部署提交」一行显示不再错位；折叠头文案改为 Edited file(s) / Explored file(s) / Ran command(s)；网关新模型 <code>nano-banana-2-1</code> 归入生图模型（不再混进对话模型菜单）；生图模型选择器迁到设置 → 多模态模型。</span></li>
           <li><span class="tag add">ADD</span><span><strong>Dubhe Helix 3.0 · DC「天枢·寒武」（构建 .32）</strong>：架构号升为 3.0（DC = Dubhe Cambrian 仅为产品代号）。新增 <strong>能力登记处</strong>——每个工具只登记一次，并发 / 网络限流 / 只读与重型分组 / 门控分组 / 核心表 / 按需挂载规则全部派生，三方一致性由测试强制，为「能力大爆发」压低每个新能力的边际成本与风险；架构规范扩为九层（+ 可验证供应链、外部依赖韧性）。同批：界面动效三态偏好（Windows 关掉「动画效果」时不再静默无动画，设置页写明原因并可覆盖）、旧浏览器能力提示、设置 → 关于「架构」行。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>单点依赖（构建 .31）</strong>：网页中继失败不再「探测一次、永远离线」——失败缓存 60 秒后自动重探；<code>fetch_url / search_web / crawl_site / download_file</code> 遇到网络错误当场作废缓存并后台重探，结果里给出三条恢复路径（重试 / 自建 Worker / 本地 server.py）；顶栏「联网」胶囊随探测状态变化并写明何时自动重探，恢复时提示；网关 401 / 5xx 错误框直接给「切换到 .com / .cn 节点并重试」按钮。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>供应链可验证性（构建 .30）</strong>：自动化提交与标签改用 SSH 签名（GitHub Verified），<code>main</code> 分支要求签名提交；每个构建号打签名 tag + Release；Pages 部署时生成 <code>build.json</code>（提交 sha + 逐文件 sha256），设置 → 关于显示部署提交，<code>tools/verify-build.mjs</code> 可逐文件核对线上与仓库一致。边界如实写明：只覆盖完整性与来源，不覆盖代码无害性与运行时行为。</span></li>
@@ -479,7 +480,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.32 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.5.33 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
