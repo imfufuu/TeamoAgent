@@ -2,7 +2,7 @@
 // 用户可见服务提供商，但不暴露具体模型 ID（满足用户隐私/抽象需求）。
 // 路由策略为本地启发式（0ms 决策），不需要额外网络请求。
 
-import { SMART_ROUTER_ID } from './config.js';
+import { SMART_ROUTER_ID } from './config.js?v=2026.10.5.35';
 
 // 路由类别
 const TASK_CATEGORY = {
@@ -157,7 +157,7 @@ export function isSmartRouter(modelId) {
 
 // 路由器徽章的图标 & 显示名
 // 路由器图标 = TeamoRouter 产品 LOGO（粗实线外环 + 三段轨道弧 + 三个卫星点 + 实心核心）。
-// 2026.10.5.34：对照产品 LOGO 原图重新量过——轨道半径 8 → 8.6（更贴近外环）、弧线 2.6 → 2.5、缺口半角 10°、
+// 2026.10.5.35：对照产品 LOGO 原图重新量过——轨道半径 8 → 8.6（更贴近外环）、弧线 2.6 → 2.5、缺口半角 10°、
 // 卫星点 r 2.1 → 2.05 并外移 0.3 成「鼓包」、外环 2.1 → 2.3、核心 r 3.1 → 3.0；几何由 tools 内脚本按角度算出，不要手改坐标。
 export const SMART_ROUTER_LABEL = 'smart_router';
 export const SMART_ROUTER_PROVIDER_LABEL = 'TEAMOROUTER';

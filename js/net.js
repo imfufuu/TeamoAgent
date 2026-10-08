@@ -351,7 +351,7 @@ export function slugFromUrl(url) {
  * 文本超过 2000 字符时把全文写进沙箱 savePath（默认 web/<host>/<path>.md），
  * 返回结果里给出截断预览 —— 这样子智能体和 read_file 都能继续用这份原文。
  */
-export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal, fs, savePath } = {}) {
+export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal, fs, savePath, full = false } = {}) {
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) return { ok: false, error: `fetch_url 只接受 http(s) 绝对地址，收到：${u || '(空)'}` };
   const want = mode === 'raw' ? 'raw' : 'text';
@@ -419,6 +419,7 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
     contentType,
     chars: text.length,
     savedTo,
+    ...(full ? { text } : {}), // 沙箱内 fetch 需要全文（不落盘、不截断）
     preview: text.length > PREVIEW ? `${text.slice(0, PREVIEW)}\n…（共 ${text.length} 字符${savedTo ? `，全文已写入沙箱 ${savedTo}，可 read_file 继续读` : ''}）` : text,
     note,
   };

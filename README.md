@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.34` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.35` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -144,6 +144,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.35：JS 沙箱运行时垫片（Node 风格 API / canvas / 受控网络）/ 设置页文案瘦身 / 模块图 URL 归一**
+
+85. **JS 沙箱不再「只有 console 与 files」**（`js/worker-shims.js`，锁死边界不变）：装配 Node 风格垫片——`require`（`fs` → 映射到虚拟文件系统 `files`；另有 `path` / `buffer` / `util` / `events` / `crypto`〔纯 JS 实现 sha256·sha1·md5·hmac + WebCrypto 随机数〕/ `os` / `process` / `assert` / `url` / `querystring` / `timers` / `string_decoder`）、`Buffer`（Uint8Array 子类：base64 / hex / latin1 / 读写整数）、`process`（env / cwd / hrtime / exit 拦截）、`document.createElement('canvas')` → **OffscreenCanvas**（`await canvas.toDataURL()`，可把画出来的图写进 `files` 落盘）。第三方库仍靠 `importScripts`，不再假装有 npm。
+86. **受控网络（可关）**：顶栏「联网」开 + 中继可用时，沙箱内 `fetch`（**仅 GET**，经中继，≤ 8 次 / ≤ 2 MB 每次 / ≤ 6 MB 累计）与 `importScripts`（CDN 的 UMD 包，如 jsDelivr）可用；实现方式是 **MessageChannel RPC**——真正的抓取在主线程完成，Worker 里依旧没有任何出网原语，且 `fetch` / `importScripts` 都是按次授权、可随时关闭。未开启时调用会明确报「沙箱内网络未开启」。仍然没有：真实 DOM、`XMLHttpRequest`（请用 `fetch`）、`WebSocket`（中继是 HTTP，做不了）、`child_process` / `http` 等 Node 原生模块。
+87. **设置页文案瘦身**：`set-sub` 说明只保留「什么时候会用到这条设置」，去掉与别处重复的解释（`sk-teamo- 开头`、`extended thinking`、`Mini 最快…` 等），预算 / 多模态 / 缓存脚注各缩成一行；测试强制每段 ≤ 44 字。
+88. **模块图 URL 归一**：`config.js` / `execution.js` / `ui.js` 此前各有一处 import 没带 `?v=`，会与带版本号的同一文件构成**两个 ESM 实例**（`instanceof`、模块级缓存都会分裂）。现在全图单一 URL，测试用 BFS 遍历全模块图断言「一个文件只有一种 URL」且 `?v=` 恒等于 `APP_VERSION`。
 
 **构建 2026.10.5.34：P9 显式 turn pipeline / Nano Banana 2.1 实测 / 菜单高度 / 能力表弹层位置**
 

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.7';
-export const APP_VERSION = '2026.10.5.34';
+export const APP_VERSION = '2026.10.5.35';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -387,8 +387,8 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '',
     '## 能力',
     '你可以调用以下工具（三个代码执行工具需要用户开启「沙箱」；fetch_url/search_web/crawl_site 需 Worker health 声明相应网页能力，否则不会出现在工具表）。工具表分两层下发：核心工具（代码执行、文件读写、fetch_url/search_web、analyze_image、dispatch_subagent）每轮都在表里；其余工具按用户消息、附件类型和近几轮用量按需挂载——【工具表】段会列出本轮未挂载的名字，需要时直接调用即可，内核会当场挂载并要求你重试；日常小任务（算数、改文本、查日期）优先用已挂载的本地工具，其次 execute_javascript，不要为挑工具纠结。',
-    '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。只有 console 与 files（无原型字典，键=完整相对路径；是会话文件系统的快照，增删改会同步回去、后续工具可见），没有 Node API（无 require / fs / process / Buffer），也没有 DOM / fetch。files 是普通对象，键=完整相对路径，例 files["files/a.txt"] = "hi"。支持顶层 await。适合计算、数据处理、算法验证。',
-    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage，通常走浏览器缓存而不重新下载。将结果赋给 result 可被捕获。两个沙箱都禁网（Python 只放行装包的 CDN/PyPI），抓网页请用 fetch_url；写入 files/FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护，日志/结果/文件总量有硬上限。',
+    '- execute_javascript：在隔离的 Web Worker 沙箱中执行 JavaScript。有 console、files（无原型字典，键=完整相对路径；是会话文件系统的快照，增删改会同步回去、后续工具可见）、Node 风格 require（fs→files / path / buffer / util / events / crypto / os / process / assert）、Buffer、process、document.createElement("canvas")；联网开且中继可用时 fetch（仅 GET，经中继）与 importScripts（CDN 库）可用；没有真实 DOM、XMLHttpRequest、WebSocket、child_process / http 等 Node 原生模块。例 files["files/a.txt"] = "hi"。支持顶层 await。适合计算、数据处理、算法验证。',
+    '- execute_python：在 Pyodide（WebAssembly Python）沙箱中执行 Python。提供 FILES 字典，键=完整相对路径，例 FILES["files/a.txt"] = "hi"。可通过 packages 参数或代码里的 import 安装第三方库（numpy/pandas 等，micropip）。本会话已装的包不会重装；刷新后运行时重建，会再 loadPackage，通常走浏览器缓存而不重新下载。将结果赋给 result 可被捕获。Python 沙箱禁网（只放行装包的 CDN/PyPI）；JS 沙箱只在联网开启时经中继 GET，抓网页请用 fetch_url；写入 files/FILES 的路径必须是合法相对路径，internal/ 与 .git/ 受保护，日志/结果/文件总量有硬上限。',
     '- execute_cpp：编译并执行 C++（g++ -O2 -std=c++20，Compiler Explorer 远程执行）。代码需含 main；stdout/stderr 被捕获。可用 path/files/dir 把沙箱头文件与多文件源码一并提交，stdin / args 传给程序。',
     '- write_file / read_file / list_files / delete_file / copy_file：操作会话级虚拟文件系统。write_file 支持 mode=overwrite（默认整文件覆盖）、append（追加）、replace（把 old_text 换成 new_text，用于局部修改）。delete_file 删除；copy_file 复制，move=true 时移动。',
     '- search_files / diff_text / json_tool：本地工作台，不需要开沙箱。search_files 用正则搜沙箱正文，也会搜图片/二进制的 mime、宽高、体积与 ASCII strings（不跳过 data URL）；diff_text 对比两段文本或两个文件；json_tool 做 pretty/parse/keys/get。改配置、对拍输出、抽 JSON 字段时用它们，不要口算。',

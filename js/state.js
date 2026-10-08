@@ -1,6 +1,6 @@
 // ─── 会话状态：多会话记录、消息、检查点（回滚）、持久化 ────────────────
 // 侧栏展示「会话记录」；回滚操作全部发生在对话区（消息级按钮 + 撤销浮条）
-import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js';
+import { STORAGE_KEY, DEFAULT_IMAGE_MODEL, DEFAULT_CHAT_MODEL, isImageModel, isImageGenModel } from './config.js?v=2026.10.5.35';
 import { readLocal } from './legacy-keys.js';
 import { isJevModel } from './jev.js';
 import { blobsSupported, blobPut, blobGet, blobPrune } from './blobstore.js';

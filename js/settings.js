@@ -1,7 +1,7 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, isImageGenModel, imageModelLabel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.34';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, isImageGenModel, imageModelLabel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.35';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
-import { DEFAULT_TURN_BUDGET } from './execution.js';
+import { DEFAULT_TURN_BUDGET } from './execution.js?v=2026.10.5.35';
 import { NEXUS_ARCHITECTURE_SPEC } from './nexus.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
@@ -24,7 +24,7 @@ function validateApiKey(s) {
 }
 function toast(msg, type = 'info', ms = 2600) {
   try {
-    import('./ui.js').then(({ toast: t }) => t && t(msg, type, ms)).catch(() => {
+    import('./ui.js?v=2026.10.5.35').then(({ toast: t }) => t && t(msg, type, ms)).catch(() => {
       const wrap = document.getElementById('toasts');
       if (!wrap) return;
       const d = document.createElement('div');
@@ -85,7 +85,7 @@ function syncMultimodalSelects(store) {
     const vi = VISION_MODELS.find((m) => m.id === vision) || {};
     const vd = VIDEO_MODELS.find((m) => m.id === video) || {};
     const im = IMAGE_MODELS.find((m) => m.id === image) || {};
-    note.textContent = `生图 ${image}：${im.note || ''}｜识图 ${vision}：${vi.note || ''}｜视频 ${video}：${vd.note || ''}。按实际 token 计费，换模型立即生效。`;
+    note.textContent = `${im.label || image} · ${vi.label || vision} · ${vd.label || video}`;
   }
 }
 
@@ -99,8 +99,8 @@ function syncBudgetInputs(store) {
   if (note) {
     const custom = ext !== DEFAULT_TURN_BUDGET.maxExternalSideEffects || tc !== DEFAULT_TURN_BUDGET.maxToolCalls;
     note.textContent = custom
-      ? `当前为自定义值（默认：外部副作用 ${DEFAULT_TURN_BUDGET.maxExternalSideEffects} · 工具调用 ${DEFAULT_TURN_BUDGET.maxToolCalls}）。模型每轮都能看到余额，剩余 ≤ 2 时会收到预警`
-      : `默认值。模型每轮都能看到余额与预警；撞上上限时工具结果里会给出这条设置的入口`;
+      ? `自定义（默认 ${DEFAULT_TURN_BUDGET.maxExternalSideEffects} / ${DEFAULT_TURN_BUDGET.maxToolCalls}）`
+      : '默认值';
   }
 }
 
@@ -329,7 +329,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved, onSettingChan
     try {
       const r = await clearTransientCaches();
       const note = $('#set-cache-note');
-      if (note) note.textContent = `已清除：${r.cacheStores} 个离线缓存（${r.cacheEntries} 条资源）· ${r.sessionKeys} 条页面临时状态 · 中继探测已重置。会话 / 密钥 / 设置 / 长效记忆未动；模型与审核资产下次用到时重新下载`;
+      if (note) note.textContent = `已清除 ${r.cacheStores} 个缓存（${r.cacheEntries} 条）· 下次用到时重新下载`;
       toast(`✓ 临时缓存已清除（${r.cacheStores} 个离线缓存 · ${r.cacheEntries} 条资源）`, 'ok', 4200);
       onRelayChanged && onRelayChanged();
     } catch (err) {
@@ -389,11 +389,11 @@ export function applyMotionValue(value, { persist = true } = {}) {
 }
 export function applyMotion() { return applyMotionValue(readMotionPreference(), { persist: false }); }
 export function motionNoteText(pref = readMotionPreference(), systemReduce = systemPrefersReducedMotion()) {
-  if (pref === 'on') return systemReduce ? '已强制开启：忽略系统的「减少动效」请求' : '已强制开启';
-  if (pref === 'off') return '已关闭全部界面动画';
+  if (pref === 'on') return systemReduce ? '强制开启（忽略系统「减少动效」）' : '强制开启';
+  if (pref === 'off') return '已关闭';
   return systemReduce
-    ? '跟随系统：系统当前要求减少动效，所以动画都没有播放（Windows：设置 → 辅助功能 → 视觉效果 → 动画效果；macOS：辅助功能 → 显示 → 减弱动态效果）。选「开」可忽略系统设置'
-    : '跟随系统：系统允许动画。菜单弹入、芯片滑入、加载屏等动画正常播放';
+    ? '系统要求减少动效，动画已停（Windows：设置 → 辅助功能 → 视觉效果 → 动画效果）。选「开」可忽略'
+    : '跟随系统';
 }
 function paintMotionNote() {
   const n = $('#set-motion-note');

@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.34';
+} from '../js/api.js?v=2026.10.5.35';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.34');
+const api = await import('../js/api.js?v=2026.10.5.35');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3121,7 +3121,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.34');
+  const api = await import('../js/api.js?v=2026.10.5.35');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5191,11 +5191,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.34');
+  assert.equal(APP_VERSION, '2026.10.5.35');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.34/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.35/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.34/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.35/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -8657,7 +8657,7 @@ test('设置页「执行预算」：两路上限可调（写 settings.executionB
   assert.match(app, /<input id="set-budget-ext" class="set-input set-num mono" type="number" min="1" max="60"/);
   assert.match(app, /<input id="set-budget-tools" class="set-input set-num mono" type="number" min="4" max="128"/);
   assert.match(app, /<button id="set-budget-reset" class="mini-btn" type="button">恢复默认<\/button>/);
-  assert.match(settings, /import \{ DEFAULT_TURN_BUDGET \} from '\.\/execution\.js';/, '默认值与内核同源，不手抄');
+  assert.match(settings, /import \{ DEFAULT_TURN_BUDGET \} from '\.\/execution\.js\?v=[0-9.]+';/, '默认值与内核同源，不手抄（.35 起 import 带 ?v=，避免模块双实例）');
   assert.match(settings, /bindBudget\('#set-budget-ext', 'maxExternalSideEffects', 1, 60\);/);
   assert.match(settings, /bindBudget\('#set-budget-tools', 'maxToolCalls', 4, 128\);/);
   assert.match(settings, /if \(n === def\) delete cur\[key\]; else cur\[key\] = n;/, '等于默认值就不落盘，避免未来改默认时被旧值钉住');
@@ -9047,7 +9047,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.34'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.35'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9089,7 +9089,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.34');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.35');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9354,7 +9354,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.34：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.35：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9505,7 +9505,7 @@ test('#11 设置 → 清除临时缓存：只清 Cache Storage / sessionStorage 
   const fsp = await import('node:fs');
   const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
   assert.match(app, /<button type="button" id="set-clear-cache" class="ghost-btn">清除临时缓存<\/button>/);
-  assert.match(app, /不含会话、密钥、设置与长效记忆/);
+  assert.match(app, /不含会话、密钥、设置与记忆/);
   const { clearTransientCaches } = await import('../js/settings.js');
   const deleted = [];
   const stores = { 'dubhe-static-v1': ['a', 'b', 'c'], 'dubhe-moderation-v1': ['m1', 'm2'] };
@@ -9564,7 +9564,7 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
-group('2026.10.5.34：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+group('2026.10.5.35：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
 
 test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
   const sb = await import('../js/sandbox.js');
@@ -9671,19 +9671,19 @@ test('tools/build-manifest.mjs：清单只含站点内容（排除 .git / node_m
   const root = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'dubhe-manifest-'));
   const put = (rel, content) => { const abs = pathMod.join(root, rel); fsp.mkdirSync(pathMod.dirname(abs), { recursive: true }); fsp.writeFileSync(abs, content); };
   put('app.html', '<html>');
-  put('js/config.js', "export const APP_VERSION = '2026.10.5.34';\n");
+  put('js/config.js', "export const APP_VERSION = '2026.10.5.35';\n");
   put('assets/x.bin', Buffer.from([1, 2, 3]));
   put('.github/workflows/ci.yml', 'x'); put('.gitignore', 'x'); put('node_modules/a/index.js', 'x'); put('build.json', '{}'); put('.git/HEAD', 'ref');
   put('tests/t.mjs', 'y');
   const m = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-07T00:00:00Z') });
   assert.equal(m.schema, 'dubhe-build-manifest/1');
   assert.equal(m.commit, 'abc123');
-  assert.equal(m.version, '2026.10.5.34', '版本号从 js/config.js 读');
+  assert.equal(m.version, '2026.10.5.35', '版本号从 js/config.js 读');
   assert.deepEqual(Object.keys(m.files), ['app.html', 'assets/x.bin', 'js/config.js', 'tests/t.mjs'], '排序 + 排除规则');
   assert.equal(m.file_count, 4);
   assert.equal(m.files['assets/x.bin'].size, 3);
   assert.equal(m.files['assets/x.bin'].sha256, '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
-  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.34';\n".length + 1);
+  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.35';\n".length + 1);
   assert.match(m.manifest_sha256, /^[0-9a-f]{64}$/);
   const m2 = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-08T00:00:00Z') });
   assert.equal(m2.manifest_sha256, m.manifest_sha256, '清单摘要只依赖路径与内容，不依赖时间');
@@ -9718,16 +9718,16 @@ test('pages.yml 打包前生成 build.json；build.json 不入库；settings 读
   assert.match(app, /<div class="set-about-row"><span>部署提交<\/span><b id="set-about-commit" class="mono"/);
   const st = await import('../js/settings.js');
   // loadBuildInfo：mock fetch
-  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.34', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
+  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.35', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
   const info = await st.loadBuildInfo({ fetchImpl: async (u) => { assert.match(String(u), /^build\.json\?x=\d+$/); return { ok: true, json: async () => good }; } });
   assert.equal(info.ok, true); assert.equal(info.commit, good.commit);
-  const f1 = st.formatBuildInfo(info, '2026.10.5.34');
+  const f1 = st.formatBuildInfo(info, '2026.10.5.35');
   assert.equal(f1.mismatch, false);
   assert.match(f1.text, /^de07a1d7e735 · 202 文件 · 清单 abcdef01$/, '.33：一行放得下（短 sha · 文件数 · 清单前 8 位），不再换行错位');
   assert.equal(f1.href, 'https://github.com/imfufuu/dubhe-agent/commit/de07a1d7e7350000000000000000000000000000');
   const f2 = st.formatBuildInfo(info, '2026.1.1.1');
   assert.equal(f2.mismatch, true);
-  assert.match(f2.text, /⚠ 线上 2026\.10\.5\.34 \/ 本页 2026\.1\.1\.1，请强刷/);
+  assert.match(f2.text, /⚠ 线上 2026\.10\.5\.35 \/ 本页 2026\.1\.1\.1，请强刷/);
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'http-404' }).text, '非 Pages 部署（无 build.json）');
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'network' }).mismatch, false);
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -9943,10 +9943,10 @@ test('界面动效偏好：auto / on / off 三态，on 覆盖系统 reduce，off
     assert.equal(st.applyMotionValue('off'), 'off'); assert.equal(ds.motion, 'off');
     assert.equal(st.applyMotionValue('auto'), 'auto'); assert.equal('motion' in ds, false); assert.equal(store.has('dubhe-motion'), false);
     assert.equal(st.applyMotionValue('weird'), 'auto');
-    assert.match(st.motionNoteText('auto', true), /系统当前要求减少动效/); assert.match(st.motionNoteText('auto', true), /Windows：设置 → 辅助功能 → 视觉效果 → 动画效果/);
-    assert.match(st.motionNoteText('auto', false), /系统允许动画/);
-    assert.match(st.motionNoteText('on', true), /忽略系统的「减少动效」请求/);
-    assert.match(st.motionNoteText('off', false), /已关闭全部界面动画/);
+    assert.match(st.motionNoteText('auto', true), /系统要求减少动效/); assert.match(st.motionNoteText('auto', true), /Windows：设置 → 辅助功能 → 视觉效果 → 动画效果/);
+    assert.equal(st.motionNoteText('auto', false), '跟随系统');
+    assert.match(st.motionNoteText('on', true), /忽略系统「减少动效」/);
+    assert.equal(st.motionNoteText('off', false), '已关闭');
     globalThis.matchMedia = () => ({ matches: true });
     assert.equal(st.systemPrefersReducedMotion(), true);
   } finally {
@@ -9973,7 +9973,7 @@ test('界面动效偏好：auto / on / off 三态，on 覆盖系统 reduce，off
   assert.ok((css.match(/html\[data-motion="off"\] /g) || []).length >= 15, '强制「关」有完整的一套退化规则');
 });
 
-group('2026.10.5.34：视频加入即时反馈 / 部署提交行不换行 / 折叠头第二词小写 / nano-banana-2-1 归入生图 / 生图模型迁到设置页');
+group('2026.10.5.35：视频加入即时反馈 / 部署提交行不换行 / 折叠头第二词小写 / nano-banana-2-1 归入生图 / 生图模型迁到设置页');
 
 test('Nano Banana 2.1（gemini-nano-banana-2.1，.34 实测 ID）是生图模型：进 IMAGE_MODELS、isImageModel 命中、不进对话模型菜单、计费归 image、别名可解析', async () => {
   const c = await import('../js/config.js');
@@ -10023,7 +10023,7 @@ test('折叠头文案第二个词统一小写：Edited file(s) / Editing file(s)
   for (const bad of ['Edited File', 'Editing File', 'Explored File', 'Ran Command']) assert.ok(!new RegExp(`'${bad}s?'`).test(ui), `${bad} 不应再出现在界面文案里`);
 });
 
-group('2026.10.5.34：显式 turn pipeline / Nano Banana 2.1 实测 ID / 模型菜单矮一点 / 能力表弹层锚在「已禁用 N」正下方');
+group('2026.10.5.35：显式 turn pipeline / Nano Banana 2.1 实测 ID / 模型菜单矮一点 / 能力表弹层锚在「已禁用 N」正下方');
 
 test('runLoop = premise → plan → select → loop → finalize：五个具名阶段按序执行；阶段计时进审计与 lastExecutionRecord.pipeline', async () => {
   const fsp = await import('node:fs');
@@ -10074,6 +10074,138 @@ test('能力表弹层锚在被点的胶囊（「已禁用 N」）正下方；模
   assert.match(pop, /let top = preferBelow \? r\.bottom \+ 8 : r\.top - ph - 10;/);
   assert.match(css, /\.dd-menu \{[\s\S]*?max-height: min\(360px, 52vh\);/);
   assert.match(css, /\.dd-menu \{ max-height: min\(52vh, 360px\); overflow-y: auto; \}/);
+});
+
+group('2026.10.5.35：JS 沙箱运行时垫片（Node 风格 require / Buffer / process / canvas / 受控 fetch·importScripts）/ 设置页文案瘦身 / 模块图 URL 归一');
+
+test('沙箱垫片：require(fs→files / path / buffer / crypto / util / events / os / process / assert)、Buffer、process、canvas、fetch 与 importScripts 的放行与拒绝', async () => {
+  const fsp = await import('node:fs');
+  const vm = await import('node:vm');
+  const src = fsp.readFileSync(new URL('../js/worker-shims.js', import.meta.url), 'utf8');
+  const g = { self: {}, crypto: globalThis.crypto, btoa, atob, TextEncoder, TextDecoder, setTimeout, clearTimeout, setInterval, clearInterval, performance, Blob, URL, URLSearchParams };
+  g.self = g;
+  vm.runInNewContext(src, g, { filename: 'worker-shims.js' });
+  assert.equal(typeof g.__dubheInstallShims, 'function');
+  const files = Object.create(null); files['files/a.txt'] = 'hello'; files['files/sub/b.json'] = '{"x":1}';
+  const rpcCalls = [];
+  const rpc = async (m, p) => { rpcCalls.push([m, p]); return /\.js$/.test(p.url)
+    ? { ok: true, status: 200, url: p.url, contentType: 'text/javascript', text: 'self.__lib = 42;' }
+    : { ok: true, status: 200, url: p.url, contentType: 'application/json', text: '{"hello":"world"}' }; };
+  const mk = (enabled = true) => g.__dubheInstallShims({ files, net: { enabled, rpc }, webcrypto: g.crypto, OffscreenCanvasCtor: null, FileReaderSyncCtor: null, console: { log() {}, error() {} } });
+  const S = mk(true);
+  const fs2 = S.require('fs'); const path = S.require('path'); const crypto = S.require('crypto'); const util = S.require('util'); const EE = S.require('events');
+  // fs 映射到 files（同一份对象：写进去能立刻在 files 里看到）
+  assert.equal(fs2.readFileSync('files/a.txt', 'utf8'), 'hello');
+  assert.equal(fs2.readFileSync('./files/a.txt', 'utf8'), 'hello', '相对路径写法归一');
+  assert.ok(S.Buffer.isBuffer(fs2.readFileSync('files/a.txt')), '不给 encoding 时返回 Buffer');
+  fs2.writeFileSync('files/c.txt', 'new'); assert.equal(files['files/c.txt'], 'new');
+  fs2.appendFileSync('files/c.txt', '+'); assert.equal(files['files/c.txt'], 'new+');
+  assert.deepEqual([...fs2.readdirSync('files')], ['a.txt', 'c.txt', 'sub'], '（vm 里返回的数组要展开成宿主数组再比）');
+  assert.equal(fs2.statSync('files/a.txt').size, 5); assert.equal(fs2.statSync('files/sub').isDirectory(), true);
+  assert.throws(() => fs2.readFileSync('nope.txt'), /ENOENT/);
+  await fs2.promises.writeFile('files/p.txt', 'async'); assert.equal(files['files/p.txt'], 'async');
+  assert.equal(await fs2.promises.readFile('files/p.txt', 'utf8'), 'async');
+  // path / Buffer / crypto / util / events
+  assert.equal(path.join('a', '..', 'b', 'c.txt'), 'b/c.txt');
+  assert.equal(path.basename('/x/y.tar.gz', '.gz'), 'y.tar'); assert.equal(path.extname('f.md'), '.md');
+  assert.equal(path.resolve('files', 'a.txt'), '/files/a.txt'); assert.equal(path.relative('/a/b', '/a/c/d'), '../c/d');
+  assert.equal(S.Buffer.byteLength('héllo'), 6); assert.equal(S.Buffer.from('héllo').toString('base64'), 'aMOpbGxv');
+  assert.equal(S.Buffer.from('616263', 'hex').toString(), 'abc'); assert.equal(S.Buffer.concat([S.Buffer.from('a'), S.Buffer.from('b')]).toString(), 'ab');
+  assert.equal(crypto.createHash('sha256').update('abc').digest('hex'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  assert.equal(crypto.createHash('sha1').update('abc').digest('hex'), 'a9993e364706816aba3e25717850c26c9cd0d89d');
+  assert.equal(crypto.createHash('md5').update('abc').digest('hex'), '900150983cd24fb0d6963f7d28e17f72');
+  assert.equal(crypto.createHmac('sha256', 'key').update('The quick brown fox jumps over the lazy dog').digest('hex'), 'f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8');
+  assert.match(crypto.randomUUID(), /^[0-9a-f-]{36}$/); assert.equal(crypto.randomBytes(8).length, 8);
+  assert.throws(() => crypto.createHash('sha512'), /sandbox|沙箱/);
+  assert.equal(util.format('%s=%d %j', 'a', 42, { k: 1 }), 'a=42 {"k":1}');
+  const em = new EE(); let hits = 0; em.on('x', (v) => { hits += v; }); em.emit('x', 3); assert.equal(hits, 3);
+  assert.equal(S.process.cwd(), '/'); assert.throws(() => S.process.exit(0), /拦截/);
+  assert.equal(S.process.env.NODE_ENV, undefined);
+  assert.throws(() => S.require('child_process'), /不能起进程/);
+  assert.throws(() => S.require('lodash'), /importScripts/);
+  assert.throws(() => S.document.createElement('div'), /只支持 'canvas'/);
+  // 受控 fetch / importScripts
+  const r = await S.fetch('https://example.com/api.json'); assert.equal(r.status, 200); assert.deepEqual({ ...(await r.json()) }, { hello: 'world' });
+  await S.importScripts('https://cdn.jsdelivr.net/npm/x/dist/x.min.js'); assert.equal(g.__lib, 42);
+  assert.deepEqual(rpcCalls.map(([m, p]) => [m, p.url]), [['fetch', 'https://example.com/api.json'], ['fetch', 'https://cdn.jsdelivr.net/npm/x/dist/x.min.js']]);
+  await assert.rejects(() => S.fetch('https://x.y/', { method: 'POST' }), /只支持 GET/);
+  const off = mk(false);
+  await assert.rejects(() => off.fetch('https://a.b/'), /沙箱内网络未开启/);
+  await assert.rejects(() => off.importScripts('https://a.b/x.js'), /沙箱内网络未开启/);
+  // 宿主侧：上限与开关
+  const sb = await import('../js/sandbox.js');
+  assert.deepEqual(sb.SANDBOX_NET_LIMITS, { maxCalls: 8, maxBytesPerCall: 2 * 1024 * 1024, maxBytesTotal: 6 * 1024 * 1024 });
+  assert.equal(sb.createSandboxNetRpc(null), null);
+  assert.equal(sb.createSandboxNetRpc({ enabled: false, fetchPage: () => {} }), null);
+  const calls = []; let bytes = 0;
+  const rp = sb.createSandboxNetRpc({ enabled: true, fetchPage: async (p) => { calls.push(p); bytes += 10; return { ok: true, status: 200, url: p.url, contentType: 'text/plain', text: 'x'.repeat(10) }; } });
+  assert.ok(rp);
+  const rep = await rp.fetch({ url: 'https://a.b/' }); assert.equal(rep.ok, true); assert.equal(calls[0].full, true, '沙箱 fetch 要全文');
+  assert.equal(calls[0].maxBytes, sb.SANDBOX_NET_LIMITS.maxBytesPerCall);
+  for (let i = 0; i < 8; i++) await rp.fetch({ url: 'https://a.b/' });
+  const over = await rp.fetch({ url: 'https://a.b/' });
+  assert.match(over.error, /次数超过上限/);
+  // 接线：tools.js 把联网开关透传给 runJavaScript，worker 侧装配垫片并在 lockdown 前 importScripts
+  const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
+  assert.match(tools, /runJavaScript\(args\.code \|\| '', fs, \{ net: \{ enabled: !!ctx\.webEnabled, fetchPage: \(p\) => fetchPage\(\{ \.\.\.p, signal: ctx\.signal \}\) \} \}\)/);
+  const worker = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
+  assert.ok(worker.indexOf("importScripts('./worker-shims.js')") < worker.indexOf('function lockdown()'), '垫片脚本在 lockdown（会删掉 importScripts）之前加载');
+  const sandbox = fsp.readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');
+  assert.match(sandbox, /extraScripts: \['worker-shims\.js'\]/);
+  assert.match(sandbox, /worker\.postMessage\(payload, \[port\]\)/, 'rpc 端口随首条消息 transfer 给 Worker');
+  // 描述如实：工具表与系统提示都写明可用范围与限制
+  const { TOOL_DEFS } = await import('../js/tools.js');
+  const js = TOOL_DEFS.find((t) => t.name === 'execute_javascript').description;
+  assert.match(js, /require（fs→映射到 files \/ path \/ buffer/); assert.match(js, /document\.createElement\("canvas"\)/);
+  assert.match(js, /fetch（仅 GET，经中继，≤8 次 \/ ≤2MB 每次）/); assert.match(js, /importScripts（加载 CDN 库/);
+  assert.match(js, /没有真实 DOM、XMLHttpRequest、WebSocket、child_process \/ http/);
+});
+
+test('模块图 URL 归一：同一个文件不会同时以「带 ?v=」与「不带 ?v=」两种 URL 被 import（防 ESM 双实例）', async () => {
+  const fsp = await import('node:fs');
+  const pathMod = await import('node:path');
+  const cfg = await import('../js/config.js');
+  const root = new URL('../', import.meta.url).pathname;
+  const byFile = new Map();
+  const seen = new Set();
+  const queue = ['js/main.js'];
+  const re = /(?:import\s+(?:[^'"]*?\s+from\s+)?|import\()\s*['"](\.[^'"]+)['"]/g;
+  while (queue.length) {
+    const u = queue.shift();
+    if (seen.has(u)) continue;
+    const file = u.split('?')[0];
+    assert.ok(fsp.existsSync(pathMod.join(root, file)), `${file} 不存在（import 路径写错？）`);
+    seen.add(u);
+    if (!byFile.has(file)) byFile.set(file, new Set());
+    byFile.get(file).add(u);
+    const src = fsp.readFileSync(pathMod.join(root, file), 'utf8');
+    let m; re.lastIndex = 0;
+    while ((m = re.exec(src))) queue.push(pathMod.join(pathMod.dirname(file), m[1]));
+  }
+  const dups = [...byFile.entries()].filter(([, s]) => s.size > 1).map(([f, s]) => `${f}: ${[...s].join(' | ')}`);
+  assert.deepEqual(dups, [], `同一文件出现两种 URL（会让模块被执行两次）`);
+  // 版本化 URL 必须等于当前 APP_VERSION
+  for (const [file, urls] of byFile) for (const u of urls) {
+    const q = u.split('?')[1];
+    if (q && q.startsWith('v=')) assert.equal(q.slice(2), cfg.APP_VERSION, `${file} 的 ?v= 与 APP_VERSION 不一致`);
+  }
+  assert.ok(seen.size >= 70, `模块图应覆盖 ≥70 个 URL，实际 ${seen.size}`);
+});
+
+test('设置页文案瘦身：说明只留「什么时候会用到这条设置」，不再重复解释已经写在别处的东西', async () => {
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  const subs = [...app.matchAll(/<div class="set-sub"[^>]*>([\s\S]*?)<\/div>/g)].map((m) => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+  assert.ok(subs.length >= 10, `应仍有说明文案，实际 ${subs.length}`);
+  const tooLong = subs.filter((s) => s.length > 44);
+  assert.deepEqual(tooLong, [], `说明文案应 ≤ 44 字（当前偏长的：${tooLong.map((s) => s.slice(0, 30)).join(' / ')}）`);
+  for (const gone of ['以 sk-teamo- 开头', 'Cloudflare Worker / 本地 server.py，留空自动探测', '界面字号基准', '允许执行 JS / Python / C++', '唯一会把代码送出浏览器的工具', '为支持模型开启 extended thinking', 'Mini 最快，Ultra 最长', '抓取、检索、下载、生图、识图、远程 C++']) {
+    assert.ok(!app.includes(gone), `设置页不应再有冗长说明：${gone}`);
+  }
+  const st = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  assert.match(st, /note\.textContent = `\$\{im\.label \|\| image\} · \$\{vi\.label \|\| vision\} · \$\{vd\.label \|\| video\}`;/, '多模态一行只报当前三档标签');
+  assert.match(st, /note\.textContent = custom\s*\?\s*`自定义（默认 \$\{DEFAULT_TURN_BUDGET\.maxExternalSideEffects\} \/ \$\{DEFAULT_TURN_BUDGET\.maxToolCalls\}）`\s*:\s*'默认值';/, '预算脚注缩成一行');
+  assert.match(st, /if \(note\) note\.textContent = `已清除 \$\{r\.cacheStores\} 个缓存（\$\{r\.cacheEntries\} 条）· 下次用到时重新下载`;/);
 });
 
 for (const item of queue) {

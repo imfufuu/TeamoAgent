@@ -12,17 +12,17 @@
      · connect 仅放行网关（.com 与 .cn 双域名，中国网络自动择路）/ C++ 远程执行 / Pyodide CDN / 本站代理
      · 'wasm-unsafe-eval' 为 Pyodide 在 Worker 内编译 WebAssembly 所需 -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval' 'sha256-KWAlpbtB4R45zBOqEtLM+90JdLvHqoOyoaQRSGS6uBs=' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; img-src 'self' data: blob: https:; media-src 'self' blob: data:; font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://api.teamorouter.com https://api.teamorouter.cn https://godbolt.org https://cdn.jsdelivr.net https://*.workers.dev; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'" />
-<meta name="app-version" content="2026.10.5.34" />
+<meta name="app-version" content="2026.10.5.35" />
 <meta name="app-release" content="V1.7" />
 <title>Dubhe Agent V1.7 — 网页端智能体</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D'http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg'%20viewBox%3D'0%200%2032%2032'%20aria-hidden%3D'true'%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'15'%20fill%3D'%230a0a0a'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'13'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.18'%20stroke-width%3D'1.3'%2F%3E%3Cpath%20d%3D'M22.128%2021.142%20A8.000%208.000%200%200%201%209.872%2021.142'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M8.482%2018.736%20A8.000%208.000%200%200%201%2014.611%208.122'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Cpath%20d%3D'M17.389%208.122%20A8.000%208.000%200%200%201%2023.518%2018.736'%20fill%3D'none'%20stroke%3D'%23f4f4f4'%20stroke-opacity%3D'0.55'%20stroke-width%3D'2.2'%20stroke-linecap%3D'round'%2F%3E%3Ccircle%20cx%3D'16'%20cy%3D'16'%20r%3D'2.7'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'16.000'%20cy%3D'24.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'9.072'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3Ccircle%20cx%3D'22.928'%20cy%3D'12.000'%20r%3D'1.8'%20fill%3D'%23f4f4f4'%2F%3E%3C%2Fsvg%3E" />
-<link rel="stylesheet" href="css/styles.css?v=2026.10.5.34" />
-<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.34" />
+<link rel="stylesheet" href="css/styles.css?v=2026.10.5.35" />
+<link rel="stylesheet" href="assets/hljs/dubhe.css?v=2026.10.5.35" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <!-- 第三方字体（Google Fonts / jsDelivr）改由启动脚本动态插入：解析器插入的外链样式表会阻塞后面所有脚本执行，
      国内或弱网下这两个域名一挂起，整个应用就卡在加载屏直到 60 秒超时（V1.7.1 修复）。 -->
-<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.34" />
+<link rel="stylesheet" href="fonts/literary.css?v=2026.10.5.35" />
 <!-- LaTeX 渲染（KaTeX）：CDN 加载失败时自动降级为代码块显示 -->
 <link rel="stylesheet" href="assets/katex/katex.min.css" />
 <script defer src="assets/katex/katex.min.js"></script>
@@ -455,11 +455,11 @@
       <section class="set-sec">
         <h4>账户</h4>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">TeamoRouter API Key</div><div class="set-sub">以 <span class="mono">sk-teamo-</span> 开头，仅保存在本机</div></div>
+          <div class="set-lbl"><div class="set-title">TeamoRouter API Key</div><div class="set-sub">仅保存在本机</div></div>
           <div class="set-ctl"><input id="set-key" class="set-input mono" type="password" placeholder="sk-teamo-xxxxxxxx…" spellcheck="false" autocomplete="off"/></div>
         </div>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">自定义中继地址</div><div class="set-sub">Cloudflare Worker / 本地 server.py，留空自动探测</div></div>
+          <div class="set-lbl"><div class="set-title">自定义中继地址</div><div class="set-sub">留空自动探测</div></div>
           <div class="set-ctl"><input id="set-relay" class="set-input mono" type="url" placeholder="https://xxx.workers.dev" spellcheck="false" autocomplete="off"/></div>
         </div>
         <div class="set-row"><div class="set-lbl"><div class="set-title">当前中继</div><div class="set-sub" id="set-relay-msg">检测中…</div></div></div>
@@ -468,55 +468,55 @@
       <section class="set-sec">
         <h4>外观</h4>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">主题</div><div class="set-sub">浅色 / 深色</div></div>
+          <div class="set-lbl"><div class="set-title">主题</div></div>
           <div class="set-ctl"><div class="seg" id="set-theme"><button type="button" data-v="light">浅色</button><button type="button" data-v="dark">深色</button></div></div>
         </div>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">字号</div><div class="set-sub">界面字号基准</div></div>
+          <div class="set-lbl"><div class="set-title">字号</div></div>
           <div class="set-ctl"><div class="seg" id="set-fontsize"><button type="button" data-v="small">小</button><button type="button" data-v="medium">中</button><button type="button" data-v="large">大</button></div></div>
         </div>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">界面动效</div><div class="set-sub" id="set-motion-note">菜单弹入、芯片滑入、加载屏等动画</div></div>
+          <div class="set-lbl"><div class="set-title">界面动效</div><div class="set-sub" id="set-motion-note"></div></div>
           <div class="set-ctl"><div class="seg" id="set-motion"><button type="button" data-v="auto">跟随系统</button><button type="button" data-v="on">开</button><button type="button" data-v="off">关</button></div></div>
         </div>
       </section>
 
       <section class="set-sec">
         <h4>对话行为</h4>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">代码沙箱</div><div class="set-sub">允许执行 JS / Python / C++（JS / Python 在本机 Worker 内、已断网）</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-sandbox"/><span></span></label></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">远程 C++（Compiler Explorer）</div><div class="set-sub">唯一会把代码送出浏览器的工具：源码与 stdin 发送到 godbolt.org 编译运行。关闭后模型看不到 execute_cpp</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-cpp"/><span></span></label></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">联网抓取（fetch_url）</div><div class="set-sub">需中继可用</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-web"/><span></span></label></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">快速模式（Fast）</div><div class="set-sub">GPT 系列，2× 计费</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-fast"/><span></span></label></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">深度思考</div><div class="set-sub">为支持模型开启 extended thinking</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-thinking"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">代码沙箱</div><div class="set-sub">JS / Python / C++</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-sandbox"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">远程 C++（Compiler Explorer）</div><div class="set-sub">代码会发送到 godbolt.org</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-cpp"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">联网抓取（fetch_url）</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-web"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">快速模式（Fast）</div><div class="set-sub">GPT 系列 · 2× 计费</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-fast"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">深度思考</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-thinking"/><span></span></label></div></div>
         <div class="set-row" id="set-reason-row" hidden>
-          <div class="set-lbl"><div class="set-title">思考强度</div><div class="set-sub">Mini 最快，Ultra 最长（关闭深度思考时此项失效）</div></div>
+          <div class="set-lbl"><div class="set-title">思考强度</div></div>
           <div class="set-ctl"><div class="seg" id="set-reason"><button type="button" data-v="mini">Mini</button><button type="button" data-v="low">Low</button><button type="button" data-v="medium">Mid</button><button type="button" data-v="high">High</button><button type="button" data-v="max">Max</button><button type="button" data-v="ultra">Ultra</button></div></div>
         </div>
       </section>
 
       <section class="set-sec" id="set-budget-sec">
         <h4>执行预算</h4>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">外部副作用上限 / 轮</div><div class="set-sub">抓取、检索、下载、生图、识图、远程 C++、git 远端、委派子智能体每次计 1；用尽后本轮跨边界调用一律拦下。下一轮生效</div></div><div class="set-ctl"><input id="set-budget-ext" class="set-input set-num mono" type="number" min="1" max="60" step="1" inputmode="numeric" aria-label="外部副作用上限"/></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">工具调用上限 / 轮</div><div class="set-sub">一轮里所有工具调用（含本地小工具）的总次数。下一轮生效</div></div><div class="set-ctl"><input id="set-budget-tools" class="set-input set-num mono" type="number" min="4" max="128" step="1" inputmode="numeric" aria-label="工具调用上限"/></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">外部副作用上限 / 轮</div><div class="set-sub">抓取 / 检索 / 生图 / 识图 / 委派等 · 下一轮生效</div></div><div class="set-ctl"><input id="set-budget-ext" class="set-input set-num mono" type="number" min="1" max="60" step="1" inputmode="numeric" aria-label="外部副作用上限"/></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">工具调用上限 / 轮</div><div class="set-sub">下一轮生效</div></div><div class="set-ctl"><input id="set-budget-tools" class="set-input set-num mono" type="number" min="4" max="128" step="1" inputmode="numeric" aria-label="工具调用上限"/></div></div>
         <div class="set-row"><div class="set-lbl"><div class="set-sub" id="set-budget-note">—</div></div><div class="set-ctl"><button id="set-budget-reset" class="mini-btn" type="button">恢复默认</button></div></div>
       </section>
 
       <section class="set-sec">
         <h4>多模态模型</h4>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">生图模型</div><div class="set-sub">generate_image 用；不作为对话模型。GPT Image 走 /v1/images/*，Nano Banana 走 Gemini generateContent（.33 起从模型菜单迁到这里，随会话保存）</div></div>
+          <div class="set-lbl"><div class="set-title">生图模型</div><div class="set-sub">随会话保存</div></div>
           <div class="set-ctl"><select id="set-image-model" class="set-select" aria-label="生图模型"></select></div>
         </div>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">识图模型</div><div class="set-sub">analyze_image / analyze_pdf 页图用；只列几个有代表性的档位</div></div>
+          <div class="set-lbl"><div class="set-title">识图模型</div><div class="set-sub">识图 / PDF</div></div>
           <div class="set-ctl"><select id="set-vision-model" class="set-select" aria-label="识图模型"></select></div>
         </div>
         <div class="set-row">
-          <div class="set-lbl"><div class="set-title">视频识别模型</div><div class="set-sub">analyze_video 用；网关里只有 Gemini 系能真正收到视频</div></div>
+          <div class="set-lbl"><div class="set-title">视频识别模型</div><div class="set-sub">仅 Gemini 系可收视频</div></div>
           <div class="set-ctl"><select id="set-video-model" class="set-select" aria-label="视频识别模型"></select></div>
         </div>
         <div class="set-row"><div class="set-lbl"><div class="set-sub" id="set-mm-note">—</div></div></div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">灰区图片远程复核</div><div class="set-sub">本地 NudeNet + NSFWJS（InceptionV3）拿不准的图，交给 Gemini 3.5 Flash Lite 按严格规则再看一遍（每张约 $0.0001，每轮最多 3 张）；关闭则只按本地阈值判定</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-image-review"/><span></span></label></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">灰区图片远程复核</div><div class="set-sub">本地拿不准时交 Gemini 3.5 Flash Lite 复核 · 每轮 ≤ 3 张</div></div><div class="set-ctl"><label class="sw"><input type="checkbox" id="set-image-review"/><span></span></label></div></div>
       </section>
 
       <section class="set-sec">
@@ -529,7 +529,7 @@
           <div class="set-about-row"><span>本地存储</span><b id="set-about-store">—</b></div>
           <div class="set-about-row"><span>部署提交</span><b id="set-about-commit" class="mono" title="来自线上 build.json：这次部署对应的 git 提交与文件清单，可用 tools/verify-build.mjs 逐文件核对">—</b></div>
         </div>
-        <div class="set-row"><div class="set-lbl"><div class="set-title">临时缓存</div><div class="set-sub" id="set-cache-note">离线资源缓存（模型 / 审核资产 / 静态文件）、页面级临时状态与中继探测结果；不含会话、密钥、设置与长效记忆</div></div><div class="set-ctl"><button type="button" id="set-clear-cache" class="ghost-btn">清除临时缓存</button></div></div>
+        <div class="set-row"><div class="set-lbl"><div class="set-title">临时缓存</div><div class="set-sub" id="set-cache-note">不含会话、密钥、设置与记忆</div></div><div class="set-ctl"><button type="button" id="set-clear-cache" class="ghost-btn">清除临时缓存</button></div></div>
         <div class="set-danger">
           <button type="button" id="set-clear-chat" class="ghost-btn danger">清空当前会话</button>
           <button type="button" id="set-clear-all" class="ghost-btn danger">清空所有数据</button>
@@ -543,6 +543,6 @@
 
 <div id="toasts" class="toasts"></div>
 
-<script type="module" src="js/main.js?v=2026.10.5.34"></script>
+<script type="module" src="js/main.js?v=2026.10.5.35"></script>
 </body>
 </html>

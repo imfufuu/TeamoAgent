@@ -2,7 +2,7 @@
 // JS 沙箱：独立 Web Worker，无 DOM/fetch 访问面，超时强制 terminate
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
-import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js';
+import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.5.35';
 import { readLocal, writeLocal } from './legacy-keys.js';
 import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 
@@ -333,17 +333,34 @@ function savePyPkgs(list) {
 // 直接 new Worker(blobURL) 会触发 onerror（message 为空、瞬间失败）。
 // 因此优先加载同源真实文件 js/worker-*.js（CSP 'self' 放行），
 // 文件加载再失败时，取源码文本回退为 blob Worker，仍失败则给出明确诊断。
-function runInWorker(workerFile, payload, timeoutMs) {
+// rpc：{ method: async (params) => result }——主线程替沙箱做它自己做不了的事（目前只有受控 fetch）。
+// 通道是 MessageChannel 的一端，随首条消息 transfer 给 Worker；Worker 侧把它关在闭包里，用户代码拿不到。
+function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts = [] } = {}) {
   return new Promise((resolve) => {
     let settled = false;
     let active = null; // { worker, dispose }
     let triedBlob = false;
+    let channel = null;
+    const openChannel = () => {
+      if (!rpc || typeof MessageChannel !== 'function') return null;
+      channel = new MessageChannel();
+      channel.port1.onmessage = async (ev) => {
+        const d = ev.data || {};
+        const fn = rpc[d.method];
+        let reply;
+        try { reply = fn ? await fn(d.params || {}) : { error: `沙箱 RPC 不支持 ${d.method}` }; }
+        catch (err) { reply = { error: String((err && err.message) || err).slice(0, 300) }; }
+        try { channel.port1.postMessage({ id: d.id, ...(reply && typeof reply === 'object' ? reply : { result: reply }) }); } catch { /* Worker 已终止 */ }
+      };
+      return channel.port2;
+    };
 
     const finish = (v) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
       if (active) { try { active.worker.terminate(); } catch { /* noop */ } active.dispose(); }
+      if (channel) { try { channel.port1.close(); } catch { /* noop */ } }
       resolve(v);
     };
     const timer = setTimeout(() => finish({
@@ -358,7 +375,11 @@ function runInWorker(workerFile, payload, timeoutMs) {
         if (useBlob) {
           const res = await fetch(new URL(workerFile, import.meta.url));
           if (!res.ok) throw new Error(`无法获取沙箱脚本 ${workerFile}（HTTP ${res.status}）`);
-          const src = await res.text();
+          let src = await res.text();
+          // blob: Worker 里相对路径的 importScripts 解析不到（基准是 blob:），把附属脚本（运行时垫片）直接拼在前面
+          for (const extra of extraScripts) {
+            try { const r2 = await fetch(new URL(extra, import.meta.url)); if (r2.ok) src = `${await r2.text()}\n;\n${src}`; } catch { /* 没有垫片也能跑，只是退化为仅 console + files */ }
+          }
           const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
           worker = new Worker(url);
           dispose = () => URL.revokeObjectURL(url);
@@ -382,17 +403,38 @@ function runInWorker(workerFile, payload, timeoutMs) {
           error: { message: `沙箱 Worker 加载失败${detail ? '：' + detail : ''}（可能受页面 CSP 限制，请尝试在新标签页打开本应用）` },
         });
       };
-      worker.postMessage(payload);
+      const port = openChannel();
+      if (port) worker.postMessage(payload, [port]); else worker.postMessage(payload);
     };
     spawn(false);
   });
 }
 
 // 对外统一执行接口：返回 { ok, logs, result, error, timedOut, durationMs, files }
-export async function runJavaScript(code, fsObj) {
+// 沙箱内受控网络的上限：一次执行最多 8 次抓取、单次 ≤ 2 MB、累计 ≤ 6 MB——够拉几个 JSON / 一个 CDN 库，不够当爬虫
+export const SANDBOX_NET_LIMITS = Object.freeze({ maxCalls: 8, maxBytesPerCall: 2 * 1024 * 1024, maxBytesTotal: 6 * 1024 * 1024 });
+export function createSandboxNetRpc(net, limits = SANDBOX_NET_LIMITS) {
+  if (!net || !net.enabled || typeof net.fetchPage !== 'function') return null;
+  let calls = 0; let bytes = 0;
+  return {
+    async fetch({ url, mode } = {}) {
+      if (++calls > limits.maxCalls) return { error: `沙箱内 fetch 次数超过上限（${limits.maxCalls} 次/次执行）` };
+      const r = await net.fetchPage({ url: String(url || ''), mode: mode === 'text' ? 'text' : 'raw', maxBytes: limits.maxBytesPerCall, full: true, fs: null });
+      if (!r || !r.ok) return { ok: false, status: (r && r.status) || 0, error: (r && r.error) || '抓取失败' };
+      const text = String(r.text || '');
+      bytes += text.length;
+      if (bytes > limits.maxBytesTotal) return { error: `沙箱内 fetch 累计字节超过上限（${Math.round(limits.maxBytesTotal / 1048576)} MB/次执行）` };
+      return { ok: true, status: r.status || 200, url: r.url || url, contentType: r.contentType || '', text };
+    },
+  };
+}
+
+// opts.net = { enabled, fetchPage }：宿主是否放行沙箱内网络（顶栏联网开 + 中继可用），放行时由主线程代为抓取
+export async function runJavaScript(code, fsObj, opts = {}) {
   const t0 = performance.now();
   const files = fsObj.export();
-  let out = await runInWorker('worker-js.js', { code, files }, SANDBOX_JS_TIMEOUT_MS);
+  const rpc = createSandboxNetRpc(opts.net);
+  let out = await runInWorker('worker-js.js', { code, files, net: { enabled: !!rpc, ...SANDBOX_NET_LIMITS } }, SANDBOX_JS_TIMEOUT_MS, { rpc, extraScripts: ['worker-shims.js'] });
   if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }

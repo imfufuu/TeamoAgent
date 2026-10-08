@@ -14,10 +14,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.5.34';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.34';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.34';
-import { toolName } from './executionContext.js?v=2026.10.5.34';
+} from './execution.js?v=2026.10.5.35';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.35';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.35';
+import { toolName } from './executionContext.js?v=2026.10.5.35';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -185,6 +185,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       sandboxEnabled: turn.sandboxEnabled,
       remoteCpp: turn.remoteCpp !== false,
       allowDispatch: !!turn.canDispatch,
+      webEnabled: !!turn.webEnabled, // .35：沙箱内受控 fetch 是否放行（与网页工具同一开关）
       signal: turn.signal,
       onUi: (patch) => {
         if (patch && patch.billing) call.billing = patch.billing;

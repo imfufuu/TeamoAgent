@@ -11,6 +11,11 @@
 //   3. 输出做硬上限：日志 ≤ 500 条 / 1 MB，result ≤ 200 KB，files 只接受字符串值且总量 ≤ 128 MB；
 //      主线程还会再做一次路径白名单校验（sandbox.js sanitizeWorkerFiles）。
 const post = self.postMessage.bind(self);
+// .35：Node 风格 / 浏览器风格垫片（require·Buffer·process·canvas·受控 fetch）在 lockdown 之前加载——lockdown 会删掉 importScripts
+try { importScripts('./worker-shims.js'); } catch (e) { /* 加载失败时 __dubheInstallShims 为空，下面退化为旧行为 */ }
+const OffscreenCanvasCtor = typeof OffscreenCanvas === 'function' ? OffscreenCanvas : null;
+const FileReaderSyncCtor = typeof FileReaderSync === 'function' ? FileReaderSync : null;
+const webcrypto = self.crypto;
 const LOG_MAX_ENTRIES = 500;
 const LOG_MAX_BYTES = 1024 * 1024;
 const RESULT_MAX_BYTES = 200 * 1024;
@@ -90,23 +95,50 @@ function sanitizeFiles(fs, logs) {
   return out;
 }
 
+// 受控网络 RPC：主线程在首条消息里随 ports[0] 交来一个 MessagePort（闭包私有，用户代码拿不到）。
+// Worker 自己没有任何出网原语；fetch / importScripts 垫片只是把请求转给主线程，由主线程走中继并执行次数 / 字节上限。
+function makeRpc(port, timeoutMs = 60000) {
+  if (!port) return null;
+  let seq = 0; const pending = new Map();
+  port.onmessage = (ev) => { const d = ev.data || {}; const p = pending.get(d.id); if (!p) return; pending.delete(p.id); clearTimeout(p.timer); p.resolve(d); };
+  return (method, params) => new Promise((resolve) => {
+    const id = ++seq;
+    const timer = setTimeout(() => { pending.delete(id); resolve({ error: `${method} 超时（${Math.round(timeoutMs / 1000)}s）` }); }, timeoutMs);
+    pending.set(id, { id, resolve, timer });
+    port.postMessage({ id, method, params });
+  });
+}
+
 self.addEventListener('message', async (e) => {
-  const { code, files } = e.data || {};
+  const { code, files, net } = e.data || {};
+  const rpcPort = e.ports && e.ports[0];
   const logs = [];
   const console = makeConsole(logs);
   let fs = Object.create(null);
   try { Object.assign(fs, JSON.parse(JSON.stringify(files || {}))); } catch { fs = Object.create(null); }
+  const rpc = makeRpc(rpcPort);
   lockdown();
+  let shims = null;
   try {
-    const fn = new Function('console', 'files', '"use strict";\nreturn (async () => {\n' + code + '\n})();');
-    const result = await fn(console, fs);
+    if (typeof self.__dubheInstallShims === 'function') shims = self.__dubheInstallShims({ files: fs, net: { enabled: !!(net && net.enabled && rpc), rpc }, webcrypto, OffscreenCanvasCtor, FileReaderSyncCtor, console });
+  } catch (err) { logs.push({ level: 'warn', text: `[沙箱] 运行时垫片装配失败（${String(err && err.message || err).slice(0, 120)}），仅提供 console 与 files` }); }
+  try {
+    const names = ['console', 'files'];
+    const vals = [console, fs];
+    if (shims) {
+      for (const k of ['require', 'Buffer', 'process', 'fetch', 'importScripts', 'document', 'module', 'exports', '__dirname', '__filename']) { names.push(k); vals.push(shims[k]); }
+    }
+    const fn = new Function(...names, '"use strict";\nreturn (async () => {\n' + code + '\n})();');
+    const result = await fn(...vals);
     console.__flush();
     post({ ok: true, logs, result: sanitizeResult(result), files: sanitizeFiles(fs, logs) });
   } catch (err) {
     console.__flush();
     let message = String((err && err.message) || err);
     if (/is not defined|Can't find variable|is not a function/i.test(message)) {
-      message += "。未定义该名字：此沙箱为 Web Worker，无 Node API（无 require/fs/process/Buffer），无 DOM，也没有 fetch/XMLHttpRequest/WebSocket/importScripts（已被沙箱移除，代码不能联网）。仅提供 console 与 files（无原型字典：files.constructor 为 undefined，用 Object.keys 遍历）。键=完整相对路径，例如 files['files/a.txt'] = 'hi'；对 files 的增删改会在执行结束后同步回会话文件系统。失败后先探测 Object.keys(files)、typeof console，不要换 API 名盲猜。";
+      message += shims
+        ? "。未定义该名字。此沙箱为 Web Worker：有 console、files（无原型字典：files.constructor 为 undefined，用 Object.keys 遍历；键=完整相对路径，增删改会同步回会话文件系统）、require（fs→files / path / buffer / util / events / crypto[sha256·sha1·md5·hmac·随机] / os / process / assert / url / querystring / timers）、Buffer、process、document.createElement('canvas')（OffscreenCanvas，await canvas.toDataURL()）；" + ((net && net.enabled) ? "fetch（仅 GET，经中继）与 importScripts（CDN 库）已放行；" : "fetch / importScripts 未放行（需顶栏联网开 + 中继可用），抓网页请用 fetch_url 工具；") + "没有真实 DOM、XMLHttpRequest、WebSocket、child_process / http 等 Node 原生模块。失败后先探测 typeof require、Object.keys(files)，不要换 API 名盲猜。"
+        : "。未定义该名字：此沙箱为 Web Worker，无 Node API，无 DOM，也没有 fetch/XMLHttpRequest/WebSocket/importScripts。仅提供 console 与 files（键=完整相对路径）。";
     }
     post({ ok: false, logs, files: sanitizeFiles(fs, logs), error: { message, stack: (err && err.stack) || '' } });
   }
