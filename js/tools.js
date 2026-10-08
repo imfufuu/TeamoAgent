@@ -1,6 +1,7 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
+import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES, LEGACY_TOOL_ALIASES as REG_LEGACY_TOOL_ALIASES } from './capabilities.js';
 import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.31';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.5.32';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
@@ -12,12 +13,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.31';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.32';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.31';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.5.32';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -525,7 +526,7 @@ export const TOOL_DEFS = [
 // 真正需要「沙箱开关」的只有代码执行（浏览器内 WASM/Worker 与远程编译器）；
 // 文件、生图、时间、子智能体委派都不执行任意代码，关闭沙箱时也应可用 ——
 // 否则「让 Agent 更自主地委派子智能体」会被一个无关开关掐断。
-export const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
+export const CODE_TOOL_NAMES = [...REG_CODE_TOOL_NAMES]; // Helix 3.0：由能力登记处派生
 
 /** 按沙箱开关给出本轮可用的工具定义列表（纯过滤，不改原数组） */
 export function toolsFor(sandboxEnabled, { remoteCpp = true } = {}) {
@@ -597,10 +598,8 @@ export async function executeTool(name, args, ctx) {
 // ─── P6 修正：工具选择熵过高 ───────────────────────────────────────────────
 // 9 个本地小工具合成 2 个伞工具（text_tool / data_tool）对模型下发；内部实现与旧名字的 case 分支保留，
 // 旧会话回放、幂等账本、测试仍可按旧名字执行——但旧名字不再出现在 TOOL_DEFS 里。
-export const LEGACY_TOOL_ALIASES = Object.freeze({
-  regex: 'text_tool', hash: 'text_tool', codec: 'text_tool', unicode: 'text_tool',
-  csv_tool: 'data_tool', date_calc: 'data_tool', convert_units: 'data_tool', qr_code: 'data_tool',
-});
+// 旧名字 → 伞工具（Helix 3.0：登记在 capabilities.js，这里保留「旧名 → 伞工具名」的扁平视图，既有 import 不变）
+export const LEGACY_TOOL_ALIASES = Object.freeze(Object.fromEntries(Object.entries(REG_LEGACY_TOOL_ALIASES).map(([k, v]) => [k, v.tool])));
 const TEXT_TOOL_SUBTOOLS = Object.freeze({ regex: 'regex', hash: 'hash', codec: 'codec', unicode: 'unicode' });
 const DATA_TOOL_KINDS = Object.freeze({ csv: 'csv_tool', date: 'date_calc', units: 'convert_units', qr: 'qr_code' });
 // 伞工具调用 → 内部子工具名 + 参数；非伞工具返回 null；参数不合法返回 { error }

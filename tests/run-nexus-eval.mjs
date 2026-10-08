@@ -35,7 +35,7 @@ const corpusPath = resolve(__dirname, 'nexus-eval-corpus.json');
 const corpusJson = JSON.parse(readFileSync(corpusPath, 'utf8'));
 
 console.log('================================================================================');
-console.log('  Dubhe Helix 2.5（天枢2.5） v2.5.0 · 离线基准评测、OOD 留出集与 Wilson 95% CI');
+console.log('  Dubhe Helix 3.0（DC · 天枢·寒武） v3.0.0 · 离线基准评测、OOD 留出集与 Wilson 95% CI');
 console.log('================================================================================\n');
 
 // 1. 语料库完整性与样本量验证（N=120 + N=120 = 240）
@@ -190,4 +190,4 @@ console.log(`    哈希算法   : ${fp.hashAlgorithm} | Turn Digest: ${fp.turnDi
 console.log(`    真实轨迹审计: passed=${auditOk.passed} | 伪造轨迹拦截: passed=${auditFake.passed} (${auditFake.discrepancies.join(', ')})\n`);
 
 console.log(formatNexusAcceptanceReport());
-console.log('\n✅ Dubhe Helix 2.5（天枢2.5） · P0 离线基准评测（N=240）与全部架构不变量校验通过。');
+console.log('\n✅ Dubhe Helix 3.0（DC · 天枢·寒武） · P0 离线基准评测（N=240）与全部架构不变量校验通过。');

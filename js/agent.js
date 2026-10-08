@@ -15,7 +15,8 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.31';
+import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES } from './capabilities.js';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.32';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
@@ -59,7 +60,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.31';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.32';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -82,37 +83,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.5.31';
+} from './execution.js?v=2026.10.5.32';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.5.31';
+} from './recovery.js?v=2026.10.5.32';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.5.31';
+} from './idempotency.js?v=2026.10.5.32';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.5.31';
+} from './memorylife.js?v=2026.10.5.32';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.31';
+} from './trajectory.js?v=2026.10.5.32';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.31';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.31';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.32';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.32';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.31';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.31';
+} from './experiments.js?v=2026.10.5.32';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.32';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -128,18 +129,18 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.5.31';
-import { createToolRunner } from './toolrunner.js?v=2026.10.5.31';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.5.31';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.31';
+} from './executionContext.js?v=2026.10.5.32';
+import { createToolRunner } from './toolrunner.js?v=2026.10.5.32';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.5.32';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.32';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.31';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.32';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
 // 跨模块「新增具名导出」在混版缓存下会让整个模块图 link 失败（表现为页面直接白屏），
 // 而 TOOL_DEFS 是新旧两版都存在的导出，用它本地过滤最稳。
-const CODE_TOOL_NAMES = ['execute_javascript', 'execute_python', 'execute_cpp'];
+const CODE_TOOL_NAMES = [...REG_CODE_TOOL_NAMES]; // Helix 3.0：能力登记处派生
 const toolsFor = (sandboxEnabled, { remoteCpp = true } = {}) =>
   (sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name)))
     .filter((t) => remoteCpp || t.name !== 'execute_cpp');
@@ -282,7 +283,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.5.31';
+} from './toolrunner.js?v=2026.10.5.32';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {

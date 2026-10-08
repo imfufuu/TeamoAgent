@@ -1,4 +1,4 @@
-// ─── Dubhe Helix 2.5（天枢2.5）自研 Agent 执行框架 ───────────────────────
+// ─── Dubhe Helix 3.0「DC · Dubhe Cambrian（天枢·寒武）」自研 Agent 执行框架（前身 Helix 2.5 / 天枢2.5）───────
 // 融合 Nous Research Hermes Agent 的架构思路与 Dubhe Agent 的端云协同双系统：
 //   1. System-1 / System-2 双系统认知路由（Jev 预判向量 × 自适应温度 × 零额外轮次技能直注）
 //   2. 四层缓存不变量提示词编译器（stable → context → volatile 锁死前缀缓存 + ephemeral 动态注入）
@@ -21,6 +21,7 @@
 //   · 任何 DOM、localStorage、fetch 副作用。这里的函数拿到什么就算什么，不偷读全局。
 // 新增能力的落点规则：改「模型看到什么 / 怎么选路径 / 事后怎么评」→ 这里；改「怎么执行 / 怎么扣预算 / 怎么落盘」→ 去对应内核文件。
 
+import { CAPABILITY_GATED_TOOL_GROUPS as REG_CAPABILITY_GATED_TOOL_GROUPS } from './capabilities.js';
 import { upsertFacts, factsFromDigest, isValidMemoryFact, evaluateMemorySafetyMetrics, evaluateMemoryGatekeeperConfusionMatrix, computeWilsonConfidenceInterval } from './memory.js';
 export { computeWilsonConfidenceInterval };
 
@@ -66,11 +67,13 @@ export const NEXUS_CONVERGENCE_SPEC = Object.freeze({
 });
 
 export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
-  id: 'dubhe-helix-2.5',
-  code: 'DH25',
-  shortName: '天枢2.5',
-  name: 'Dubhe Helix 2.5（天枢2.5） · 三核正交架构 + P0 执行内核',
-  version: '2.5.0',
+  id: 'dubhe-helix-3.0',
+  code: 'DH30',
+  codename: Object.freeze({ short: 'DC', name: 'Dubhe Cambrian', zh: '天枢·寒武', meaning: '能力大爆发：登记一处、处处生效，能力可以大量、低风险地长出来' }),
+  shortName: '天枢·寒武',
+  name: 'Dubhe Helix 3.0（DC · Dubhe Cambrian · 天枢·寒武） · 三核正交架构 + 执行内核 + 能力登记处 + 可验证供应链',
+  version: '3.0.0',
+  lineage: Object.freeze(['dubhe-helix-2.5（天枢2.5，2026-09-30 → 2026-10-07，P0–P8 九项架构评审全部落地）']),
   convergedStages: NEXUS_CONVERGENCE_SPEC.stages,
   canonicalStates: NEXUS_CONVERGENCE_SPEC.canonicalStates,
   layers: [
@@ -80,6 +83,10 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     { id: 'L4-skills', mergedInto: 'S2-context-archive', name: '程序性技能库（拦截噪声残片 + 冷备唤醒 + 物理 Purge）', modules: ['skills.js#isValidSkillCandidate', 'skills.js#pruneLearnedSkills', 'skills.js#purgeLearnedSkill'] },
     { id: 'L5-orchestration', mergedInto: 'S3-verify-trace', name: '并发工具调度与分级核验（口径对齐 + 推理深度差异披露）', modules: ['agent.js#batchToolCalls', 'subagents.js', 'nexus.js#arbitrateSubagentReports', 'nexus.js#arbitrateUnifiedEvidence'] },
     { id: 'L6-reflection', mergedInto: 'S3-verify-trace', name: '死循环拦截与 SHA-256 链式足迹（跨轮哈希链 + Store 独立交叉审计）', modules: ['nexus.js#analyzeToolTrajectory', 'nexus.js#createFaithfulTraceRecorder', 'nexus.js#auditFootprintAgainstStore'] },
+    // ── Helix 3.0（DC）新增三层 ──
+    { id: 'L7-capability-registry', mergedInto: 'S1-route-probe', name: '能力登记处（每个工具登记一次：门控分组 / 语义类别 / 并发 / 评测分组 / 核心 / 挂载规则；并发表、网络限流表、只读表、门控分组、核心表、挂载规则全部派生；测试强制登记表 ↔ TOOL_DEFS ↔ 契约三方一致）', modules: ['capabilities.js', 'capabilities-mount.js', 'executionContext.js#selectToolsForTurn', 'toolrunner.js#PARALLEL_TOOLS', 'trajectory.js', 'nexus.js#CAPABILITY_GATED_TOOL_GROUPS'] },
+    { id: 'L8-supply-chain', mergedInto: 'S3-verify-trace', name: '可验证供应链（SSH 签名提交 / 分支保护 / 签名 tag + Release / build.json 部署清单 / verify-build 逐文件核对 / 生产环境只接受受保护分支）——只覆盖完整性与来源，不覆盖无害性与运行时行为', modules: ['tools/build-manifest.mjs', 'tools/verify-build.mjs', 'tools/allowed_signers', 'settings.js#loadBuildInfo', '.github/workflows/pages.yml'] },
+    { id: 'L9-resilience', mergedInto: 'S1-route-probe', name: '外部依赖韧性（中继失败 TTL 自动重探 / 网页工具网络错误当场重探 / 搜索五级回退 / 网关双节点 + 失败处切换入口 / 预算七路 / 幂等账本核验副作用）', modules: ['net.js#relayAvailable', 'net.js#noteRelayNetworkError', 'relay/worker.js#searchWeb', 'endpoint.js', 'idempotency.js#planReplay'] },
   ],
   enhancements: [
     '三核流水线与 4 位正交能力掩码（S1-S3 & Orthogonal Capability Vector）：每个能力开关（Relay/Web/Sandbox/Dispatch）仅控制互不相交的工具子集，线性正交无交叉项副作用',
@@ -92,6 +99,14 @@ export const NEXUS_ARCHITECTURE_SPEC = Object.freeze({
     'P1 交互确认（js/execution.js 确认闸门 + UI 确认卡）：L2/L3 风险按档位策略（observe / strict / strict-l2）生成「操作 / 原因 / 影响 / 可逆性 / 参数摘要」确认请求，用户可「允许本次 / 本会话允许该工具 / 拒绝」，超时或未应答一律按拒绝（fail-closed），决定与等待时长写入审计',
     'P1 记忆生命周期（js/memorylife.js）：写入门槛四问（未来多会话仍有用 / 用户明确表达 / 是否含敏感信息 / 是否造成错误偏置），来源分级（用户显式 > 长期稳定行为 > 单轮推断 > 模型推测），模型推断与敏感内容只进短期候选区；召回状态机 RECALLED / VALIDATED / APPLIED / REJECTED_FOR_TURN——用户本轮明确指令与记忆冲突时记忆不注入；同作用域冲突保留较新者并标记取代关系',
     'P1 轨迹级评测（js/trajectory.js）：三个负向指标（Over-routing 不该调用却调用 / Under-routing 需要工具却没调用 / Silent-failure 失败未披露）+ 恢复成功率 / 审计完整度 / 多余调用率 / 副作用安全，按任务类型切分并在验收报告第四节披露，不只看单一总分',
+    'P2 沙箱文件跨轮持久（internal/ · uploads/ 无条件提交，工具结果写明持久契约）与 .29 修正的沙箱回写差异化（execute_* 不再清空本轮临时层）',
+    'P3 能力门控透明（预演工具表 == 请求体工具表，每个被禁用工具带原因与开启路径）',
+    'P4 巨型单文件拆分（toolrunner / turnfinalizer / ui-* 子模块，字节上限由测试守住）',
+    'P5 外部验证闭环（npm test 单入口、CI 一文件一 step、测试数字由 CI 产出）',
+    'P6 工具选择熵（9 → 2 伞工具、两层下发核心 12 + 按需挂载、未挂载调用回执、tool_misselect_rate 进基线门禁）',
+    'P7 可验证供应链（见 L8）',
+    'P8 单点依赖韧性（见 L9）',
+    'Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）：能力登记处（L7）作为「寒武纪」的前提——新增一个工具从改 7 处收敛为登记 1 行 + 定义 + 契约，其余派生并由三方一致性测试强制',
   ],
   executionKernel: Object.freeze({
     module: 'js/execution.js',
@@ -623,20 +638,8 @@ export function escalateNexusProfile(prevProfile, { iteration = 1, toolCallsCoun
 //   - search_web / crawl_site / download_file 额外依赖对应 Worker capability，不能从「health=ok」推断存在
 //   - execute_javascript / execute_python / execute_cpp 仅依赖 sandboxEnabled
 //   - dispatch_subagent 仅依赖 canDispatch
-export const CAPABILITY_GATED_TOOL_GROUPS = Object.freeze({
-  webFetch: Object.freeze(['fetch_url']),
-  workerSearch: Object.freeze(['search_web']),
-  siteCrawler: Object.freeze(['crawl_site']),
-  fileDownload: Object.freeze(['download_file']),
-  codeSandbox: Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']),
-  subagentSwarm: Object.freeze(['dispatch_subagent']),
-  invariantCore: Object.freeze([
-    'read_file', 'write_file', 'list_files', 'delete_file', 'copy_file', 'search_files',
-    'diff_text', 'json_tool', 'evaluate_expression', 'execute_sql', 'text_tool', 'data_tool',
-    'render_mermaid', 'render_dot', 'zip_files', 'unzip_file', 'get_current_time',
-    'generate_image', 'analyze_image', 'analyze_pdf', 'analyze_video', 'remember',
-  ]),
-});
+// Helix 3.0：能力位门控分组由能力登记处派生（capabilities.js group 字段），这里只做再导出
+export const CAPABILITY_GATED_TOOL_GROUPS = REG_CAPABILITY_GATED_TOOL_GROUPS;
 
 export function computeCapabilityVector({
   relayOk = true,
@@ -832,7 +835,7 @@ export function recommendExecutionEngine(userText = '', { sandboxEnabled = true,
 
 export function formatExecutionRoutingHint(rec) {
   if (!rec || !rec.recommendedTools || !rec.recommendedTools.length) return '';
-  return `【天枢2.5 · L5 工具引擎优选路由（${rec.tier}）】建议优先调用：${rec.recommendedTools.join(' / ')}（${rec.rationale}；环境溯源：算力=${rec.provenance.compute}，网络=${rec.provenance.network}）。`;
+  return `【天枢·寒武 · L5 工具引擎优选路由（${rec.tier}）】建议优先调用：${rec.recommendedTools.join(' / ')}（${rec.rationale}；环境溯源：算力=${rec.provenance.compute}，网络=${rec.provenance.network}）。`;
 }
 
 // ─── 9. L5 子智能体冲突仲裁与置信度矩阵（Subagent Conflict Arbitration）───────
@@ -942,7 +945,7 @@ export function arbitrateSubagentReports(reports = []) {
 export function formatSubagentArbitrationNote(arb) {
   if (!arb || !Array.isArray(arb.ranked) || arb.ranked.length < 2) return '';
   const lines = [
-    '【天枢2.5 · L5 子智能体冲突仲裁与置信度矩阵】',
+    '【天枢·寒武 · L5 子智能体冲突仲裁与置信度矩阵】',
     `- 置信度排序：${arb.ranked.map((r) => `${r.agent}(置信度 ${r.confidence}, 倾向:${r.stance})`).join(' > ')}`,
   ];
   if (arb.consensus.length) {
@@ -1017,7 +1020,7 @@ export function formatObservabilityReport(telemetry) {
     .map((t) => `${t.name}(${t.engine},${t.durationMs}ms${t.ok ? '' : ',ERR'})`)
     .join(' → ') || '无工具调用';
   return [
-    `【天枢2.5 · L6+ 全链路可观测性遥测（v${telemetry.version || '1.6.0'}）】`,
+    `【天枢·寒武 · L6+ 全链路可观测性遥测（v${telemetry.version || '1.6.0'}）】`,
     `- 执行模式：${telemetry.escalated ? 'L1↗L6 中途反悔升档' : (telemetry.fastPath ? 'L1 Fast-Path 轻快直达' : 'L1-L6 全链路协同')} ｜ 总耗时：${telemetry.totalDurationMs || 0}ms`,
     `- 分层耗时：${spans}`,
     `- L2 缓存命中率：${cacheHitRate}（缓存读取 ${telemetry.cacheReadTokens} tok / 新增缓存 ${telemetry.cacheCreationTokens} tok / 输入 ${telemetry.inputTokens} tok）`,
@@ -1157,7 +1160,7 @@ export function arbitrateUnifiedEvidence({
       ? '深度等级 L2（多工具实测交叉核验，结论口径已对齐）'
       : `深度等级 L2（口径一致 + 误差已披露：当前有效档位 ${tierLabel} 通过多工具实测对齐结论口径，未启用 18 路独立子智能体隔离复核）`;
     const note = [
-      `【天枢2.5 · L5 多工具证据交叉仲裁（有效档位：${tierLabel} ｜ ${depthDisclosure}）】`,
+      `【天枢·寒武 · L5 多工具证据交叉仲裁（有效档位：${tierLabel} ｜ ${depthDisclosure}）】`,
       `- 已完成工具证据链：成功 [${okTools.join(', ') || '无'}]${errTools.length ? ` ｜ 异常 [${errTools.join(', ')}]` : ''}`,
       hasConflict
         ? '- 分歧仲裁：部分工具曾返回报错或空结果，最终结论必须以最新成功执行的沙箱/本地工具实测输出为准，严禁混用失败步骤的中间猜测。'
@@ -1187,7 +1190,7 @@ export function arbitrateUnifiedEvidence({
       depthGapDisclosed: true,
       depthDisclosure,
       hasConflict: false,
-      note: `【天枢2.5 · L5 内源双视角交叉仲裁（${depthDisclosure}）】请在内部同时从「方案正向成立依据」与「边界反例/潜在隐患」两个对立视角交叉审视后再输出最终结论。`,
+      note: `【天枢·寒武 · L5 内源双视角交叉仲裁（${depthDisclosure}）】请在内部同时从「方案正向成立依据」与「边界反例/潜在隐患」两个对立视角交叉审视后再输出最终结论。`,
     };
   }
 
@@ -1326,9 +1329,9 @@ export function formatDegradationDiagnostics(items = [], { compact = false, capC
   if (!Array.isArray(items) || !items.length) return '';
   if (compact) {
     const shortList = items.map((it) => `${it.id}:${it.status}`).join(', ');
-    return `【天枢2.5 · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
+    return `【天枢·寒武 · L2 能力掩码 ${capCode ? `[${capCode}] ` : ''}(${shortList})】`;
   }
-  const lines = [`【天枢2.5 · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
+  const lines = [`【天枢·寒武 · L2 能力边界与降级可解释性诊断${capCode ? ` [${capCode}]` : ''}】若用户询问某项能力为何不可用或如何开启，请如实说明下列原因与恢复方法：`];
   for (const it of items) {
     lines.push(`- ${it.capability}：原因=${it.reason} ｜ 恢复方式=${it.recovery}`);
   }
@@ -1690,7 +1693,7 @@ export function formatDecisionFootprintForPrompt(fp) {
     `L5仲裁=${fp.arbitrationMode || '按需待命'}`,
     `链式校验=${fp.traceHash || 'verified'}(前序:${String(fp.prevTurnDigest || '').slice(0, 8)})`,
   ];
-  return `【天枢2.5 · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
+  return `【天枢·寒武 · 本轮决策足迹（透明可归因）】${parts.join(' ｜ ')}`;
 }
 
 export function formatDecisionFootprintSummary(fp) {

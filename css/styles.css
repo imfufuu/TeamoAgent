@@ -1091,7 +1091,7 @@ a { color: var(--fg); }
   .photo-canvas, .photo-overlay { max-height: 46dvh; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .photo-editor-modal, .photo-editor, .photo-canvas-wrap, .photo-context { animation: none !important; transition: none !important; }
+  html:not([data-motion="on"]) .photo-editor-modal, html:not([data-motion="on"]) .photo-editor, html:not([data-motion="on"]) .photo-canvas-wrap, html:not([data-motion="on"]) .photo-context {animation: none !important; transition: none !important; }
 }
 
 /* 拖拽提示 */
@@ -1327,7 +1327,9 @@ a { color: var(--fg); }
 @keyframes fe-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @keyframes fe-drop { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(5px); } }
 @keyframes fe-blink { 0%, 100% { opacity: .25; } 50% { opacity: .7; } }
-@media (prefers-reduced-motion: reduce) { .files-empty, .files-empty-art * { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  html:not([data-motion="on"]) .files-empty, html:not([data-motion="on"]) .files-empty-art * {animation: none !important; }
+}
 
 .files-card {
   border: 1px solid var(--line); border-radius: 14px; background: var(--bg);
@@ -1675,18 +1677,11 @@ a { color: var(--fg); }
 
 /* 尊重系统「减少动态效果」：停掉无限循环动画，淡入改为直出 */
 @media (prefers-reduced-motion: reduce) {
-  .empty-logo svg, .icon-btn.spin svg, .chip-ico, #jump-bottom .jump-ico,
-  .dot.busy, .dot.busy.connecting, .thinking-line .dots, .cursor,
-  .connect-ring, .sdots i, .pill.ultra, .think-item[data-think="ultra"],
-  .pill.ultra::before, .think-item[data-think="ultra"].active::before,
-  .pill.relay-checking::after, .photo-editor-context-panel { animation: none; }
-  .pill.ultra::before, .think-item[data-think="ultra"].active::before {
-    transform: translate(-50%, -50%) rotate(-28deg);
-  }
-.turn-bar::after { animation: none; transform: none; background: var(--line-2); }
-  .msg.enter, .empty-state, .dd-menu.open, .toast, .chip.expanded .chip-detail,
-  .file-viewer.open { animation-duration: .01ms; animation-iteration-count: 1; }
-  * { scroll-behavior: auto; }
+  html:not([data-motion="on"]) .empty-logo svg, html:not([data-motion="on"]) .icon-btn.spin svg, html:not([data-motion="on"]) .chip-ico, html:not([data-motion="on"]) #jump-bottom .jump-ico, html:not([data-motion="on"]) .dot.busy, html:not([data-motion="on"]) .dot.busy.connecting, html:not([data-motion="on"]) .thinking-line .dots, html:not([data-motion="on"]) .cursor, html:not([data-motion="on"]) .connect-ring, html:not([data-motion="on"]) .sdots i, html:not([data-motion="on"]) .pill.ultra, html:not([data-motion="on"]) .think-item[data-think="ultra"], html:not([data-motion="on"]) .pill.ultra::before, html:not([data-motion="on"]) .think-item[data-think="ultra"].active::before, html:not([data-motion="on"]) .pill.relay-checking::after, html:not([data-motion="on"]) .photo-editor-context-panel {animation: none; }
+  html:not([data-motion="on"]) .pill.ultra::before, html:not([data-motion="on"]) .think-item[data-think="ultra"].active::before {transform: translate(-50%, -50%) rotate(-28deg); }
+  html:not([data-motion="on"]) .turn-bar::after {animation: none; transform: none; background: var(--line-2); }
+  html:not([data-motion="on"]) .msg.enter, html:not([data-motion="on"]) .empty-state, html:not([data-motion="on"]) .dd-menu.open, html:not([data-motion="on"]) .toast, html:not([data-motion="on"]) .chip.expanded .chip-detail, html:not([data-motion="on"]) .file-viewer.open {animation-duration: .01ms; animation-iteration-count: 1; }
+  html:not([data-motion="on"]) * {scroll-behavior: auto; }
 }
 
 .sb-img { max-width: min(420px, 100%); height: auto; display: block; margin: 8px 0; border-radius: 10px; border: 1px solid var(--line); background: var(--bg-soft); }
@@ -2163,7 +2158,7 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 @keyframes boot-shimmer { 0% { transform: translateX(-220px); } 100% { transform: translateX(40px); } }
 @keyframes boot-card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .boot-card, .boot-ring, .boot-ring::after, .boot-progress-bar::after, .boot-steps li.active b { animation: none !important; }
+  html:not([data-motion="on"]) .boot-card, html:not([data-motion="on"]) .boot-ring, html:not([data-motion="on"]) .boot-ring::after, html:not([data-motion="on"]) .boot-progress-bar::after, html:not([data-motion="on"]) .boot-steps li.active b {animation: none !important; }
 }
 [data-theme="dark"] .boot-logo { color: var(--fg); }
 
@@ -2256,8 +2251,8 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 #sidebar-fab:active { transform: scale(.94); }
 
 @media (prefers-reduced-motion: reduce) {
-  .msg-user.enter .bubble, .tool-chips .chip, .attach-chip, .attach-menu-item, .suggest, .settings-body .set-sec, .pill.on, .status .dot { animation: none !important; }
-  .sess-item, .pill, .attach-chip, #send-btn, .ghost-btn, .primary-btn, .icon-btn, #sidebar-fab { transition: none !important; }
+  html:not([data-motion="on"]) .msg-user.enter .bubble, html:not([data-motion="on"]) .tool-chips .chip, html:not([data-motion="on"]) .attach-chip, html:not([data-motion="on"]) .attach-menu-item, html:not([data-motion="on"]) .suggest, html:not([data-motion="on"]) .settings-body .set-sec, html:not([data-motion="on"]) .pill.on, html:not([data-motion="on"]) .status .dot {animation: none !important; }
+  html:not([data-motion="on"]) .sess-item, html:not([data-motion="on"]) .pill, html:not([data-motion="on"]) .attach-chip, html:not([data-motion="on"]) #send-btn, html:not([data-motion="on"]) .ghost-btn, html:not([data-motion="on"]) .primary-btn, html:not([data-motion="on"]) .icon-btn, html:not([data-motion="on"]) #sidebar-fab {transition: none !important; }
 }
 
 /* 沙箱文件查看器：PDF 页图预览 */
@@ -2323,12 +2318,27 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 /* 图片编辑器：非旋转类工具图标悬停微放大 */
 .photo-tool-button:hover:not(:disabled):not([data-photo-action^="rotate"]) svg { transform: scale(1.12); }
 @media (prefers-reduced-motion: reduce) {
-  .chip-state .chip-ok, .chip-state .chip-fail, .chip-state .chip-time, .ran-commands.expanded > .chip-detail .tool-call-chip,
-  .edited-files.expanded .fold-inner li, .explored-files.expanded .fold-inner li, .ft-row, .tok-pop:not([hidden]), .tok-pop .tok-row,
-  #model-menu .dd-item, .boot-steps li.done b, .att-row .att-img, .att-row .att-file, .fv-pdf-page,
-  .attach-menu, .cmd-card, .cmd-palette, .bubble-in, #think-menu .dd-item, .cmd-item, .ran-commands.live > .chip-ico .term-caret { animation: none !important; }
-  .dd-menu, .md-chart-tooltip, .chip-detail, .chip-detail > .fold-inner { transition: none !important; }
-  .chip-detail > .fold-inner { transform: none !important; }
-  .ran-commands > .chip-ico, .md-fold > .chip-ico, .ft-row, .router-chip, .photo-tool-button { transition: none !important; }
-  .md-chart-map-loading, .md-chart-map[data-map-state="ready"] .md-chart-svg { animation: none !important; }
+  html:not([data-motion="on"]) .chip-state .chip-ok, html:not([data-motion="on"]) .chip-state .chip-fail, html:not([data-motion="on"]) .chip-state .chip-time, html:not([data-motion="on"]) .ran-commands.expanded > .chip-detail .tool-call-chip, html:not([data-motion="on"]) .edited-files.expanded .fold-inner li, html:not([data-motion="on"]) .explored-files.expanded .fold-inner li, html:not([data-motion="on"]) .ft-row, html:not([data-motion="on"]) .tok-pop:not([hidden]), html:not([data-motion="on"]) .tok-pop .tok-row, html:not([data-motion="on"]) #model-menu .dd-item, html:not([data-motion="on"]) .boot-steps li.done b, html:not([data-motion="on"]) .att-row .att-img, html:not([data-motion="on"]) .att-row .att-file, html:not([data-motion="on"]) .fv-pdf-page, html:not([data-motion="on"]) .attach-menu, html:not([data-motion="on"]) .cmd-card, html:not([data-motion="on"]) .cmd-palette, html:not([data-motion="on"]) .bubble-in, html:not([data-motion="on"]) #think-menu .dd-item, html:not([data-motion="on"]) .cmd-item, html:not([data-motion="on"]) .ran-commands.live > .chip-ico .term-caret {animation: none !important; }
+  html:not([data-motion="on"]) .dd-menu, html:not([data-motion="on"]) .md-chart-tooltip, html:not([data-motion="on"]) .chip-detail, html:not([data-motion="on"]) .chip-detail > .fold-inner {transition: none !important; }
+  html:not([data-motion="on"]) .chip-detail > .fold-inner {transform: none !important; }
+  html:not([data-motion="on"]) .ran-commands > .chip-ico, html:not([data-motion="on"]) .md-fold > .chip-ico, html:not([data-motion="on"]) .ft-row, html:not([data-motion="on"]) .router-chip, html:not([data-motion="on"]) .photo-tool-button {transition: none !important; }
+  html:not([data-motion="on"]) .md-chart-map-loading, html:not([data-motion="on"]) .md-chart-map[data-map-state="ready"] .md-chart-svg {animation: none !important; }
 }
+
+/* ── 动效偏好（.32）：设置里强制「关」= 与系统 reduce 同一套退化规则；强制「开」= 上面各 reduce 块里的 html:not([data-motion="on"]) 前缀把它们整体跳过。
+   Windows 把「动画效果」关掉时浏览器会报 prefers-reduced-motion: reduce，用户只看到「动画没了」却不知道为什么——现在可以在设置里看到原因并覆盖。 */
+html[data-motion="off"] .photo-editor-modal, html[data-motion="off"] .photo-editor, html[data-motion="off"] .photo-canvas-wrap, html[data-motion="off"] .photo-context {animation: none !important; transition: none !important; }
+html[data-motion="off"] .files-empty, html[data-motion="off"] .files-empty-art * {animation: none !important; }
+html[data-motion="off"] .empty-logo svg, html[data-motion="off"] .icon-btn.spin svg, html[data-motion="off"] .chip-ico, html[data-motion="off"] #jump-bottom .jump-ico, html[data-motion="off"] .dot.busy, html[data-motion="off"] .dot.busy.connecting, html[data-motion="off"] .thinking-line .dots, html[data-motion="off"] .cursor, html[data-motion="off"] .connect-ring, html[data-motion="off"] .sdots i, html[data-motion="off"] .pill.ultra, html[data-motion="off"] .think-item[data-think="ultra"], html[data-motion="off"] .pill.ultra::before, html[data-motion="off"] .think-item[data-think="ultra"].active::before, html[data-motion="off"] .pill.relay-checking::after, html[data-motion="off"] .photo-editor-context-panel {animation: none; }
+html[data-motion="off"] .pill.ultra::before, html[data-motion="off"] .think-item[data-think="ultra"].active::before {transform: translate(-50%, -50%) rotate(-28deg); }
+html[data-motion="off"] .turn-bar::after {animation: none; transform: none; background: var(--line-2); }
+html[data-motion="off"] .msg.enter, html[data-motion="off"] .empty-state, html[data-motion="off"] .dd-menu.open, html[data-motion="off"] .toast, html[data-motion="off"] .chip.expanded .chip-detail, html[data-motion="off"] .file-viewer.open {animation-duration: .01ms; animation-iteration-count: 1; }
+html[data-motion="off"] * {scroll-behavior: auto; }
+html[data-motion="off"] .boot-card, html[data-motion="off"] .boot-ring, html[data-motion="off"] .boot-ring::after, html[data-motion="off"] .boot-progress-bar::after, html[data-motion="off"] .boot-steps li.active b {animation: none !important; }
+html[data-motion="off"] .msg-user.enter .bubble, html[data-motion="off"] .tool-chips .chip, html[data-motion="off"] .attach-chip, html[data-motion="off"] .attach-menu-item, html[data-motion="off"] .suggest, html[data-motion="off"] .settings-body .set-sec, html[data-motion="off"] .pill.on, html[data-motion="off"] .status .dot {animation: none !important; }
+html[data-motion="off"] .sess-item, html[data-motion="off"] .pill, html[data-motion="off"] .attach-chip, html[data-motion="off"] #send-btn, html[data-motion="off"] .ghost-btn, html[data-motion="off"] .primary-btn, html[data-motion="off"] .icon-btn, html[data-motion="off"] #sidebar-fab {transition: none !important; }
+html[data-motion="off"] .chip-state .chip-ok, html[data-motion="off"] .chip-state .chip-fail, html[data-motion="off"] .chip-state .chip-time, html[data-motion="off"] .ran-commands.expanded > .chip-detail .tool-call-chip, html[data-motion="off"] .edited-files.expanded .fold-inner li, html[data-motion="off"] .explored-files.expanded .fold-inner li, html[data-motion="off"] .ft-row, html[data-motion="off"] .tok-pop:not([hidden]), html[data-motion="off"] .tok-pop .tok-row, html[data-motion="off"] #model-menu .dd-item, html[data-motion="off"] .boot-steps li.done b, html[data-motion="off"] .att-row .att-img, html[data-motion="off"] .att-row .att-file, html[data-motion="off"] .fv-pdf-page, html[data-motion="off"] .attach-menu, html[data-motion="off"] .cmd-card, html[data-motion="off"] .cmd-palette, html[data-motion="off"] .bubble-in, html[data-motion="off"] #think-menu .dd-item, html[data-motion="off"] .cmd-item, html[data-motion="off"] .ran-commands.live > .chip-ico .term-caret {animation: none !important; }
+html[data-motion="off"] .dd-menu, html[data-motion="off"] .md-chart-tooltip, html[data-motion="off"] .chip-detail, html[data-motion="off"] .chip-detail > .fold-inner {transition: none !important; }
+html[data-motion="off"] .chip-detail > .fold-inner {transform: none !important; }
+html[data-motion="off"] .ran-commands > .chip-ico, html[data-motion="off"] .md-fold > .chip-ico, html[data-motion="off"] .ft-row, html[data-motion="off"] .router-chip, html[data-motion="off"] .photo-tool-button {transition: none !important; }
+html[data-motion="off"] .md-chart-map-loading, html[data-motion="off"] .md-chart-map[data-map-state="ready"] .md-chart-svg {animation: none !important; }

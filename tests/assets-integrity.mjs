@@ -572,7 +572,7 @@ await test('启动屏（V1.7.1）：第三方字体不得以解析器外链阻�
   for (const tok of order) { const i = main.indexOf(tok); assert.ok(i > last, `main.js 阶段上报顺序错误：${tok}`); last = i; }
   assert.match(main, /typeof g\.stage === 'function'/, '阶段上报需容忍旧版 / 测试桩的 guard 没有 stage');
   assert.match(css, /\.boot-actions\[hidden\], \.boot-err\[hidden\] \{ display: none; \}/, 'display:flex 的容器必须显式尊重 hidden 属性');
-  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*\.boot-card, \.boot-ring/, '启动屏动画需在 reduced-motion 下关闭');
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{\s*html:not\(\[data-motion="on"\]\) \.boot-card, html:not\(\[data-motion="on"\]\) \.boot-ring/, '启动屏动画需在 reduced-motion 下关闭（除非用户在设置里强制开）');
 });
 console.log(results.join('\n'));
 console.log(`\n审核资产完整性：${passed} 通过 / ${failed} 失败 ${failed === 0 ? '✅' : '❌'}`);

@@ -1813,7 +1813,7 @@ export function evaluateExecutionKernelAcceptance({ toolNames = [], sampleTurnId
 
 export function formatExecutionKernelAcceptanceReport(result = evaluateExecutionKernelAcceptance()) {
   return [
-    `【天枢2.5 v${result.kernelVersion} · P0 执行内核自检（${result.passed}/${result.total} 通过）】`,
+    `【天枢·寒武 v${result.kernelVersion} · P0 执行内核自检（${result.passed}/${result.total} 通过）】`,
     ...result.checks.map((c) => `  ${c.ok ? '✓' : '✗'} ${c.label}\n    · ${c.detail}`),
   ].join('\n');
 }

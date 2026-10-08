@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.31';
+} from '../js/api.js?v=2026.10.5.32';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.31');
+const api = await import('../js/api.js?v=2026.10.5.32');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -2388,8 +2388,11 @@ test('agent.js 与 tools.js 的沙箱工具清单一致（本地副本，防 lin
   assert.match(src, /lengthContinues < 2/);
   assert.ok(!/factsFromDigest/.test(src), '压缩丢轮不再自动写入长效记忆');
   const tools = await import('../js/tools.js');
-  const local = /const CODE_TOOL_NAMES = \[([^\]]*)\]/.exec(src)[1].split(',').map((x) => x.trim().replace(/'/g, ''));
-  assert.deepEqual(local, tools.CODE_TOOL_NAMES, '两份清单必须同步');
+  // Helix 3.0：两边都从能力登记处派生，源头只有 capabilities.js 一份
+  assert.match(src, /const CODE_TOOL_NAMES = \[\.\.\.REG_CODE_TOOL_NAMES\];/, 'agent.js 的沙箱工具清单必须来自能力登记处');
+  const reg = await import('../js/capabilities.js');
+  assert.deepEqual([...reg.CODE_TOOL_NAMES], tools.CODE_TOOL_NAMES, '两份清单必须同步');
+  assert.deepEqual(tools.CODE_TOOL_NAMES, ['execute_javascript', 'execute_python', 'execute_cpp']);
 });
 group('子智能体自主委派（提示词层）');
 test('systemPrompt 里列出了 dispatch_subagent（不再只靠开关后附加的指引）', async () => {
@@ -3118,7 +3121,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.31');
+  const api = await import('../js/api.js?v=2026.10.5.32');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5190,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.31');
+  assert.equal(APP_VERSION, '2026.10.5.32');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.31/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.32/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.31/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.32/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -5644,12 +5647,15 @@ test('Explored Files 合并后空壳助手节点自动折叠，不再累加多�
 
 test('Dubhe Helix 2.5（天枢2.5） 自研融合架构：六层架构规范、工作区上下文自发现、跨会话 BM25 召回、压缩前记忆刷盘、技能遥测与执行自省护栏', async () => {
   const nexus = await import('../js/nexus.js');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.layers.length, 6, '应包含完整六层融合架构定义');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.id, 'dubhe-helix-2.5');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.code, 'DH25');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.shortName, '天枢2.5');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.name, 'Dubhe Helix 2.5（天枢2.5） · 三核正交架构 + P0 执行内核');
-  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.version, '2.5.0');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.layers.length, 9, 'Helix 3.0：2.5 的六层 + L7 能力登记处 / L8 可验证供应链 / L9 外部依赖韧性');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.id, 'dubhe-helix-3.0');
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.code, 'DH30');
+  assert.deepEqual([nexus.NEXUS_ARCHITECTURE_SPEC.codename.short, nexus.NEXUS_ARCHITECTURE_SPEC.codename.name, nexus.NEXUS_ARCHITECTURE_SPEC.codename.zh], ['DC', 'Dubhe Cambrian', '天枢·寒武']);
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.shortName, '天枢·寒武');
+  assert.match(nexus.NEXUS_ARCHITECTURE_SPEC.name, /^Dubhe Helix 3\.0（DC · Dubhe Cambrian · 天枢·寒武）/);
+  assert.equal(nexus.NEXUS_ARCHITECTURE_SPEC.version, '3.0.0');
+  assert.ok(nexus.NEXUS_ARCHITECTURE_SPEC.lineage[0].startsWith('dubhe-helix-2.5'), '保留 2.5 血统记录');
+  assert.deepEqual(nexus.NEXUS_ARCHITECTURE_SPEC.layers.slice(6).map((l) => l.id), ['L7-capability-registry', 'L8-supply-chain', 'L9-resilience']);
 
   // 1. 工作区规范文件自发现
   const fs = createFS({
@@ -5763,8 +5769,10 @@ test('2026.9.30.6 八项体验与渲染升级（空状态隐藏最新输出、re
   const { systemPrompt } = await import('../js/config.js');
   const { formatRuntime } = await import('../js/prompt.js');
   const sysText = systemPrompt(new Date());
-  assert.match(sysText, /天枢2.5/, 'systemPrompt 应声明底层框架天枢2.5');
-  assert.match(formatRuntime({}), /天枢2.5/, 'runtime 提示应包含底层框架天枢2.5');
+  assert.match(sysText, /Dubhe Helix 3\.0/, 'systemPrompt 应声明底层架构号 Helix 3.0');
+  assert.match(sysText, /代号「DC」（Dubhe Cambrian，中文名「天枢·寒武」/, '产品代号 DC / 天枢·寒武 只是代号，架构号另有');
+  assert.match(sysText, /前身为 Dubhe Helix 2\.5 \/ 天枢2\.5/);
+  assert.match(formatRuntime({}), /Dubhe Helix 3\.0 · DC（Dubhe Cambrian，天枢·寒武/, 'runtime 提示应包含底层架构与代号');
 
   // 4. 导航页外观左边改为「文档」
   assert.match(indexHtml, /<a class="nav-link" href="\.\/docs\.html">文档<\/a>\s*<button id="theme-toggle" class="nav-link" type="button">外观<\/button>/);
@@ -8257,9 +8265,8 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(agent, /case 'analyze_video': return \{ reads: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\], writes: \[\] \};/);
   for (const [file, re] of [
     ['../js/context.js', /m\.name === 'analyze_video'/],
-    ['../js/trajectory.js', /'analyze_pdf', 'analyze_video'\]/],
+    ['../js/capabilities.js', /analyze_video: R\('invariantCore', 'remote', \{ tags: \['image'\] \}\)/], // Helix 3.0：trajectory / nexus 的分组由登记处派生
     ['../js/temperature.js', /n === 'analyze_video'/],
-    ['../js/nexus.js', /'analyze_video'/],
     ['../js/config.js', /- analyze_video：分析沙箱中的视频/],
     ['../js/api.js', /请调用 analyze_video 工具/],
     ['../js/ui-attachments.js', /source: 'video'/],
@@ -8517,9 +8524,12 @@ test('全局「气泡弹入」动效：统一 --pop-* 令牌 + bubbleIn 关键�
   assert.match(css, /\.chip-detail > \.fold-inner \{ transform: translate3d\(0, -4px, 0\) scale\(\.985\); transform-origin: top left;/, '折叠面板内容轻弹入');
   assert.match(css, /grid-template-rows: 1fr; opacity: 1;\n\s+transition: grid-template-rows var\(--pop-dur\) var\(--pop-ease\), opacity \.18s ease-out;/, '折叠展开高度同曲线');
   assert.match(css, /#think-menu \.dd-item \{ animation: rowIn \.2s var\(--ease-out\) both; \}/, '思考档位菜单项错落');
-  const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n  .chip-state .chip-ok'));
-  assert.match(rm, /\.attach-menu, \.cmd-card, \.cmd-palette, \.bubble-in, #think-menu \.dd-item, \.cmd-item, \.ran-commands\.live > \.chip-ico \.term-caret \{ animation: none !important; \}/);
-  assert.match(rm, /\.dd-menu, \.md-chart-tooltip, \.chip-detail, \.chip-detail > \.fold-inner \{ transition: none !important; \}/);
+  // .32：reduce 块里每个选择器都带 html:not([data-motion="on"]) 前缀——用户在设置里强制「开」时整体跳过系统的减少动效
+  const rm = css.slice(css.indexOf('@media (prefers-reduced-motion: reduce) {\n  html:not([data-motion="on"]) .chip-state .chip-ok'));
+  assert.ok(rm.length > 100, 'reduce 块应存在且带 data-motion 门控');
+  assert.ok(rm.includes('html:not([data-motion="on"]) .attach-menu, html:not([data-motion="on"]) .cmd-card, html:not([data-motion="on"]) .cmd-palette, html:not([data-motion="on"]) .bubble-in, html:not([data-motion="on"]) #think-menu .dd-item, html:not([data-motion="on"]) .cmd-item, html:not([data-motion="on"]) .ran-commands.live > .chip-ico .term-caret {animation: none !important; }'), '动效类退化规则（带门控前缀）');
+  assert.ok(rm.includes('html:not([data-motion="on"]) .dd-menu, html:not([data-motion="on"]) .md-chart-tooltip, html:not([data-motion="on"]) .chip-detail, html:not([data-motion="on"]) .chip-detail > .fold-inner {transition: none !important; }'), '过渡类退化规则（带门控前缀）');
+  assert.match(css, /html\[data-motion="off"\] \.dd-menu, html\[data-motion="off"\] \.md-chart-tooltip/, '强制「关」有同一套退化规则');
   assert.doesNotMatch(css, /animation: fadeUp \.14s var\(--ease\) both;/, '附件菜单旧的 fadeUp 已替换');
   assert.doesNotMatch(css, /animation: popIn \.22s var\(--ease-out\) both; transform-origin: top center;/, 'token 弹层旧 popIn 已替换');
 });
@@ -9034,7 +9044,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.31'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.32'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9076,7 +9086,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.31');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.32');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9341,7 +9351,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.31：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.32：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9551,7 +9561,7 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
-group('2026.10.5.31：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+group('2026.10.5.32：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
 
 test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
   const sb = await import('../js/sandbox.js');
@@ -9658,19 +9668,19 @@ test('tools/build-manifest.mjs：清单只含站点内容（排除 .git / node_m
   const root = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'dubhe-manifest-'));
   const put = (rel, content) => { const abs = pathMod.join(root, rel); fsp.mkdirSync(pathMod.dirname(abs), { recursive: true }); fsp.writeFileSync(abs, content); };
   put('app.html', '<html>');
-  put('js/config.js', "export const APP_VERSION = '2026.10.5.31';\n");
+  put('js/config.js', "export const APP_VERSION = '2026.10.5.32';\n");
   put('assets/x.bin', Buffer.from([1, 2, 3]));
   put('.github/workflows/ci.yml', 'x'); put('.gitignore', 'x'); put('node_modules/a/index.js', 'x'); put('build.json', '{}'); put('.git/HEAD', 'ref');
   put('tests/t.mjs', 'y');
   const m = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-07T00:00:00Z') });
   assert.equal(m.schema, 'dubhe-build-manifest/1');
   assert.equal(m.commit, 'abc123');
-  assert.equal(m.version, '2026.10.5.31', '版本号从 js/config.js 读');
+  assert.equal(m.version, '2026.10.5.32', '版本号从 js/config.js 读');
   assert.deepEqual(Object.keys(m.files), ['app.html', 'assets/x.bin', 'js/config.js', 'tests/t.mjs'], '排序 + 排除规则');
   assert.equal(m.file_count, 4);
   assert.equal(m.files['assets/x.bin'].size, 3);
   assert.equal(m.files['assets/x.bin'].sha256, '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
-  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.31';\n".length + 1);
+  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.32';\n".length + 1);
   assert.match(m.manifest_sha256, /^[0-9a-f]{64}$/);
   const m2 = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-08T00:00:00Z') });
   assert.equal(m2.manifest_sha256, m.manifest_sha256, '清单摘要只依赖路径与内容，不依赖时间');
@@ -9705,16 +9715,16 @@ test('pages.yml 打包前生成 build.json；build.json 不入库；settings 读
   assert.match(app, /<div class="set-about-row"><span>部署提交<\/span><b id="set-about-commit" class="mono"/);
   const st = await import('../js/settings.js');
   // loadBuildInfo：mock fetch
-  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.31', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
+  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.32', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
   const info = await st.loadBuildInfo({ fetchImpl: async (u) => { assert.match(String(u), /^build\.json\?x=\d+$/); return { ok: true, json: async () => good }; } });
   assert.equal(info.ok, true); assert.equal(info.commit, good.commit);
-  const f1 = st.formatBuildInfo(info, '2026.10.5.31');
+  const f1 = st.formatBuildInfo(info, '2026.10.5.32');
   assert.equal(f1.mismatch, false);
   assert.match(f1.text, /^de07a1d7e735 · 202 个文件 · 清单 abcdef0123…$/);
   assert.equal(f1.href, 'https://github.com/imfufuu/dubhe-agent/commit/de07a1d7e7350000000000000000000000000000');
   const f2 = st.formatBuildInfo(info, '2026.1.1.1');
   assert.equal(f2.mismatch, true);
-  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.31，本页运行的是 2026\.1\.1\.1/);
+  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.32，本页运行的是 2026\.1\.1\.1/);
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'http-404' }).text, '非 Pages 部署（无 build.json）');
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'network' }).mismatch, false);
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -9852,6 +9862,112 @@ test('源码契约：agent 在 TTL 过后后台重探、RELAY_OFF_NOTE 给三条
   assert.match(net, /export function noteRelayNetworkError\(reason = ''\)/);
   const n = (re) => (net.match(re) || []).length;
   assert.ok(n(/noteRelayNetworkError\(`/g) >= 4, `fetch_url / search·crawl（HTTP 5xx 与网络错误两处）/ download_file 都要接重探，实际 ${n(/noteRelayNetworkError\(`/g)} 处`);
+});
+
+group('Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）：能力登记处 / 架构规范 3.0 / 界面动效偏好 / 旧浏览器提示');
+
+test('能力登记处：TOOL_DEFS ↔ 登记表 ↔ execution.js 契约三方一致；派生表与 2.5 时代逐项相同（并发 / 网络 / 只读 / 重型 / 核心 / 门控）', async () => {
+  const reg = await import('../js/capabilities.js');
+  const { TOOL_DEFS } = await import('../js/tools.js');
+  const ex = await import('../js/execution.js');
+  const problems = reg.auditCapabilityRegistry({ toolDefs: TOOL_DEFS, getContract: ex.getToolContract });
+  assert.deepEqual(problems, [], `登记处自检应为空：${JSON.stringify(problems)}`);
+  assert.equal(reg.REGISTERED_TOOL_NAMES.length, TOOL_DEFS.length, '登记数 = 工具数（32）');
+  // 派生表（集合）必须与 Helix 2.5 手抄的清单一致——登记处是重构不是改行为
+  const same = (a, b) => assert.deepEqual([...a].sort(), [...b].sort());
+  same(reg.PARALLEL_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image', 'text_tool']);
+  same(reg.NETWORK_TOOL_NAMES, ['fetch_url', 'search_web', 'crawl_site', 'download_file']);
+  same(reg.READ_ONLY_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'data_tool']);
+  same(reg.HEAVY_TOOL_NAMES, ['write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
+  assert.deepEqual([...reg.CORE_TOOL_NAMES], ['execute_javascript', 'execute_python', 'execute_cpp', 'write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'fetch_url', 'search_web', 'analyze_image', 'dispatch_subagent'], '核心表顺序不变');
+  assert.deepEqual(Object.keys(reg.CAPABILITY_GATED_TOOL_GROUPS), ['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'subagentSwarm']);
+  assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.codeSandbox], ['execute_javascript', 'execute_python', 'execute_cpp']);
+  assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.webFetch], ['fetch_url']);
+  // 消费方确实在用派生表（不是各自又抄了一份）
+  const fsp = await import('node:fs');
+  const read = (f) => fsp.readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8');
+  assert.match(read('toolrunner.js'), /export const PARALLEL_TOOLS = new Set\(PARALLEL_TOOL_NAMES\);/);
+  assert.match(read('toolrunner.js'), /export const NETWORK_TOOLS = new Set\(NETWORK_TOOL_NAMES\);/);
+  assert.match(read('trajectory.js'), /const READ_ONLY_TOOLS = new Set\(READ_ONLY_TOOL_NAMES\);/);
+  assert.match(read('nexus.js'), /export const CAPABILITY_GATED_TOOL_GROUPS = REG_CAPABILITY_GATED_TOOL_GROUPS;/);
+  assert.match(read('executionContext.js'), /export const CORE_TOOLS = CORE_TOOL_NAMES;/);
+  assert.match(read('executionContext.js'), /export const TOOL_MOUNT_RULES = REG_TOOL_MOUNT_RULES;/);
+  assert.match(read('tools.js'), /export const CODE_TOOL_NAMES = \[\.\.\.REG_CODE_TOOL_NAMES\];/);
+  for (const f of ['toolrunner.js', 'trajectory.js', 'nexus.js', 'executionContext.js']) {
+    assert.doesNotMatch(read(f), /new Set\(\['read_file', 'list_files'/, `${f} 不得再手抄工具清单`);
+  }
+  // 挂载规则只给非核心工具，且每个非核心工具都有规则
+  const ec = await import('../js/executionContext.js');
+  const nonCore = reg.REGISTERED_TOOL_NAMES.filter((n) => !reg.CAPABILITY_REGISTRY[n].core);
+  assert.deepEqual(Object.keys(ec.TOOL_MOUNT_RULES).sort(), nonCore.sort());
+  // 自检确实能抓问题：伪造一个没登记的工具 / 契约不符
+  const bad = reg.auditCapabilityRegistry({ toolDefs: [...TOOL_DEFS, { name: 'ghost_tool' }], getContract: (n) => (n === 'fetch_url' ? { sideEffect: 'none' } : ex.getToolContract(n)) });
+  assert.ok(bad.some((p) => p.tool === 'ghost_tool' && p.kind === 'unregistered'));
+  assert.ok(bad.some((p) => p.tool === 'fetch_url' && p.kind === 'kind-vs-contract'));
+  // 旧别名：仍可执行、不在 TOOL_DEFS
+  assert.deepEqual(Object.keys(reg.LEGACY_TOOL_ALIASES).sort(), ['codec', 'convert_units', 'csv_tool', 'date_calc', 'hash', 'qr_code', 'regex', 'unicode']);
+  const { LEGACY_TOOL_ALIASES } = await import('../js/tools.js');
+  assert.equal(LEGACY_TOOL_ALIASES.regex, 'text_tool'); assert.equal(LEGACY_TOOL_ALIASES.qr_code, 'data_tool');
+});
+
+test('Helix 3.0 架构规范：九层（2.5 六层 + L7 登记处 / L8 供应链 / L9 韧性）、代号 DC、血统记录；提示词标签统一为「天枢·寒武」', async () => {
+  const nexus = await import('../js/nexus.js');
+  const spec = nexus.NEXUS_ARCHITECTURE_SPEC;
+  assert.equal(spec.version, '3.0.0');
+  assert.equal(spec.codename.meaning.includes('登记一处、处处生效'), true);
+  const l7 = spec.layers.find((l) => l.id === 'L7-capability-registry');
+  assert.ok(l7.modules.includes('capabilities.js') && l7.modules.includes('capabilities-mount.js'));
+  assert.ok(spec.enhancements.some((e) => e.startsWith('Helix 3.0 · DC')));
+  const fsp = await import('node:fs');
+  const glob = fsp.readdirSync(new URL('../js/', import.meta.url)).filter((f) => f.endsWith('.js'));
+  for (const f of glob) assert.doesNotMatch(fsp.readFileSync(new URL(`../js/${f}`, import.meta.url), 'utf8'), /【天枢2\.5 /, `${f} 的提示词标签应改为【天枢·寒武 ·`);
+  assert.match(fsp.readFileSync(new URL('../js/nexus.js', import.meta.url), 'utf8'), /【天枢·寒武 · L5 工具引擎优选路由/);
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(app, /<span>架构<\/span><b id="set-about-arch"/);
+  const st = fsp.readFileSync(new URL('../js/settings.js', import.meta.url), 'utf8');
+  assert.match(st, /NEXUS_ARCHITECTURE_SPEC\.codename\.short\}（\$\{NEXUS_ARCHITECTURE_SPEC\.codename\.zh\}）/);
+});
+
+test('界面动效偏好：auto / on / off 三态，on 覆盖系统 reduce，off 等价 reduce；说明文案点明 Windows 的「动画效果」开关；旧浏览器能力报告', async () => {
+  const st = await import('../js/settings.js');
+  const oldDoc = globalThis.document; const oldLS = globalThis.localStorage; const oldMM = globalThis.matchMedia;
+  const ds = {}; const store = new Map();
+  globalThis.document = { documentElement: { dataset: ds } };
+  globalThis.localStorage = { getItem: (k) => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
+  try {
+    assert.equal(st.readMotionPreference(), 'auto');
+    assert.equal(st.applyMotionValue('on'), 'on'); assert.equal(ds.motion, 'on'); assert.equal(store.get('dubhe-motion'), 'on');
+    assert.equal(st.applyMotionValue('off'), 'off'); assert.equal(ds.motion, 'off');
+    assert.equal(st.applyMotionValue('auto'), 'auto'); assert.equal('motion' in ds, false); assert.equal(store.has('dubhe-motion'), false);
+    assert.equal(st.applyMotionValue('weird'), 'auto');
+    assert.match(st.motionNoteText('auto', true), /系统当前要求减少动效/); assert.match(st.motionNoteText('auto', true), /Windows：设置 → 辅助功能 → 视觉效果 → 动画效果/);
+    assert.match(st.motionNoteText('auto', false), /系统允许动画/);
+    assert.match(st.motionNoteText('on', true), /忽略系统的「减少动效」请求/);
+    assert.match(st.motionNoteText('off', false), /已关闭全部界面动画/);
+    globalThis.matchMedia = () => ({ matches: true });
+    assert.equal(st.systemPrefersReducedMotion(), true);
+  } finally {
+    if (oldDoc === undefined) delete globalThis.document; else globalThis.document = oldDoc;
+    if (oldLS === undefined) delete globalThis.localStorage; else globalThis.localStorage = oldLS;
+    if (oldMM === undefined) delete globalThis.matchMedia; else globalThis.matchMedia = oldMM;
+  }
+  const rep = st.browserFeatureReport(); // node 没有 CSS：三项都缺 → 给版本建议
+  assert.equal(rep.ok, false); assert.match(rep.advice, /Chrome \/ Edge ≥ 111、Firefox ≥ 121、Safari ≥ 16\.4/);
+  const fsp = await import('node:fs');
+  const app = fsp.readFileSync(new URL('../app.html', import.meta.url), 'utf8');
+  assert.match(app, /<div class="seg" id="set-motion"><button type="button" data-v="auto">跟随系统<\/button><button type="button" data-v="on">开<\/button><button type="button" data-v="off">关<\/button><\/div>/);
+  assert.match(app, /var mo=localStorage\.getItem\('dubhe-motion'\); if\(mo==='on'\|\|mo==='off'\) doc\.setAttribute\('data-motion',mo\);/, '启动脚本提前套用动效偏好（加载屏动画也受控）');
+  const main = fsp.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
+  assert.match(main, /applyMotion\(\);/);
+  assert.match(main, /browserFeatureReport\(\)[\s\S]*?dubhe-oldbrowser-noted/);
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  assert.equal((css.match(/@media \(prefers-reduced-motion: reduce\) \{/g) || []).length, 6);
+  const reduceBlocks = css.split('@media (prefers-reduced-motion: reduce) {').slice(1);
+  for (const b of reduceBlocks) {
+    const body = b.slice(0, b.indexOf('\n}'));
+    for (const line of body.split('\n').filter((l) => l.trim() && !l.trim().startsWith('@'))) assert.ok(line.includes('html:not([data-motion="on"])'), `reduce 块里每条规则都要带门控：${line.slice(0, 80)}`);
+  }
+  assert.ok((css.match(/html\[data-motion="off"\] /g) || []).length >= 15, '强制「关」有完整的一套退化规则');
 });
 
 for (const item of queue) {

@@ -1,10 +1,12 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.31';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.32';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
 import { DEFAULT_TURN_BUDGET } from './execution.js';
+import { NEXUS_ARCHITECTURE_SPEC } from './nexus.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
 const FONT_SIZE_KEY = 'dubhe-fontsize';
+const MOTION_KEY = 'dubhe-motion'; // 'auto' | 'on' | 'off'：auto = 跟随系统 prefers-reduced-motion
 import { writeThemePreference } from './theme.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -105,6 +107,8 @@ export function openSettingsModal({ store } = {}) {
   $('#set-relay').value = readLocal(RELAY_OVERRIDE_KEY) || '';
   syncSeg('#set-theme', store.state.settings.theme || 'light');
   syncSeg('#set-fontsize', document.documentElement.dataset.fontsize || 'medium');
+  syncSeg('#set-motion', readMotionPreference());
+  paintMotionNote();
   $('#set-sandbox').checked = store.state.settings.sandboxEnabled !== false;
   if ($('#set-cpp')) $('#set-cpp').checked = store.state.settings.remoteCppEnabled !== false;
   $('#set-web').checked = store.state.settings.webEnabled !== false;
@@ -116,6 +120,7 @@ export function openSettingsModal({ store } = {}) {
   syncMultimodalSelects(store);
   $('#set-about-ver').textContent = APP_RELEASE;
   $('#set-about-build').textContent = APP_VERSION;
+  if ($('#set-about-arch')) $('#set-about-arch').textContent = `${NEXUS_ARCHITECTURE_SPEC.name.split('（')[0]} · ${NEXUS_ARCHITECTURE_SPEC.codename.short}（${NEXUS_ARCHITECTURE_SPEC.codename.zh}）`;
   const rel = currentRelay();
   $('#set-about-relay').textContent = rel ? (rel.label === 'origin' ? '同源 /api' : rel.base) : '未连接';
   try {
@@ -235,6 +240,7 @@ export function mountSettings(store, { onRelayChanged, onKeySaved, onSettingChan
     changed('theme', v);
   });
   bindSeg('#set-fontsize', (v) => applyFontSizeValue(v));
+  bindSeg('#set-motion', (v) => { applyMotionValue(v); paintMotionNote(); changed('motion', v); });
 
   const bindSw = (id, key, onChange) => {
     const el = $(id); if (!el) return;
@@ -345,6 +351,50 @@ export async function clearTransientCaches() {
   } catch { /* 隐私模式可能抛 */ }
   try { resetRelayProbe(); out.relayProbeReset = true; } catch { /* noop */ }
   return out;
+}
+
+// ── 界面动效偏好（.32）──
+// Windows「设置 → 辅助功能 → 视觉效果 → 动画效果」关掉后，浏览器会报 prefers-reduced-motion: reduce，
+// 我们的 CSS 据此关掉所有动画——用户只看到「别人有动画我没有」。这里把原因摆出来，并允许覆盖：
+//   auto（默认）跟随系统；on 强制开（CSS 的 reduce 块带 html:not([data-motion="on"]) 门控）；off 强制关（html[data-motion="off"] 规则）。
+export function systemPrefersReducedMotion() {
+  try { return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { return false; }
+}
+export function readMotionPreference() {
+  const v = String(readLocal(MOTION_KEY) || 'auto');
+  return ['auto', 'on', 'off'].includes(v) ? v : 'auto';
+}
+export function applyMotionValue(value, { persist = true } = {}) {
+  const v = ['auto', 'on', 'off'].includes(String(value)) ? String(value) : 'auto';
+  if (typeof document !== 'undefined') {
+    if (v === 'auto') delete document.documentElement.dataset.motion;
+    else document.documentElement.dataset.motion = v;
+  }
+  if (persist) { if (v === 'auto') removeLocal(MOTION_KEY); else writeLocal(MOTION_KEY, v); }
+  return v;
+}
+export function applyMotion() { return applyMotionValue(readMotionPreference(), { persist: false }); }
+export function motionNoteText(pref = readMotionPreference(), systemReduce = systemPrefersReducedMotion()) {
+  if (pref === 'on') return systemReduce ? '已强制开启：忽略系统的「减少动效」请求' : '已强制开启';
+  if (pref === 'off') return '已关闭全部界面动画';
+  return systemReduce
+    ? '跟随系统：系统当前要求减少动效，所以动画都没有播放（Windows：设置 → 辅助功能 → 视觉效果 → 动画效果；macOS：辅助功能 → 显示 → 减弱动态效果）。选「开」可忽略系统设置'
+    : '跟随系统：系统允许动画。菜单弹入、芯片滑入、加载屏等动画正常播放';
+}
+function paintMotionNote() {
+  const n = $('#set-motion-note');
+  if (n) n.textContent = motionNoteText();
+}
+
+// ── 旧浏览器能力提示（.32）：界面依赖 color-mix() / :has()，缺一个就会「样式有、细节丢」──
+export function browserFeatureReport() {
+  const sup = (prop, val) => { try { return typeof CSS !== 'undefined' && CSS.supports && CSS.supports(prop, val); } catch { return false; } };
+  const supSel = (sel) => { try { return typeof CSS !== 'undefined' && CSS.supports && CSS.supports(`selector(${sel})`); } catch { return false; } };
+  const missing = [];
+  if (!sup('color', 'color-mix(in srgb, red 50%, blue)')) missing.push('color-mix()');
+  if (!supSel(':has(a)')) missing.push(':has()');
+  if (!sup('backdrop-filter', 'blur(2px)') && !sup('-webkit-backdrop-filter', 'blur(2px)')) missing.push('backdrop-filter');
+  return { ok: missing.length === 0, missing, advice: missing.length ? `浏览器缺少 ${missing.join(' / ')}，部分视觉效果与动画会缺失；建议 Chrome / Edge ≥ 111、Firefox ≥ 121、Safari ≥ 16.4` : '' };
 }
 
 export function applyFontSizeValue(value, { persist = true } = {}) {

@@ -6,6 +6,7 @@
 // 不拥有：模型请求循环、系统提示组装、回合收尾记账（agent.js runLoop / turnfinalizer.js）、工具本身的实现（tools.js）。
 // 注入而非 import 的四样东西：store（状态）、emit（UI 钩子）、getFs（回合内 fs 指针会被换成临时层，所以是 getter）、
 // runSubagent（住在 agent.js，避免循环依赖）。P1（预算）/ P2（持久）类修正都会碰这段代码——先抽出来再改。
+import { PARALLEL_TOOL_NAMES, NETWORK_TOOL_NAMES } from './capabilities.js';
 import { executeTool } from './tools.js';
 import { findSubagent } from './subagents.js';
 import {
@@ -13,17 +14,17 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.5.31';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.31';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.31';
-import { toolName } from './executionContext.js?v=2026.10.5.31';
+} from './execution.js?v=2026.10.5.32';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.32';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.32';
+import { toolName } from './executionContext.js?v=2026.10.5.32';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
 const DISPATCH_CONCURRENCY = 3;
 // 只读 / 无共享可变状态的工具可以并发（Hermes ThreadPoolExecutor 的浏览器等价物）。
 // 写沙箱、跑代码、生图、git 仍串行，避免交错后说不清基于哪一版文件。
-export const PARALLEL_TOOLS = new Set(['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image', 'text_tool']);
+export const PARALLEL_TOOLS = new Set(PARALLEL_TOOL_NAMES); // Helix 3.0：由能力登记处派生（capabilities.js parallel 位 + 旧别名）
 const hasBadArgs = (call) => !!(call && call.args && typeof call.args === 'object' && '__raw' in call.args);
 
 export function batchToolCalls(calls) {
@@ -102,7 +103,7 @@ export function toolCallsConflict(a, b) {
 }
 // 同一波内按工具类别限流：一次放出十几个 fetch_url 会同时打满中继与目标站点（也更容易被限流），
 // 网络类 ≤ 4 并发；其余本地工具 ≤ 8。限流只影响同波内的启动时机，不改变波次与结果下标。
-export const NETWORK_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
+export const NETWORK_TOOLS = new Set(NETWORK_TOOL_NAMES); // Helix 3.0：由能力登记处派生（kind=network）
 export const PARALLEL_LIMITS = Object.freeze({ network: 4, default: 8 });
 export const toolCategoryOf = (name) => (NETWORK_TOOLS.has(name) ? 'network' : 'default');
 export function plannedConcurrency(names, limits = PARALLEL_LIMITS) {

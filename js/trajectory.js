@@ -8,20 +8,19 @@
 // 边界：本模块只对「已记录的执行轨迹」做启发式判定，不重新解读模型内部推理；
 // 判定结论都带 reason，可被人工复核，不覆盖 P0 的静默失败检测结论（两者会交叉校验）。
 
+import { READ_ONLY_TOOL_NAMES, HEAVY_TOOL_NAMES, CODE_TOOL_NAMES, WEB_TOOL_NAMES, IMAGE_TOOL_NAMES } from './capabilities.js';
 import { FAILURE_KIND_META } from './execution.js';
 
 export const TRAJECTORY_POLICY_VERSION = 'trajectory-policy-2.4.0';
 export const TRAJECTORY_SCHEMA_VERSION = 'exec-trajectory-1';
 export const TRAJECTORY_LOG_MAX = 24;
 
-const READ_ONLY_TOOLS = new Set([
-  'read_file', 'list_files', 'search_files', 'get_current_time', 'regex', 'hash', 'codec', 'unicode',
-  'evaluate_expression', 'diff_text', 'json_tool', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'data_tool',
-]);
-const HEAVY_TOOLS = new Set(['write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
-const CODE_TOOLS = new Set(['execute_javascript', 'execute_python', 'execute_cpp']);
-const WEB_TOOLS = new Set(['fetch_url']);
-const IMAGE_TOOLS = new Set(['generate_image', 'analyze_image', 'analyze_pdf', 'analyze_video']);
+// Helix 3.0：评测分组由能力登记处派生（capabilities.js readOnly / heavy / tags），不再在这里手抄一份
+const READ_ONLY_TOOLS = new Set(READ_ONLY_TOOL_NAMES);
+const HEAVY_TOOLS = new Set(HEAVY_TOOL_NAMES);
+const CODE_TOOLS = new Set(CODE_TOOL_NAMES);
+const WEB_TOOLS = new Set(WEB_TOOL_NAMES);
+const IMAGE_TOOLS = new Set(IMAGE_TOOL_NAMES);
 const RESEARCH_HINT_RE = /(?:查一下|搜一下|搜索|联网|上网|最新|官网|文档里|抓取|核实|fact\s*check|verify)/i;
 const HARD_TASK_RE = /(?:代码|脚本|函数|算法|运行|跑一下|编译|测试|文件|目录|沙箱|表格|数据库|sql|正则|解析|批量|生成|写个|实现|重构|调试)/i;
 

@@ -1,13 +1,13 @@
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.5.31';
-import { createAgent } from './agent.js?v=2026.10.5.31';
-import { mountUI, toast } from './ui.js?v=2026.10.5.31';
+import { createStore } from './state.js?v=2026.10.5.32';
+import { createAgent } from './agent.js?v=2026.10.5.32';
+import { mountUI, toast } from './ui.js?v=2026.10.5.32';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.31';
-import { mountSettings, applyFontSize } from './settings.js?v=2026.10.5.31';
-import { APP_RELEASE } from './config.js?v=2026.10.5.31';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.5.32';
+import { mountSettings, applyFontSize, applyMotion, browserFeatureReport } from './settings.js?v=2026.10.5.32';
+import { APP_RELEASE } from './config.js?v=2026.10.5.32';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
@@ -89,8 +89,17 @@ const hooks = {
 bootStage('kernel');
 const agent = createAgent(store, hooks);
 applyFontSize();
+applyMotion();
 bootStage('ui');
 ui = mountUI(store, agent);
+// 旧浏览器提示（.32）：缺 color-mix / :has 时样式会「有骨架、丢细节」，用户容易以为是加载失败；说清原因与版本建议，每个会话只提一次
+try {
+  const feat = browserFeatureReport();
+  if (!feat.ok && !sessionStorage.getItem('dubhe-oldbrowser-noted')) {
+    sessionStorage.setItem('dubhe-oldbrowser-noted', '1');
+    setTimeout(() => toast(`⚠ ${feat.advice}`, 'warn', 9000), 1500);
+  }
+} catch { /* 提示失败不影响使用 */ }
 mountSettings(store, {
   onRelayChanged: () => { relayAvailable().then((ok) => { store.state.relayOk = ok; if (ui && ui.syncWeb) ui.syncWeb(); }).catch(() => {}); },
   onKeySaved: () => { if (ui && ui.updateStats) ui.updateStats(); },

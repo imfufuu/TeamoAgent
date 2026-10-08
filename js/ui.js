@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.31';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.32';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.31';
+import { getTransport } from './api.js?v=2026.10.5.32';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,16 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.31';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.31';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.31';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.31';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.31';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.31';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.31';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.31';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.31';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.31';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.32';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.32';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.32';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.32';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.32';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.32';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.32';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.32';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.32';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.32';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.31';
+} from './ui-markdown.js?v=2026.10.5.32';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.31';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.32';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;

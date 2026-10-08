@@ -2,10 +2,10 @@
 // 拥有：handleSystemCommand(input)——本地执行、不走网关的斜杠命令：/help /status /models /use /theme /clear /p2 /p2f /exp /resume …，
 //       以及把结果作为一次性草稿消息写入通道（state.js 对 __system__ 不落盘）。
 // 不拥有：进入/退出通道（ui-model-picker.js）、消息渲染与滚动——均经 deps 注入；本文件绝不 import ui.js。
-import { APP_RELEASE, APP_VERSION } from './config.js?v=2026.10.5.31';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.31';
+import { APP_RELEASE, APP_VERSION } from './config.js?v=2026.10.5.32';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.5.32';
 import { formatObservabilityReport, formatNexusAcceptanceReport } from './nexus.js';
-import { fmtSpan } from './ui-markdown.js?v=2026.10.5.31';
+import { fmtSpan } from './ui-markdown.js?v=2026.10.5.32';
 import { modelDisplayName } from './smartrouter.js';
 import { isAdminAlias } from './adminkey.js';
 

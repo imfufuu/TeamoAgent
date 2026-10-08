@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.31` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.32` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -127,7 +127,27 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 另有本地工作台：`text_tool`（文本统计 / 去重 / 排序 / 大小写 / 折行，`action=regex|hash|codec|unicode` 分别承接原 `regex` / `hash` / `codec` / `unicode`）/ `data_tool`（`kind=csv` CSV 预览 / 过滤 / 排序 / 聚合 / 转 JSON；`kind=date` 日期差、加减、工作日；`kind=units` 长度、质量、温度、速度、面积、体积、数据、时间换算；`kind=qr` 本地二维码 SVG，Version 1–20，写入 `outputs/`）/ `search_files` / `diff_text` / `json_tool` / `zip_files` / `unzip_file` / `generate_image` / `analyze_image` / `analyze_video`，实现仍在 `js/utiltools.js` / `js/worktools.js`，纯本地、零依赖。构建 .26 起工具表 32 个、分两层下发：核心 12 个每轮必带，其余按用户消息 / 附件类型 / 近几轮用量按需挂载（模型点名未挂载工具时内核当场挂载并回执）。
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
+## Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）
+
+**命名**：架构号 **Dubhe Helix 3.0**；「DC」= Dubhe Cambrian，中文名「天枢·寒武」，寓意能力大爆发——它只是产品代号，不是版本号。前身 Dubhe Helix 2.5（天枢2.5，2026-09-30 → 2026-10-07，P0–P8 九项架构评审全部落地）。
+
+**3.0 相对 2.5 多了什么（都已落地、都有测试）**
+
+| 层 | 名称 | 解决的问题 |
+|---|---|---|
+| **L7 能力登记处** `js/capabilities.js` + `capabilities-mount.js` | 每个工具只登记一次：门控分组 / 语义类别 / 并发 / 评测分组 / 核心 / 按需挂载规则。并发表（toolrunner）、网络限流表、只读 / 重型分组（trajectory）、门控分组（nexus）、核心表与挂载规则（executionContext）、沙箱工具清单（tools / agent）全部**派生** | 2.5 新增一个工具要改 7 处，漏一处就是一类静默缺陷（.29 修的沙箱回写就是分散维护的产物）。现在：定义 + 契约 + 登记 1 行，其余派生；`auditCapabilityRegistry()` 三方一致性由测试强制（未登记 → 红、kind 与契约 sideEffect 不符 → 红、非核心工具没有挂载规则 → 红） |
+| **L8 可验证供应链** | SSH 签名提交 / 分支保护 / 签名 tag + Release / `build.json` 部署清单 / `verify-build` 逐文件核对 / 生产环境只接受受保护分支 | 只覆盖完整性与来源，不覆盖无害性与运行时行为（README「供应链可验证性」） |
+| **L9 外部依赖韧性** | 中继失败 TTL 自动重探 / 网页工具网络错误当场重探 / 搜索五级回退 / 网关双节点 + 失败处切换入口 / 预算七路 / 幂等账本核验副作用 | 单点依赖从「不会恢复」变为「会自动恢复且恢复发生在失败的地方」 |
+
+**「寒武纪」的含义**：登记处把「加一个能力」的边际成本和风险压到最低，能力才可以大量、低风险地长出来。派生表与 2.5 时代的手抄清单逐项相同（测试锁死），这次是重构不是改行为。
+
+**同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
+
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.32：Dubhe Helix 3.0 · DC**
+
+75. **能力登记处（L7）**、**架构规范 3.0.0**（九层 + 代号 + 血统）、**动效偏好与旧浏览器提示**：见上一节。测试：登记处三方一致性 + 派生表逐项相同 + 消费方不得再手抄清单；规范九层；动效三态与 CSS 门控（reduce 块每条规则带 `html:not([data-motion="on"])`，`html[data-motion="off"]` 有同一套退化规则）。agent 433 / 合计 1192。
 
 **构建 2026.10.5.31：P8 修正——单点依赖**
 
