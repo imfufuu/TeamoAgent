@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.35` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.36` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -144,6 +144,12 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.36：能力弹层锚失效修复（全部启用后不再跳到左上角）/ 「更早的消息」重做为中轴接缝 / 焦点环与弹层工艺**
+
+89. **「能力表里把禁用工具全部启用后，菜单跑到左上角」**（根因 + 三层修法）：根因是 `syncCapLine()` 每次都 `innerHTML=` 重画能力条，弹层锚着的那颗胶囊随即脱离文档，其 `getBoundingClientRect()` 全 0 → `placeTokPop` 的 `Math.max(8, …)` 把弹层按到屏幕角上（正好是用户看到的左上角）。修法：① 胶囊序列（`JSON.stringify(bits)` 签名）不变就**不重建 DOM** —— 键盘焦点、`:hover`、弹层锚全都留住；② 真要重绘时，按 `data-cap` 把锚**重新解析**到新的同 key 胶囊（「已禁用 N」消失则退回整条能力行）；③ 定位侧再加一层兜底 `isPlacedNode()`（锚不在文档 / 无盒 → 按弹层类型退回能力行或会话统计栏，退回整行时按该行 `padding-left` 对齐）。验证：jsdom 回归 13 项（含「点直达开关后锚重新解析」「裁剪清零后锚退回能力行」）+ 真实 Chromium 两场景（部分启用 / 全部启用）逐项通过。
+90. **「更早的消息」重做为中轴接缝**：旧实现是 `inline-flex` + `margin: 0 auto` 直接挂在 `.messages` 里 —— 行内级盒子的 auto 外边距不做水平居中，于是整条贴左边缘，且观感与整站胶囊 / 幽灵键不是一套语言。现在是一整条 `min(760px, 100%)` 的接缝（两侧渐隐发丝线 + 居中胶囊，落在与消息同一条中轴线上），计数徽章由实心强调色改为 12% 同色浅底 + 等宽数字；展开到底后接缝连同发丝线一起收起，并补上 `aria-label`（读屏不再只念「更早的消息」）。
+91. **焦点环与弹层工艺**：① 全局 `:focus-visible` 去掉强制的 `border-radius: 6px`（它会在聚焦瞬间把 99px 的胶囊切成方角），改用主题令牌 `--ring`（浅色 62% 黑 / 深色 72% 白）；② 能力条胶囊悬停 / 聚焦给软底片（密集下划线像被划掉的字），「已禁用 N」加琥珀浅底，成为这条线上唯一「有事要办」的信号；③ 弹层加指向锚点的小箭头（`--pop-arrow-x` 由定位函数写入）、标题分隔线、内容区自滚（56vh / 420px，长工具表不出屏），直达开关做成实体小按钮；④ Esc 收起弹层（设置 / 命令面板开着时不抢键），滚动与缩放时重新贴回锚点；⑤ 警示 toast 由虚线框改琥珀描边，滚动条更细并补齐 Firefox 的 `scrollbar-width` / `scrollbar-color`。测试 +16（agent 444 / dom-smoke 241 / 合计 1220）。
 
 **构建 2026.10.5.35：JS 沙箱运行时垫片（Node 风格 API / canvas / 受控网络）/ 设置页文案瘦身 / 模块图 URL 归一**
 

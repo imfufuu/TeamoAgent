@@ -2,7 +2,9 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-07 · 构建 2026.10.5.35 · 架构 Dubhe Helix 3.0 · DC（天枢·寒武）
+## Dubhe Agent V1.7 Stable · 2026-10-08 · 构建 2026.10.5.36 · 架构 Dubhe Helix 3.0 · DC（天枢·寒武）
+
+- **能力弹层锚失效 / 「更早的消息」重做 / 焦点环与弹层工艺（构建 2026.10.5.36）**。① **修「能力表里把禁用工具全部启用后菜单跑到左上角」**：`syncCapLine()` 每次 `innerHTML=` 重画会让弹层锚着的胶囊脱离文档，`getBoundingClientRect()` 全 0 → 弹层落到屏幕左上角 (8,8)。三层修法——胶囊序列不变就不重建 DOM（焦点 / hover / 锚留住）、重绘后按 `data-cap` 重新解析锚到新的同 key 胶囊（「已禁用 N」消失则退回整条能力行）、定位侧 `isPlacedNode()` 兜底（按弹层类型退回能力行 / 统计栏并按该行内边距对齐）。② 「更早的消息」重做为**消息中轴上的接缝**（两侧渐隐发丝线 + 居中胶囊，`min(760px,100%)`；旧版 `inline-flex + margin:auto` 在行内级盒子上不居中，一直贴左边缘），计数徽章改同色浅底 + 等宽数字，补 `aria-label`。③ 界面工艺：`:focus-visible` 去掉强制圆角、改用主题令牌 `--ring`（不再把胶囊切成方角）；能力条胶囊悬停 / 聚焦软底片、「已禁用 N」琥珀浅底；弹层加指向锚点的小箭头、标题分隔线、内容自滚（56vh/420px）、直达开关实体化、Esc 收起（模态优先）、滚动缩放贴回锚点；警示 toast 虚线 → 琥珀描边；滚动条更细并补 Firefox 标准属性。测试：agent 444（+3）、dom-smoke 241（+13），合计 1220；另在真实 Chromium 里跑通「全部启用」「部分启用」两条锚点场景。
 
 - **JS 沙箱运行时垫片等 4 项（构建 2026.10.5.35）**。① `js/worker-shims.js`：Node 风格 `require`（fs→files / path / buffer / util / events / crypto〔sha256·sha1·md5·hmac·随机〕/ os / process / assert / url / querystring / timers）、`Buffer`、`process`、`document.createElement('canvas')` → OffscreenCanvas（`await toDataURL()`）；② 受控网络：联网开 + 中继可用时 `fetch`（仅 GET，≤8 次 / ≤2MB 每次 / ≤6MB 累计）与 `importScripts`（CDN UMD）经 **MessageChannel RPC** 由主线程代抓，Worker 内依旧无出网原语；③ 设置页说明文案瘦身（每段 ≤ 44 字，测试强制）；④ 模块图 URL 归一：`config.js` / `execution.js` / `ui.js` 各有一处 import 缺 `?v=` 会构成双 ESM 实例，现全图单一 URL 并有 BFS 测试。测试 +3（agent 441 / 合计 1204）。
 - **P9 显式 turn pipeline 等 4 项（构建 2026.10.5.34）**。① `agent.js#runLoop` 切成 `premise → plan → select → loop → finalize` 五个具名阶段（runLoop 内闭包，50 个回合变量统一提升），阶段计时进审计 `turn-pipeline` 与 `lastExecutionRecord.pipeline`，`TURN_PIPELINE` 导出；拆分前后 438 项测试零改动通过。② Nano Banana 2.1 实测：ID `gemini-nano-banana-2.1`，Gemini generateContent，512 不支持（自动退 1K），价目入库。③ 模型菜单最大高度 360px / 52vh。④ 能力表弹层锚到「已禁用 N」胶囊正下方。

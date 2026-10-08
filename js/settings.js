@@ -1,7 +1,7 @@
 // 设置弹窗：API Key / 中继地址 / 主题 / 字号 / 沙箱 / 联网 / 快速 / 思考 / 识图·视频识别模型 / 清空数据 / 关于
-import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, isImageGenModel, imageModelLabel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.35';
+import { APP_RELEASE, APP_VERSION, STORAGE_KEY, VISION_MODELS, VIDEO_MODELS, IMAGE_MODELS, DEFAULT_IMAGE_MODEL, isImageGenModel, imageModelLabel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.36';
 import { currentRelay, resetRelayProbe, RELAY_OVERRIDE_KEY } from './net.js';
-import { DEFAULT_TURN_BUDGET } from './execution.js?v=2026.10.5.35';
+import { DEFAULT_TURN_BUDGET } from './execution.js?v=2026.10.5.36';
 import { NEXUS_ARCHITECTURE_SPEC } from './nexus.js';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
@@ -24,7 +24,7 @@ function validateApiKey(s) {
 }
 function toast(msg, type = 'info', ms = 2600) {
   try {
-    import('./ui.js?v=2026.10.5.35').then(({ toast: t }) => t && t(msg, type, ms)).catch(() => {
+    import('./ui.js?v=2026.10.5.36').then(({ toast: t }) => t && t(msg, type, ms)).catch(() => {
       const wrap = document.getElementById('toasts');
       if (!wrap) return;
       const d = document.createElement('div');

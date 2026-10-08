@@ -8,8 +8,8 @@
 // 弹层复用 #tok-pop（与 token / 智能路由弹层同一时间只开一个）。
 import { isSmartRouter, SMART_ROUTER_LABEL } from './smartrouter.js';
 import { reasoningLevelLabel } from './reasoning.js';
-import { getTransport } from './api.js?v=2026.10.5.35';
-import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.35';
+import { getTransport } from './api.js?v=2026.10.5.36';
+import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.36';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -31,7 +31,7 @@ export function renderCapabilityPopHtml(preview) {
       return `<div class="cap-drop" data-tool="${esc(d.name)}" data-reason="${esc(d.reason)}"><span class="mono cap-tool">${esc(d.name)}</span><span class="cap-why">${esc(d.label || d.reason)}</span>${btn}</div>`;
     }).join('');
   } else {
-    list = '<div class="tok-hint">全部工具可用，没有被门控裁剪的项。</div>';
+    list = '<div class="tok-hint cap-all-ok">✓ 全部工具可用，没有被门控裁剪的项。</div>';
   }
   return `${rows.join('')}${list}<div class="tok-hint">按当前开关态预演；发请求时的工具表与此逐项一致。</div>`;
 }
@@ -45,6 +45,23 @@ export function installCapabilityPop({
     try { return agent && typeof agent.previewToolTable === 'function' ? agent.previewToolTable() : null; } catch { return null; }
   };
 
+  // .36：能力条每次重绘都会换掉胶囊节点，而弹层是锚在胶囊上的——锚一旦脱离文档，
+  // getBoundingClientRect() 全 0，placeTokPop 就会把弹层摆到屏幕左上角 (8, 8)。
+  // 这正是「能力表里把禁用工具全部启用后，菜单跑到左上角」的根因。做法：
+  //   ① syncCapLine 只有在胶囊序列真的变了才重建 DOM（序列不变就原地不动，焦点、hover、锚全都留住）；
+  //   ② 真要重建时，按 data-cap 把锚重新解析到新节点；「已禁用 N」胶囊消失后退回整条能力行。
+  const liveCapAnchor = (prev) => {
+    const line = $('#cap-line');
+    if (!line) return null;
+    const key = prev && prev.dataset ? prev.dataset.cap : null;
+    if (key) {
+      const same = $(`.cap-line .cap-pill[data-cap="${key}"]`);
+      if (same) return same;
+    }
+    return $('.cap-line .cap-pill[data-cap="drop"]') || line;
+  };
+
+  let lastCapSig = null;
   function syncCapLine() {
     const eln = $('#cap-line');
     if (!eln) return;
@@ -59,12 +76,22 @@ export function installCapabilityPop({
     const pv = store.state.model === '__system__' ? null : preview();
     const dropN = pv ? pv.dropped.length : 0;
     if (dropN) bits.push(['drop', `已禁用 ${dropN}`]);
-    eln.innerHTML = bits.map(([k, t]) => `<button type="button" class="cap-pill${k === 'drop' ? ' cap-pill-drop' : ''}" data-cap="${k}" title="点击查看本轮工具表：哪些可用、哪些被门控禁用及原因">${esc(t)}</button>`).join('<span class="cap-sep">  ·  </span>');
+    // 胶囊序列没变就绝不重建：能力条在每次 notify 时都会同步，原来每次都 innerHTML= 重画一遍，
+    // 键盘焦点、:hover、弹层锚点全被抹掉（.36）
+    const sig = JSON.stringify(bits);
+    if (sig !== lastCapSig || !eln.firstChild) {
+      eln.innerHTML = bits.map(([k, t]) => `<button type="button" class="cap-pill${k === 'drop' ? ' cap-pill-drop' : ''}" data-cap="${k}" title="点击查看本轮工具表：哪些可用、哪些被门控禁用及原因">${esc(t)}</button>`).join('<span class="cap-sep">  ·  </span>');
+      lastCapSig = sig;
+    }
     eln.classList.toggle('has-drop', dropN > 0);
     eln.dataset.dropped = String(dropN);
     // 弹层开着时跟着刷新（切档位 / 开关联网后条目要原地消失）
     const pop = $('#tok-pop');
-    if (pop && !pop.hidden && pop.dataset.kind === 'cap') paintPop(pop);
+    if (pop && !pop.hidden && pop.dataset.kind === 'cap') {
+      pop._anchor = liveCapAnchor(pop._anchor); // 锚已随重绘失效 → 重新指到同一颗胶囊（.36）
+      paintPop(pop);
+      placeTokPop(pop._anchor);
+    }
   }
 
   function paintPop(pop) {
@@ -79,10 +106,10 @@ export function installCapabilityPop({
     if (!pop) return;
     if (!pop.hidden && pop.dataset.kind === 'cap') { hideTokPop(); return; }
     pop.dataset.kind = 'cap';
-    pop._anchor = anchor;
+    pop._anchor = liveCapAnchor(anchor) || anchor; // 拿到的节点可能已被上一次重绘换掉（.36）
     paintPop(pop);
     pop.hidden = false;
-    placeTokPop(anchor);
+    placeTokPop(pop._anchor);
   }
 
   const runFix = async (kind, tool) => {
@@ -98,6 +125,7 @@ export function installCapabilityPop({
     syncCapLine();
     const pop = $('#tok-pop');
     if (pop && !pop.hidden && pop.dataset.kind === 'cap') {
+      pop._anchor = liveCapAnchor(pop._anchor); // 重绘后重新解析锚：否则弹层会按 (0,0) 跑到屏幕左上角（.36 修）
       paintPop(pop);
       placeTokPop(pop._anchor);
       const still = preview();

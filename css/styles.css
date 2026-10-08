@@ -42,6 +42,7 @@
   --link-hover: #0550ae;
   --accent: #4f46e5;
   --warn: #d97706;
+  --ring: rgba(10, 10, 10, .62); /* 键盘焦点描边（.36）：比纯 --fg 柔和一档，深浅模式各有一个值 */
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --sans: var(--font);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
@@ -125,6 +126,7 @@ html[data-fontsize="large"] {
   --link-hover: #79b8ff;
   --accent: #818cf8;
   --warn: #f59e0b;
+  --ring: rgba(244, 244, 244, .72);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -149,9 +151,11 @@ button { font-family: inherit; color: inherit; background: none; border: none; c
 a { color: var(--fg); }
 ::selection { background: var(--fg); color: var(--bg); }
 
-/* 滚动条 */
-::-webkit-scrollbar { width: 8px; height: 8px; }
-::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 4px; }
+/* 滚动条（.36：更细的滑块 + 内缩描边，悬停加深；Firefox 走标准属性）*/
+html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; border: 2.5px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--fg-3); background-clip: padding-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 
 /* ── 布局（变量驱动，侧栏与面板均可收起，宽屏永不遮挡内容）──────────── */
@@ -581,24 +585,32 @@ a { color: var(--fg); }
 
 /* 消息区（min-height:0 保证 flex 子项可收缩，滚动被限制在本区域） */
 .messages { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 32px 0 12px; scroll-behavior: smooth; overscroll-behavior: contain; }
-/* 长会话「展开更早对话」按钮 */
+/* 长会话「展开更早对话」接缝（.36 重做）：与消息同在 min(760px,100%) 中轴线上，两侧发丝线收进中间胶囊。
+   旧版是 inline-flex + margin:auto 挂在 .messages 里 —— 中轴线的 auto 外边距对行内级盒子无效，于是整条贴左边缘。 */
+.lazy-seam { display: flex; align-items: center; gap: 12px; max-width: min(760px, 100%); margin: 2px auto 18px; padding: 0 28px; }
+.lazy-seam-line { flex: 1 1 auto; min-width: 14px; height: 1px; }
+.lazy-seam-line:first-child { background: linear-gradient(90deg, transparent, var(--line)); }
+.lazy-seam-line:last-child { background: linear-gradient(90deg, var(--line), transparent); }
 .lazy-load-more {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin: 0 auto 16px; padding: 6px 14px;
-  background: var(--bg-soft); color: var(--fg-2);
-  border: 1px solid var(--line); border-radius: 99px;
-  font-size: var(--ui-fs-12px, 12px); cursor: pointer;
-  transition: all .18s var(--ease);
-  position: relative;
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;
+  padding: 4px 11px 4px 9px; border-radius: 99px;
+  background: var(--bg); color: var(--fg-3);
+  border: 1px solid var(--line);
+  font-size: var(--ui-fs-11_5px, 11.5px); line-height: 1.6; cursor: pointer;
+  transition: color .18s var(--ease), border-color .18s var(--ease), background-color .18s var(--ease);
 }
-.lazy-load-more:hover { color: var(--fg); border-color: var(--fg-2); background: var(--bg-hover); }
-.lazy-load-more .ico, .lazy-load-more svg { width: 12px; height: 12px; transform: rotate(-90deg); }
+.lazy-load-more:hover { color: var(--fg); border-color: var(--line-2); background: var(--bg-hover); }
+.lazy-load-more:active { color: var(--fg); background: var(--bg-soft); }
+.lazy-load-more .ico, .lazy-load-more svg { width: 11px; height: 11px; transform: rotate(-90deg); }
 .lazy-load-more .lazy-load-count {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 18px; height: 18px; padding: 0 5px; margin-left: 2px;
-  background: var(--accent, #5f8a86); color: #fff;
+  min-width: 17px; height: 17px; padding: 0 5px; margin-left: 1px;
+  background: color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent);
+  color: color-mix(in srgb, var(--accent, #4f46e5) 62%, var(--fg));
   border-radius: 9px; font-size: var(--ui-fs-10px, 10px); font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
+.lazy-load-more:hover .lazy-load-count { background: color-mix(in srgb, var(--accent, #4f46e5) 18%, transparent); }
 /* 未闭合的代码块（流式中）：标题弱化，无边框底 */
 .code-block-open { opacity: 0.95; }
 .code-block-open .code-head-open { color: var(--fg-3); }
@@ -1552,12 +1564,16 @@ a { color: var(--fg); }
 .toast.leaving { opacity: 0; transform: translateY(-8px) scale(.92); pointer-events: none; }
 .toasts > .toast:nth-last-child(n+4) { display: none !important; }
 .toast.err { background: var(--bg); color: var(--fg); border: 1.5px solid var(--fg); }
-.toast.warn { background: var(--bg); color: var(--fg); border: 1.5px dashed var(--fg-3); }
+/* .36：警示不再用虚线框（虚线在这套界面里读作「草稿 / 待办」，而不是「警告」）——改用琥珀色描边 */
+.toast.warn { background: var(--bg); color: var(--fg); border: 1.5px solid color-mix(in srgb, var(--warn) 45%, var(--line-2)); }
 .toast.ok { background: var(--fg); color: var(--bg); }
 
 /* ─── 可访问性（P2-3）────────────────────────────────────────────── */
-/* 键盘焦点可见（鼠标点击不显示轮廓） */
-:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }
+/* 键盘焦点可见（鼠标点击不显示轮廓）。
+   .36：去掉强制的 border-radius: 6px —— 它会把圆角胶囊按钮（99px）在聚焦的一瞬间切成方角；
+   描边本身在现代浏览器里就会跟随元素圆角。颜色改用 --ring（可由主题调），避免纯黑 / 纯白描边在
+   深浅模式里都是一刀切的硬边。 */
+:focus-visible { outline: 2px solid var(--ring, var(--fg)); outline-offset: 2px; }
 .dd-search:focus-visible, .key-input:focus-visible, #composer-input:focus-visible { outline-offset: 0; }
 
 /* ── 触屏设备通用（含平板）：可点区域 ≥40px ─────────────────────────────
@@ -1968,16 +1984,32 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .cap-line:empty { display: none; }
 /* P3 修正：能力条胶囊可点 → 工具表 diff 弹层；有门控裁剪时末尾多一个「已禁用 N」 */
 .cap-line .cap-pill { font: inherit; color: inherit; letter-spacing: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-radius: 4px; }
-.cap-line .cap-pill:hover, .cap-line .cap-pill:focus-visible { color: var(--fg); outline: none; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line-2); }
+/* .36：悬停 / 聚焦给一层软底片，不再只靠下划线（胶囊太高密，密集下划线像被划掉的字）；
+   聚焦用统一的 --ring，键盘用户能一路 Tab 过「模型 → 思考 → 沙箱 → 中继 → 已禁用」。 */
+.cap-line .cap-pill { padding: 0 5px; border-radius: 5px; transition: color .16s var(--ease), background-color .16s var(--ease); }
+.cap-line .cap-pill:hover { color: var(--fg); background: var(--bg-hover); }
+.cap-line .cap-pill:focus-visible { color: var(--fg); background: var(--bg-hover); outline: 2px solid var(--ring, var(--fg)); outline-offset: 1px; }
 .cap-line .cap-pill-drop { color: #b45309; }
 [data-theme="dark"] .cap-line .cap-pill-drop { color: #fbbf24; }
+/* 「已禁用 N」是这条线上唯一可以点的「有事要办」的胶囊：给一层同色浅底，扫视时先看到它 */
+.cap-line .cap-pill-drop[data-cap="drop"] { background: color-mix(in srgb, #d97706 9%, transparent); }
+.cap-line .cap-pill-drop[data-cap="drop"]:hover,
+.cap-line .cap-pill-drop[data-cap="drop"]:focus-visible { background: color-mix(in srgb, #d97706 15%, transparent); }
 .cap-line .cap-sep { white-space: pre; }
 .tok-pop .cap-drop-h { font-size: var(--ui-fs-10_5px, 10.5px); color: #b45309; letter-spacing: .08em; margin: 8px 0 4px; font-family: var(--mono); border-top: 1px solid var(--line); padding-top: 8px; }
 [data-theme="dark"] .tok-pop .cap-drop-h { color: #fbbf24; }
-.tok-pop .cap-drop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 4px 0; font-size: var(--ui-fs-12px, 12px); color: var(--fg-2); align-items: baseline; }
+.tok-pop .cap-drop { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 10px; padding: 6px 8px; margin: 0 -8px; border-radius: 8px; font-size: var(--ui-fs-12px, 12px); color: var(--fg-2); align-items: center; transition: background-color .16s var(--ease); }
+.tok-pop .cap-drop:hover { background: var(--bg-hover); }
 .tok-pop .cap-drop .cap-tool { font-family: var(--mono); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tok-pop .cap-drop .cap-why { grid-column: 1; font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); line-height: 1.45; }
-.tok-pop .cap-drop .cap-fix { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-size: var(--ui-fs-11px, 11px); white-space: nowrap; }
+.tok-pop .cap-drop .cap-fix {
+  grid-column: 2; grid-row: 1 / span 2; align-self: center; white-space: nowrap;
+  font-family: var(--font); font-size: var(--ui-fs-11px, 11px); text-decoration: none;
+  padding: 3px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); color: var(--fg-2);
+  transition: color .16s var(--ease), border-color .16s var(--ease), background-color .16s var(--ease);
+}
+.tok-pop .cap-drop .cap-fix:hover { color: var(--fg); border-color: var(--fg-2); background: var(--bg-hover); }
+.tok-pop .cap-all-ok { color: var(--fg-2); }
 
 .conv-stats { cursor: pointer; }
 .conv-stats:hover { color: var(--fg); }
@@ -1985,10 +2017,21 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   position: fixed; z-index: 90; min-width: 200px; max-width: 280px;
   padding: 12px 14px 10px; background: var(--bg); color: var(--fg);
   border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-lg);
+  --pop-arrow-x: 20px;
 }
+/* .36：小箭头指回锚点（定位时由 placeTokPop 写 --pop-arrow-x）。data-place 决定朝上还是朝下。 */
+.tok-pop::before {
+  content: ''; position: absolute; left: var(--pop-arrow-x, 20px); top: -4.5px; margin-left: -4.5px;
+  width: 9px; height: 9px; background: var(--bg);
+  border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg);
+}
+.tok-pop[data-place="above"]::before { top: auto; bottom: -4.5px; transform: rotate(225deg); }
+/* 工具表可能很长（一次裁剪 8 条以上）：内容区自己滚，标题留在原位，弹层永远不出屏 */
+.tok-pop-body { max-height: min(56vh, 420px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
+.tok-pop-body::-webkit-scrollbar { width: 6px; }
 .tok-pop-h {
   font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); letter-spacing: .1em; text-transform: uppercase;
-  margin-bottom: 8px; font-family: var(--mono);
+  margin-bottom: 8px; padding-bottom: 7px; border-bottom: 1px solid var(--line); font-family: var(--mono);
 }
 .tok-row {
   display: flex; justify-content: space-between; gap: 20px;

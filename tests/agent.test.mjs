@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.35';
+} from '../js/api.js?v=2026.10.5.36';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.35');
+const api = await import('../js/api.js?v=2026.10.5.36');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3121,7 +3121,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.35');
+  const api = await import('../js/api.js?v=2026.10.5.36');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5191,11 +5191,12 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.35');
+  assert.equal(APP_VERSION, '2026.10.5.36');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.35/);
-  assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.35/);
+  const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
+  assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
+  assert.match(docs, /class="ver-badge" title="Dubhe Agent V1[.]7">V1[.]7<\/span>/);
+  assert.match(docs, new RegExp('V1[.]7 Stable.*' + vRe));
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -9028,7 +9029,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
   assert.match(cap, /<button type="button" class="tok-btn cap-fix" data-fix="\$\{esc\(fix\.kind\)\}" data-tool="\$\{esc\(d\.name\)\}">\$\{esc\(fix\.label\)\}<\/button>/);
   assert.match(cap, /if \(dropN\) bits\.push\(\['drop', `已禁用 \$\{dropN\}`\]\);/, '有裁剪时能力条末尾多一个「已禁用 N」胶囊');
   assert.match(cap, /e\.stopPropagation\(\); \/\/ 不让 document 级「点外面关闭」把刚打开的弹层又关掉/);
-  assert.match(cap, /if \(pop && !pop\.hidden && pop\.dataset\.kind === 'cap'\) paintPop\(pop\);/, '开关变化时弹层原地重算');
+  assert.ok(cap.includes("if (pop && !pop.hidden && pop.dataset.kind === 'cap') {") && cap.includes('pop._anchor = liveCapAnchor(pop._anchor);'), '开关变化时弹层原地重算，并把锚重新解析到重绘后的胶囊（.36）');
   assert.match(ui, /import \{ installCapabilityPop \} from '\.\/ui-capability\.js\?v=/);
   assert.match(ui, /const \{ syncCapLine \} = installCapabilityPop\(\{/);
   assert.match(ui, /setReasoning: \(lv\) => \{ store\.state\.settings\.thinking = true; store\.state\.settings\.reasoningLevel = normalizeReasoningLevel\(lv\); store\.notify\(\); syncThinking\(\); \},/);
@@ -9047,7 +9048,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.35'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.36'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9089,7 +9090,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.35');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.36');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -10206,6 +10207,86 @@ test('设置页文案瘦身：说明只留「什么时候会用到这条设置�
   assert.match(st, /note\.textContent = `\$\{im\.label \|\| image\} · \$\{vi\.label \|\| vision\} · \$\{vd\.label \|\| video\}`;/, '多模态一行只报当前三档标签');
   assert.match(st, /note\.textContent = custom\s*\?\s*`自定义（默认 \$\{DEFAULT_TURN_BUDGET\.maxExternalSideEffects\} \/ \$\{DEFAULT_TURN_BUDGET\.maxToolCalls\}）`\s*:\s*'默认值';/, '预算脚注缩成一行');
   assert.match(st, /if \(note\) note\.textContent = `已清除 \$\{r\.cacheStores\} 个缓存（\$\{r\.cacheEntries\} 条）· 下次用到时重新下载`;/);
+});
+
+group('2026.10.5.36：能力弹层锚失效修复（全部启用后不再跳到左上角）/ 「更早的消息」重做为中轴接缝 / 焦点环与弹层工艺');
+
+test('.36 修复：能力条只在胶囊序列变化时重建 DOM；重建后把弹层锚重新解析到同 key 的胶囊（没了就退回整条能力行）', async () => {
+  const fsp = await import('node:fs');
+  const cap = fsp.readFileSync(new URL('../js/ui-capability.js', import.meta.url), 'utf8');
+  const pop = fsp.readFileSync(new URL('../js/ui-popovers.js', import.meta.url), 'utf8');
+  const has = (src, s, msg) => assert.ok(src.includes(s), msg || `应包含：${s}`);
+  // 复用一层缓存：序列不变就绝不 innerHTML=，否则键盘焦点 / hover / 弹层锚点每次 notify 都被抹掉
+  has(cap, 'let lastCapSig = null;');
+  has(cap, 'const sig = JSON.stringify(bits);');
+  has(cap, 'if (sig !== lastCapSig || !eln.firstChild) {');
+  has(cap, 'lastCapSig = sig;');
+  // 锚重新解析：先找同 data-cap 的胶囊，再退「已禁用 N」，最后退整条能力行
+  has(cap, 'const liveCapAnchor = (prev) => {');
+  has(cap, 'const same = $(`.cap-line .cap-pill[data-cap="${key}"]`);');
+  has(cap, `return $('.cap-line .cap-pill[data-cap="drop"]') || line;`);
+  has(cap, 'pop._anchor = liveCapAnchor(anchor) || anchor;', '打开时也要校验拿到的节点还在不在');
+  has(cap, 'pop._anchor = liveCapAnchor(pop._anchor); // 重绘后重新解析锚：否则弹层会按 (0,0) 跑到屏幕左上角（.36 修）');
+  // 定位侧兜底：锚脱离文档 / 没盒子（getBoundingClientRect 全 0）时按语义退回
+  has(pop, 'function isPlacedNode(n) {');
+  has(pop, 'if (n.isConnected === false) return false;');
+  has(pop, `const fb = kind === 'cap' ? $('#cap-line') : ($('#conv-stats') || $('#cap-line'));`);
+  has(pop, 'const target = resolveAnchor(anchor, pop.dataset.kind);');
+  has(pop, `const below = preferBelow || pop.dataset.kind === 'cap';`, '能力弹层一律朝下，锚退回能力行时也不许翻到屏幕上方');
+  has(pop, `pop.style.setProperty('--pop-arrow-x',`, '小箭头跟着锚点中心走');
+});
+
+test('.36 UI：「更早的消息」= 中轴接缝（两侧发丝线 + 居中胶囊）；全局焦点环不再把圆角按钮切成方角；弹层有箭头、内容过长自己滚', async () => {
+  const fsp = await import('node:fs');
+  const ui = fsp.readFileSync(new URL('../js/ui.js', import.meta.url), 'utf8');
+  const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
+  const has = (src, s, msg) => assert.ok(src.includes(s), msg || `应包含：${s}`);
+  const between = (src, a, b, msg) => assert.ok(src.includes(a) && src.indexOf(b, src.indexOf(a)) > 0, msg || `应在 [${a}] 之后出现 [${b}]`);
+  // 接缝：消息中轴（min(760px,100%) + margin auto）由容器承担，按钮只做中间那颗胶囊
+  has(ui, 'function renderLazySeam(skipped) {');
+  has(ui, `const seam = el('div', 'lazy-seam');`);
+  has(ui, `seam.appendChild(el('span', 'lazy-seam-line'));`);
+  has(ui, 'seam.appendChild(btn);');
+  has(ui, '<span>更早的消息</span>', '入口文案不变');
+  has(ui, 'btn.setAttribute(`aria-label` '.replace('`aria-label` ', `'aria-label', `) + '`加载更早的 ${skipped} 条消息`);');
+  has(ui, `const seam = $('.lazy-seam', msgList);`);
+  has(ui, 'if (seam) seam.remove();', '展开到底后连发丝线一起收起');
+  assert.ok(!ui.includes('renderLazyLoadMoreBtn'), '旧的内联按钮实现已彻底移除');
+  has(css, '.lazy-seam { display: flex; align-items: center; gap: 12px; max-width: min(760px, 100%); margin: 2px auto 18px; padding: 0 28px; }');
+  has(css, '.lazy-seam-line:first-child { background: linear-gradient(90deg, transparent, var(--line)); }');
+  has(css, '.lazy-seam-line:last-child { background: linear-gradient(90deg, var(--line), transparent); }');
+  has(css, '.lazy-load-more {');
+  between(css, '.lazy-load-more {', 'flex: 0 0 auto; display: inline-flex; align-items: center; gap: 7px;');
+  between(css, '.lazy-load-more {', 'border-radius: 99px;');
+  between(css, '.lazy-load-more {', 'background: var(--bg); color: var(--fg-3);');
+  between(css, '.lazy-load-more .lazy-load-count {', 'color-mix(in srgb, var(--accent, #4f46e5) 12%, transparent)', '计数徽章改用同色系浅底，不再是一块实心强调色');
+  // 焦点环：不再强制 border-radius（会把胶囊在聚焦瞬间切成方角）
+  has(css, ':focus-visible { outline: 2px solid var(--ring, var(--fg)); outline-offset: 2px; }');
+  assert.ok(!css.includes(':focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; border-radius: 6px; }'), '旧的强制圆角已删除');
+  between(css, ':root {', '--ring: rgba(10, 10, 10, .62);', '环色进设计令牌');
+  between(css, '[data-theme="dark"] {', '--ring: rgba(244, 244, 244, .72);');
+  has(css, '.cap-line .cap-pill { padding: 0 5px; border-radius: 5px; transition: color .16s var(--ease), background-color .16s var(--ease); }');
+  has(css, '.cap-line .cap-pill:focus-visible { color: var(--fg); background: var(--bg-hover); outline: 2px solid var(--ring, var(--fg)); outline-offset: 1px; }');
+  // 弹层：小箭头 + 内容区自滚（工具表可能很长）
+  between(css, '.tok-pop::before {', 'border-left: 1px solid var(--line); border-top: 1px solid var(--line); transform: rotate(45deg);', '弹层带指向锚点的小箭头');
+  has(css, '.tok-pop[data-place="above"]::before { top: auto; bottom: -4.5px; transform: rotate(225deg); }', '朝上放置时箭头翻到下方');
+  has(css, '.tok-pop-body { max-height: min(56vh, 420px); overflow-y: auto; overscroll-behavior: contain;');
+  between(css, '.tok-pop .cap-drop .cap-fix {', 'text-decoration: none;', '直达开关做成实体小按钮，不再是下划线文字');
+  has(css, '.tok-pop .cap-all-ok { color: var(--fg-2); }');
+  // 滚动条与 Firefox 标准属性
+  has(css, 'html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }');
+  has(css, '::-webkit-scrollbar-thumb { background: var(--line-2); border-radius: 99px; border: 2.5px solid transparent; background-clip: padding-box; }');
+});
+
+test('.36 弹层交互：Esc 收起（模态优先）、窗口尺寸 / 滚动变化时贴回锚点', async () => {
+  const fsp = await import('node:fs');
+  const pop = fsp.readFileSync(new URL('../js/ui-popovers.js', import.meta.url), 'utf8');
+  const esc = pop.indexOf(`if (e.key !== 'Escape') return;`);
+  const hide = pop.indexOf('if (!pop || pop.hidden) return;', esc);
+  const modalGuard = pop.indexOf(`$('.cmd-palette:not([hidden])')`, hide);
+  assert.ok(esc > 0 && hide > esc && modalGuard > hide, 'Esc 收起；设置 / 命令面板开着时不抢键');
+  assert.ok(pop.includes(`window.addEventListener('scroll', follow, { passive: true, capture: true });`));
+  assert.ok(pop.includes(`window.addEventListener('resize', follow, { passive: true });`));
 });
 
 for (const item of queue) {

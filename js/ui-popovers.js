@@ -3,8 +3,8 @@
 //       token 构成与本轮费用弹层（showTokBreak）。
 // 不拥有：会话统计文字（updateStats 留在 ui.js）、能力条弹层（ui-capability.js 复用这里的 hide/place）。
 // 只读 store，不改状态；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.5.35';
-import { providerOf, systemPrompt } from './config.js?v=2026.10.5.35';
+import { $, esc } from './ui-markdown.js?v=2026.10.5.36';
+import { providerOf, systemPrompt } from './config.js?v=2026.10.5.36';
 import { providerIcon } from './icons.js';
 import { estimateTokens } from './context.js';
 import { tokenBreakdown, formatTokBreak } from './commands.js';
@@ -16,22 +16,51 @@ export function installPopovers({ store }) {
     const pop = $('#tok-pop');
     if (pop) pop.hidden = true;
   }
+  // .36：锚点解析。能力条 / 会话统计栏重绘会换掉 DOM 节点，锚一旦脱离文档或没有盒，
+  // getBoundingClientRect() 全是 0 → 弹层被摆到屏幕左上角 (8,8)。此时按语义退回：
+  // 能力弹层退到整条能力行，其它退到会话统计栏；两者都不可用就保持原锚（不改变位置）。
+  function isPlacedNode(n) {
+    if (!n || typeof n.getBoundingClientRect !== 'function') return false;
+    if (n.isConnected === false) return false;
+    const r = n.getBoundingClientRect();
+    return !(r.width === 0 && r.height === 0 && r.left === 0 && r.top === 0);
+  }
+  function resolveAnchor(anchor, kind) {
+    if (isPlacedNode(anchor)) return anchor;
+    const fb = kind === 'cap' ? $('#cap-line') : ($('#conv-stats') || $('#cap-line'));
+    if (isPlacedNode(fb)) return fb;
+    return (anchor && typeof anchor.getBoundingClientRect === 'function') ? anchor : fb;
+  }
   function placeTokPop(anchor) {
     const pop = $('#tok-pop');
     if (!pop || pop.hidden) return;
-    const r = (anchor && anchor.getBoundingClientRect) ? anchor.getBoundingClientRect() : ($('#conv-stats') || {}).getBoundingClientRect?.();
+    const target = resolveAnchor(anchor, pop.dataset.kind);
+    const fellBack = target !== anchor; // 锚已失效 → 退到整条能力行 / 统计栏
+    if (fellBack) pop._anchor = target;
+    const r = (target && target.getBoundingClientRect) ? target.getBoundingClientRect() : ($('#conv-stats') || {}).getBoundingClientRect?.();
     if (!r) return;
     const pw = pop.offsetWidth || 240;
     const ph = pop.offsetHeight || 160;
-    let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
+    // 锚是整条能力行（含「已禁用 N」胶囊消失后退回的情况）时，按该行的左内边距对齐：
+    // #cap-line 左右各有 24px 内边距，贴着行边框摆会明显偏左
+    let inset = 0;
+    if (target && target.id === 'cap-line') {
+      try { inset = parseFloat(getComputedStyle(target).paddingLeft) || 0; } catch { inset = 0; }
+    }
+    let left = Math.min(Math.max(8, r.left + inset), window.innerWidth - pw - 8);
     // 能力行的胶囊在页面顶部：弹层固定放在胶囊正下方（.34）；其它锚点仍优先放上方，放不下再翻到下方
     const preferBelow = !!(anchor && anchor.classList && anchor.classList.contains('cap-pill'));
+    const below = preferBelow || pop.dataset.kind === 'cap'; // 能力弹层永远朝下（锚退回能力行时也一样）
     let top = preferBelow ? r.bottom + 8 : r.top - ph - 10;
-    if (!preferBelow && top < 8) top = Math.min(window.innerHeight - ph - 8, r.bottom + 8);
-    if (preferBelow && top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 10);
+    if (below && !preferBelow) top = r.bottom + 8;
+    if (!below && top < 8) top = Math.min(window.innerHeight - ph - 8, r.bottom + 8);
+    if (below && top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 10);
     pop.dataset.place = top >= r.bottom ? 'below' : 'above'; // 气泡弹入的 transform-origin 跟着锚点方向走
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;
+    // 小箭头指回锚点中心（clamp 进弹层左右 12px 内，含圆角与描边）
+    const cx = (r.left + r.right) / 2;
+    pop.style.setProperty('--pop-arrow-x', `${Math.min(Math.max(12, cx - left), Math.max(12, pw - 12))}px`);
   }
   // 智能路由详情弹层：与 token 弹层共用 #tok-pop（同一时间只开一个）
   function showRouterPop(anchor, ri, realModel) {
@@ -88,5 +117,24 @@ export function installPopovers({ store }) {
     pop.hidden = false;
     placeTokPop(anchor && anchor.nodeType ? anchor : stats);
   }
+  // 打开期间：Esc 收起（对话框语义，模态优先）；窗口尺寸 / 滚动变了就重新贴回锚点
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const pop = $('#tok-pop');
+    if (!pop || pop.hidden) return;
+    if ($('.modal.open') || $('.cmd-palette:not([hidden])')) return;
+    hideTokPop();
+  });
+  let followRaf = 0;
+  const follow = () => {
+    if (followRaf) return;
+    followRaf = requestAnimationFrame(() => {
+      followRaf = 0;
+      const pop = $('#tok-pop');
+      if (pop && !pop.hidden) placeTokPop(pop._anchor);
+    });
+  };
+  window.addEventListener('scroll', follow, { passive: true, capture: true });
+  window.addEventListener('resize', follow, { passive: true });
   return { hideTokPop, placeTokPop, showRouterPop, showTokBreak };
 }

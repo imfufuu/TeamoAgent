@@ -721,6 +721,52 @@ console.log('\n⑲ 顶栏能力条 → 工具表 diff 弹层（P3 修正：能�
   ok('再点胶囊关闭弹层', pop.hidden === true);
 }
 
+console.log('\n⑳ .36 回归：能力表里把禁用工具全部启用后，弹层不得跑到屏幕左上角（锚必须随重绘重新解析）');
+{
+  const capLine = $('#cap-line');
+  const pop = $('#tok-pop');
+  // 造出两类裁剪：思考 Off（可点「切到 Max」）+ 中继离线（可点「重新探测中继」）
+  store.state.settings.thinking = false;
+  store.state.relayOk = false;
+  store.state.settings.webEnabled = true;
+  store.state.settings.sandboxEnabled = true;
+  store.state.model = 'gpt-5.6-sol';
+  ui.syncWeb();
+  const drops = agent.previewToolTable().dropped;
+  ok('前置：确实存在被门控裁剪的工具', drops.length > 0, JSON.stringify(drops.map((d) => d.name)));
+  const dropPill = $('#cap-line .cap-pill[data-cap="drop"]');
+  ok('前置：能力条末尾有可点的「已禁用 N」胶囊', !!dropPill);
+  click(dropPill);
+  ok('弹层锚在「已禁用 N」胶囊上', pop.hidden === false && pop.dataset.kind === 'cap' && pop._anchor === dropPill);
+  // 点一条「切到 Max」：能力条会重绘（多出「思考 Max」胶囊），旧锚节点随即脱离文档
+  click($('#tok-pop .cap-drop[data-tool="dispatch_subagent"] .cap-fix[data-fix="reasoning-max"]'));
+  await new Promise((r) => setTimeout(r, 0));
+  ok('重绘后锚已重新解析到新的「已禁用 N」胶囊', pop._anchor !== dropPill && pop._anchor.dataset.cap === 'drop');
+  ok('锚仍在文档里（否则 getBoundingClientRect 全 0 → 弹层被摆到 (8,8)）', pop._anchor.isConnected === true);
+  ok('弹层保持打开、内容同步（dispatch_subagent 已消失）', pop.hidden === false && !$('#tok-pop .cap-drop[data-tool="dispatch_subagent"]'));
+  ok('重绘后仍写过定位（left/top 有值，而不是回落到 auto）', /px$/.test(pop.style.left) && /px$/.test(pop.style.top), `${pop.style.left} / ${pop.style.top}`);
+  // 全部启用：中继在线且声明全套能力 → 裁剪清空，「已禁用 N」胶囊本身消失 → 锚退回整条能力行
+  const net = await import(path.join(ROOT, 'js/net.js'));
+  const oldFetch = globalThis.fetch;
+  globalThis.fetch = async (u) => String(u).includes('/api/health')
+    ? new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    : new Response('nf', { status: 404 });
+  try {
+    net.resetRelayProbe();
+    store.state.relayOk = await net.relayAvailable();
+    store.state.settings.webEnabled = true;
+    ui.syncWeb();
+  } finally { globalThis.fetch = oldFetch; }
+  ok('前置：全部启用后没有裁剪', agent.previewToolTable().dropped.length === 0);
+  ok('「已禁用 N」胶囊已从能力条消失', !$('#cap-line .cap-pill[data-cap="drop"]'));
+  ok('弹层仍然打开且锚退回整条能力行（不是脱离文档的旧胶囊）', pop.hidden === false && pop._anchor === capLine && capLine.isConnected === true);
+  ok('弹层内容切换为「全部工具可用」', /全部工具可用/.test($('#tok-pop-body').textContent));
+  ui.syncWeb();
+  ok('能力条内容不变时不重建 DOM（焦点 / hover / 锚都留住）', $('#cap-line .cap-pill[data-cap="model"]') === capLine.querySelector('.cap-pill[data-cap="model"]'));
+  click($('#cap-line .cap-pill[data-cap="model"]')); // 关闭，别把状态留给下一段
+  ok('收尾：弹层关闭', pop.hidden === true);
+}
+
 console.log('\n㉑ P8 单点依赖：失败态点「联网」胶囊 = 重置探测缓存并立刻重探；网关 5xx 错误框带「切换节点并重试」按钮');
 {
   const net = await import(path.join(ROOT, 'js/net.js'));

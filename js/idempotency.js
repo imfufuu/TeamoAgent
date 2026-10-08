@@ -11,7 +11,7 @@
 // 定位说明：账本只做「同一逻辑操作不要重复执行」的因果去重，不宣称能证明副作用是否真的发生过。
 
 import { sha256Hex } from './nexus.js';
-import { canonicalJSON } from './execution.js?v=2026.10.5.35';
+import { canonicalJSON } from './execution.js?v=2026.10.5.36';
 
 export const IDEMPOTENCY_POLICY_VERSION = 'idem-policy-2.4.0';
 export const LEDGER_SCHEMA_VERSION = 'exec-idem-ledger-1';

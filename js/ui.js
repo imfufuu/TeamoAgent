@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.35';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.36';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.35';
+import { getTransport } from './api.js?v=2026.10.5.36';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,16 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.35';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.35';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.35';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.35';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.35';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.35';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.35';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.35';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.35';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.35';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.36';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.36';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.36';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.36';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.36';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.36';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.36';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.36';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.36';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.36';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.35';
+} from './ui-markdown.js?v=2026.10.5.36';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.35';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.36';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -2019,10 +2019,17 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     scrollToBottom();
   }
 
-  function renderLazyLoadMoreBtn() {
+  // 长会话分页入口（.36 重做）：居中的「对话接缝」——两侧发丝线 + 中间胶囊，落在与消息同一条
+  // min(760px,100%) 中轴线上。以前是 inline-flex + margin:auto 直接挂在 .messages 里，
+  // 既不在中轴线上（贴左边缘），观感也和整站的胶囊 / 幽灵键不是一套语言。
+  function renderLazySeam(skipped) {
     const btn = el('button', 'lazy-load-more', `${ICON.chevRight || ''}<span>更早的消息</span>`);
     btn.type = 'button';
     btn.title = `加载更早的完整轮次（每段最多 ${LAZY_WINDOW} 条可见消息 / ${LAZY_MAX_CHARS.toLocaleString()} 字）`;
+    const badge = el('span', 'lazy-load-count', skipped > 99 ? '99+' : String(skipped));
+    badge.setAttribute('aria-hidden', 'true');
+    btn.appendChild(badge);
+    btn.setAttribute('aria-label', `加载更早的 ${skipped} 条消息`);
     btn.addEventListener('click', () => {
       // 记住当前滚动位置的锚点消息，展开后保持视觉位置不跳
       const firstMsg = msgList.querySelector('.msg-user, .msg-assistant');
@@ -2039,14 +2046,18 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
             msgList.scrollTop += newTop - anchorOffset;
           }
         }
-        // 如果已加载全部，移除按钮
+        // 如果已加载全部，移除接缝（按钮连同两侧发丝线一起收起）
         if (lazyLoadedFrom <= 0) {
-          const b = $('.lazy-load-more', msgList);
-          if (b) b.remove();
+          const seam = $('.lazy-seam', msgList);
+          if (seam) seam.remove();
         }
       });
     });
-    return btn;
+    const seam = el('div', 'lazy-seam');
+    seam.appendChild(el('span', 'lazy-seam-line'));
+    seam.appendChild(btn);
+    seam.appendChild(el('span', 'lazy-seam-line'));
+    return seam;
   }
 
   // ── 长会话分段加载 ─────────────────────────────────────────────
@@ -2075,12 +2086,8 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
         const mm = store.state.messages[i];
         if (mm.role !== 'tool' && !mm.silent) skipped++;
       }
-      const btn = renderLazyLoadMoreBtn();
-      const badge = document.createElement('span');
-      badge.className = 'lazy-load-count';
-      badge.textContent = skipped > 99 ? '99+' : String(skipped);
-      btn.appendChild(badge);
-      msgList.appendChild(btn);
+      const seam = renderLazySeam(skipped);
+      msgList.appendChild(seam);
     }
     for (let i = lazyLoadedFrom; i < store.state.messages.length; i++) {
       const m = store.state.messages[i];
