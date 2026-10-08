@@ -1,5 +1,5 @@
 {
- "version": "2026.10.5.33",
+ "version": "2026.10.5.34",
  "schemaVersion": "p2-eval-schema-2",
  "description": "Dubhe Helix 2.5（天枢2.5） · P2 分层评测集（10 类 × 12 = 120 条）：正常 / 模糊 / 工具不可用 / 工具返回异常 / 提示词注入 / 记忆冲突 / 中途改意图 / 高风险副作用 / 长链路 / 预算即将耗尽。每类同时含「需要系统做出特定处置」与「不应过度处置」两类用例，用于逐类计算 Precision / Recall / F1 与 95% Wilson 区间。 P6 起每条用例附 expectedTools（期望工具集合，只列核心 12 个之外的工具；空数组 = 只需核心工具），用于计算 tool_misselect_rate / tool_miss_rate：选择器按用例文本（注入/记忆类取 scenario.userText）与附件复算本轮挂载表，挂载了期望集合之外的非核心工具即记一次误选，期望工具没挂载即记一次漏挂。",
  "classes": [

@@ -19,7 +19,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.7';
-export const APP_VERSION = '2026.10.5.33';
+export const APP_VERSION = '2026.10.5.34';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -169,7 +169,9 @@ export const IMAGE_MODELS = [
   { id: 'gpt-image-2.5-flare',    label: 'GPT Image 2.5 Flare',    tag: '插画',        note: '风格化/插画' },
   { id: 'gemini-3.1-flash-image', label: 'Nano Banana 2',          tag: 'Gemini 原生', note: 'Gemini 3.1 Flash Image · 高质量文生图' },
   // 网关 2026-10 新上的 nano-banana-2-1：名字不带 -image-，之前被当成对话模型混进模型菜单（.33 修）。与 Nano Banana 2 同走 Gemini generateContent。
-  { id: 'nano-banana-2-1',        label: 'Nano Banana 2.1',        tag: 'Gemini 原生 · 新', note: 'Nano Banana 2.1 · 走 Gemini generateContent；价目暂按 Nano Banana 2 估算' },
+  // 2026-10-08 实测（一次成功调用）：ID = gemini-nano-banana-2.1（网关价目表 /v1/models/pricing 同名），Gemini 原生 generateContent，
+  // responseModalities IMAGE + imageConfig { aspectRatio, imageSize }；imageSize '512' 上游 503，1K 正常（44s，1120 输出 token ≈ $0.0097/图）。
+  { id: 'gemini-nano-banana-2.1', label: 'Nano Banana 2.1',        tag: 'Gemini 原生 · 新', note: 'Nano Banana 2.1 · 实测 1K 一张约 $0.01 / 44 秒；不支持 512，low 质量自动按 1K' },
 ];
 export const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 // 识图模型（analyze_image / analyze_pdf 页图）与视频识别模型（analyze_video）：
@@ -242,10 +244,10 @@ const IMAGE_MODEL_ALIASES = (() => {
   put('nanobanana', 'gemini-3.1-flash-image');
   put('nanobanana2', 'gemini-3.1-flash-image');
   put('banana', 'gemini-3.1-flash-image');
-  put('nano banana 2.1', 'nano-banana-2-1');
-  put('nano banana 2 1', 'nano-banana-2-1');
-  put('nanobanana21', 'nano-banana-2-1');
-  put('nano-banana-2-1', 'nano-banana-2-1');
+  put('nano banana 2.1', 'gemini-nano-banana-2.1');
+  put('nano banana 2 1', 'gemini-nano-banana-2.1');
+  put('nanobanana21', 'gemini-nano-banana-2.1');
+  put('nano-banana-2-1', 'gemini-nano-banana-2.1'); // 模型菜单里曾见过的写法，一并归一
   return map;
 })();
 

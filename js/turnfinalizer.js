@@ -11,13 +11,13 @@ import {
   resumeExecutionState,
   summarizeExecutionRecord,
   evaluateExecutionKernelAcceptance,
-} from './execution.js?v=2026.10.5.33';
-import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.5.33';
-import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.5.33';
-import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.5.33';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.5.33';
-import { appendExperimentSample } from './experiments.js?v=2026.10.5.33';
-import { reconcileAudit } from './audit.js?v=2026.10.5.33';
+} from './execution.js?v=2026.10.5.34';
+import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.5.34';
+import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.5.34';
+import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.5.34';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.5.34';
+import { appendExperimentSample } from './experiments.js?v=2026.10.5.34';
+import { reconcileAudit } from './audit.js?v=2026.10.5.34';
 import { auditFootprintAgainstStore, recordRouteLatencySample, evaluateNexusAcceptanceMetrics } from './nexus.js';
 
 /**
@@ -43,6 +43,8 @@ export function finalizeTurn({
     });
   }
   exec.record.sessionId = sessionId;
+  // Helix 3.0：显式 turn pipeline 的阶段计时随记录落盘（premise / plan / select / loop；finalize 自身的耗时在 record 之后才知道）
+  if (exec.pipeline) exec.record.pipeline = { order: [...exec.pipeline.order], timings: { ...exec.pipeline.timings } };
   // P1 轨迹级评测：三个负向指标（过度路由 / 路由不足 / 静默失败）+ 恢复率 / 审计完整度 / 副作用安全
   exec.trajectory = evaluateTrajectory({
     record: exec.record,

@@ -8,8 +8,8 @@
 // 弹层复用 #tok-pop（与 token / 智能路由弹层同一时间只开一个）。
 import { isSmartRouter, SMART_ROUTER_LABEL } from './smartrouter.js';
 import { reasoningLevelLabel } from './reasoning.js';
-import { getTransport } from './api.js?v=2026.10.5.33';
-import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.33';
+import { getTransport } from './api.js?v=2026.10.5.34';
+import { DROP_REASON_FIX } from './executionContext.js?v=2026.10.5.34';
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -111,10 +111,11 @@ export function installCapabilityPop({
       const pill = e.target.closest('.cap-pill');
       if (!pill) return;
       e.stopPropagation(); // 不让 document 级「点外面关闭」把刚打开的弹层又关掉
-      showCapPop(line);
+      showCapPop(pill); // .34：锚到被点的胶囊（通常是「已禁用 N」），弹层正好出现在它正下方，而不是整条能力行的最左侧
     });
     line.addEventListener('keydown', (e) => {
-      if ((e.key === 'Enter' || e.key === ' ') && e.target.closest('.cap-pill')) { e.preventDefault(); showCapPop(line); }
+      const pill = e.target.closest('.cap-pill');
+      if ((e.key === 'Enter' || e.key === ' ') && pill) { e.preventDefault(); showCapPop(pill); }
     });
   }
   const popEl = $('#tok-pop');

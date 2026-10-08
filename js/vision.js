@@ -1,9 +1,9 @@
 // 识图 / 视频识别工具专用通道：对话模型全部按纯文本发送，图片与视频只走这里。
 // 模型由设置页「多模态模型」决定（config.js VISION_MODELS / VIDEO_MODELS），默认仍是 deepseek-v4-flash-vision-exp。
 // 独立文件，避免给 api.js 新增具名导出（Pages 混版缓存会白屏）。
-import { authHeaders } from './api.js?v=2026.10.5.33';
+import { authHeaders } from './api.js?v=2026.10.5.34';
 import { gatewayBase, otherGatewayBase, setGatewayBase, isNetworkError } from './endpoint.js';
-import { DEFAULT_VISION_MODEL, DEFAULT_VIDEO_MODEL, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.33';
+import { DEFAULT_VISION_MODEL, DEFAULT_VIDEO_MODEL, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.5.34';
 
 export const VISION_TOOL_MODEL = DEFAULT_VISION_MODEL;
 export const VIDEO_TOOL_MODEL = DEFAULT_VIDEO_MODEL;

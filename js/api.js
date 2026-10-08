@@ -1023,6 +1023,8 @@ async function generateNanoImage({ model, apiKey, prompt, size, quality, images,
     },
   };
   const mid = String(model || 'gemini-3.1-flash-image');
+  // Nano Banana 2.1（gemini-nano-banana-2.1）实测不接受 imageSize '512'（上游 503）：退到 1K
+  if (/nano[-_ ]?banana[-_ ]?2[.-]1/.test(mid.toLowerCase()) && body.generationConfig.imageConfig.imageSize === '512') body.generationConfig.imageConfig.imageSize = '1K';
   const path = `/v1beta/models/${encodeURIComponent(mid)}:generateContent`;
   const count = Number(n);
   const times = Number.isFinite(count) && count > 1 ? Math.min(4, Math.floor(count)) : 1;

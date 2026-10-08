@@ -3,8 +3,8 @@
 //       token 构成与本轮费用弹层（showTokBreak）。
 // 不拥有：会话统计文字（updateStats 留在 ui.js）、能力条弹层（ui-capability.js 复用这里的 hide/place）。
 // 只读 store，不改状态；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.5.33';
-import { providerOf, systemPrompt } from './config.js?v=2026.10.5.33';
+import { $, esc } from './ui-markdown.js?v=2026.10.5.34';
+import { providerOf, systemPrompt } from './config.js?v=2026.10.5.34';
 import { providerIcon } from './icons.js';
 import { estimateTokens } from './context.js';
 import { tokenBreakdown, formatTokBreak } from './commands.js';
@@ -24,8 +24,11 @@ export function installPopovers({ store }) {
     const pw = pop.offsetWidth || 240;
     const ph = pop.offsetHeight || 160;
     let left = Math.min(Math.max(8, r.left), window.innerWidth - pw - 8);
-    let top = r.top - ph - 10;
-    if (top < 8) top = Math.min(window.innerHeight - ph - 8, r.bottom + 8);
+    // 能力行的胶囊在页面顶部：弹层固定放在胶囊正下方（.34）；其它锚点仍优先放上方，放不下再翻到下方
+    const preferBelow = !!(anchor && anchor.classList && anchor.classList.contains('cap-pill'));
+    let top = preferBelow ? r.bottom + 8 : r.top - ph - 10;
+    if (!preferBelow && top < 8) top = Math.min(window.innerHeight - ph - 8, r.bottom + 8);
+    if (preferBelow && top + ph > window.innerHeight - 8) top = Math.max(8, r.top - ph - 10);
     pop.dataset.place = top >= r.bottom ? 'below' : 'above'; // 气泡弹入的 transform-origin 跟着锚点方向走
     pop.style.left = `${left}px`;
     pop.style.top = `${top}px`;

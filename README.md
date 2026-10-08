@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.33` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.34` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -144,6 +144,13 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.34：P9 显式 turn pipeline / Nano Banana 2.1 实测 / 菜单高度 / 能力表弹层位置**
+
+81. **P9 · `agent.js#runLoop` 切成显式 turn pipeline**：`premise`（锁定密钥 / 模型 / 设置、智能路由、中继前提重验）→ `plan`（档位、回合对象、临时沙箱、执行内核初始化、策略快照、实验分配、故障注入、统一执行上下文）→ `select`（能力裁剪、两层下发、一致性校验、`turn-received` 审计、断点续跑计划）→ `loop`（Jev 预判、模型 / 工具迭代）→ `finalize`（确认闸门作废、技能蒸馏 / 记忆捕获、临时沙箱提交、收尾记账）。五个阶段是 runLoop 内的具名闭包，共享的 50 个回合变量统一 `let` 提升；阶段边界计时进审计事件 `turn-pipeline` 与 `lastExecutionRecord.pipeline`；`TURN_PIPELINE` 导出供测试锁顺序。**行为零变化**：全部 438 项 agent 测试（含几十条端到端 mock 回合）在拆分前后一字不改地通过。没有把阶段挪成独立模块的原因写在代码里：它们共享 40+ 个回合变量，硬拆只会把隐式耦合变成巨型形参。
+82. **Nano Banana 2.1 实测**：ID 是 `gemini-nano-banana-2.1`（网关价目表 `/v1/models/pricing` 同名；.33 里按菜单猜的 `nano-banana-2-1` 不对，已归一为别名）；Gemini 原生 `generateContent` + `responseModalities: ["IMAGE"]` + `imageConfig`，`imageSize: "512"` 上游 503、`"1K"` 成功（44 s，1120 输出 token ≈ $0.0097/图，list $1.5 / $30 per 1M）；代码对 2.1 自动把 512 退到 1K；价目按价目表入库。一次成功调用，仅此一次。
+83. **模型菜单矮一点**：`max-height 420px / 60vh → 360px / 52vh`。
+84. **能力表弹层**：锚到被点的胶囊（通常是「已禁用 N」）正下方，不再出现在整条能力行最左侧。
 
 **构建 2026.10.5.33：5 项跟进——视频加入反馈 / 部署提交行 / 折叠头文案 / nano-banana-2-1 / 生图模型迁设置**
 

@@ -324,7 +324,7 @@ a { color: var(--fg); }
 .dd-menu {
   position: fixed; z-index: 60; /* fixed 脱离侧栏 overflow:hidden 裁剪，left/top/width 由 JS 按按钮位置设置 */
   background: var(--bg); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: var(--shadow-lg); max-height: min(420px, 60vh); overflow: hidden auto;
+  box-shadow: var(--shadow-lg); max-height: min(360px, 52vh); overflow: hidden auto; /* .34：矮一点，别遮住半屏对话 */
   /* 全局气泡弹入（见动效层 --pop-*）：从按钮下沿冒出来，收起时快速淡出 */
   opacity: 0; transform: translate3d(0, -14px, 0) scale(var(--pop-scale, .78)); transform-origin: top left; pointer-events: none;
   transition: opacity var(--pop-out-dur) var(--pop-out-ease), transform var(--pop-out-dur) var(--pop-out-ease), visibility 0s linear var(--pop-out-dur);
@@ -1661,7 +1661,7 @@ a { color: var(--fg); }
   /* 侧栏 / 面板内部密度 */
   .side-footer { gap: 8px; padding: 12px 14px max(14px, env(safe-area-inset-bottom)); }
   .side-footer-btns { flex-wrap: wrap; gap: 8px; }
-  .dd-menu { max-height: min(60vh, 420px); overflow-y: auto; }
+  .dd-menu { max-height: min(52vh, 360px); overflow-y: auto; }
 }
 
 /* 更窄（≤380px）：再让一步，取消一切并排挤压 */
