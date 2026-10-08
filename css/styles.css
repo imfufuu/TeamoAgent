@@ -712,6 +712,9 @@ a { color: var(--fg); }
 
 .cancelled-tag { font-size: var(--ui-fs-11px, 11px); color: var(--fg-3); border: 1px dashed var(--line-2); border-radius: 6px; padding: 1px 8px; margin-left: 8px; }
 .err-box { margin-top: 10px; padding: 10px 14px; border: 1px dashed var(--line-2); border-radius: 10px; font-size: var(--ui-fs-12_5px, 12.5px); color: var(--fg-2); font-family: var(--mono); word-break: break-all; }
+.err-actions { margin-top: 8px; }
+.err-action { padding: 5px 11px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); color: var(--fg); font: inherit; font-family: var(--sans); font-size: var(--ui-fs-12px, 12px); cursor: pointer; }
+.err-action:hover { border-color: var(--fg-2); }
 
 /* 工具芯片 */
 .tool-chips { display: flex; flex-direction: column; gap: 0; margin-top: 0; }

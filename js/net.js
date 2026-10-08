@@ -19,6 +19,23 @@ let activeRelay = null; // { base, label, endpoints, capabilities }
 let featureRelays = { search: null, crawl: null, file: null };
 let relayOk = null;
 let relayProbe = null;
+// P8 单点依赖：失败不再是「探测一次、永远 false」。
+//   · 失败结果带 TTL（RELAY_FAIL_TTL_MS）：窗口内直接返回 false（不反复打 3 个 health），窗口过后下一次 relayAvailable() 自动重探；
+//   · 网页工具（fetch_url / search_web / crawl_site / download_file）遇到网络层错误时调 noteRelayNetworkError()，
+//     立刻作废缓存并触发一次后台重探，恢复发生在失败的地方，而不只是设置页 / 顶栏；
+//   · 状态变化通过 window 事件 dubhe:relay-status 广播，顶栏「联网」胶囊与 store.state.relayOk 跟着走。
+export const RELAY_FAIL_TTL_MS = 60_000;
+let relayFailedAt = 0;          // 上次判定「无可用中继」的时间（Date.now()）
+let relayLastError = '';        // 上次网络错误摘要（给用户提示用）
+let nowFn = () => Date.now();   // 测试可替换（假时钟）
+export function __setRelayClockForTests(fn) { nowFn = typeof fn === 'function' ? fn : (() => Date.now()); }
+function broadcastRelayStatus(ok, extra = {}) {
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function' && typeof CustomEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('dubhe:relay-status', { detail: { ok, at: nowFn(), ...extra } }));
+    }
+  } catch { /* 非 DOM 环境 */ }
+}
 
 // 内置公共 Cloudflare Worker 中继候选。按顺序探测，第一个 200/ok 的生效。
 // 官方公共中继由维护者部署（免费额度 10 万次/天）。用户可通过 localStorage 'dubhe-relay' 覆盖。
@@ -67,10 +84,12 @@ async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
   }
 }
 
-/** 探测可用中继（结果缓存；并发调用共享同一个探测） */
+/** 探测可用中继（成功结果缓存；失败结果缓存 RELAY_FAIL_TTL_MS 后自动重探；并发调用共享同一个探测） */
 export async function relayAvailable(signal) {
   if (relayOk === true) return true;
+  if (relayOk === false && relayFailedAt && (nowFn() - relayFailedAt) < RELAY_FAIL_TTL_MS) return false;
   if (relayProbe) return relayProbe;
+  const wasFailed = relayOk === false;
   relayProbe = (async () => {
     const candidates = [{ base: '', label: 'origin', endpoints: relayEndpoints('') }];
     const override = userRelayOverride();
@@ -95,6 +114,8 @@ export async function relayAvailable(signal) {
       activeRelay = selected;
       RELAY = { base: selected.base, ...selected.endpoints };
       relayOk = true;
+      relayFailedAt = 0; relayLastError = '';
+      broadcastRelayStatus(true, { recovered: wasFailed });
       return true;
     }
     activeRelay = null;
@@ -102,9 +123,35 @@ export async function relayAvailable(signal) {
     // 回落到同源默认值
     RELAY = { base: '', ...relayEndpoints('') };
     relayOk = false;
+    relayFailedAt = nowFn();
+    broadcastRelayStatus(false, { ttlMs: RELAY_FAIL_TTL_MS });
     return false;
   })();
   try { return await relayProbe; } finally { relayProbe = null; }
+}
+
+/** 当前中继状态快照（UI / 测试用）：ok、失败时间、TTL 剩余、上次网络错误 */
+export function relayState() {
+  const left = relayOk === false && relayFailedAt ? Math.max(0, RELAY_FAIL_TTL_MS - (nowFn() - relayFailedAt)) : 0;
+  return { ok: relayOk, failedAt: relayFailedAt, retryInMs: left, lastError: relayLastError, probing: !!relayProbe };
+}
+
+/**
+ * 网页工具遇到网络层错误时调用：作废「中继可用」缓存并后台重探一次（不等待）。
+ * 只在真正的网络层错误（fetch 抛 TypeError / 超时 / 中继 5xx）时调；目标站 404 之类不算中继问题。
+ */
+export function noteRelayNetworkError(reason = '') {
+  relayLastError = String(reason || '').slice(0, 160);
+  if (relayProbe) return relayProbe; // 已经在探了
+  relayOk = null; relayFailedAt = 0;
+  activeRelay = null; featureRelays = { search: null, crawl: null, file: null };
+  RELAY = { base: '', ...relayEndpoints('') };
+  broadcastRelayStatus(null, { reprobing: true, reason: relayLastError });
+  return relayAvailable().catch(() => false);
+}
+export function isNetworkLevelError(err) {
+  const msg = String((err && err.message) || err || '');
+  return !!(err && err.name === 'TypeError') || /failed to fetch|networkerror|load failed|超时|timeout|aborted due to timeout|ECONN|HTTP 5\d\d/i.test(msg);
 }
 
 /** 当前生效 relay 信息，无则 null */
@@ -116,12 +163,13 @@ export function relayCapabilities() { return { search: relaySupports('search'), 
 
 /** 重置探测缓存（测试 / 切换环境时用） */
 export function resetRelayProbe() {
-  relayOk = null; relayProbe = null; activeRelay = null;
+  relayOk = null; relayProbe = null; activeRelay = null; relayFailedAt = 0;
   featureRelays = { search: null, crawl: null, file: null };
   RELAY = { base: '', ...relayEndpoints('') };
 }
 
-export const RELAY_HINT = '需要中继：请执行 python3 server.py 启动本地中继，或在控制台设置 localStorage.setItem("dubhe-relay","https://<你的-worker>.workers.dev") 指定已部署的 Cloudflare Worker 中继（见仓库 relay/worker.js）。';
+// 给模型 / 用户看的三条可操作恢复路径（P8）：写在失败发生的地方，而不是让人去找设置页
+export const RELAY_HINT = '需要中继。可选路径：① 直接重试（内核已自动重探，中继短暂抖动会自行恢复）；② 设置 → 中继地址填自建 Worker（仓库 relay/worker.js，`cd relay && npx wrangler deploy`，README 有步骤）；③ 本地运行 `python3 server.py` 作为同源中继。';
 
 // ── HTML → 纯文本（纯函数，可在 node 里单测）─────────────────────────
 export function htmlToText(html) {
@@ -169,10 +217,16 @@ async function relayFeatureJson(feature, params, signal) {
       headers: { Accept: 'application/json' },
     });
     const payload = await res.json().catch(() => ({}));
-    if (!res.ok) return { ok: false, error: String(payload.error || `Worker 返回 HTTP ${res.status}`), status: res.status };
+    if (!res.ok) {
+      // Worker 自身 5xx（不是上游搜索源 502）→ 可能是这个中继坏了：作废缓存后台重探
+      if (res.status >= 500 && !/搜索源|DuckDuckGo|Bing|Brave|SearXNG/.test(String(payload.error || ''))) noteRelayNetworkError(`${key}: HTTP ${res.status}`);
+      return { ok: false, error: String(payload.error || `Worker 返回 HTTP ${res.status}`), status: res.status };
+    }
     return { ok: true, ...payload };
   } catch (err) {
-    return { ok: false, error: `Worker ${key} 请求失败：${err && err.message ? err.message : String(err)}` };
+    if (err && err.name === 'AbortError') throw err;
+    if (isNetworkLevelError(err)) noteRelayNetworkError(`${key}: ${err && err.message}`);
+    return { ok: false, error: `Worker ${key} 请求失败：${err && err.message ? err.message : String(err)}。${RELAY_HINT}` };
   }
 }
 
@@ -244,7 +298,8 @@ export async function relayDownload({ url = '', maxBytes = RELAY_FILE_MAX_BYTES,
       return { ok: true, bytes, mime, name: name || fileNameFromUrl(finalUrl, mime), finalUrl, via: 'relay' };
     } catch (err) {
       if (err && err.name === 'AbortError') throw err;
-      return { ok: false, error: `中继拉取异常：${err && err.message ? err.message : String(err)}` };
+      if (isNetworkLevelError(err)) noteRelayNetworkError(`download_file: ${err && err.message}`);
+      return { ok: false, error: `中继拉取异常：${err && err.message ? err.message : String(err)}。${RELAY_HINT}` };
     }
   }
   // 直连兜底：目标站需允许 CORS，且页面 CSP connect-src 放行；公共部署下多半失败，但自建部署可用
@@ -317,7 +372,9 @@ export async function fetchPage({ url, mode = 'text', maxBytes = 2000000, signal
         return { ok: false, error: `本地中继抓取失败（HTTP ${res.status}）：${j.error || res.statusText || '未知原因'}` };
       }
     } catch (err) {
+      if (err && err.name === 'AbortError') throw err;
       note = `中继抓取异常（${err.message}），已改为浏览器直连`;
+      if (isNetworkLevelError(err)) noteRelayNetworkError(`fetch_url: ${err.message}`); // 作废缓存 + 后台重探，下一次调用重新选中继
     }
   }
 

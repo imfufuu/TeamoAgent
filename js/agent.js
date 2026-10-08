@@ -15,9 +15,9 @@
 //   · 附件：全部附件（文本 + 图片）自动复制到沙箱 uploads/，图片另走多模态协议块
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.30';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.31';
 import { TOOL_DEFS, executeTool } from './tools.js';
-import { relayAvailable, relaySupports } from './net.js';
+import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
@@ -59,7 +59,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.30';
+import { moderateUserTurn } from './moderation.js?v=2026.10.5.31';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -82,37 +82,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.5.30';
+} from './execution.js?v=2026.10.5.31';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.5.30';
+} from './recovery.js?v=2026.10.5.31';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.5.30';
+} from './idempotency.js?v=2026.10.5.31';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.5.30';
+} from './memorylife.js?v=2026.10.5.31';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.30';
+} from './trajectory.js?v=2026.10.5.31';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.30';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.30';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.31';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.31';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.30';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.30';
+} from './experiments.js?v=2026.10.5.31';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.31';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -128,12 +128,12 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.5.30';
-import { createToolRunner } from './toolrunner.js?v=2026.10.5.30';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.5.30';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.30';
+} from './executionContext.js?v=2026.10.5.31';
+import { createToolRunner } from './toolrunner.js?v=2026.10.5.31';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.5.31';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.31';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.30';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.31';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -146,7 +146,8 @@ const toolsFor = (sandboxEnabled, { remoteCpp = true } = {}) =>
 // 只在具备中继路由时可用的网页工具；搜索/爬虫还须由 Worker health 明确声明对应特性。
 const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
 const RELAY_OFF_NOTE = '\n\n【工具可用性】本轮健康探测没有发现可用网页中继（没有本地中继，或 Cloudflare Worker 未通过健康检查），fetch_url / search_web / crawl_site 因此不在工具表里；'
-  + '顶栏联网开关当前不可用，用户请求网页任务时会重新探测。run_git 仍可用内置沙箱 Git（不支持 clone/push 等远端网络操作）；不要声称已经搜索或抓取网页。';
+  + '失败缓存 60 秒后会自动重探，用户请求网页任务时也会立即重探。若用户问怎么办，给三条路：① 稍后重试或点顶栏「联网」立即重探；② 设置 → 中继地址填自建 Worker（relay/worker.js + wrangler deploy）；③ 本地运行 python3 server.py 作同源中继。'
+  + 'run_git 仍可用内置沙箱 Git（不支持 clone/push 等远端网络操作）；不要声称已经搜索或抓取网页。';
 const WEB_RELAY_OFF_NOTE = '\n\n【联网】本轮未联网：本地 server.py / Cloudflare Worker 当前没有通过健康检查，网页工具未加入本轮工具表。若任务需要实时信息，应如实说明暂时无法核实；不要把记忆说成刚查到的。';
 const WEB_SWITCHED_OFF_NOTE = '\n\n【联网】网页中继当前可用，但用户已关闭顶栏「联网」开关；本轮不提供网页工具，也不要声称搜索或抓取了网页。';
 const WEB_NO_TOOL_NOTE = '\n\n【联网】开关已打开且网页中继健康检查通过，但本轮工具表没有网页工具；请以工具表为准，不要声称已联网。';
@@ -281,7 +282,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.5.30';
+} from './toolrunner.js?v=2026.10.5.31';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {
@@ -603,6 +604,10 @@ export function createAgent(store, hooks = {}) {
         relayOk = premise.relayOk;
         store.state.relayOk = relayOk;
         emit('onRelayStatus', relayOk, { reverified: true, corrected: premise.premiseCorrected });
+      } else if (relayState().ok === false && relayState().retryInMs === 0) {
+        // P8：非网页意图的回合不等探测，但失败缓存的 TTL 已过 → 后台重探一次（结果经 dubhe:relay-status 事件回到顶栏 / store），
+        // 下一轮工具表就能重新带上网页工具，用户不必去设置页
+        relayAvailable().catch(() => false);
       }
       if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
     }

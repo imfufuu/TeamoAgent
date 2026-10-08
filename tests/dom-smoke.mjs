@@ -717,5 +717,53 @@ console.log('\n⑲ 顶栏能力条 → 工具表 diff 弹层（P3 修正：能�
   ok('再点胶囊关闭弹层', pop.hidden === true);
 }
 
+console.log('\n㉑ P8 单点依赖：失败态点「联网」胶囊 = 重置探测缓存并立刻重探；网关 5xx 错误框带「切换节点并重试」按钮');
+{
+  const net = await import(path.join(ROOT, 'js/net.js'));
+  const ep = await import(path.join(ROOT, 'js/endpoint.js'));
+  const oldFetch = globalThis.fetch;
+  const health = [];
+  globalThis.fetch = async (u) => {
+    const url = String(u);
+    if (url.includes('/api/health')) { health.push(url); return new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    return new Response('nf', { status: 404 });
+  };
+  try {
+    // 先造一个「已失败且在 TTL 内」的缓存：此时 relayAvailable() 不会主动探，只有 resetRelayProbe() 才能让它再探
+    net.resetRelayProbe();
+    net.__setRelayClockForTests(() => 5_000_000);
+    const saveFetch = globalThis.fetch;
+    globalThis.fetch = async () => new Response('down', { status: 500 });
+    ok('前置：中继探测失败', (await net.relayAvailable()) === false);
+    globalThis.fetch = saveFetch;
+    ok('前置：TTL 内再调不会探测（缓存 false）', (await net.relayAvailable()) === false && health.length === 0);
+    store.state.relayOk = false;
+    ui.syncWeb();
+    const pill = $('#web-toggle');
+    ok('失败态胶囊提示里写明「立即重新探测」与 TTL 秒数', /立即重新探测/.test(pill.title) && /秒后下次网页工具调用会自动重探/.test(pill.title), pill.title);
+    click(pill);
+    await new Promise((r) => setTimeout(r, 60));
+    ok('点击胶囊 → resetRelayProbe 生效（TTL 内仍然发起了 health 探测）', health.length >= 1, `health 调用 ${health.length} 次`);
+    ok('探测成功后 store.relayOk=true、联网自动开启、胶囊点亮', store.state.relayOk === true && store.state.settings.webEnabled !== false && pill.classList.contains('on'));
+    // 网关 5xx：错误框带切换按钮；点击后域名切换
+    const before = ep.gatewayBase();
+    const other = ep.otherGatewayBase().replace(/^https?:\/\//, '');
+    store.state.messages.push({ id: 'err-5xx', role: 'assistant', text: '', error: 'HTTP 503: upstream unavailable', done: true, ts: Date.now() });
+    ui.rebuildMessages();
+    const btn = $('#messages .msg[data-id="err-5xx"] .err-action[data-switch-gateway]');
+    ok('5xx 错误框出现「切换到另一节点并重试」按钮', !!btn && btn.textContent.includes(other), btn ? btn.textContent : '缺失');
+    let regenerated = 0; const oldRegen = agent.regenerate; agent.regenerate = () => { regenerated++; };
+    click(btn);
+    agent.regenerate = oldRegen;
+    ok('点击后网关域名切换并触发重试', ep.gatewayBase() !== before && regenerated === 1, `${before} → ${ep.gatewayBase()}，regenerate ${regenerated}`);
+    ep.setGatewayBase(before, 'manual');
+    store.state.messages.push({ id: 'err-400', role: 'assistant', text: '', error: 'HTTP 400: bad request', done: true, ts: Date.now() });
+    ui.rebuildMessages();
+    ok('400 之类非节点问题不给切换按钮', !$('#messages .msg[data-id="err-400"] .err-action'));
+  } finally {
+    globalThis.fetch = oldFetch; net.__setRelayClockForTests(null); net.resetRelayProbe();
+  }
+}
+
 console.log(failures ? `\n${failures} 项失败 ❌` : '\nDOM 冒烟测试全部通过 ✅');
 process.exit(failures ? 1 : 0);

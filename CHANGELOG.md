@@ -2,8 +2,9 @@
 
 仅保留稳定版和主要阶段性升级；同一发布周期的补丁构建合并记录，避免逐轮重复。
 
-## Dubhe Agent V1.7 Stable · 2026-10-07 · 构建 2026.10.5.30
+## Dubhe Agent V1.7 Stable · 2026-10-07 · 构建 2026.10.5.31
 
+- **P8 修正：单点依赖（构建 2026.10.5.31）**。根因：两条链路的降级都是「探测一次、缓存结果」，恢复只挂在设置页与顶栏。改法：① `net.js` 失败缓存 TTL 60s（`RELAY_FAIL_TTL_MS`），过期自动重探，`relayState()` 可查剩余秒数；② 网页工具网络层错误 → `noteRelayNetworkError()` 作废缓存 + 后台重探，工具结果给三条恢复路径（重试 / 自建 Worker / 本地 server.py）；③ `dubhe:relay-status` 事件把探测 / 重探 / 恢复广播给顶栏与 store，失败态胶囊提示写明 TTL，恢复有 toast；④ 回合入口在 TTL 过后后台重探一次；⑤ 网关 401 / 5xx 错误框带「切换到另一节点并重试」按钮。测试：假时钟 TTL 恢复 + 工具表重含 `search_web`、网络错误重探、DOM 胶囊点击 / 切换按钮（agent +3、dom-smoke +8）。
 - **P7 修正：供应链可验证性弱（构建 2026.10.5.30）**。根因是工作流决策而非代码：提交来自自动化会话的临时身份、无签名、无 tag / release，Pages 产物与仓库内容之间没有哈希对应。改法：① 自动化提交 / 标签改用 SSH 签名密钥（`tools/allowed_signers`），`main` 分支保护开启 Require signed commits；② 每个构建号一个签名 annotated tag + Release；③ `pages.yml` 打包前 `tools/build-manifest.mjs` 写 `build.json`（commit、版本、逐文件 sha256、清单摘要），`tools/verify-build.mjs [--fetch]` 可逐文件核对线上 = 仓库该提交；设置 → 关于显示部署提交并在版本不一致时标黄；④ README「供应链可验证性」如实写明：只覆盖完整性与来源，不覆盖无害性与运行时行为。测试 +4（agent 427）。
 - **沙箱文件视图一致性（构建 2026.10.5.29）**。根因：`sandbox.js applyWorkerFiles()` 用 `clear()+import()` 回写 Worker 文件镜像，而每轮工具操作的 `createTempFS` 临时层 `import()` 为空操作、`clear()` 清掉本轮写入——任何一次 `execute_javascript / execute_python` 都会清空本轮 `write_file` 的文件并丢弃沙箱自己写的 `files`（V1.7 起即存在）。改为差异回写（write / remove），真实 FS 与临时层语义一致。同时：① `idempotency.planReplay` 同轮复用文件系统写操作前核对目标摘要，已不存在 / 已变化 → 重新执行；② `execution.js` 新增 `FILE_NOT_FOUND` 失败类（处置「先 list_files 探测，不换数据源」，不记 uncertain）；③ `execute_javascript / execute_python` 描述改为无原型字典 + 跨调用持久契约，Worker 报错提示与系统提示同步。测试 +4（agent 423）。
 - **5 项跟进（构建 2026.10.5.28）**。① 智能路由器显示名改回 `smart_router`（`SMART_ROUTER_LABEL`），所有位置一致，不再用中文「智能」。② 加载页：超时 60 → 90 秒；两个重载按钮只在超时 / 报错后出现；慢网提示只写「网速较慢 · 已等待 N 秒」；CSP 哈希同步。③ 预算脚注 ⚠ 行去掉危险色（`.foot-budget.spent` 次级色）。④ 远程复核前 `snapshotForRemoteReview()` 先压 512px JPEG 0.8 快照，失败退回原图。⑤ 测试：agent 419（+1）、assets-integrity 改为校验 90 秒与「等待期间无重载按钮」。

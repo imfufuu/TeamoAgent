@@ -2,7 +2,7 @@
 // 拥有：#cmd-palette 的打开/关闭/绘制/键盘导航、命令项收集（模型 / 文件 / 操作 / 诊断）、
 //       document 级快捷键：⌘K 面板、⌘B 沙箱面板、⌃1–9 快速切换模型。
 // 不拥有：模型切换本身（selectModel）、文件查看器、系统命令执行——均经 deps 注入；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.5.30';
+import { $, esc } from './ui-markdown.js?v=2026.10.5.31';
 import { filterCmds } from './commands.js';
 
 export function installCommandPalette({ store, agent, toast, chatModels, selectModel, openFileViewer, setPanelCollapsed, handleSystemCommand }) {

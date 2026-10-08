@@ -1,10 +1,10 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.30';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.31';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.30';
-import { gatewayBase, gatewayChosenBy, setGatewayBase } from './endpoint.js';
+import { getTransport } from './api.js?v=2026.10.5.31';
+import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY } from './theme.js';
@@ -14,18 +14,18 @@ import { claimsWebSearch, webRefusal } from './websearch.js';
 import { unlockAdminKey, adminUnlocked, isAdminAlias, adminExpiresAt } from './adminkey.js';
 import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
-import { relayAvailable, relaySupports, currentRelay, resetRelayProbe } from './net.js';
+import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.30';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.30';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.30';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.30';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.30';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.30';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.30';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.30';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.30';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.30';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.31';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.31';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.5.31';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.31';
+import { installAttachments } from './ui-attachments.js?v=2026.10.5.31';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.31';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.31';
+import { installPopovers } from './ui-popovers.js?v=2026.10.5.31';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.31';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.31';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +34,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.30';
+} from './ui-markdown.js?v=2026.10.5.31';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.30';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.31';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -229,9 +229,11 @@ export function mountUI(store, agent) {
       webToggle.setAttribute('aria-pressed', 'false');
       webToggle.dataset.webCapabilities = '';
       webToggle.removeAttribute('aria-disabled');
+      const rs = (() => { try { return relayState(); } catch { return null; } })();
+      const left = rs && rs.retryInMs > 0 ? Math.ceil(rs.retryInMs / 1000) : 0;
       webToggle.title = checking
         ? '正在检查同源中继与 Cloudflare Worker…'
-        : '点此重新探测中继（公共 Cloudflare Worker 或本地 server.py）';
+        : `中继不可用${rs && rs.lastError ? `（${rs.lastError}）` : ''}：点此立即重新探测${left ? `；不点的话 ${left} 秒后下次网页工具调用会自动重探` : ''}。也可在设置 → 中继地址填自建 Worker，或本地运行 python3 server.py`;
       syncCapLine();
       return;
     }
@@ -253,6 +255,22 @@ export function mountUI(store, agent) {
       : `联网已关。${relName}可用；可恢复能力：${capabilityLabels.join('、')}。点此开启。`;
     syncCapLine();
   };
+  // net.js 在探测结果变化 / 网页工具网络错误触发重探时广播：顶栏胶囊与 store 跟着走，恢复不再只靠设置页
+  window.addEventListener('dubhe:relay-status', (e) => {
+    const d = (e && e.detail) || {};
+    if (d.ok === true) {
+      const was = store.state.relayOk;
+      store.state.relayOk = true;
+      if (was === false || d.recovered) { store.state.settings.webEnabled = store.state.settings.webEnabled !== false; toast('✓ 网页中继已恢复，联网工具重新可用', 'ok', 3200); }
+    } else if (d.ok === false) {
+      if (store.state.relayOk !== false) toast(`网页中继不可达：${Math.round((d.ttlMs || 60000) / 1000)} 秒后自动重探；点顶栏「联网」可立即重试`, 'warn', 5200);
+      store.state.relayOk = false;
+    } else if (d.reprobing) {
+      store.state.relayOk = null;
+    }
+    store.notify();
+    syncWeb();
+  });
   if (webToggle) {
     webToggle.addEventListener('click', async () => {
       if (!hasRelay()) {
@@ -1414,7 +1432,12 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       const wb = $('.web-act', hint);
       if (wb) wb.addEventListener('click', (e) => { e.preventDefault(); doWebRetry(m); });
     }
-    if (m.error) body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}</div>`;
+    if (m.error) {
+      // 网关 401 / 5xx：给「切换 .com / .cn 节点并重试」入口（GATEWAY_HOSTS 本来就有两个，之前只缺在失败处的按钮）
+      const gw = /HTTP (401|5\d\d)\b/.test(String(m.error));
+      const other = gw ? otherGatewayBase().replace(/^https?:\/\//, '') : '';
+      body.innerHTML += `<div class="err-box">⚠ ${esc(m.error)}${gw ? `<div class="err-actions"><button type="button" class="err-action" data-switch-gateway="1">切换到 ${esc(other)} 节点并重试</button></div>` : ''}</div>`;
+    }
     // 所有命令收在 Ran Commands；读/写/识图/识 PDF 分别进入 Explored / Edited File(s)。
     // 同一轮里连续多条带命令的助手消息只画一块 Ran Commands（挂在最后一条上，前面的拆掉）——
     // 与 Explored / Edited 的合并规则一致，屏上绝不出现两块连着的 Ran Command。
@@ -2407,6 +2430,16 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     btn.replaceWith(v);
   }, true);
   msgList.addEventListener('click', (e) => {
+    const sw = e.target.closest('[data-switch-gateway]');
+    if (sw) {
+      if (getBusy()) { toast('当前仍在生成，先停止再切换', 'info'); return; }
+      const from = gatewayBase();
+      const to = setGatewayBase(null, 'manual');
+      updateTransportBadge();
+      toast(`网关接入点已切换：${to.replace(/^https?:\/\//, '')}（原 ${from.replace(/^https?:\/\//, '')}），正在重试…`, 'ok', 3200);
+      agent.regenerate();
+      return;
+    }
     // 图表选中态：点击空白处（不在任何 datum、tooltip、按钮内）→ 清空所有图表的激活态
     const inDatum = e.target.closest('[data-chart-label], .md-chart-tooltip, button, a');
     if (!inDatum) {

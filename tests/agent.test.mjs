@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.5.30';
+} from '../js/api.js?v=2026.10.5.31';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.5.30');
+const api = await import('../js/api.js?v=2026.10.5.31');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -3118,7 +3118,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.5.30');
+  const api = await import('../js/api.js?v=2026.10.5.31');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5187,11 +5187,11 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.5.30');
+  assert.equal(APP_VERSION, '2026.10.5.31');
   assert.match(html, /Dubhe Agent V1\.7 —/);
-  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.30/);
+  assert.match(home, /Dubhe Agent V1\.7 · 构建 2026\.10\.5\.31/);
   assert.match(docs, /class="ver-badge" title="Dubhe Agent V1\.7">V1\.7<\/span>/);
-  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.30/);
+  assert.match(docs, /V1\.7 Stable.*2026\.10\.5\.31/);
   assert.match(docs, /V1\.6 Stable.*2026\.10\.5\.8/);
 });
 test('电脑端沙箱面板从右侧展开，手机端才从底部上滑', async () => {
@@ -9034,7 +9034,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.5.30'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.5.31'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9076,7 +9076,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.30');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.5.31');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9341,7 +9341,7 @@ test('P6：p2-eval 语料每条带 expectedTools，评测输出 tool_misselect_r
   }
 });
 
-group('2026.10.5.30：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
+group('2026.10.5.31：15 项修正（视频关闭静音 / 审核三层 / 提示词瘦身 / 状态栏取色 / 「智能」/ 预算 ⚠ / 搜索回退 / 设置同步 / 视频默认模型 / 清缓存 / 管理员 /key / 互不隶属 / 弹入动效 / 记忆空状态）');
 
 test('#1 文件查看器关闭 / 切换文件 / 收起面板时必须把 <video> 停掉并卸载 src（之前只摘 .open 类，声音在背后继续放）', async () => {
   const fsp = await import('node:fs');
@@ -9551,7 +9551,7 @@ test('#15 长效记忆空状态：插画 + 说明（与文件面板同一套布�
   assert.match(css, /\.mem-empty-art \.fe-drop \{ transform-origin: 124px 27px; animation-delay: \.6s; \}/);
 });
 
-group('2026.10.5.30：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
+group('2026.10.5.31：沙箱文件视图一致性（JS/Python 回写不再清空临时层 / 幂等复用核验副作用 / 文件不存在归为状态错误 / 工具描述与行为一致）');
 
 test('根因：execute_* 回写用 clear()+import()，而临时层 import() 是空操作 → 本轮 write_file 与沙箱自己写的文件全丢；改为差异回写后两者都在', async () => {
   const sb = await import('../js/sandbox.js');
@@ -9658,19 +9658,19 @@ test('tools/build-manifest.mjs：清单只含站点内容（排除 .git / node_m
   const root = fsp.mkdtempSync(pathMod.join(os.tmpdir(), 'dubhe-manifest-'));
   const put = (rel, content) => { const abs = pathMod.join(root, rel); fsp.mkdirSync(pathMod.dirname(abs), { recursive: true }); fsp.writeFileSync(abs, content); };
   put('app.html', '<html>');
-  put('js/config.js', "export const APP_VERSION = '2026.10.5.30';\n");
+  put('js/config.js', "export const APP_VERSION = '2026.10.5.31';\n");
   put('assets/x.bin', Buffer.from([1, 2, 3]));
   put('.github/workflows/ci.yml', 'x'); put('.gitignore', 'x'); put('node_modules/a/index.js', 'x'); put('build.json', '{}'); put('.git/HEAD', 'ref');
   put('tests/t.mjs', 'y');
   const m = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-07T00:00:00Z') });
   assert.equal(m.schema, 'dubhe-build-manifest/1');
   assert.equal(m.commit, 'abc123');
-  assert.equal(m.version, '2026.10.5.30', '版本号从 js/config.js 读');
+  assert.equal(m.version, '2026.10.5.31', '版本号从 js/config.js 读');
   assert.deepEqual(Object.keys(m.files), ['app.html', 'assets/x.bin', 'js/config.js', 'tests/t.mjs'], '排序 + 排除规则');
   assert.equal(m.file_count, 4);
   assert.equal(m.files['assets/x.bin'].size, 3);
   assert.equal(m.files['assets/x.bin'].sha256, '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81');
-  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.30';\n".length + 1);
+  assert.equal(m.total_bytes, 6 + 3 + "export const APP_VERSION = '2026.10.5.31';\n".length + 1);
   assert.match(m.manifest_sha256, /^[0-9a-f]{64}$/);
   const m2 = bm.buildManifest({ root, commit: 'abc123', now: new Date('2026-10-08T00:00:00Z') });
   assert.equal(m2.manifest_sha256, m.manifest_sha256, '清单摘要只依赖路径与内容，不依赖时间');
@@ -9705,16 +9705,16 @@ test('pages.yml 打包前生成 build.json；build.json 不入库；settings 读
   assert.match(app, /<div class="set-about-row"><span>部署提交<\/span><b id="set-about-commit" class="mono"/);
   const st = await import('../js/settings.js');
   // loadBuildInfo：mock fetch
-  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.30', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
+  const good = { schema: 'dubhe-build-manifest/1', commit: 'de07a1d7e7350000000000000000000000000000', version: '2026.10.5.31', file_count: 202, manifest_sha256: 'abcdef0123456789', built_at: '2026-10-07T00:00:00Z', repository: 'imfufuu/dubhe-agent' };
   const info = await st.loadBuildInfo({ fetchImpl: async (u) => { assert.match(String(u), /^build\.json\?x=\d+$/); return { ok: true, json: async () => good }; } });
   assert.equal(info.ok, true); assert.equal(info.commit, good.commit);
-  const f1 = st.formatBuildInfo(info, '2026.10.5.30');
+  const f1 = st.formatBuildInfo(info, '2026.10.5.31');
   assert.equal(f1.mismatch, false);
   assert.match(f1.text, /^de07a1d7e735 · 202 个文件 · 清单 abcdef0123…$/);
   assert.equal(f1.href, 'https://github.com/imfufuu/dubhe-agent/commit/de07a1d7e7350000000000000000000000000000');
   const f2 = st.formatBuildInfo(info, '2026.1.1.1');
   assert.equal(f2.mismatch, true);
-  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.30，本页运行的是 2026\.1\.1\.1/);
+  assert.match(f2.text, /⚠ 线上为 2026\.10\.5\.31，本页运行的是 2026\.1\.1\.1/);
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'http-404' }).text, '非 Pages 部署（无 build.json）');
   assert.equal(st.formatBuildInfo({ ok: false, reason: 'network' }).mismatch, false);
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -9735,6 +9735,123 @@ test('签名与边界：allowed_signers 公钥文件格式正确；README 写明
   assert.match(readme, /node tools\/verify-build\.mjs --fetch/);
   assert.match(readme, /Require signed commits/);
   assert.match(readme, /仍然做不到的/);
+});
+
+group('P8 修正：单点依赖 → 中继失败缓存带 TTL 自动恢复 / 网页工具网络错误触发重探 / 失败处给三条恢复路径 / 网关 401·5xx 切换节点入口');
+
+test('relayAvailable：health 先 500 后 200 → 失败缓存 60s 内不再探（省请求），61s 后自动恢复为 true 并广播 recovered；工具表重新包含 search_web', async () => {
+  const net = await import('../js/net.js');
+  const calls = [];
+  let healthStatus = 500;
+  let now = 1_000_000;
+  const events = [];
+  const oldWin = globalThis.window;
+  globalThis.window = { dispatchEvent: (e) => { events.push(e.detail); return true; } };
+  const oldCE = globalThis.CustomEvent;
+  if (typeof globalThis.CustomEvent !== 'function') globalThis.CustomEvent = class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } };
+  globalThis.fetch = async (u) => {
+    const url = String(u);
+    if (url.includes('/api/health')) {
+      calls.push(url);
+      if (healthStatus !== 200) return new Response('oops', { status: healthStatus, headers: { 'content-type': 'text/plain' } });
+      return new Response(JSON.stringify({ ok: true, relay: 'dubhe-cf-worker', version: '1.7.1', capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return new Response('nf', { status: 404 });
+  };
+  net.resetRelayProbe();
+  net.__setRelayClockForTests(() => now);
+  try {
+    assert.equal(net.RELAY_FAIL_TTL_MS, 60000);
+    assert.equal(await net.relayAvailable(), false);
+    const n1 = calls.length;
+    assert.ok(n1 >= 1, '第一次确实探了');
+    assert.equal(events.at(-1).ok, false); assert.equal(events.at(-1).ttlMs, 60000);
+    // 60s 内：直接返回缓存的 false，不再打 health
+    now += 30_000;
+    assert.equal(await net.relayAvailable(), false);
+    assert.equal(calls.length, n1, 'TTL 窗口内不重复探测');
+    const st = net.relayState();
+    assert.equal(st.ok, false); assert.ok(st.retryInMs > 0 && st.retryInMs <= 30_000, `TTL 剩余应 ≤30s，实际 ${st.retryInMs}`);
+    // 61s 后：自动重探；此时中继已恢复 → true，并广播 recovered
+    now += 31_000;
+    healthStatus = 200;
+    assert.equal(net.relayState().retryInMs, 0);
+    assert.equal(await net.relayAvailable(), true, 'TTL 过后自动恢复');
+    assert.ok(calls.length > n1, 'TTL 过后确实重新探了');
+    assert.deepEqual([events.at(-1).ok, events.at(-1).recovered], [true, true]);
+    assert.equal(net.relaySupports('search'), true);
+    // 恢复后：工具表重新包含 search_web（UI 侧把事件写回 store.state.relayOk，再预演同一条消息）
+    const store = createStore();
+    store.state.apiKey = 'sk-teamo-test'; store.state.settings.webEnabled = true; store.state.relayOk = events.at(-1).ok;
+    const agent = createAgent(store, {});
+    const pv = agent.previewToolTable({ text: '搜一下今天的新闻' });
+    assert.ok(pv.mounted.includes('search_web'), `恢复后应挂载 search_web，实际 ${pv.mounted.join(',')}`);
+    assert.ok(pv.mounted.includes('fetch_url'));
+  } finally {
+    globalThis.fetch = realFetch; net.__setRelayClockForTests(null); net.resetRelayProbe();
+    if (oldWin === undefined) delete globalThis.window; else globalThis.window = oldWin;
+    if (oldCE === undefined) delete globalThis.CustomEvent; else globalThis.CustomEvent = oldCE;
+    await drainSaves();
+  }
+});
+
+test('网页工具网络错误 → noteRelayNetworkError：作废「可用」缓存并后台重探；工具结果里给出三条恢复路径', async () => {
+  const net = await import('../js/net.js');
+  const health = [];
+  let relayFetchMode = 'ok';
+  globalThis.fetch = async (u) => {
+    const url = String(u);
+    if (url.includes('/api/health')) { health.push(url); return new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    if (url.includes('/api/fetch')) {
+      if (relayFetchMode === 'neterr') throw new TypeError('Failed to fetch');
+      return new Response(JSON.stringify({ text: 'hello', url: 'https://example.com/' }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.includes('/api/search')) { if (relayFetchMode === 'neterr') throw new TypeError('Failed to fetch'); return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+    throw new TypeError('Failed to fetch'); // 直连也不通
+  };
+  net.resetRelayProbe();
+  try {
+    assert.equal(await net.relayAvailable(), true);
+    const h0 = health.length;
+    assert.equal(await net.relayAvailable(), true); assert.equal(health.length, h0, '成功缓存不重探');
+    // 中继 fetch 网络层失败 → 作废缓存 + 后台重探
+    relayFetchMode = 'neterr';
+    const r = await net.fetchPage({ url: 'https://example.com/' });
+    assert.equal(r.ok, false);
+    assert.match(r.error, /① 直接重试（内核已自动重探/); assert.match(r.error, /② 设置 → 中继地址填自建 Worker/); assert.match(r.error, /③ 本地运行 `python3 server\.py`/);
+    await new Promise((res) => setTimeout(res, 30));
+    assert.ok(health.length > h0, '网络错误后自动触发了一次重探（不等用户去设置页）');
+    assert.equal(net.relayState().ok, true, '重探成功（health 仍 200）→ 恢复为可用，错误摘要随之清空');
+    // search_web 同样
+    relayFetchMode = 'ok'; net.resetRelayProbe(); await net.relayAvailable(); const h1 = health.length; relayFetchMode = 'neterr';
+    const sr = await net.relaySearch({ query: 'x' });
+    assert.equal(sr.ok, false); assert.match(sr.error, /① 直接重试/);
+    await new Promise((res) => setTimeout(res, 30));
+    assert.ok(health.length > h1);
+    // 判定函数：网络层 vs 业务错误
+    assert.equal(net.isNetworkLevelError(new TypeError('Failed to fetch')), true);
+    assert.equal(net.isNetworkLevelError(new Error('HTTP 502')), true);
+    assert.equal(net.isNetworkLevelError(new Error('目标是 image/png，不是文本')), false);
+  } finally { globalThis.fetch = realFetch; net.resetRelayProbe(); await drainSaves(); }
+});
+
+test('源码契约：agent 在 TTL 过后后台重探、RELAY_OFF_NOTE 给三条路；UI 监听 dubhe:relay-status；网关 401/5xx 错误框带「切换节点并重试」按钮', async () => {
+  const fsp = await import('node:fs');
+  const agent = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
+  const ui = readUiSource();
+  const net = fsp.readFileSync(new URL('../js/net.js', import.meta.url), 'utf8');
+  assert.match(agent, /else if \(relayState\(\)\.ok === false && relayState\(\)\.retryInMs === 0\) \{[\s\S]*?relayAvailable\(\)\.catch\(\(\) => false\);/);
+  assert.match(agent, /① 稍后重试或点顶栏「联网」立即重探；② 设置 → 中继地址填自建 Worker（relay\/worker\.js \+ wrangler deploy）；③ 本地运行 python3 server\.py 作同源中继/);
+  assert.match(ui, /window\.addEventListener\('dubhe:relay-status', \(e\) => \{/);
+  assert.match(ui, /toast\('✓ 网页中继已恢复，联网工具重新可用', 'ok', 3200\)/);
+  assert.match(ui, /const gw = \/HTTP \(401\|5\\d\\d\)\\b\/\.test\(String\(m\.error\)\);/);
+  assert.match(ui, /data-switch-gateway="1">切换到 \$\{esc\(other\)\} 节点并重试<\/button>/);
+  assert.match(ui, /const sw = e\.target\.closest\('\[data-switch-gateway\]'\);[\s\S]*?setGatewayBase\(null, 'manual'\);[\s\S]*?agent\.regenerate\(\);/);
+  assert.match(ui, /不点的话 \$\{left\} 秒后下次网页工具调用会自动重探/, '联网胶囊提示里写明 TTL');
+  assert.match(net, /export const RELAY_FAIL_TTL_MS = 60_000;/);
+  assert.match(net, /export function noteRelayNetworkError\(reason = ''\)/);
+  const n = (re) => (net.match(re) || []).length;
+  assert.ok(n(/noteRelayNetworkError\(`/g) >= 4, `fetch_url / search·crawl（HTTP 5xx 与网络错误两处）/ download_file 都要接重探，实际 ${n(/noteRelayNetworkError\(`/g)} 处`);
 });
 
 for (const item of queue) {

@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 构建 `2026.10.5.30` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 构建 `2026.10.5.31` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -128,6 +128,14 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 没有 `web_search` 工具，也不再注入模型原生网页搜索字段。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
+
+**构建 2026.10.5.31：P8 修正——单点依赖**
+
+70. **失败缓存带 TTL**：`relayAvailable()` 失败结果只缓存 60 秒（`RELAY_FAIL_TTL_MS`，窗口内不反复打 health），过期后下一次调用自动重探；`relayState()` 暴露 ok / 失败时间 / 剩余秒数 / 上次网络错误。回合入口：非网页意图且 TTL 已过 → 后台重探一次（不拖慢回合），网页意图仍即时重探。
+71. **恢复发生在失败的地方**：`fetch_url / search_web / crawl_site / download_file` 遇到网络层错误（fetch 抛 TypeError / 超时 / Worker 自身 5xx）→ `noteRelayNetworkError()` 立刻作废「可用」缓存并后台重探；工具结果文本给出三条可操作路径：① 直接重试（已自动重探）② 设置 → 中继地址填自建 Worker（`relay/worker.js` + `wrangler deploy`）③ 本地 `python3 server.py` 同源中继。
+72. **状态广播**：`net.js` 用 `dubhe:relay-status` 事件广播探测结果 / 重探中 / 已恢复，顶栏「联网」胶囊与 `store.state.relayOk` 跟着走；失败态胶囊提示写明「点此立即重探，不点 N 秒后自动重探」；恢复时 toast「网页中继已恢复」。
+73. **网关 401 / 5xx 切换入口**：错误框内直接给「切换到 api.teamorouter.cn / .com 节点并重试」按钮（`GATEWAY_HOSTS` 两项早就有，之前只缺失败处的入口），点击即换域名并重发本轮。
+74. **测试**：mock health 先 500 后 200 + 假时钟——断言 60 秒内不重探、61 秒后自动恢复为 true 并广播 `recovered`、工具表重新包含 `search_web`；网络错误触发重探与三条恢复路径；DOM：失败态点击「联网」胶囊确实重置缓存并探测、5xx 错误框出现切换按钮且点击后域名切换、400 不出按钮（agent 430 / dom-smoke 224）。
 
 **构建 2026.10.5.30：P7 修正——供应链可验证性弱**
 
