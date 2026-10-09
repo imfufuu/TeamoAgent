@@ -691,7 +691,7 @@ export function checkCapabilityConstraints({ name = '', args = {}, capabilities 
   const a = args && typeof args === 'object' ? args : {};
   const names = new Set((Array.isArray(toolNames) ? toolNames : []).map(toolNameOf).filter(Boolean));
 
-  if (['fetch_url', 'search_web', 'crawl_site', 'download_file'].includes(name)) {
+  if (['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web'].includes(name)) {
     if (!caps.web.enabled) {
       return {
         allowed: false, decision: 'deny', constraintId: 'capability-web-off',
@@ -852,6 +852,7 @@ export const TOOL_CONTRACTS = Object.freeze({
   search_web: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 30000, riskLevel: 'L2', external: true, note: '搜索词会发送给 Worker 配置的搜索服务，结果需核验' }),
   crawl_site: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 60000, riskLevel: 'L2', external: true, note: '严格限制同源、页数与深度的只读抓取' }),
   download_file: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 120000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '经中继 /api/file 跨域拉取 ≤16MB 文件写入沙箱 uploads/' }),
+  screenshot_web: contract({ sideEffect: 'network', idempotent: true, retryPolicy: 'once', timeoutMs: 90000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '经中继 /api/screenshot（Browser Run）截取网页 PNG 写入沙箱 outputs/' }),
   run_git: contract({ sideEffect: 'filesystem', idempotent: false, timeoutMs: 30000, riskLevel: 'L2', external: true, verifyAfterRun: true, note: '远端操作（clone/push/pull）跨系统边界时升为 L3' }),
   search_files: contract({ idempotent: true, retryPolicy: 'backoff', timeoutMs: 8000, riskLevel: 'L1' }),
   diff_text: contract({ idempotent: true, timeoutMs: 5000, riskLevel: 'L1' }),
@@ -1280,7 +1281,7 @@ export function formatBudgetLedger(gov) {
 // 「还剩几次、该怎么省」，耗尽的通道直接告知「这类调用不会再被放行」，让模型提前收敛而不是事后被拦。
 export const BUDGET_WARN_THRESHOLD = 2;
 // 计 1 次外部副作用的工具（与 classifyToolRisk 的 hasExternalSideEffect 判定一致：external / network / cost / remote）
-const EXTERNAL_TOOL_HINT = 'fetch_url / search_web / crawl_site / download_file / generate_image / analyze_image / analyze_pdf / analyze_video / execute_cpp / run_git / dispatch_subagent';
+const EXTERNAL_TOOL_HINT = 'fetch_url / search_web / crawl_site / download_file / screenshot_web / generate_image / analyze_image / analyze_pdf / analyze_video / execute_cpp / run_git / dispatch_subagent';
 
 export function formatBudgetForecast(gov, { tools = null } = {}) {
   if (!gov) return '';
@@ -1407,7 +1408,7 @@ export function classifyToolRisk({ name = '', args = null, contract: contractDef
       reasons.push('Git 远端操作跨越外部系统边界（clone / push / pull）');
     }
   }
-  if (name === 'fetch_url' || name === 'download_file') {
+  if (name === 'fetch_url' || name === 'download_file' || name === 'screenshot_web') {
     const host = hostOf(a.url || '');
     if (PRIVATE_HOST_RE.test(host)) {
       level = 'L3';

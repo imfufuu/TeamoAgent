@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.5.36" />
+<meta name="app-version" content="2026.10.9.1" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -214,7 +214,20 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.36</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-08</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.1</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-09</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag fix">FIX</span><span><strong>图表点击的灰块与「先闪到上一个再回来」（构建 .9.1）</strong>：触屏点按时系统 tap highlight 会给 28px 透明热区涂灰，已关掉；触摸的 pointerover / pointerout 时序会把上一次选中的浮层重新显示，现在触摸只通过点击切换选中。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>「Ran command(s)」行为（构建 .9.1）</strong>：① 完成时不再出现「入参 / 出参」按钮，行高不再悄悄跳高；② 折叠块只在有命令正在执行时展开，没有文本输出时也会在命令结束后自动收起，不再等下一条命令；③ 同一工具的多次调用逐条展开，不再合并成「某工具 ×N」；④ 详情为 COMMAND / STDOUT / STDERR 三窗口（STDERR 有才出现），复制按钮移到每个窗口的右上角。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>「更早的消息」阈值拉高（构建 .9.1）</strong>：消息数上限 60 → 120，字数上限 24,000 → 120,000，几条短消息不再出现接缝。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>快捷地图增强（构建 .9.1）</strong>：<code>:::chart map</code> 支持滚轮 / Ctrl+滚轮 / 触控板捏合缩放、拖动平移、双击与 ⟲ 复位、＋ / − 按钮与键盘（+ − 0、方向键），底部附「前五名」排行条；缩放不写回消息，重新渲染即回到 100%。</span></li>
+          <li><span class="tag add">ADD</span><span><strong>网页截图 <code>screenshot_web</code>（构建 .9.1）</strong>：经中继调用 Cloudflare Browser Run 截取 PNG，存入沙箱 <code>outputs/</code>，支持桌面 / 平板 / 手机视口、整页长图与单元素截图。需要 Worker 配置 Browser Run 凭据后才出现，见 <code>relay/README.md</code>。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>设置页 / 文件面板密度与暗色对比度（构建 .9.1）</strong>：触屏层控件统一 ≥ 40px，左下角四键一行；暗色次要文字由 3.43:1 提到 5.7:1（WCAG AA 正文 4.5:1，<code>tools/contrast.mjs</code> 量化）。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>移动端能力表改为底部抽屉（构建 .9.1）</strong>：窄屏（≤720px）下能力表贴底全宽展开，点遮罩或 Esc 收起；桌面仍为锚定气泡。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>智能路由图标三组候选（构建 .9.1）</strong>：统一单色线性规格，待选定后接入；预览见 <code>design/smart-router-icon/index.html</code>。</span></li>
+        </ul></div>
+      </div>
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.5.36</span><span class="ver-date">2026-10-08</span></div><span class="ver-date">2026-10-08</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>把禁用工具全部启用后，能力表菜单跑到左上角（构建 .36）</strong>：根因是能力条每次同步都 <code>innerHTML=</code> 重画，弹层锚着的那颗胶囊随即脱离文档，<code>getBoundingClientRect()</code> 全 0，弹层被按到屏幕角上。现在胶囊序列不变就不重建 DOM（焦点 / 悬停 / 锚都留住）；重绘后按 <code>data-cap</code> 把锚重新解析到新的同 key 胶囊，「已禁用 N」消失则退回整条能力行；定位侧再加一层兜底（锚不在文档或无盒 → 按弹层类型退回能力行 / 会话统计栏，并按该行左内边距对齐）。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>「更早的消息」与界面工艺（构建 .36）</strong>：「更早的消息」重做成消息中轴上的接缝（两侧渐隐发丝线 + 居中胶囊，与消息同一条 <code>min(760px, 100%)</code> 中轴线），不再贴左边缘，计数徽章改同色浅底 + 等宽数字；全局键盘焦点环去掉强制方角、改用主题令牌（深浅各一档）；能力条胶囊悬停 / 聚焦给软底片、「已禁用 N」加琥珀浅底；弹层加指向锚点的小箭头、标题分隔线与内容自滚（长工具表不出屏），直达开关做成实体小按钮，Esc 可收起、滚动与缩放时自动贴回锚点；警示提示由虚线改琥珀描边；滚动条更细并补齐 Firefox 标准属性。</span></li>
@@ -484,7 +497,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.5.36 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.9.1 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

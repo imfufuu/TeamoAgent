@@ -2,7 +2,7 @@
 // JS 沙箱：独立 Web Worker，无 DOM/fetch 访问面，超时强制 terminate
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
-import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.5.36';
+import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.9.1';
 import { readLocal, writeLocal } from './legacy-keys.js';
 import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 

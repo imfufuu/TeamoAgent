@@ -117,7 +117,8 @@ html[data-fontsize="large"] {
   --bg-hover: #1a1a1a;
   --fg: #f4f4f4;
   --fg-2: #a3a3a3;
-  --fg-3: #666666;
+  /* 2026.10.9.1（第 3 条）：#666 在 #0b0b0b 上只有 3.43:1，未达 WCAG AA 正文 4.5:1；#8a8a8a 在三种暗底上都 ≥ 5.0:1（tools/contrast.mjs 量化） */
+  --fg-3: #8a8a8a;
   --line: #242424;
   --line-2: #3a3a3a;
   --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.5);
@@ -439,7 +440,9 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 }
 #transport-badge { cursor: pointer; border-radius: 6px; padding: 1px 5px; margin-left: -5px; transition: all .18s var(--ease); }
 #transport-badge:hover { color: var(--fg); background: var(--bg-hover); }
-.side-footer-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+.side-footer-btns { display: flex; gap: 6px; flex-wrap: nowrap; }
+/* 2026.10.9.1（第 3 条）：API Key / 设置 / 导出 / 导入 四键同一行、等宽等高（之前 wrap 成两行，「导入」掉到第二行） */
+.side-footer-btns > .mini-btn { flex: 1 1 0; min-width: 0; padding: 6px 4px; justify-content: center; font-size: var(--ui-fs-11_5px, 11.5px); white-space: nowrap; }
 
 /* ── 主区 ────────────────────────────────────────────────────────────── */
 .main { display: flex; flex-direction: column; min-width: 0; background: var(--bg); transition: background-color var(--theme-speed) var(--ease); }
@@ -1596,6 +1599,17 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
   .panel-tabs { min-height: 44px; }
   .files-icon-btn { width: 40px; height: 40px; }
   .fv-actions button { min-height: 40px; }
+  /* 2026.10.9.1（第 3 条）设置页 / 文件面板触屏密度：复核显示分段键 28–29px、输入框 33px、下拉 30px、幽灵键 33px、
+     文件行低于 40px 基线；统一抬到 40px（主操作 44px）。桌面鼠标层保持紧凑，不受影响。 */
+  .seg button { min-height: 40px; padding: 8px 12px; }
+  .set-input, .set-select { min-height: 40px; }
+  .ghost-btn { min-height: 40px; padding: 8px 14px; }
+  .primary-btn { min-height: 44px; }
+  .file-item, .ft-row { min-height: 44px; }
+  /* 行内操作键（复制 / 打包 / 下载）原为 22px，优先级高于通用 .files-icon-btn，要单独抬到 40px */
+  .ft-row .files-icon-btn, .file-item .file-dl { width: 40px; height: 40px; }
+  .ft-row .files-icon-btn svg, .file-item .file-dl svg { width: 14px; height: 14px; }
+  .side-footer-btns > .mini-btn { min-height: 40px; }
 }
 
 /* ── 移动端（≤720px）：重新排布密度，而不是把桌面布局等比缩小 ────────────
@@ -1730,6 +1744,16 @@ html { scrollbar-width: thin; scrollbar-color: var(--line-2) transparent; }
 .md-chart-expand:hover, .md-chart-expand:focus-visible { opacity: 1; color: var(--fg); transform: scale(1.04); }
 .md-chart-expand svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 @media (hover: none) { .md-chart-expand { opacity: 1; } }
+/* 2026.10.9.1（第 1 项）：触屏点按图表时，系统默认的 tap highlight 会给 hit-area（28px 宽的透明描边）整块涂灰，
+   这就是「点击后短暂出现灰色区域」。交互反馈已由 :hover / .is-active 的 opacity 与描边承担，这里统一关掉系统高亮，
+   并禁止双击缩放与文本选中抢手势。 */
+.md-chart, .md-chart *, .md-diagram, .md-diagram *, .md-chart-expand {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.md-chart [data-chart-label], .md-diagram [data-chart-label] { touch-action: manipulation; }
 
 .md-chart-svg {
   display: block; width: min(720px, 100%); height: auto;
@@ -1811,6 +1835,34 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 .md-chart-map[data-map-state="ready"] .md-chart-svg { animation: mdChartFadeIn .36s ease; }
 @keyframes mdChartPulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
 @keyframes mdChartFadeIn { from { opacity: 0; } to { opacity: 1; } }
+/* 快捷地图交互（2026.10.9.1 · 第 2 条）：缩放 / 平移 / 控件 / 前五名排行（逻辑见 js/quickmap.js） */
+.md-chart-map .md-chart-svg { touch-action: none; }
+.md-chart-map[data-map-zoomed="1"] .md-chart-svg { cursor: grab; }
+.md-chart-map[data-map-zoomed="1"] .md-chart-svg:active { cursor: grabbing; }
+.md-map-vp .md-chart-region { vector-effect: non-scaling-stroke; }
+.md-chart-map:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+.md-map-stage { position: relative; }
+.md-map-ctrl {
+  position: absolute; left: 12px; bottom: 12px; z-index: 3; display: inline-flex; align-items: center; gap: 2px; padding: 2px;
+  border: 1px solid var(--line-2); border-radius: 9px; background: color-mix(in srgb, var(--bg) 92%, transparent);
+}
+.md-map-ctrl button {
+  min-width: 28px; height: 28px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--fg-2); font-size: 14px; line-height: 1; cursor: pointer;
+}
+.md-map-ctrl button:hover:not(:disabled), .md-map-ctrl button:focus-visible { background: var(--bg-hover); color: var(--fg); }
+.md-map-ctrl button:disabled { opacity: .35; cursor: default; }
+.md-map-scale { min-width: 46px; text-align: center; font: 10.5px/1 var(--mono); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+.md-map-rank-wrap { margin: 8px 2px 0; }
+.md-map-rank-h { font: 600 10.5px/1.4 var(--mono); letter-spacing: .08em; color: var(--fg-3); margin-bottom: 4px; }
+.md-map-rank { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.md-map-rank li { display: grid; grid-template-columns: 16px minmax(0, 8rem) minmax(0, 1fr) auto; align-items: center; gap: 8px; font-size: var(--ui-fs-12px, 12px); color: var(--fg-2); }
+.md-map-rank .rk-n { font: 10.5px/1 var(--mono); color: var(--fg-3); text-align: right; }
+.md-map-rank .rk-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); }
+.md-map-rank .rk-bar { height: 6px; border-radius: 99px; background: var(--bg-hover); overflow: hidden; }
+.md-map-rank .rk-bar i { display: block; height: 100%; border-radius: inherit; background: var(--accent, #4f46e5); }
+.md-map-rank .rk-val { font: 11.5px/1 var(--mono); color: var(--fg); text-align: right; font-variant-numeric: tabular-nums; }
+.md-map-rank-more { margin: 5px 0 0; font-size: var(--ui-fs-11px, 11px); color: var(--fg-3); }
 .md-chart-tooltip {
   position: absolute; left: 50%; top: 36px; z-index: 14;
   pointer-events: none; white-space: nowrap;
@@ -1967,11 +2019,20 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
 }
 [data-theme="dark"] .chip-ok { color: #4ade80; }
 [data-theme="dark"] .chip-fail { color: #f87171; background: none; }
-.chip-json { display: none; align-items: center; gap: 4px; margin-left: 4px; }
-.chip.done .chip-json { display: inline-flex; }
+/* 2026.10.9.1（第 4 条）：工具详情三窗口 COMMAND / STDOUT / STDERR（STDERR 有才出现）；
+   复制按钮位于每个窗口的右上角。已移除完成后才出现的「入参 / 出参」按钮（它的换行是完成瞬间行高跳变的根因）。 */
+.chip-win { margin: 6px 0 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); overflow: hidden; }
+.chip-win-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 26px; padding: 0 4px 0 10px; border-bottom: 1px solid var(--line); }
+.chip-win-t { font-family: var(--mono); font-size: var(--ui-fs-10px, 10px); font-weight: 650; letter-spacing: .08em; color: var(--fg-3); }
+.chip-win .chip-win-b { margin: 0; padding: 8px 10px; max-height: min(50vh, 420px); overflow: auto; white-space: pre-wrap; word-break: break-all; font-family: var(--mono); font-size: var(--ui-fs-11px, 11px); line-height: 1.55; color: var(--fg); background: transparent; border: 0; border-radius: 0; }
+.chip-win-stderr .chip-win-t { color: #b91c1c; }
+.chip-win-stderr .chip-win-b { color: #b91c1c; }
+[data-theme="dark"] .chip-win-stderr .chip-win-t, [data-theme="dark"] .chip-win-stderr .chip-win-b { color: #fca5a5; }
+.chip-win-stdout .chip-win-b.tool-result-missing, .chip-win .tool-result-missing { color: var(--fg-3); font-style: italic; }
+.chip-win .chip-copy { flex-shrink: 0; }
 .chip-copy {
   font-size: var(--ui-fs-10px, 10px); color: var(--fg-3); border: 1px solid var(--line); border-radius: 5px;
-  padding: 0 6px; height: 18px; line-height: 16px; background: var(--bg);
+  padding: 0 6px; height: 20px; line-height: 18px; background: var(--bg); cursor: pointer;
 }
 .chip-copy:hover { color: var(--fg); border-color: var(--fg); }
 
@@ -2038,6 +2099,26 @@ polyline.md-chart-line, path.md-chart-line { fill: none; stroke: #4f46e5; stroke
   font-family: var(--mono); font-size: var(--ui-fs-12px, 12px); padding: 3px 0; color: var(--fg-2);
 }
 .tok-row.total { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 8px; color: var(--fg); font-weight: 600; }
+/* 2026.10.9.1（第 3 条）：窄屏（≤720px）能力表 = 底部抽屉，不再是锚定气泡（手机上气泡常被地址栏 / 键盘顶走，只剩一条缝）。
+   placeTokPop 在 kind=cap 且窄屏时写 data-sheet；遮罩点击走 document 的外部点击逻辑收起，Esc 同样生效。 */
+.tok-sheet-scrim { position: fixed; inset: 0; z-index: 89; background: rgba(8, 8, 8, .38); animation: tokScrimIn .2s ease-out both; }
+.tok-sheet-scrim[hidden] { display: none; }
+@keyframes tokScrimIn { from { opacity: 0; } to { opacity: 1; } }
+.tok-pop[data-sheet] {
+  left: 0 !important; right: 0; top: auto !important; bottom: 0;
+  width: 100%; min-width: 0; max-width: none; max-height: min(78vh, 640px);
+  display: flex; flex-direction: column; overflow: hidden;
+  padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-radius: 18px 18px 0 0; border-bottom: 0; box-shadow: 0 -12px 40px rgba(0, 0, 0, .24);
+}
+.tok-pop[data-sheet][hidden] { display: none; }
+.tok-pop[data-sheet]::before { display: none; }
+.tok-pop[data-sheet] .tok-pop-h { flex: 0 0 auto; position: relative; padding-top: 18px; margin-bottom: 6px; }
+.tok-pop[data-sheet] .tok-pop-h::before { content: ''; position: absolute; top: 7px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 4px; background: var(--line-2); }
+.tok-pop[data-sheet] .tok-pop-body { flex: 1 1 auto; min-height: 0; max-height: none; padding-bottom: 6px; }
+.tok-pop:not([hidden])[data-sheet] { animation: tokSheetUp .28s var(--ease) both; transform-origin: bottom center; }
+@keyframes tokSheetUp { from { transform: translateY(100%); } to { transform: none; } }
+html[data-motion="off"] .tok-pop[data-sheet]:not([hidden]) { animation: none; }
 .tok-hint { font-size: var(--ui-fs-10_5px, 10.5px); color: var(--fg-3); line-height: 1.5; margin-top: 8px; font-family: var(--font); }
 .router-model { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .router-model .provider-ico, .router-model svg, .router-model img { width: 14px; height: 14px; flex-shrink: 0; }

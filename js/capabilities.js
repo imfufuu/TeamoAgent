@@ -69,6 +69,8 @@ export const CAPABILITY_REGISTRY = Object.freeze({
   search_web: R('workerSearch', 'network', { core: 10, parallel: true }),
   crawl_site: R('siteCrawler', 'network'),
   download_file: R('fileDownload', 'network'),
+  // 2026.10.9.1（第 5 条）：网页截图（中继 /api/screenshot → Browser Run；health 声明 screenshot 才出现）
+  screenshot_web: R('pageShot', 'network', { tags: ['web'] }),
   // ── git（本地 server.py 时走真实 git，否则内置引擎）──
   run_git: R('invariantCore', 'fs-write', { heavy: true }),
   // ── 子智能体（思考档位 Max / Ultra 才有）──
@@ -88,7 +90,7 @@ export const LEGACY_TOOL_ALIASES = Object.freeze({
   qr_code: { tool: 'data_tool', kind: 'qr', parallel: false, readOnly: false },
 });
 
-export const CAPABILITY_GROUPS = Object.freeze(['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'subagentSwarm']);
+export const CAPABILITY_GROUPS = Object.freeze(['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'pageShot', 'codeSandbox', 'subagentSwarm']);
 export const CAPABILITY_KINDS = Object.freeze(['local', 'fs-read', 'fs-write', 'exec', 'network', 'remote', 'cost', 'memory', 'render']);
 
 /** kind → execution.js 契约里允许的 sideEffect（测试据此做三方一致性校验） */

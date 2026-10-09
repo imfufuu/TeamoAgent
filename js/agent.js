@@ -16,14 +16,14 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES } from './capabilities.js';
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.5.36';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.1';
 import { TOOL_DEFS, executeTool } from './tools.js';
 import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
 import { subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.5.36';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.1';
 import { routeModel, isSmartRouter } from './smartrouter.js';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
@@ -60,7 +60,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.5.36';
+import { moderateUserTurn } from './moderation.js?v=2026.10.9.1';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -83,37 +83,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.5.36';
+} from './execution.js?v=2026.10.9.1';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.5.36';
+} from './recovery.js?v=2026.10.9.1';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.5.36';
+} from './idempotency.js?v=2026.10.9.1';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.5.36';
+} from './memorylife.js?v=2026.10.9.1';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.5.36';
+} from './trajectory.js?v=2026.10.9.1';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.5.36';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.5.36';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.1';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.1';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.5.36';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.5.36';
+} from './experiments.js?v=2026.10.9.1';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.1';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -129,12 +129,12 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.5.36';
-import { createToolRunner } from './toolrunner.js?v=2026.10.5.36';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.5.36';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.5.36';
+} from './executionContext.js?v=2026.10.9.1';
+import { createToolRunner } from './toolrunner.js?v=2026.10.9.1';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.1';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.1';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.5.36';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.1';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -145,7 +145,7 @@ const toolsFor = (sandboxEnabled, { remoteCpp = true } = {}) =>
   (sandboxEnabled ? TOOL_DEFS : TOOL_DEFS.filter((t) => !CODE_TOOL_NAMES.includes(t.name)))
     .filter((t) => remoteCpp || t.name !== 'execute_cpp');
 // 只在具备中继路由时可用的网页工具；搜索/爬虫还须由 Worker health 明确声明对应特性。
-const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
+const RELAY_ONLY_TOOLS = new Set(['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web']);
 // Helix 3.0：回合的五个显式阶段（runLoop 按此顺序执行；审计事件 turn-pipeline 记录各阶段耗时）
 export const TURN_PIPELINE = Object.freeze(['premise', 'plan', 'select', 'loop', 'finalize']);
 
@@ -170,9 +170,10 @@ function formatWebCapabilityNote({ relayOk, webEnabled, tools, dropped, deferred
     search_web: 'search_web（网页搜索）',
     crawl_site: 'crawl_site（同源站点抓取）',
     download_file: 'download_file（跨域拉取文件进沙箱）',
+    screenshot_web: 'screenshot_web（网页截图）',
   };
   const reasonOf = new Map((Array.isArray(dropped) ? dropped : []).map((d) => [d.name, d.reason]));
-  const unavailable = ['fetch_url', 'search_web', 'crawl_site', 'download_file'].filter((name) => !names.includes(name) && !lazy.includes(name))
+  const unavailable = ['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web'].filter((name) => !names.includes(name) && !lazy.includes(name))
     .map((name) => (reasonOf.has(name) ? `${name}（${describeDropReason(reasonOf.get(name))}）` : name));
   return `\n\n【联网】本轮已开启；中继健康检查通过。实际网页工具表：${names.map((name) => label[name] || name).join('、') || '（本轮无）'}。${lazy.length ? `${lazy.join(' / ')} 本轮按需未挂载（需要时直接调用，内核会当场挂载）。` : ''}${unavailable.length ? `未列出的 ${unavailable.join(' / ')} 本轮不可用。` : ''}${WEB_FACTS_NOTE}`;
 }
@@ -286,7 +287,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.5.36';
+} from './toolrunner.js?v=2026.10.9.1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {
@@ -453,6 +454,7 @@ export function createAgent(store, hooks = {}) {
       searchEnabled: relaySupports('search'),
       crawlEnabled: relaySupports('crawl'),
       fileEnabled: relaySupports('file'),
+      screenshotEnabled: relaySupports('screenshot'),
       sandboxEnabled: store.state.settings.sandboxEnabled !== false,
       canDispatch,
     });
@@ -646,6 +648,7 @@ export function createAgent(store, hooks = {}) {
           if (t.name === 'search_web') return relayOk && settings.webEnabled !== false && relaySupports('search');
           if (t.name === 'crawl_site') return relayOk && settings.webEnabled !== false && relaySupports('crawl');
           if (t.name === 'download_file') return relayOk && settings.webEnabled !== false && relaySupports('file');
+          if (t.name === 'screenshot_web') return relayOk && settings.webEnabled !== false && relaySupports('screenshot');
           return relayOk || !RELAY_ONLY_TOOLS.has(t.name);
         })
         .filter((t) => t.name !== 'dispatch_subagent' || canDispatch);
@@ -710,6 +713,7 @@ export function createAgent(store, hooks = {}) {
             search: relayOk && settings.webEnabled !== false && relaySupports('search'),
             crawl: relayOk && settings.webEnabled !== false && relaySupports('crawl'),
             file: relayOk && settings.webEnabled !== false && relaySupports('file'),
+            screenshot: relayOk && settings.webEnabled !== false && relaySupports('screenshot'),
           },
         },
       });
@@ -1564,6 +1568,7 @@ export function createAgent(store, hooks = {}) {
       search: webOn && relaySupports('search'),
       crawl: webOn && relaySupports('crawl'),
       file: webOn && relaySupports('file'),
+      screenshot: webOn && relaySupports('screenshot'),
       remoteCpp: settings.remoteCppEnabled !== false,
     }, TOOL_DEFS);
     const sel = selectToolsForTurn({ allowed: wl.allowed, text, attachments, recentTools: recentToolNames(store.state.messages) });

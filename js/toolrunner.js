@@ -14,10 +14,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.5.36';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.5.36';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.5.36';
-import { toolName } from './executionContext.js?v=2026.10.5.36';
+} from './execution.js?v=2026.10.9.1';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.1';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.1';
+import { toolName } from './executionContext.js?v=2026.10.9.1';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -90,6 +90,7 @@ export function toolAccessSet(call) {
     case 'analyze_video': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
     case 'download_file': return { reads: [], writes: a.path ? strList(a.path) : [ACCESS_ANY] };
+    case 'screenshot_web': return { reads: [], writes: [ACCESS_ANY] };
     default:
       if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
       return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };

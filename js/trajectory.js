@@ -9,7 +9,7 @@
 // 判定结论都带 reason，可被人工复核，不覆盖 P0 的静默失败检测结论（两者会交叉校验）。
 
 import { READ_ONLY_TOOL_NAMES, HEAVY_TOOL_NAMES, CODE_TOOL_NAMES, WEB_TOOL_NAMES, IMAGE_TOOL_NAMES } from './capabilities.js';
-import { FAILURE_KIND_META } from './execution.js?v=2026.10.5.36';
+import { FAILURE_KIND_META } from './execution.js?v=2026.10.9.1';
 
 export const TRAJECTORY_POLICY_VERSION = 'trajectory-policy-2.4.0';
 export const TRAJECTORY_SCHEMA_VERSION = 'exec-trajectory-1';

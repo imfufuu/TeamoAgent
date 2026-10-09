@@ -4,3 +4,6 @@
 name = "relay"
 main = "worker.js"
 compatibility_date = "2025-01-09"
+
+# 网页截图（可选）：CF_ACCOUNT_ID 可写在 [vars]，CF_API_TOKEN 用 `npx wrangler secret put CF_API_TOKEN` 保存
+# （Token 需要 Browser Rendering 写权限）。两者都配置后 /api/health 才声明 screenshot 能力；未配置时行为与旧版相同。

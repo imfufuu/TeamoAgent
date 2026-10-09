@@ -1,6 +1,8 @@
 // 历史消息分段：只在完整用户轮次边界裁切，同时约束可见消息数与文本字数。
-export const HISTORY_WINDOW_MAX_MESSAGES = 60;
-export const HISTORY_WINDOW_MAX_CHARS = 24000;
+// 2026.10.9.1：阈值拉高（60 条 / 24000 字 → 120 条 / 120000 字）。旧阈值太低：几轮带工具输出的对话
+// 就会顶满字数预算，于是「更早的消息」接缝在几条短消息上就出现。工具结果仍计入字数（既定策略）。
+export const HISTORY_WINDOW_MAX_MESSAGES = 120;
+export const HISTORY_WINDOW_MAX_CHARS = 120000;
 
 const isBoundary = (m) => !!m && m.role === 'user' && !m.silent;
 const isVisible = (m) => !!m && (m.role === 'user' || m.role === 'assistant') && !m.silent;
