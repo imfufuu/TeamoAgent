@@ -42,12 +42,13 @@ const CAPABILITY_TOOLS = Object.freeze([
   ['web', 'search_web', 'search'],       // Worker 可选路由，由 health.capabilities 声明
   ['web', 'crawl_site', 'crawl'],
   ['web', 'download_file', 'file'],    // 跨域文件拉取路由，同样由 health.capabilities 声明
+  ['web', 'screenshot_web', 'screenshot'], // 网页截图（Browser Run）路由，同样由 health.capabilities 声明
   ['sandbox', 'execute_javascript'],
   ['dispatch', 'dispatch_subagent'],
 ]);
 
 // 只在中继（本地服务）可用、且不依赖具体能力位的工具：中继不在就必须摘掉
-export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url', 'search_web', 'crawl_site', 'download_file']);
+export const RELAY_DEPENDENT_TOOLS = Object.freeze(['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web']);
 
 // 受沙箱能力位管辖的工具（与 js/tools.js 的 CODE_TOOL_NAMES 必须一致；有单测钉住）
 export const SANDBOX_GATED_TOOLS = Object.freeze(['execute_javascript', 'execute_python', 'execute_cpp']);
@@ -181,6 +182,10 @@ export function deriveToolWhitelist(ctx, allTools = []) {
       dropped.push({ name, reason: 'relay-file-unavailable' });
       continue;
     }
+    if (name === 'screenshot_web' && (!webConstraints || webConstraints.screenshot !== true)) {
+      dropped.push({ name, reason: 'relay-screenshot-unavailable' });
+      continue;
+    }
     if (RELAY_DEPENDENT_TOOLS.includes(name) && !bits.relay) { dropped.push({ name, reason: 'relay-offline' }); continue; }
     if (name === 'dispatch_subagent' && !bits.dispatch) { dropped.push({ name, reason: 'capability-dispatch-off' }); continue; }
     if (SANDBOX_GATED_TOOLS.includes(name) && !bits.sandbox) { dropped.push({ name, reason: 'capability-sandbox-off' }); continue; }
@@ -201,6 +206,7 @@ export const DROP_REASON_LABEL = Object.freeze({
   'relay-search-unavailable': '中继未声明 search',
   'relay-crawl-unavailable': '中继未声明 crawl',
   'relay-file-unavailable': '中继未声明 file',
+  'relay-screenshot-unavailable': '中继未声明 screenshot',
   'capability-sandbox-off': '顶栏「沙箱」已关',
   'remote-cpp-off': '远程 C++ 已关',
   'no-tool-name': '工具定义缺少名称',
@@ -214,6 +220,7 @@ export const DROP_REASON_FIX = Object.freeze({
   'relay-search-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
   'relay-crawl-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
   'relay-file-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
+  'relay-screenshot-unavailable': Object.freeze({ kind: 'relay-reprobe', label: '重新探测中继' }),
   'capability-sandbox-off': Object.freeze({ kind: 'sandbox-on', label: '打开沙箱' }),
   'remote-cpp-off': Object.freeze({ kind: 'settings', label: '打开设置' }),
 });
@@ -238,13 +245,13 @@ export function formatDroppedTools(dropped, { max = 16 } = {}) {
  */
 export function deriveToolWhitelistFromBits({
   relay = false, web = false, sandbox = true, dispatch = false,
-  search = false, crawl = false, file = false, remoteCpp = true,
+  search = false, crawl = false, file = false, screenshot = false, remoteCpp = true,
 } = {}, allTools = []) {
   const ctx = {
     capability: {
       bits: { relay: !!relay, web: !!web, sandbox: !!sandbox, dispatch: !!dispatch },
       constraints: {
-        web: { search: search === true, crawl: crawl === true, file: file === true },
+        web: { search: search === true, crawl: crawl === true, file: file === true, screenshot: screenshot === true },
         sandbox: { remoteCpp: remoteCpp !== false },
       },
     },

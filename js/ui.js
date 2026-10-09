@@ -1,9 +1,9 @@
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.5.36';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.9.1';
 import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.5.36';
+import { getTransport } from './api.js?v=2026.10.9.1';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -16,16 +16,18 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.5.36';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.5.36';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.5.36';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.5.36';
-import { installAttachments } from './ui-attachments.js?v=2026.10.5.36';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.5.36';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.5.36';
-import { installPopovers } from './ui-popovers.js?v=2026.10.5.36';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.5.36';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.5.36';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.9.1';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.9.1';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.9.1';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.9.1';
+import { installAttachments } from './ui-attachments.js?v=2026.10.9.1';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.9.1';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.9.1';
+import { installPopovers } from './ui-popovers.js?v=2026.10.9.1';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.9.1';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.9.1';
+import { commandWindowText, splitToolStreams, renderToolWindowsHtml } from './toolwindows.js?v=2026.10.9.1';
+import { decorateGeoMap, installMapInteractions } from './quickmap.js?v=2026.10.9.1';
 
 // 预览窗刷新节流：直播时每 ~2.5 秒一次（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -34,9 +36,9 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.5.36';
+} from './ui-markdown.js?v=2026.10.9.1';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.5.36';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.9.1';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -96,6 +98,8 @@ export function mountUI(store, agent) {
   const statusDot = $('#status-dot');
   const statusText = $('#status-text');
   const msgNodes = new Map();
+  // 执行中的工具调用 id（onToolEvent 维护）：消息重绘时据此恢复 running，折叠块不会在执行途中被收起
+  const liveToolCallIds = new Set();
   // 未决的高风险确认卡（每个回合结束时由 agent 作废；重绘消息时一并清掉，避免残留旧卡）
   const confirmNodes = new Map();
   const clearConfirmCards = () => {
@@ -1210,10 +1214,14 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const allDone = children.every((chip) => chip.classList.contains('done'));
     const cancelled = children.some((chip) => chip.dataset.cancelled === 'true');
     const failed = children.some((chip) => chip.classList.contains('fail'));
+    // 2026.10.9.1（第 4 条）：折叠块只在「有命令正在执行」时展开（live / expanded 同源）。
+    // 旧规则是「忙碌且未全部完成」——下一条命令还在流式生成参数、尚未开始执行时，块也会整块展开等它，
+    // 而 .ran-commands.live 的 CSS 会强制显示详情，所以即使去掉 expanded 也收不起来。
+    const anyRunning = children.some((chip) => chip.classList.contains('running'));
     const label = $('.chip-name', fold);
     if (label) label.textContent = total === 1 ? 'Ran command' : `Ran commands ${total}`;
     fold.classList.toggle('done', allDone);
-    fold.classList.toggle('live', getBusy() && !allDone);
+    fold.classList.toggle('live', getBusy() && anyRunning);
     fold.classList.toggle('ok', allDone && !failed && !cancelled);
     fold.classList.toggle('fail', allDone && failed);
     // 失败条数 + 总耗时（各命令耗时之和；拿不到耗时的不计）
@@ -1241,7 +1249,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
         state.title = '';
       }
     }
-    if (fold._userToggle == null) fold.classList.toggle('expanded', getBusy() && !allDone);
+    if (fold._userToggle == null) fold.classList.toggle('expanded', getBusy() && anyRunning);
   }
   function syncToolChip(chip, { cancelled = false } = {}) {
     if (!chip) return;
@@ -1292,34 +1300,45 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     syncRanCommandsFold(chip.closest('.ran-commands'));
   }
 
-  function renderToolChipDetail(chip) {
-    if (!chip || !chip._detail) return;
+  // 2026.10.9.1（第 4 条）：详情 = COMMAND / STDOUT / STDERR 三窗口（见 toolwindows.js），每个窗口右上角一枚复制按钮。
+  // 一条命令一个芯片（不再按工具名合并）；chip._win 保存三段原文，复制按钮直接读它，不从 DOM 里抠文本。
+  function toolWindowsOf(chip) {
     const ids = toolIds(chip);
     const items = chip._items || [];
-    const argJson = (value) => {
-      try { return JSON.stringify(value == null ? {} : value); } catch { return String(value); }
-    };
-    const argHtml = items.length > 1
-      ? items.map((t, i) => `<div class="chip-args">#${i + 1} ${esc(argJson(t.args))}</div>`).join('')
-      : `<div class="chip-args">参数 ${esc(argJson(chip._args))}</div>`;
-    const outHtml = ids.map((id, i) => {
-      const label = ids.length > 1 ? `<div class="chip-args">出参 #${i + 1}</div>` : '';
+    const commands = [];
+    const outs = [];
+    const errs = [];
+    let missing = false;
+    ids.forEach((id, i) => {
+      const item = items.find((t) => String(t && t.id) === id) || items[i] || {};
+      commands.push(commandWindowText(item.args !== undefined ? item.args : chip._args));
+      const state = (chip._toolStates && chip._toolStates[id]) || {};
       if (hasToolOutput(chip, id)) {
-        const value = String(chip._outs[id] == null ? '' : chip._outs[id]);
-        return `${label}<pre class="chip-result">${esc(value || '（空输出）')}</pre>`;
+        const body = String(chip._outs[id] == null ? '' : chip._outs[id]);
+        const split = splitToolStreams(body);
+        let stdout = split.stdout;
+        let stderr = split.stderr;
+        // 失败但正文里没有「── 错误 ──」段（如 fetch_url 的「工具执行失败：…」）：整段正文就是错误信息
+        if (!stderr && state.status === 'error' && body.trim()) { stdout = ''; stderr = body.trim(); }
+        if (stdout) outs.push(stdout);
+        if (stderr) errs.push(stderr);
+      } else if (state.status === 'ok') {
+        outs.push('工具已结束，但未收到出参。');
+        missing = true;
+      } else if (state.status === 'error') {
+        errs.push(state.note || '工具失败，但未收到结果正文。');
       }
-      const status = chip._toolStates && chip._toolStates[id] && chip._toolStates[id].status;
-      if (status === 'ok' || status === 'error') {
-        const note = chip._toolStates[id].note || (status === 'ok' ? '工具已结束，但未收到出参。' : '工具失败，但未收到结果正文。');
-        return `${label}<pre class="chip-result tool-result-missing">${esc(note)}</pre>`;
-      }
-      return '';
-    }).join('');
-    chip._out = ids.filter((id) => hasToolOutput(chip, id)).map((id) => String(chip._outs[id] == null ? '' : chip._outs[id])).join('\n\n');
-    const detailSig = JSON.stringify([items.map((t) => t.args), ids.map((id) => hasToolOutput(chip, id) ? chip._outs[id] : null)]);
-    if (chip._detailSig !== detailSig) {
-      chip._detailSig = detailSig;
-      chip._detail.innerHTML = `<div class="fold-inner">${argHtml}${outHtml}</div>`;
+    });
+    return { command: commands.join('\n\n'), stdout: outs.join('\n\n'), stderr: errs.join('\n\n'), missing };
+  }
+  function renderToolChipDetail(chip) {
+    if (!chip || !chip._detail) return;
+    const w = toolWindowsOf(chip);
+    chip._win = w;
+    const sig = JSON.stringify([w.command, w.stdout, w.stderr, w.missing]);
+    if (chip._detailSig !== sig) {
+      chip._detailSig = sig;
+      chip._detail.innerHTML = renderToolWindowsHtml(w);
     }
   }
 
@@ -1471,16 +1490,8 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     } else if (idxA < 0) {
       mergedCalls.push(...commandCallsOf(m));
     }
-    const groups = [];
-    const seen = new Map();
-    for (const t of mergedCalls) {
-      if (!seen.has(t.name)) {
-        const g = { name: t.name, items: [] };
-        seen.set(t.name, g);
-        groups.push(g);
-      }
-      seen.get(t.name).items.push(t);
-    }
+    // 2026.10.9.1（第 4 条）：每条调用各占一行、逐条可展开，不再合并成「某工具 ×N」
+    const groups = mergedCalls.map((t) => ({ name: t.name, items: [t] }));
     const sig = groups.map((g) => `${g.name}:${g.items.map((t) => t.id).join('+')}`).join('|');
     if (chips.dataset.sig !== sig) {
       chips.dataset.sig = sig;
@@ -1502,7 +1513,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
           const ids = g.items.map((t) => t.id).filter(Boolean);
           child.dataset.callIds = ids.join(',');
           child.dataset.callId = ids[0] || '';
-          child.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(g.items.length > 1 ? `${g.name} ×${g.items.length}` : g.name)}</span><span class="chip-json"><button type="button" class="chip-copy" data-which="in" title="复制入参 JSON">入参</button><button type="button" class="chip-copy" data-which="out" title="复制出参 JSON">出参</button></span><span class="chip-state">…</span>`;
+          child.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(g.name)}</span><span class="chip-state">…</span>`;
           child.addEventListener('click', (e) => {
             if (e.target.closest('.chip-copy, button, a')) return;
             child.classList.toggle('expanded');
@@ -1519,6 +1530,10 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
             if (t && t.id != null && (t.status || Number.isFinite(Number(t.durationMs)))) {
               child._toolStates[String(t.id)] = { status: t.status || undefined, note: t.errorNote || '', durationMs: Number.isFinite(Number(t.durationMs)) ? Number(t.durationMs) : undefined };
             }
+          }
+          for (const t of g.items) {
+            const k = String(t && t.id);
+            if (liveToolCallIds.has(k) && child._toolStates[k] == null) child._toolStates[k] = { status: 'running' };
           }
           itemsBox.appendChild(child);
         }
@@ -2110,6 +2125,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     if (!chip._outs) chip._outs = {};
     if (!chip._toolStates) chip._toolStates = {};
     chip._outs[id] = body; // 空字符串也是已收到的出参，不能被当成「结果还没回来」
+    liveToolCallIds.delete(id); // 结果已回来：不再是「执行中」
     const previous = chip._toolStates[id] || {};
     const kernelErr = toolMsg.status === 'error';
     chip._toolStates[id] = {
@@ -2401,6 +2417,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
         const svg = box.querySelector('.md-chart-svg');
         if (!svg || !box.isConnected) { delete box.dataset.mapState; return; }
         svg.outerHTML = renderGeoMapSvg(geo, rows, box.dataset.mapTitle || '地图', mapId);
+        decorateGeoMap(box, rows); // 2026.10.9.1（第 2 条）：缩放控件 + 前五名排行
         box.dataset.mapState = 'ready';
       }).catch(() => {
         box.dataset.mapState = 'error';
@@ -2622,13 +2639,18 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     datum.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
   });
 
+  // 2026.10.9.1（第 1 项）：触摸没有「悬停」。触摸的 pointerover 出现在按下时、pointerout 出现在抬起后——
+  // 旧逻辑在抬起后把 pinned（上一次点中的）datum 的浮层重新显示，于是「点 B」先闪出 A 的浮层，click 才切到 B。
+  // 触摸只通过 click 切换选中，悬停预览仅服务鼠标 / 触控笔。
   msgList.addEventListener('pointerover', (e) => {
+    if (e.pointerType === 'touch') return;
     const datum = e.target.closest && e.target.closest('[data-chart-label]');
     if (!datum) return;
     const chartBox = datum.closest('.md-chart');
     if (chartBox) showChartDatumTooltip(chartBox, datum);
   });
   msgList.addEventListener('pointerout', (e) => {
+    if (e.pointerType === 'touch') return;
     const datum = e.target.closest && e.target.closest('[data-chart-label]');
     if (!datum) return;
     const chartBox = datum.closest('.md-chart');
@@ -2662,8 +2684,9 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
 
   // ── 全屏预览：见 ui-lightbox.js（图片 / SVG / 图表全屏，缩放拖动，document 级事件委派）──
   installLightbox();
+  installMapInteractions(msgList); // 地图缩放 / 平移 / 键盘：委托挂在消息列表上，一次即可
 
-  // 复制工具入参/出参 JSON（不触发展开）
+  // 三窗口复制按钮：COMMAND / STDOUT / STDERR 各自复制本窗口原文（不触发展开）
   msgList.addEventListener('click', (e) => {
     const btn = e.target.closest('.chip-copy');
     if (!btn) return;
@@ -2671,7 +2694,8 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const chip = btn.closest('.chip');
     if (!chip) return;
     const which = btn.dataset.which;
-    const payload = which === 'out' ? (chip._out || $('.chip-result', chip)?.textContent || '') : JSON.stringify(chip._args ?? {}, null, 2);
+    // 三窗口各自的复制按钮：COMMAND / STDOUT / STDERR 复制本窗口原文（chip._win 由 renderToolChipDetail 写入）
+    const payload = chip._win && Object.prototype.hasOwnProperty.call(chip._win, which) ? chip._win[which] : '';
     navigator.clipboard.writeText(String(payload || '')).then(() => {
       const prev = btn.textContent; btn.textContent = '已复制'; setTimeout(() => (btn.textContent = prev), 1200);
     }).catch(() => toast('复制失败', 'warn'));
@@ -2871,6 +2895,8 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       const chip = $$('.tool-call-chip', msgList).find((node) => toolIds(node).includes(id));
       if (!chip) return;
       if (!chip._toolStates) chip._toolStates = {};
+      if (patch.status === 'running') liveToolCallIds.add(id);
+      else if (patch.status === 'ok' || patch.status === 'error') liveToolCallIds.delete(id);
       if (['running', 'ok', 'error'].includes(patch.status)) {
         const previous = chip._toolStates[id] || {};
         const errTxt = String((patch.error && patch.error.message) || patch.note || '工具失败').slice(0, 400);

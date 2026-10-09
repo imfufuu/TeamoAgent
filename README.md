@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.5.36` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.1` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -142,6 +142,20 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 **「寒武纪」的含义**：登记处把「加一个能力」的边际成本和风险压到最低，能力才可以大量、低风险地长出来。派生表与 2.5 时代的手抄清单逐项相同（测试锁死），这次是重构不是改行为。
 
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
+
+## 构建 2026.10.9.1 设计决策（2026-10-09）
+
+**构建 2026.10.9.1：图表触屏修复 / 快捷地图增强 / 密度与暗色 AA / 能力抽屉 / Run command(s) 三窗口 / 网页截图 / 智能路由图标候选 / 历史阈值**
+
+1. **图表灰块与闪烁的根因**：灰块来自触屏 tap highlight 涂在 28px 透明热区上（已在 `.md-chart *` 关闭）；闪烁来自触摸的 `pointerout` 在抬起后把「上一次选中」的浮层重新显示。修法是触摸只经 click 切换选中，悬停预览仅服务鼠标 / 触控笔。
+2. **快捷地图**：区域与标签放进 `.md-map-vp`，缩放只改该组的 transform（标题与图例不动）；平移夹取到视口内；拖动超过 4px 视为拖动并吞掉随后的 click，避免误钉浮层；普通滚轮照常滚动聊天，Ctrl/⌘ 或已放大时才缩放。排行条取前五名（同名相加），与 `:::chart map` 的数据口径一致。
+3. **密度**：审计（`scratch` 脚本，真实 Chromium）显示设置页分段键 28–29px、输入框 33px、下拉 30px、幽灵键 33px，文件行操作键 22px；触屏层统一 ≥ 40px，主操作 44px。桌面鼠标层不改，避免把桌面界面整体放大。
+4. **暗色 AA**：`tools/contrast.mjs` 直接读取 `css/styles.css` 的令牌计算 WCAG 2.x 对比度；暗色 `--fg-3` 由 `#666666`（3.03–3.43:1）改为 `#8a8a8a`（5.04–5.70:1）。浅色 `--fg-3`（2.4–2.6:1）与 `--warn`（2.9–3.2:1）未达标，本轮不改视觉，列入后续。
+5. **能力抽屉**：≤720px 的能力表是贴底抽屉（不跟锚点定位，锚点失效的问题因此不再存在于窄屏）；遮罩点击与 Esc 复用既有的外部点击收起逻辑。
+6. **Run command(s)**：① 折叠块 `expanded` 与 `live` 共用一个条件——只有某条命令处于「执行中」（status=running）时才展开；下一条命令还在生成参数时整块保持收起。② 执行中状态存入 `liveToolCallIds`，消息重绘不会把正在执行的命令误判为完成。③ 每条调用一行，不按工具名合并。④ 详情三窗口（COMMAND / STDOUT / STDERR，`js/toolwindows.js`），STDERR 仅在有错误段或失败时出现，复制按钮各在窗口右上角。⑤ 第 11 条「同一轮连续命令合并为一块」保持不变。
+7. **网页截图**：新工具 `screenshot_web` 归入能力分组 `pageShot`（能力向量新增一位，默认禁用，与 `fileDownload` 对称）。中继端只在配置了 `CF_ACCOUNT_ID` 与 `CF_API_TOKEN` 时声明 `screenshot`，所以未部署新 Worker 的站点不会出现该工具，也不会产生 Browser Run 计费。URL 先过同一套 SSRF 护栏；返回值强制校验 PNG 文件头。
+8. **智能路由图标**：三组候选（`design/smart-router-icon/`）统一为单色 `currentColor`、32×32 视口、2px 圆角端点，与界面图标同一语汇；没有渐变与品牌色，以免与产品 LOGO 争抢。选定后再接入 `ROUTER_ICON_SVG`。
+9. **「更早的消息」阈值**：消息数 60 → 120，字数 24,000 → 120,000。工具结果仍计入字数（既定策略），阈值拉高后几条短消息不会再触发接缝。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）
 

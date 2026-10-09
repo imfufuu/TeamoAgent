@@ -625,8 +625,8 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
   ok('analyze_image 不再作为命令 chip，图片路径进入 Explored Files', !!explored
     && /uploads\/screenshot\.png/.test(explored.textContent)
     && !ran.textContent.includes('analyze_image'));
-  ok('同名多次命令在折叠内分组，所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 4
-    && ran.textContent.includes(unicodeOutput) && ran.textContent.includes('second output'));
+  ok('2026.10.9.1：同名多次命令逐条展开（每条一行，不合并成 ×N），所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 5
+    && !ran.textContent.includes('×') && ran.textContent.includes(unicodeOutput) && ran.textContent.includes('second output'));
   const emptyChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'empty-1');
   ok('空字符串出参也算完成，并显示为空输出', !!emptyChip && emptyChip.classList.contains('done')
     && emptyChip.querySelector('.chip-result')?.textContent === '（空输出）');
@@ -749,7 +749,7 @@ console.log('\n⑳ .36 回归：能力表里把禁用工具全部启用后，弹
   const net = await import(path.join(ROOT, 'js/net.js'));
   const oldFetch = globalThis.fetch;
   globalThis.fetch = async (u) => String(u).includes('/api/health')
-    ? new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } })
+    ? new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file', 'screenshot'] }), { status: 200, headers: { 'content-type': 'application/json' } })
     : new Response('nf', { status: 404 });
   try {
     net.resetRelayProbe();

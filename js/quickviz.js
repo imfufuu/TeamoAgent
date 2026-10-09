@@ -665,7 +665,8 @@ export function renderGeoMapSvg(geo, rows, label = '地图', mapId = 'world') {
   const s = Math.min(plotW / (maxX - minX), plotH / (maxY - minY));
   const ox = m.l + (plotW - (maxX - minX) * s) / 2 - minX * s, oy = m.t + (plotH - (maxY - minY) * s) / 2 - minY * s;
   const toPx = (p) => { const [x, y] = proj(p); return `${(ox + x * s).toFixed(1)},${(oy + y * s).toFixed(1)}`; };
-  let inner = `<text x="${m.l}" y="34" stroke="none" class="md-chart-title">${esc(label)}</text>`;
+  // 2026.10.9.1（第 2 条）：区域与省级标签放进 .md-map-vp，缩放 / 平移只改这个组的 transform（见 quickmap.js）；标题与图例留在组外
+  let inner = `<text x="${m.l}" y="34" stroke="none" class="md-chart-title">${esc(label)}</text><g class="md-map-vp">`;
   const lo = '#dbe4ff', hi = '#312e81';
   let labelsSvg = '';
   for (const f of geo.features) {
@@ -683,7 +684,7 @@ export function renderGeoMapSvg(geo, rows, label = '地图', mapId = 'world') {
       labelsSvg += `<text x="${px}" y="${py}" text-anchor="middle" stroke="none" class="md-chart-map-label" pointer-events="none">${esc(f.n)}</text>`;
     }
   }
-  inner += labelsSvg;
+  inner += labelsSvg + '</g>';
   // 图例渐变条
   const gid = `mg${Math.abs(Math.round(vmin * 7 + vmax * 13)) % 100000}`;
   inner += `<defs><linearGradient id="${gid}" x1="0" x2="1" y1="0" y2="0"><stop offset="0" stop-color="${mixHex(lo, hi, 0.15)}"/><stop offset="1" stop-color="${hi}"/></linearGradient></defs>`

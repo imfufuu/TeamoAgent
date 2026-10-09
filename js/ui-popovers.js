@@ -3,8 +3,8 @@
 //       token 构成与本轮费用弹层（showTokBreak）。
 // 不拥有：会话统计文字（updateStats 留在 ui.js）、能力条弹层（ui-capability.js 复用这里的 hide/place）。
 // 只读 store，不改状态；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.5.36';
-import { providerOf, systemPrompt } from './config.js?v=2026.10.5.36';
+import { $, esc } from './ui-markdown.js?v=2026.10.9.1';
+import { providerOf, systemPrompt } from './config.js?v=2026.10.9.1';
 import { providerIcon } from './icons.js';
 import { estimateTokens } from './context.js';
 import { tokenBreakdown, formatTokBreak } from './commands.js';
@@ -14,7 +14,21 @@ import { modelDisplayName } from './smartrouter.js';
 export function installPopovers({ store }) {
   function hideTokPop() {
     const pop = $('#tok-pop');
-    if (pop) pop.hidden = true;
+    if (pop) { pop.hidden = true; delete pop.dataset.sheet; }
+    syncTokScrim(false);
+  }
+  // 2026.10.9.1（第 3 条）：窄屏（≤720px）的能力表 = 底部抽屉（data-sheet + 遮罩）；其它弹层保持锚定气泡。
+  // 抽屉不跟锚点定位：placeTokPop 直接返回；窗口从宽变窄时，下一次 follow() 会自动切进抽屉。
+  const TOK_SHEET_MQ = '(max-width: 720px)';
+  function syncTokScrim(on) {
+    const scrim = $('#tok-sheet-scrim');
+    if (scrim) scrim.hidden = !on;
+  }
+  function syncTokSheet(pop) {
+    const sheet = !!pop && !pop.hidden && pop.dataset.kind === 'cap' && typeof matchMedia === 'function' && matchMedia(TOK_SHEET_MQ).matches;
+    if (sheet) pop.dataset.sheet = '1'; else delete pop.dataset.sheet;
+    syncTokScrim(sheet);
+    return sheet;
   }
   // .36：锚点解析。能力条 / 会话统计栏重绘会换掉 DOM 节点，锚一旦脱离文档或没有盒，
   // getBoundingClientRect() 全是 0 → 弹层被摆到屏幕左上角 (8,8)。此时按语义退回：
@@ -34,6 +48,7 @@ export function installPopovers({ store }) {
   function placeTokPop(anchor) {
     const pop = $('#tok-pop');
     if (!pop || pop.hidden) return;
+    if (syncTokSheet(pop)) { pop.style.left = ''; pop.style.top = ''; pop.style.removeProperty('--pop-arrow-x'); return; }
     const target = resolveAnchor(anchor, pop.dataset.kind);
     const fellBack = target !== anchor; // 锚已失效 → 退到整条能力行 / 统计栏
     if (fellBack) pop._anchor = target;

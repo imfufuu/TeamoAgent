@@ -1,6 +1,6 @@
 # Dubhe Agent Cloudflare Relay
 
-Cloudflare Worker 中继（module syntax），为静态站点提供单页抓取、有限网页搜索与同源小站点爬取。当前版本 **1.6.0**。
+Cloudflare Worker 中继（module syntax），为静态站点提供单页抓取、有限网页搜索与同源小站点爬取。当前版本 **1.8.0**。
 
 ## 部署
 
@@ -38,8 +38,19 @@ location.reload();
 | GET | `/api/fetch?url=...&mode=text\|raw&max=...` | SSRF 护栏后的单页抓取；最大 4 MB |
 | GET | `/api/search?q=...&limit=...` | SearXNG（配置时）优先；不可用则 DuckDuckGo HTML 回退；最多 10 条、搜索响应最多 600 KB |
 | GET | `/api/crawl?url=...&max_pages=...&max_depth=...&max_bytes=...&max_chars=...` | 同源 BFS 爬取；默认 3 页/深度 1，硬上限 5 页/深度 2；每页最多 800 KB 输入、16,000 字正文 |
+| GET | `/api/screenshot?url=...&viewport=desktop\|tablet\|mobile&full_page=1&wait_ms=...&selector=...` | 网页截图（Cloudflare Browser Run）→ PNG，≤ 8 MB；视口 1280×800 / 820×1180 / 390×844；仅在配置了 `CF_ACCOUNT_ID` + `CF_API_TOKEN` 时存在，否则 404 |
 
 Search 响应包含 provider、fallback/warning、标题、URL、摘要和来源。Crawl 响应按页返回标题、描述、正文、深度、截断状态及失败项。Crawler 只跟随同源 HTTP(S) 文本链接，跳过常见二进制扩展；**不执行 JavaScript、不渲染浏览器、不遵循 robots.txt、不处理登录态，也不是通用全网爬虫**。
+
+## 网页截图（可选，Browser Run）
+
+截图由 Cloudflare Browser Run 的 REST 接口完成（`POST /accounts/{id}/browser-rendering/screenshot`），Worker 本身不带浏览器。
+
+1. 在 Cloudflare Dashboard 创建 API Token，权限选 **Browser Rendering（Write / Edit）**，并记下账号 ID。
+2. 配置 Worker：账号 ID 可写在 Settings → Variables 的 `CF_ACCOUNT_ID`；Token 用 Secret 保存（`npx wrangler secret put CF_API_TOKEN`）。
+3. 重新部署（`cd relay && npx wrangler deploy`）。`GET /api/health` 的 `capabilities` 出现 `screenshot` 后，前端才会提供 `screenshot_web` 工具。
+
+**费用与边界**：Browser Run 按量计费，前端只在用户明确要求看页面外观时调用。URL 与普通抓取使用同一套 SSRF 护栏（拒绝内网 / 环回 / 保留地址与用户信息）；截图在 Cloudflare 的浏览器里执行，**不能访问你内网的页面**。返回的是 PNG 原字节，不经 JSON 包装。
 
 ## 可选 SearXNG
 
