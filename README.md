@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.1` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.2` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -143,6 +143,15 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 
 **同批（.32）**：界面动效三态偏好（跟随系统 / 开 / 关）——Windows 关掉「动画效果」时浏览器报 `prefers-reduced-motion: reduce`，以前用户只看到"动画没了"，现在设置页写明原因并可覆盖；旧浏览器缺 `color-mix()` / `:has()` 时启动后提示一次版本建议；设置 → 关于新增「架构」行；模型可见的框架身份、运行时提示、所有 `【天枢·寒武 · L…】` 标签同步。
 
+## 构建 2026.10.9.2 设计决策（2026-10-09）
+
+**构建 2026.10.9.2：智能路由图标定稿为方案 B（轨道枢纽）**
+
+1. **换掉的原因（事实）**：旧图标是 TeamoRouter 产品 LOGO 的重绘（`js/smartrouter.js` 原注释与旧测试名都写明了）。本项目的文档页与页脚声明「与 TeamoRouter 互不隶属」，站内继续沿用对方标识与这一声明不符。新图标改用本项目自己的语汇：中心路由 + 三个 120° 分布的卫星模型节点。
+2. **选择**：三组候选（A 分流 / B 轨道枢纽 / C 交叉箭头）中用户选定 B。候选页与三份 SVG 从仓库移除，历史保留在提交 `d259a28`。
+3. **规格**：`viewBox 0 0 32 32`；`stroke="currentColor"`（随主题与文字颜色变化）；线宽 2、端点圆角；连接臂线宽 1.9、不透明度 0.7；没有渐变、没有硬编码颜色；`aria-hidden="true"`（纯装饰，名字由文字承担）。
+4. **测试**：`tests/agent.test.mjs` 锁死几何——中心环 r=3.6、实心核心 r=1.3、三颗卫星 r=2.5 且离中心 10.6、角度 0° / 120° / 240°、三条连接臂；另校验无渐变、无品牌色、不含第三方名称。
+
 ## 构建 2026.10.9.1 设计决策（2026-10-09）
 
 **构建 2026.10.9.1：图表触屏修复 / 快捷地图增强 / 密度与暗色 AA / 能力抽屉 / Run command(s) 三窗口 / 网页截图 / 智能路由图标候选 / 历史阈值**
@@ -154,7 +163,7 @@ ui.js     渲染 / 动画 / 回滚交互 / 沙箱面板
 5. **能力抽屉**：≤720px 的能力表是贴底抽屉（不跟锚点定位，锚点失效的问题因此不再存在于窄屏）；遮罩点击与 Esc 复用既有的外部点击收起逻辑。
 6. **Run command(s)**：① 折叠块 `expanded` 与 `live` 共用一个条件——只有某条命令处于「执行中」（status=running）时才展开；下一条命令还在生成参数时整块保持收起。② 执行中状态存入 `liveToolCallIds`，消息重绘不会把正在执行的命令误判为完成。③ 每条调用一行，不按工具名合并。④ 详情三窗口（COMMAND / STDOUT / STDERR，`js/toolwindows.js`），STDERR 仅在有错误段或失败时出现，复制按钮各在窗口右上角。⑤ 第 11 条「同一轮连续命令合并为一块」保持不变。
 7. **网页截图**：新工具 `screenshot_web` 归入能力分组 `pageShot`（能力向量新增一位，默认禁用，与 `fileDownload` 对称）。中继端只在配置了 `CF_ACCOUNT_ID` 与 `CF_API_TOKEN` 时声明 `screenshot`，所以未部署新 Worker 的站点不会出现该工具，也不会产生 Browser Run 计费。URL 先过同一套 SSRF 护栏；返回值强制校验 PNG 文件头。
-8. **智能路由图标**：三组候选（`design/smart-router-icon/`）统一为单色 `currentColor`、32×32 视口、2px 圆角端点，与界面图标同一语汇；没有渐变与品牌色，以免与产品 LOGO 争抢。选定后再接入 `ROUTER_ICON_SVG`。
+8. **智能路由图标**：三组候选（`design/smart-router-icon/`）统一为单色 `currentColor`、32×32 视口、2px 圆角端点，与界面图标同一语汇；没有渐变与品牌色，以免与产品 LOGO 争抢。已于 2026.10.9.2 定稿为方案 B，候选页已移除。
 9. **「更早的消息」阈值**：消息数 60 → 120，字数 24,000 → 120,000。工具结果仍计入字数（既定策略），阈值拉高后几条短消息不会再触发接缝。
 
 ## V1.7 架构评审（Dubhe Helix 2.5）

@@ -14,10 +14,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.9.1';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.1';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.1';
-import { toolName } from './executionContext.js?v=2026.10.9.1';
+} from './execution.js?v=2026.10.9.2';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.2';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.2';
+import { toolName } from './executionContext.js?v=2026.10.9.2';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
