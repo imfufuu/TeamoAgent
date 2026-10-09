@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.9.1';
+} from '../js/api.js?v=2026.10.9.2';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.9.1');
+const api = await import('../js/api.js?v=2026.10.9.2');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -799,25 +799,21 @@ test('第 5 条：网页截图 —— 工具 / 能力位 pageShot / 中继端点
   assert.deepEqual(def.parameters.required, ['url']);
 });
 
-test('第 6 条：智能路由图标三组候选（单色 currentColor、viewBox 32、无渐变）+ 预览页', async () => {
-  const fsp = await import('node:fs');
-  const files = ['candidate-a-fork.svg', 'candidate-b-hub.svg', 'candidate-c-shuffle.svg'];
-  for (const f of files) {
-    const svg = fsp.readFileSync(new URL(`../design/smart-router-icon/${f}`, import.meta.url), 'utf8');
-    assert.match(svg, /viewBox="0 0 32 32"/, `${f} 视口 32×32`);
-    assert.match(svg, /currentColor/, `${f} 单色随主题`);
-    assert.doesNotMatch(svg, /linearGradient|radialGradient|stop-color|#[0-9a-f]{3,6}/i, `${f} 不用渐变与品牌色`);
-  }
-  const preview = fsp.readFileSync(new URL('../design/smart-router-icon/index.html', import.meta.url), 'utf8');
-  assert.equal((preview.match(/<svg /g) || []).length >= 3 * 5, true, '预览页内联三组候选（多尺寸）');
+test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色 currentColor、viewBox 32、无渐变与品牌色、装饰性（aria-hidden）', async () => {
+  const { ROUTER_ICON_SVG } = await import('../js/smartrouter.js');
+  assert.match(ROUTER_ICON_SVG, /^<svg [^>]*viewBox="0 0 32 32"/, '视口 32×32');
+  assert.match(ROUTER_ICON_SVG, /stroke="currentColor"/, '单色随主题');
+  assert.doesNotMatch(ROUTER_ICON_SVG, /linearGradient|radialGradient|stop-color|#[0-9a-f]{3,6}/i, '不用渐变与品牌色');
+  assert.match(ROUTER_ICON_SVG, /aria-hidden="true"/, '纯装饰，读屏跳过（名字由文字承担）');
+  assert.doesNotMatch(ROUTER_ICON_SVG, /TeamoRouter|TEAMOROUTER/i, '不再复刻第三方产品 LOGO');
 });
 
-test('2026.10.9.1 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
+test('2026.10.9.2 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
   const fsp = await import('node:fs');
   const changelog = fsp.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-09 · 构建 2026\.10\.9\.1 ·/m, 'CHANGELOG 顶部新增 2026.10.9.1 条目');
-  assert.match(readme, /构建 `2026\.10\.9\.1`/);
+  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-09 · 构建 2026\.10\.9\.2 ·/m, 'CHANGELOG 顶部新增 2026.10.9.2 条目');
+  assert.match(readme, /构建 `2026\.10\.9\.2`/);
 });
 
 group('多模态标识');
@@ -3281,7 +3277,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.9.1');
+  const api = await import('../js/api.js?v=2026.10.9.2');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5351,7 +5347,7 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.9.1');
+  assert.equal(APP_VERSION, '2026.10.9.2');
   assert.match(html, /Dubhe Agent V1\.7 —/);
   const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
   assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
@@ -8292,27 +8288,18 @@ test('工具芯片：每条命令只显示 ✓ / ✗ 图标 + 耗时（无中文
   assert.match(css, /\.chip-state\.bad \{ font-weight: 400; \}/);
   assert.match(css, /\.chip-state \{[^}]*display: inline-flex; align-items: center; gap: 5px/s);
 });
-test('smart-router 图标与 TeamoRouter 产品 LOGO 一致（粗实线外环 + 三段弧 + 三卫星点 + 实心核心）', async () => {
+test('方案 B 几何：中心轨道环 + 实心核心 + 三个 120° 卫星（等距 10.6）+ 三条 0.7 不透明度连接臂', async () => {
   const { ROUTER_ICON_SVG } = await import('../js/smartrouter.js');
-  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="13\.3" stroke="currentColor" stroke-width="2\.3"\/>/, '外环加粗且全实色');
-  assert.doesNotMatch(ROUTER_ICON_SVG, /stroke-opacity/, '不再带淡色透明度');
-  const arcs = [...ROUTER_ICON_SVG.matchAll(/<path d="M([\d.]+) ([\d.]+) A8\.600 8\.600 0 0 1 ([\d.]+) ([\d.]+)" stroke="currentColor" stroke-width="2\.5"/g)];
-  assert.equal(arcs.length, 3, '三段轨道弧（半径 8.6，.27 对照产品 LOGO 重量）');
-  const ang = (x, y) => ((Math.atan2(x - 16, 16 - y) * 180 / Math.PI) + 360) % 360;
-  for (const [, x1, y1, x2, y2] of arcs) {
-    // 每段弧从缺口中心 +10° 到下一缺口中心 −10°：三段 100° 弧 + 三个 20° 缺口（0° / 120° / 240°）
-    const a = ang(+x1, +y1), b = ang(+x2, +y2);
-    assert.ok(Math.abs(((b - a + 360) % 360) - 100) < 0.5, `弧长应为 100°，实际 ${((b - a + 360) % 360).toFixed(1)}`);
-    assert.ok(Math.abs((a % 120) - 10) < 0.5, `弧起点应在缺口中心 +10°，实际 ${a.toFixed(1)}`);
-  }
-  const dots = [...ROUTER_ICON_SVG.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="2\.05" fill="currentColor"\/>/g)];
-  assert.equal(dots.length, 3, '三个卫星点');
-  for (const [, x, y] of dots) {
-    const d = Math.hypot(+x - 16, +y - 16);
-    assert.ok(Math.abs(d - 8.9) < 0.01, `卫星点应落在轨道外侧 0.3（半径 8.9），实际 ${d.toFixed(3)}`);
-    assert.ok([60, 180, 300].some((t) => Math.abs(ang(+x, +y) - t) < 0.5), '卫星点在三段弧正中');
-  }
-  assert.match(ROUTER_ICON_SVG, /<circle cx="16" cy="16" r="3" fill="currentColor"\/>/, '实心核心');
+  assert.match(ROUTER_ICON_SVG, /<circle cx="16\.0" cy="16\.0" r="3\.6" stroke-width="2"\/>/, '中心轨道环 r=3.6、线宽 2');
+  assert.ok(ROUTER_ICON_SVG.includes('<circle cx="16.0" cy="16.0" r="1.3" fill="currentColor" stroke="none"/>'), '实心核心 r=1.3');
+  const sats = [...ROUTER_ICON_SVG.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="2\.5" stroke-width="2"\/>/g)];
+  assert.equal(sats.length, 3, '三个卫星节点 r=2.5');
+  const bearing = (x, y) => ((Math.atan2(x - 16, 16 - y) * 180 / Math.PI) + 360) % 360;
+  const got = sats.map(([, x, y]) => ({ d: Math.hypot(+x - 16, +y - 16), a: bearing(+x, +y) })).sort((p, q) => p.a - q.a);
+  for (const g of got) assert.ok(Math.abs(g.d - 10.6) < 0.02, `卫星应离中心 10.6，实际 ${g.d.toFixed(3)}`);
+  [0, 120, 240].forEach((t, i) => assert.ok(Math.abs(got[i].a - t) < 0.5, `卫星角度应为 ${t}°，实际 ${got[i].a.toFixed(1)}°`));
+  const spokes = [...ROUTER_ICON_SVG.matchAll(/<path d="M[\d.]+ [\d.]+ L[\d.]+ [\d.]+" stroke-width="1\.9" stroke-opacity="\.7"\/>/g)];
+  assert.equal(spokes.length, 3, '三条连接臂（0.7 不透明度，比环淡一档）');
 });
 test('智能路由器对用户一律显示 smart_router：模型按钮 / 下拉项 / 消息头 / 连接行 / 费用弹层 / 能力行都走同一个 SMART_ROUTER_LABEL', async () => {
   const fsp = await import('node:fs');
@@ -9209,7 +9196,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.9.1'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.9.2'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9251,7 +9238,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.1');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.2');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
