@@ -1,3 +1,4 @@
+import { appendToolStream } from './toolflow.js?v=2026.10.9.4';
 // ─── 工具运行器（P4 拆分：从 agent.js 抽出「单个工具调用的执行与记账」）────────────────────
 // 拥有：① 同一波工具调用的调度（只读并发 / 写串行 / 委派限流：batchToolCalls · planToolWaves · runWithCategoryLimits）；
 //       ② 每次调用的完整生命周期——契约预检（validateToolCallPre）→ 风险分级与确认闸门 → 预算扣减 → 幂等账本回放
@@ -14,10 +15,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.9.3';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.3';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.3';
-import { toolName } from './executionContext.js?v=2026.10.9.3';
+} from './execution.js?v=2026.10.9.4';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.4';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.4';
+import { toolName } from './executionContext.js?v=2026.10.9.4';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -89,6 +90,7 @@ export function toolAccessSet(call) {
     case 'analyze_pdf': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'analyze_video': return { reads: a.path ? strList(a.path) : [ACCESS_ANY], writes: [] };
     case 'fetch_url': return { reads: [], writes: strList(a.save_path) };
+    case 'browser_sandbox': return { reads: [ACCESS_ANY], writes: [ACCESS_ANY] };
     case 'download_file': return { reads: [], writes: a.path ? strList(a.path) : [ACCESS_ANY] };
     default:
       if (PARALLEL_TOOLS.has(name)) return { reads: [], writes: [] };
@@ -188,6 +190,9 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       webEnabled: !!turn.webEnabled, // .35：沙箱内受控 fetch 是否放行（与网页工具同一开关）
       signal: turn.signal,
       onUi: (patch) => {
+        if (turn.signal?.aborted) return;
+        if (patch?.stream) { appendToolStream(call, patch); patch = { ...patch, liveOutput: call.liveOutput }; }
+        if (['running', 'ok', 'error'].includes(patch?.status)) call.status = patch.status;
         if (patch && patch.billing) call.billing = patch.billing;
         emit('onToolEvent', call, patch);
       },

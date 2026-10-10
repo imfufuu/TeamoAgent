@@ -343,6 +343,7 @@ let releaseStream = null;
 store.state.settings.webEnabled = false;
 store.state.settings.jevEnabled = false;
 globalThis.fetch = async (url) => {
+  if (String(url).includes('/api/sandbox-web/health')) return new Response('{}', { status: 404 });
   if (/\/api\/health(?:\?|$)/.test(String(url))) {
     return new Response(JSON.stringify({ ok: true, relay: 'test-relay', capabilities: ['fetch'] }), {
       status: 200, headers: { 'content-type': 'application/json' },
@@ -620,26 +621,29 @@ console.log('\n⑰ 工具折叠 / 出参回填 / 识图路径回归');
   ui.rebuildMessages();
   const ran = $('.ran-commands');
   const explored = $('.explored-files');
-  ok('其他命令进入唯一 Ran Commands 折叠行', !!ran && $$('.ran-commands').length === 1);
-  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran commands 5', ran && ran.querySelector('.chip-name').textContent);
+  const rans = $$('.ran-commands'), allCommandChips = $$('.tool-call-chip');
+  ok('只有相邻同类命令合并，不能越过读取/修改文件', !!ran && rans.length === 2);
+  ok('Ran Commands 计数按实际调用数统计', !!ran && ran.querySelector('.chip-name').textContent === 'Ran commands 4' && rans[1].querySelector('.chip-name').textContent === 'Ran command', ran && ran.querySelector('.chip-name').textContent);
   ok('analyze_image 不再作为命令 chip，图片路径进入 Explored Files', !!explored
     && /uploads\/screenshot\.png/.test(explored.textContent)
     && !ran.textContent.includes('analyze_image'));
-  ok('2026.10.9.1：同名多次命令逐条展开（每条一行，不合并成 ×N），所有出参都能回读', !!ran && ran.querySelectorAll('.tool-call-chip').length === 5
+  ok('2026.10.9.1：同名多次命令逐条展开（每条一行，不合并成 ×N），所有出参都能回读', !!ran && allCommandChips.length === 5
     && !ran.textContent.includes('×') && ran.textContent.includes(unicodeOutput) && ran.textContent.includes('second output'));
   const emptyChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'empty-1');
   ok('空字符串出参也算完成，并显示为空输出', !!emptyChip && emptyChip.classList.contains('done')
     && emptyChip.querySelector('.chip-result')?.textContent === '（空输出）');
-  const foldState = ran && ran.querySelector(':scope > .chip-state');
+  const foldState = rans[1]?.querySelector(':scope > .chip-state');
   ok('折叠头只是菜单：不写成功 / 失败，失败数只进 title', !!foldState && !/成功|失败|failed/i.test(foldState.textContent) && /1 条失败/.test(foldState.title), foldState?.textContent + ' | ' + foldState?.title);
-  const failChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'fail-1');
+  const failChip = allCommandChips.find((n) => n.dataset.callIds === 'fail-1');
   const failState = failChip && failChip.querySelector('.chip-state');
   ok('失败命令行只显示 ✗ 图标 + 耗时，不出现中文「失败」或英文 failed', !!failState && /✗/.test(failState.textContent) && !/成功|失败|failed/i.test(failState.textContent) && !!failState.querySelector('.chip-fail') && failState.querySelector('.chip-fail').getAttribute('aria-label') === '失败', failState?.textContent);
   ok('失败原因仍通过原生悬浮提示提供', /工具执行失败：测试错误提示/.test(failState?.title || ''), failState?.title);
   const okChip = $$('.tool-call-chip', ran || document).find((n) => n.dataset.callIds === 'copy-1');
   ok('成功命令行只显示 ✓ 图标 + 耗时，不出现中文「成功」', !!okChip && /✓/.test(okChip.querySelector('.chip-state').textContent) && !/成功|失败/.test(okChip.querySelector('.chip-state').textContent) && !!okChip.querySelector('.chip-state .chip-ok'), okChip?.querySelector('.chip-state')?.textContent);
   click(ran);
-  ok('Ran Commands 可单独展开', ran.classList.contains('expanded'));
+  ok('纯工具轮完成后保持展开，仍可手动折叠', !ran.classList.contains('expanded'));
+  click(ran);
+  ok('Ran Commands 可手动重新展开', ran.classList.contains('expanded'));
 }
 
 console.log('\n⑱ 设置页字号 / 深度思考 / 本地会话数回归');
@@ -748,11 +752,14 @@ console.log('\n⑳ .36 回归：能力表里把禁用工具全部启用后，弹
   // 全部启用：中继在线且声明全套能力 → 裁剪清空，「已禁用 N」胶囊本身消失 → 锚退回整条能力行
   const net = await import(path.join(ROOT, 'js/net.js'));
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = async (u) => String(u).includes('/api/health')
-    ? new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file', 'screenshot'] }), { status: 200, headers: { 'content-type': 'application/json' } })
-    : new Response('nf', { status: 404 });
+  globalThis.fetch = async (u) => String(u).includes('/api/sandbox-web/health')
+    ? new Response(JSON.stringify({ ok: true, local: true, engine: 'chromium', kind: 'sandbox-project-browser' }), { status: 200, headers: { 'content-type': 'application/json' } })
+    : String(u).includes('/api/health')
+      ? new Response(JSON.stringify({ ok: true, capabilities: ['fetch', 'search', 'crawl', 'file'] }), { status: 200, headers: { 'content-type': 'application/json' } })
+      : new Response('nf', { status: 404 });
   try {
     net.resetRelayProbe();
+    const lb = await import('../js/localbrowser.js?v=2026.10.9.4'); await lb.probeLocalBrowser({ force: true });
     store.state.relayOk = await net.relayAvailable();
     store.state.settings.webEnabled = true;
     ui.syncWeb();

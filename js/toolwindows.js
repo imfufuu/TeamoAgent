@@ -2,7 +2,7 @@
 // 「Ran command(s)」里每条命令展开后是三个窗口：COMMAND / STDOUT / STDERR（有内容才出现）。
 // 每个窗口右上角各一枚复制按钮，复制的是本窗口的原文。替代旧版「入参 / 出参」两个按钮。
 // 纯函数（不碰 DOM 状态），便于单测；ui.js 只负责接线。
-import { esc } from './ui-markdown.js?v=2026.10.9.3';
+import { esc } from './ui-markdown.js?v=2026.10.9.4';
 
 /** execute_* 的结果正文里，错误段落的分隔标记（见 tools.js formatExecResult）。 */
 export const WINDOW_ERROR_MARK = '── 错误 ──';
@@ -19,6 +19,7 @@ const prettyJson = (v) => {
  */
 export function commandWindowText(args) {
   const a = isPlainObject(args) ? args : {};
+  if (typeof a.__raw === 'string') return a.__raw;
   const key = COMMAND_PRIMARY_KEYS.find((k) => typeof a[k] === 'string' && a[k].trim());
   if (!key) return prettyJson(a);
   const rest = Object.fromEntries(Object.entries(a).filter(([k]) => k !== key));
@@ -73,3 +74,36 @@ export function renderToolWindowsHtml({ command = '', stdout = '', stderr = '', 
     + (err ? windowHtml({ kind: 'stderr', title: 'STDERR', text: err, copyLabel: 'STDERR' }) : '')
     + '</div>';
 }
+
+export function toolWindowsOf(chip) {
+    const ids = String(chip?.dataset.callIds || chip?.dataset.callId || '').split(',').filter(Boolean);
+    const items = chip._items || [];
+    const commands = [];
+    const outs = [];
+    const errs = [];
+    let missing = false;
+    ids.forEach((id, i) => {
+      const item = items.find((t) => String(t && t.id) === id) || items[i] || {};
+      commands.push(commandWindowText(item.args !== undefined ? item.args : chip._args));
+      const state = (chip._toolStates && chip._toolStates[id]) || {};
+      if (chip._outs && Object.hasOwn(chip._outs, id)) {
+        const body = String(chip._outs[id] == null ? '' : chip._outs[id]);
+        const split = splitToolStreams(body);
+        let stdout = split.stdout;
+        let stderr = split.stderr;
+        // 失败但正文里没有「── 错误 ──」段（如 fetch_url 的「工具执行失败：…」）：整段正文就是错误信息
+        if (!stderr && state.status === 'error' && body.trim()) { stdout = ''; stderr = body.trim(); }
+        if (stdout) outs.push(stdout);
+        if (stderr) errs.push(stderr);
+      } else if (item.liveOutput) {
+        if (item.liveOutput.stdout) outs.push(item.liveOutput.stdout);
+        if (item.liveOutput.stderr) errs.push(item.liveOutput.stderr);
+      } else if (state.status === 'ok') {
+        outs.push('工具已结束，但未收到出参。');
+        missing = true;
+      } else if (state.status === 'error') {
+        errs.push(state.note || '工具失败，但未收到结果正文。');
+      }
+    });
+    return { command: commands.join('\n\n'), stdout: outs.join('\n\n'), stderr: errs.join('\n\n'), missing };
+  }

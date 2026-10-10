@@ -61,6 +61,7 @@ function makeConsole(logs) {
     if (text.length > 64 * 1024) text = `${text.slice(0, 64 * 1024)}…[单条日志截断]`;
     bytes += text.length;
     logs.push({ level, text });
+    post({ __log: { level, text } });
   };
   const make = (level) => (...a) => push(level, a);
   const con = { log: make('log'), info: make('info'), warn: make('warn'), error: make('error'), debug: make('debug'), table: make('log'), dir: make('log'), trace: make('log') };

@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.9.3';
+} from '../js/api.js?v=2026.10.9.4';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.9.3');
+const api = await import('../js/api.js?v=2026.10.9.4');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -682,7 +682,7 @@ test('第 1 条：图表触屏点按不产生灰块，触摸不参与悬停预�
   assert.equal((ui.match(/if \(e\.pointerType === 'touch'\) return;/g) || []).length, 2, 'pointerover / pointerout 都要忽略触摸');
 });
 
-test('第 4 条：工具详情三窗口（COMMAND / STDOUT / STDERR）、逐条展开、执行中才展开、入参出参按钮已移除', async () => {
+test('第 4 条：工具详情三窗口（COMMAND / STDOUT / STDERR）、逐条展开、流式展开且完成后按正文折叠、入参出参按钮已移除', async () => {
   const tw = await import('../js/toolwindows.js');
   assert.equal(tw.commandWindowText({ code: 'print(1)\nprint(2)' }), 'print(1)\nprint(2)', '代码字段原样显示（多行不转义）');
   assert.equal(tw.commandWindowText({ command: 'git log --oneline -5' }), 'git log --oneline -5');
@@ -705,8 +705,8 @@ test('第 4 条：工具详情三窗口（COMMAND / STDOUT / STDERR）、逐条�
   assert.doesNotMatch(ui, /chip-json|入参<\/button>|出参<\/button>/, '入参 / 出参按钮已移除');
   assert.match(ui, /const groups = mergedCalls\.map\(\(t\) => \(\{ name: t\.name, items: \[t\] \}\)\);/, '逐条展开，不按工具名合并 ×N');
   assert.match(ui, /const anyRunning = children\.some\(\(chip\) => chip\.classList\.contains\('running'\)\);/);
-  assert.match(ui, /fold\.classList\.toggle\('live', getBusy\(\) && anyRunning\);/, '.live 也只在执行中（它会强制显示详情）');
-  assert.match(ui, /fold\.classList\.toggle\('expanded', getBusy\(\) && anyRunning\);/);
+  assert.match(ui, /fold\.classList\.toggle\('live', getBusy\(\) && anyRunning && fold\._userToggle !== false\);/, '.live 也只在执行中（它会强制显示详情）');
+  assert.match(ui, /fold\.classList\.toggle\('expanded', autoOpen\);/);
   assert.match(ui, /liveToolCallIds/, '执行中状态跨重绘保留');
 });
 
@@ -778,12 +778,12 @@ test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色
   assert.doesNotMatch(ROUTER_ICON_SVG, /TeamoRouter|TEAMOROUTER/i, '不再复刻第三方产品 LOGO');
 });
 
-test('2026.10.9.3 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
+test('2026.10.9.4 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
   const fsp = await import('node:fs');
   const changelog = fsp.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.3 ·/m, 'CHANGELOG 顶部新增 2026.10.9.3 条目');
-  assert.match(readme, /构建 `2026\.10\.9\.3`/);
+  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.4 ·/m, 'CHANGELOG 顶部新增 2026.10.9.4 条目');
+  assert.match(readme, /构建 `2026\.10\.9\.4`/);
 });
 
 group('多模态标识');
@@ -2518,7 +2518,7 @@ test('agent.js 与 tools.js 的沙箱工具清单一致（本地副本，防 lin
   assert.match(src, /const CODE_TOOL_NAMES = \[\.\.\.REG_CODE_TOOL_NAMES\];/, 'agent.js 的沙箱工具清单必须来自能力登记处');
   const reg = await import('../js/capabilities.js');
   assert.deepEqual([...reg.CODE_TOOL_NAMES], tools.CODE_TOOL_NAMES, '两份清单必须同步');
-  assert.deepEqual(tools.CODE_TOOL_NAMES, ['execute_javascript', 'execute_python', 'execute_cpp']);
+  assert.deepEqual(tools.CODE_TOOL_NAMES, ['execute_javascript', 'execute_python', 'execute_cpp', 'browser_sandbox']);
 });
 group('子智能体自主委派（提示词层）');
 test('systemPrompt 里列出了 dispatch_subagent（不再只靠开关后附加的指引）', async () => {
@@ -3247,7 +3247,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.9.3');
+  const api = await import('../js/api.js?v=2026.10.9.4');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -3987,7 +3987,7 @@ test('paintAssistant：光标必须叠上忙碌状态（导入后去不掉的根
   assert.match(paint, /live && !noOutputYet.*cursor/, '光标只在 live 时出现');
   assert.equal(paint.includes("if (!m.done && !noOutputYet) html += '<span class=\"cursor\""), false, '旧条件会让导入会话的每条回复一直闪光标');
   assert.match(paint, /模型未返回可见答复/, '旧会话里的空完成消息也不能继续显示为空白');
-  assert.match(paint, /m\.done && !String\(m\.text \|\| ''\)\.trim\(\)/, '完成但无正文时应显示重新生成提示');
+  assert.match(paint, /m\.done && !m\.cancelled && !String\(m\.text \|\| ''\)\.trim\(\)/, '完成但无正文时应显示重新生成提示');
 });
 
 group('Hermes 式 harness（提示词分层 / 技能 / 记忆 / 并行工具）');
@@ -5317,7 +5317,7 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.9.3');
+  assert.equal(APP_VERSION, '2026.10.9.4');
   assert.match(html, /Dubhe Agent V1\.7 —/);
   const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
   assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
@@ -8351,7 +8351,7 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(def.description, /不要传 model/);
   assert.match(def.description, /16MB/);
   assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'prompt']);
-  assert.equal(TOOL_DEFS.length, 32, '工具总数 37 → 38（analyze_video）→ 39（download_file）→ 32（P6：9 个本地小工具合成 text_tool + data_tool）');
+  assert.equal(TOOL_DEFS.length, 33, '工具总数 33（P6 合并后 32，加本地 browser_sandbox）');
   const c = ex.getToolContract('analyze_video');
   assert.equal(c.sideEffect, 'remote');
   assert.equal(c.external, true);
@@ -9043,6 +9043,7 @@ test('deriveToolWhitelistFromBits 与整轮上下文 deriveToolWhitelist 逐项�
   }
   const off = ec.deriveToolWhitelistFromBits({ relay: true, web: true, sandbox: true, dispatch: false, search: true, crawl: false, file: true, remoteCpp: false }, TOOL_DEFS);
   assert.deepEqual(off.dropped, [
+    { name: 'browser_sandbox', reason: 'local-browser-unavailable' },
     { name: 'crawl_site', reason: 'relay-crawl-unavailable' },
     { name: 'execute_cpp', reason: 'remote-cpp-off' },
     { name: 'dispatch_subagent', reason: 'capability-dispatch-off' },
@@ -9123,7 +9124,7 @@ test('端到端：中继在线但只声明 fetch/search 时，【联网】段「
     const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
     assert.match(sys, /本轮已开启；中继健康检查通过/);
     assert.match(sys, /实际网页工具表：search_web（网页搜索）、fetch_url（读取单个网页）。未列出的 crawl_site（中继未声明 crawl） \/ download_file（中继未声明 file） 本轮不可用。/);
-    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：crawl_site（中继未声明 crawl）、download_file（中继未声明 file）/);
+    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：[^\n]*crawl_site（中继未声明 crawl）、download_file（中继未声明 file）/);
     const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
     assert.ok(sent.includes('fetch_url') && sent.includes('search_web') && !sent.includes('crawl_site') && !sent.includes('download_file'));
     const pv = agent.previewToolTable({ text: '随便聊聊' });
@@ -9165,7 +9166,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.9.3'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.9.4'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9207,7 +9208,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.3');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.4');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -9234,7 +9235,7 @@ test('ci.yml：tests/ 下每个 .mjs 有且只有一个 step，经 tools/run-tes
   const runSteps = [...ci.matchAll(/^\s*run: node tools\/run-tests\.mjs tests\/([\w.-]+\.mjs)\s*$/gm)].map((m) => m[1]).sort();
   assert.deepEqual(runSteps, files, 'ci.yml 的测试 step 必须与 ls tests/*.mjs 一一对应（不多不少、不重复）');
   assert.match(ci, /^\s*run: npm ci\s*$/m, 'jsdom 经 npm ci 安装（dom-smoke / p3-dom-smoke / app-boot 依赖它）');
-  assert.doesNotMatch(ci, /playwright/, 'DOM 冒烟用 jsdom，不装浏览器');
+  assert.match(ci, /npx playwright install --with-deps chromium/, '真实网页沙箱验收需独立安装 Chromium；DOM 冒烟仍用 jsdom');
   assert.match(ci, /for f in js\/\*\.js relay\/\*\.js sw\.js tools\/\*\.mjs; do node --check "\$f" \|\| exit 1; done/);
   assert.match(ci, /run: node tools\/run-tests\.mjs server\.py\s*$/m);
   assert.match(ci, /run: node tools\/run-tests\.mjs tests\/server_checks\.py\s*$/m);
@@ -9259,7 +9260,7 @@ test('tools/run-tests.mjs：解析各测试文件的收尾计数；跳过与失�
   const fsp = await import('node:fs');
   const files = fsp.readdirSync(new URL('../tests/', import.meta.url)).filter((f) => f.endsWith('.mjs')).sort().map((f) => `tests/${f}`);
   assert.deepEqual(rt.listTestFiles(), files);
-  assert.equal(rt.PYTHON_CHECKS.length, 2);
+  assert.equal(rt.PYTHON_CHECKS.length, 3);
   // 需要外部资源的文件都要能「无依赖时以 0 退出并打印跳过」：touch-density 以前是硬 import puppeteer
   const touch = fsp.readFileSync(new URL('../tests/touch-density.mjs', import.meta.url), 'utf8');
   assert.doesNotMatch(touch, /^import puppeteer from 'puppeteer';/m);
@@ -9322,7 +9323,7 @@ test('selectToolsForTurn：核心 12 必带；其余按关键词 / 附件 / 近�
   // 每个非核心工具都有规则（否则两层下发名存实亡）
   for (const t of TOOL_DEFS) if (!ec.CORE_TOOLS.includes(t.name)) assert.ok(ec.TOOL_MOUNT_RULES[t.name], `${t.name} 缺按需挂载规则`);
   // 提示词一行只列名字
-  assert.match(ec.formatDeferredTools(hello.deferred), /^另有 \d+ 个工具本轮按需未挂载：get_current_time、/);
+  assert.match(ec.formatDeferredTools(hello.deferred), /^另有 \d+ 个工具本轮按需未挂载：browser_sandbox、get_current_time、/);
   assert.equal(ec.formatDeferredTools([]), '');
   // recentToolNames：只看最近两轮
   const msgs = [
@@ -9999,9 +10000,9 @@ test('能力登记处：TOOL_DEFS ↔ 登记表 ↔ execution.js 契约三方一
   same(reg.PARALLEL_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image', 'text_tool']);
   same(reg.NETWORK_TOOL_NAMES, ['fetch_url', 'search_web', 'crawl_site', 'download_file']);
   same(reg.READ_ONLY_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'data_tool']);
-  same(reg.HEAVY_TOOL_NAMES, ['write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
+  same(reg.HEAVY_TOOL_NAMES, ['browser_sandbox', 'write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
   assert.deepEqual([...reg.CORE_TOOL_NAMES], ['execute_javascript', 'execute_python', 'execute_cpp', 'write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'fetch_url', 'search_web', 'analyze_image', 'dispatch_subagent'], '核心表顺序不变');
-  assert.deepEqual(Object.keys(reg.CAPABILITY_GATED_TOOL_GROUPS), ['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'subagentSwarm']);
+  assert.deepEqual(Object.keys(reg.CAPABILITY_GATED_TOOL_GROUPS), ['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'localBrowser', 'subagentSwarm']);
   assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.codeSandbox], ['execute_javascript', 'execute_python', 'execute_cpp']);
   assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.webFetch], ['fetch_url']);
   // 消费方确实在用派生表（不是各自又抄了一份）
@@ -10265,7 +10266,7 @@ test('沙箱垫片：require(fs→files / path / buffer / crypto / util / events
   assert.match(over.error, /次数超过上限/);
   // 接线：tools.js 把联网开关透传给 runJavaScript，worker 侧装配垫片并在 lockdown 前 importScripts
   const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
-  assert.match(tools, /runJavaScript\(args\.code \|\| '', fs, \{ net: \{ enabled: !!ctx\.webEnabled, fetchPage: \(p\) => fetchPage\(\{ \.\.\.p, signal: ctx\.signal \}\) \} \}\)/);
+  assert.match(tools, /runJavaScript\(args\.code \|\| '', fs, \{ signal: ctx\.signal, onOutput: \(log\) => emit\([\s\S]*?net: \{ enabled: !!ctx\.webEnabled, fetchPage: \(p\) => fetchPage\(\{ \.\.\.p, signal: ctx\.signal \}\) \} \}\)/);
   const worker = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
   assert.ok(worker.indexOf("importScripts('./worker-shims.js')") < worker.indexOf('function lockdown()'), '垫片脚本在 lockdown（会删掉 importScripts）之前加载');
   const sandbox = fsp.readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');

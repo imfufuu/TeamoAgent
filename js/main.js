@@ -1,13 +1,14 @@
+import { probeLocalBrowser } from './localbrowser.js?v=2026.10.9.4';
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.9.3';
-import { createAgent } from './agent.js?v=2026.10.9.3';
-import { mountUI, toast } from './ui.js?v=2026.10.9.3';
+import { createStore } from './state.js?v=2026.10.9.4';
+import { createAgent } from './agent.js?v=2026.10.9.4';
+import { mountUI, toast } from './ui.js?v=2026.10.9.4';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.9.3';
-import { mountSettings, applyFontSize, applyMotion, browserFeatureReport } from './settings.js?v=2026.10.9.3';
-import { APP_RELEASE } from './config.js?v=2026.10.9.3';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.9.4';
+import { mountSettings, applyFontSize, applyMotion, browserFeatureReport } from './settings.js?v=2026.10.9.4';
+import { APP_RELEASE } from './config.js?v=2026.10.9.4';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
@@ -45,6 +46,7 @@ const hooks = {
     toast(`连接异常（${why}），正在第 ${n}/${total} 次重试…`, 'warn', 3000);
   },
   onDelta: (m, text) => ui && ui.onDelta(m, text),
+  onToolDelta: (m) => ui && ui.onToolDelta(m),
   onReasoning: (m, text) => ui && ui.onReasoning(m, text),
   onAssistantDone: (m) => ui && ui.onAssistantDone(m),
   onToolStart: (call) => ui && ui.onToolStart(call),
@@ -163,3 +165,5 @@ try {
     navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
   }
 } catch { /* SW 不可用不影响应用 */ }
+
+probeLocalBrowser().then(() => { if (ui) ui.syncWeb(); }).catch(() => {});

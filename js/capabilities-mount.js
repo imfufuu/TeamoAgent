@@ -14,6 +14,7 @@ export const TOOL_MOUNT_RULES_SOURCE = Object.freeze({
   unzip_file: { text: /解压|\bunzip\b|\bextract\b|压缩包|打开.{0,4}zip/i, attachments: ['zip'] },
   crawl_site: { text: /爬(?:取|虫|一下)|抓取.{0,6}(?:站|网站|整站|文档|所有页)|整站|\bcrawl\b|站点地图|\bsitemap\b|多页/i },
   download_file: { text: /下载|拉取|\bdownload\b|保存.{0,6}(?:到沙箱|文件)|另存/i },
+  browser_sandbox: { text: /网页|网站|页面|截图|截屏|预览|调试|\bhtml\b|\bcss\b|\bchromium\b|\bpuppeteer\b|\blocalhost\b|\bweb(?:site|page)?\b|\bpreview\b/i },
   run_git: { text: /\bgit\b|提交|\bcommit\b|分支|\bbranch\b|仓库|\brepo\b|版本库|\bmerge\b|\brebase\b/i },
   search_files: { text: /搜索|查找|搜一下|找出|找到|找一下|\bgrep\b|全文检索|\bsearch\b|出现在哪|引用|日志|\blogs?\b/i },
   diff_text: { text: /\bdiff\b|对比.{0,8}(?:文件|文本|两段|两份|版本|输出|结果)|(?:文件|文本|版本|输出|结果).{0,8}(?:差异|区别|对比)|逐行比较|改了什么|变更了什么/i },

@@ -68,11 +68,11 @@ ok('路径来自半截 JSON（流式期间也能拿到路径）', fold.textConte
 const win = $('.edited-files .edit-preview');
 ok('预览窗已渲染', !!win);
 ok('预览窗带策略版本标记（口径可追溯）', win && /edit-preview-\d/.test(win.dataset.policy || ''), win && win.dataset.policy);
-ok('预览窗标注「写入中…」状态位', /写入中/.test(fold.querySelector('.ep-state')?.textContent || ''), fold.querySelector('.ep-state')?.textContent);
+ok('半截参数标注「内容生成中」，不伪装文件已写入', /内容生成中/.test(fold.querySelector('.ep-state')?.textContent || ''), fold.querySelector('.ep-state')?.textContent);
 ok('预览窗显示行号 + 已到达的内容', $$('.edited-files .ep-line').length >= 2 && /第一行/.test($('.edited-files .ep-body').textContent));
 ok('写入中显示光标（直播语义）', !!$('.edited-files .ep-caret'));
 ok('预览窗标题含模式 / 行数 / 字符数', /整文件写入/.test(win.querySelector('.ep-head').textContent) && /行/.test(win.querySelector('.ep-head').textContent), win.querySelector('.ep-head').textContent);
-ok('刷新是节流的（2.5 秒档，不是每帧重排）', /EDIT_PREVIEW_REFRESH_MS/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
+ok('刷新是有界节流的（50ms，实时预览而非整文件重排）', /EDIT_PREVIEW_REFRESH_MS/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
 
 // 完成：换成完整参数 + done → 折叠回 Edited Files N，预览窗仍在（可回看）
 const doneMsg = store.updateMessage(liveMsg.id, { toolCalls: [{ id: 'call-live-1', name: 'write_file', args: { path: 'tmp/live.md', content: '第一行\n第二行\n第三行' } }], done: true, text: '已写入。' });

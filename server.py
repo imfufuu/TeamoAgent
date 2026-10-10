@@ -27,11 +27,13 @@ import json
 import os
 import socketserver
 import ssl
+import select
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from sandbox_browser import SandboxBrowser, MAX_PROJECT_BYTES
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 # 上游候选：第一个是文档默认域名，第二个（.cn）在中国大陆网络通常更稳。
@@ -42,6 +44,9 @@ WORKSPACE = os.environ.get("DUBHE_WORKSPACE") or os.path.join(ROOT, "workspace")
 UA = "Mozilla/5.0 (X11; Linux x86_64) Dubhe-Agent-LocalRelay/1.0"
 # git 执行开关：__main__ 里按 --allow-git/--no-git 与监听地址决定
 GIT_ENABLED = True
+BROWSER_REMOTE_TRUSTED = False
+BROWSER_ENABLED = True
+SANDBOX_BROWSER = SandboxBrowser()
 FETCH_TIMEOUT = 25
 MAX_FETCH_BYTES = 4_000_000
 
@@ -257,7 +262,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cache-Control", "no-store")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.send_header("X-Frame-Options", "DENY")
+        self.send_header("X-Frame-Options", "SAMEORIGIN" if self._route().startswith("/sandbox-web/") else "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         super().end_headers()
@@ -278,6 +283,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return self._route() == "/api/proxy"
 
     def do_GET(self):
+        if self._route().startswith("/sandbox-web/"):
+            return self._sandbox_asset()
         if self._is_proxy():
             return self._proxy("GET")
         if self._route().startswith("/api/"):
@@ -301,6 +308,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return
         route = self._route()
         qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+        if route.startswith("/api/sandbox-web/"):
+            return self._sandbox_api(method, route)
         if route == "/api/health":
             return self._json(200, {
                 "ok": True, "service": "dubhe-agent-local-relay",
@@ -314,6 +323,101 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if route == "/api/git":
             return self._git(method, qs)
         return self._json(404, {"error": f"unknown api route {route}"})
+
+    def _sandbox_asset(self):
+        try:
+            asset = SANDBOX_BROWSER.asset(self._route())
+        except ValueError as exc:
+            return self._json(400, {"error": str(exc)})
+        if asset is None:
+            return self._json(404, {"error": "沙箱文件不存在或服务已停止"})
+        data, content_type, preview_id = asset
+        self.send_response(200)
+        self.send_header("Content-Type", content_type + ("; charset=utf-8" if content_type.startswith("text/") else ""))
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("X-DNS-Prefetch-Control", "off")
+        # A separate opaque origin even if opened as a top-level page. Scripts
+        # can use this project's files, never app APIs/storage or public URLs.
+        host = self.headers.get("Host", "")
+        if not re.fullmatch(r"[A-Za-z0-9.\-:\[\]]+", host):
+            host = "127.0.0.1:%d" % self.server.server_address[1]
+        sources = " ".join(f"{scheme}://{host}/sandbox-web/{preview_id}/" for scheme in ("http", "https"))
+        self.send_header("Content-Security-Policy", "default-src 'none'; sandbox allow-scripts; "
+                         + f"script-src 'unsafe-inline' {sources} blob:; style-src 'unsafe-inline' {sources}; "
+                         + f"img-src {sources} data: blob:; font-src {sources} data:; media-src {sources} data: blob:; "
+                         + f"connect-src {sources}; worker-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _sandbox_api(self, method, route):
+        if self.headers.get("Sec-Fetch-Site", "").lower() == "cross-site":
+            return self._json(403, {"error": "cross-site sandbox request"})
+        if not BROWSER_REMOTE_TRUSTED:
+            try:
+                hostname = urllib.parse.urlparse("http://" + self.headers.get("Host", "")).hostname
+            except ValueError:
+                hostname = None
+            if hostname not in ("localhost", "127.0.0.1", "::1"):
+                return self._json(403, {"error": "仅接受本机 Host；可信远程环境必须显式 --allow-browser"})
+        if route == "/api/sandbox-web/health":
+            if method != "GET":
+                return self._json(405, {"error": "health 仅支持 GET"})
+            return self._json(200, SANDBOX_BROWSER.health(BROWSER_ENABLED))
+        if route not in ("/api/sandbox-web/start", "/api/sandbox-web/command"):
+            return self._json(404, {"error": "unknown sandbox route"})
+        if method != "POST":
+            return self._json(405, {"error": "沙箱浏览器操作仅支持 POST"})
+        if not BROWSER_ENABLED:
+            return self._json(503, {"error": "浏览器能力已关闭；请使用仅本机监听的 server.py"})
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            return self._json(415, {"error": "只接受 application/json"})
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+            if length <= 0 or length > MAX_PROJECT_BYTES * 2:
+                return self._json(413, {"error": "请求为空或超过项目容量限制"})
+            def reject_constant(value):
+                raise ValueError("JSON 不接受 NaN/Infinity")
+            payload = json.loads(self.rfile.read(length), parse_constant=reject_constant)
+            if not isinstance(payload, dict):
+                raise ValueError("请求必须是对象")
+            supported = {"action", "entry", "files", "preview_id", "selector", "text", "expression", "width", "height", "full_page", "wait_ms"}
+            if set(payload) - supported:
+                raise ValueError("只接受项目参数，禁止 URL/主机/端口/shell 或其他未知参数")
+            if any(k in payload for k in ("url", "base", "host", "port", "command")):
+                raise ValueError("此能力仅用于沙箱项目，禁止公网 URL 或 shell 命令")
+        except (ValueError, json.JSONDecodeError) as exc:
+            return self._json(400, {"error": str(exc)})
+        health = SANDBOX_BROWSER.health()
+        if not health.get("ok"):
+            return self._json(503, {"error": health.get("error") or "本地 Chromium 不可用"})
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-ndjson; charset=utf-8")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+        def frame(value):
+            # Detect a cancelled streaming client even when Chromium was quiet.
+            if select.select([self.connection], [], [], 0)[0] and not self.connection.recv(1, socket.MSG_PEEK):
+                raise BrokenPipeError("sandbox client closed")
+            self.wfile.write((json.dumps(value, ensure_ascii=False) + "\n").encode("utf-8"))
+            self.wfile.flush()
+        result = None
+        try:
+            event = lambda patch: frame({"type": "event", "payload": patch})
+            if route.endswith("/start"):
+                result = SANDBOX_BROWSER.start(payload, self.server.server_address[1], event)
+            else:
+                result = SANDBOX_BROWSER.command(payload, event)
+            frame({"type": "result", "result": result})
+        except (BrokenPipeError, ConnectionResetError):
+            if route.endswith("/start") and result and result.get("preview_id"):
+                try:
+                    SANDBOX_BROWSER.command({"action": "stop", "preview_id": result["preview_id"]})
+                except Exception:
+                    pass
+        except Exception as exc:
+            frame({"type": "result", "result": {"ok": False, "error": str(exc)[:1000]}})
 
     def _fetch(self, qs):
         """抓一个公网 URL → 纯文本（或原始体）。
@@ -502,6 +606,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=None, help="端口（优先于位置参数）")
     parser.add_argument("--workspace", default=None, help="网络工具与 git 的工作目录（默认 <服务器所在目录>/workspace）")
     parser.add_argument("--allow-git", action="store_true", help="即使监听非本机地址也允许 /api/git 执行 git 命令")
+    parser.add_argument("--allow-browser", action="store_true", help="可信非本机监听下启用本地沙箱 Chromium（不要暴露到公网）")
+    parser.add_argument("--no-browser", action="store_true", help="关闭本地沙箱网页运行/调试")
     parser.add_argument("--no-git", action="store_true", help="彻底关闭 /api/git（只留静态与代理）")
     parser.add_argument(
         "--host",
@@ -514,6 +620,8 @@ if __name__ == "__main__":
         WORKSPACE = os.path.abspath(args.workspace)
     loopback = args.host in ("127.0.0.1", "localhost", "::1")
     GIT_ENABLED = not args.no_git and (loopback or args.allow_git)
+    BROWSER_REMOTE_TRUSTED = args.allow_browser
+    BROWSER_ENABLED = not args.no_browser and (loopback or args.allow_browser)
     os.makedirs(WORKSPACE, exist_ok=True)
     print(
         f"◐ Dubhe Agent serving on http://{args.host}:{port}  (proxy → https://{UPSTREAM_HOST})\n"
@@ -522,5 +630,14 @@ if __name__ == "__main__":
     )
     if not loopback and not args.allow_git and not args.no_git:
         print("  ⚠ 非本机监听：/api/git 已自动关闭（要开请加 --allow-git）")
+    import signal
+    def stop_signal(*_):
+        raise KeyboardInterrupt
+    signal.signal(signal.SIGTERM, stop_signal)
     with Server((args.host, port), Handler) as httpd:
-        httpd.serve_forever()
+        try:
+            httpd.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            SANDBOX_BROWSER.close()

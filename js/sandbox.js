@@ -2,7 +2,7 @@
 // JS 沙箱：独立 Web Worker，无 DOM/fetch 访问面，超时强制 terminate
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
-import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.9.3';
+import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.9.4';
 import { readLocal, writeLocal } from './legacy-keys.js';
 import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 
@@ -174,12 +174,38 @@ export function createFS(initial = {}) {
   };
 }
 
+// Retain local HTML/CSS/JS resource closures when the answer links only the entry.
+export function websiteDependencies(files, entries) {
+  const kept = new Set(), queue = [...entries];
+  while (queue.length && kept.size < 512) {
+    const path = queue.shift();
+    if (kept.has(path) || !Object.hasOwn(files, path) || !isSafeFsPath(path) || /^internal\//.test(path)) continue;
+    kept.add(path);
+    if (!/\.(?:html?|css|js|mjs|svg)$/i.test(path)) continue;
+    const source = String(files[path]).slice(0, 1024 * 1024), refs = [];
+    for (const re of [/(?:src|href|poster)\s*=\s*["']([^"']+)["']/gi, /url\(\s*["']?([^\s"')]+)["']?\s*\)/gi,
+      /(?:\b(?:import|export)[^;\n]{0,160}?\bfrom\s*|\bimport\s*(?:\(|\s)|\b(?:fetch|URL)\s*\()\s*["']([^"']+)["']/gi]) {
+      let match; while ((match = re.exec(source))) refs.push(match[1]);
+    }
+    for (const ref of refs) {
+      if (!ref || /^[a-z][\w+.-]*:|^\/|^#/i.test(ref)) continue;
+      try {
+        const url = new URL(ref.replace(/&amp;/g, '&'), 'https://sandbox.invalid/' + path);
+        const dep = decodeURIComponent(url.pathname.slice(1));
+        if (url.origin === 'https://sandbox.invalid' && isSafeFsPath(dep)) queue.push(dep.endsWith('/') ? dep + 'index.html' : dep);
+      } catch { /* invalid/remote resources are not deliverables */ }
+    }
+  }
+  return kept;
+}
+
 // ── 临时沙箱（ephemeral overlay）：任务期间 Agent 写的文件先落在临时层，
 //    回合结束时只把「最终回答里提到/展示/引用」的交付物提交到真实沙箱，
 //    其余临时文件（调试输出、中间数据、缓存等）随 overlay 一起丢弃。
 //    修复 #3：Agent 不再在用户沙箱里留下一堆中间产物。
 export function createTempFS(baseFS) {
   const ephemeral = {}; // 本轮临时写的文件
+  const projectGroups = new Map();
   const deletedInEphemeral = new Set(); // 本轮主动删除的基文件
   const fs = {
     read(path) {
@@ -262,6 +288,10 @@ export function createTempFS(baseFS) {
       try { for (const k of baseFS.keys()) if (!deletedInEphemeral.has(k)) s.add(k); } catch { /* noop */ }
       return [...s];
     },
+    retainProject(entry, paths) {
+      if (isSafeFsPath(entry) && Array.isArray(paths) && paths.length <= 512)
+        projectGroups.set(entry, paths.filter((p) => isSafeFsPath(p) && !/^internal\//.test(p)));
+    },
     // 提交：扫描回答文本，把回答里明确引用到的临时文件落到真实沙箱；其余丢弃
     commitAnswer(answerText) {
       const text = String(answerText || '');
@@ -286,16 +316,20 @@ export function createTempFS(baseFS) {
             && text.includes(base)) return true;
         return false;
       };
+      const snapshot = this.export();
+      const entries = Object.keys(snapshot).filter((p) => /\.html?$/i.test(p) && looksReferenced(p));
+      const dependencies = websiteDependencies(snapshot, entries);
+      for (const [entry, paths] of projectGroups) if (looksReferenced(entry)) for (const p of paths) dependencies.add(p);
       for (const [p, c] of Object.entries(ephemeral)) {
         // 白名单前缀（internal/ · uploads/）无条件提交；其余（outputs/、根目录等模型自由创建的）才走引用判定
-        if (isAlwaysPersistedPath(p) || looksReferenced(p)) {
+        if (isAlwaysPersistedPath(p) || looksReferenced(p) || dependencies.has(p)) {
           try { baseFS.write(p, c); committed.push(p); } catch { /* noop */ }
         } else {
           discarded.push(p);
         }
       }
       // 清理临时层
-      this.clear();
+      this.clear(); projectGroups.clear();
       return { committed, discarded };
     },
     // 丢弃临时层（任务中止 / 失败时调用）：模型自由创建的半截产物丢掉；
@@ -309,7 +343,7 @@ export function createTempFS(baseFS) {
         }
         discarded.push(p);
       }
-      this.clear();
+      this.clear(); projectGroups.clear();
       return { committed, discarded };
     },
     _isTemp: true,
@@ -335,7 +369,7 @@ function savePyPkgs(list) {
 // 文件加载再失败时，取源码文本回退为 blob Worker，仍失败则给出明确诊断。
 // rpc：{ method: async (params) => result }——主线程替沙箱做它自己做不了的事（目前只有受控 fetch）。
 // 通道是 MessageChannel 的一端，随首条消息 transfer 给 Worker；Worker 侧把它关在闭包里，用户代码拿不到。
-function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts = [] } = {}) {
+function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts = [], onOutput = null, signal = null } = {}) {
   return new Promise((resolve) => {
     let settled = false;
     let active = null; // { worker, dispose }
@@ -359,16 +393,21 @@ function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts 
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
       if (active) { try { active.worker.terminate(); } catch { /* noop */ } active.dispose(); }
       if (channel) { try { channel.port1.close(); } catch { /* noop */ } }
       resolve(v);
     };
+    const abort = () => finish({ ok: false, aborted: true, logs: [], files: payload.files || {}, error: { message: '执行已停止' } });
     const timer = setTimeout(() => finish({
       ok: false, timedOut: true, logs: [], files: payload.files || {},
       error: { message: `执行超时（>${Math.round(timeoutMs / 1000)}s），沙箱已强制终止` },
     }), timeoutMs);
 
+    signal?.addEventListener('abort', abort, { once: true });
+    if (signal?.aborted) { abort(); return; }
     const spawn = async (useBlob) => {
+      if (settled) return;
       let worker = null;
       let dispose = () => {};
       try {
@@ -390,8 +429,12 @@ function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts 
         if (!useBlob && !triedBlob) { triedBlob = true; return spawn(true); }
         return finish({ ok: false, logs: [], files: payload.files || {}, error: { message: `沙箱创建失败：${err.message}` } });
       }
+      if (settled) { worker.terminate(); dispose(); return; }
       active = { worker, dispose };
-      worker.onmessage = (e) => finish(e.data);
+      worker.onmessage = (e) => {
+        if (e.data?.__log) { if (!settled) onOutput?.(e.data.__log); return; }
+        finish(e.data);
+      };
       worker.onerror = (e) => {
         if (settled) return;
         try { worker.terminate(); } catch { /* noop */ }
@@ -434,7 +477,7 @@ export async function runJavaScript(code, fsObj, opts = {}) {
   const t0 = performance.now();
   const files = fsObj.export();
   const rpc = createSandboxNetRpc(opts.net);
-  let out = await runInWorker('worker-js.js', { code, files, net: { enabled: !!rpc, ...SANDBOX_NET_LIMITS } }, SANDBOX_JS_TIMEOUT_MS, { rpc, extraScripts: ['worker-shims.js'] });
+  let out = await runInWorker('worker-js.js', { code, files, net: { enabled: !!rpc, ...SANDBOX_NET_LIMITS } }, SANDBOX_JS_TIMEOUT_MS, { rpc, extraScripts: ['worker-shims.js'], signal: opts.signal, onOutput: opts.onOutput });
   if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }
@@ -462,7 +505,7 @@ export function applyDelta(base, delta) {
 }
 let pyBlobTried = false;
 
-export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
+export async function runPython(code, fsObj, onProgress, extraPkgs = [], opts = {}) {
   if (pyodideBroken) {
     return { ok: false, logs: [], error: { message: 'Pyodide 运行时不可用（CDN 加载失败），请改用 execute_javascript' }, durationMs: 0 };
   }
@@ -501,15 +544,24 @@ export async function runPython(code, fsObj, onProgress, extraPkgs = []) {
         if (settled) return;
         settled = true;
         clearTimeout(timer);
+        opts.signal?.removeEventListener('abort', abort);
         resolve(v);
+      };
+      const abort = () => {
+        try { worker.terminate(); } catch { /* noop */ }
+        if (pyWorker === worker) pyWorker = null; pySynced = null; pySyncedWorker = null;
+        finish({ ok: false, aborted: true, logs: [], files, error: { message: '执行已停止' } });
       };
       const timer = setTimeout(() => {
         try { worker.terminate(); } catch { /* noop */ }
         if (pyWorker === worker) pyWorker = null;
         finish({ ok: false, timedOut: true, logs: [], files, error: { message: `执行超时（>${Math.round(SANDBOX_PY_TIMEOUT_MS / 1000)}s），沙箱已强制终止` } });
       }, SANDBOX_PY_TIMEOUT_MS);
+      opts.signal?.addEventListener('abort', abort, { once: true });
+      if (opts.signal?.aborted) { abort(); return; }
       worker.onmessage = (e) => {
-        if (e.data && e.data.__progress) { onProgress && onProgress(String(e.data.__progress)); return; }
+        if (e.data?.__log) { if (!settled) opts.onOutput?.(e.data.__log); return; }
+        if (e.data && e.data.__progress) { if (!settled) onProgress && onProgress(String(e.data.__progress)); return; }
         finish(e.data);
       };
       worker.onerror = (e) => finish({ __workerError: e.message || '加载失败' });

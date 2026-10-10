@@ -16,15 +16,17 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES } from './capabilities.js';
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.3';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.4';
 import { TOOL_DEFS, executeTool } from './tools.js';
+import { probeLocalBrowser, localBrowserAvailable } from './localbrowser.js?v=2026.10.9.4';
+import { recordOutputText, recordOutputTool } from './toolflow.js?v=2026.10.9.4';
 import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
 import { subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.3';
-import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.9.3';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.4';
+import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.9.4';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
@@ -60,7 +62,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.9.3';
+import { moderateUserTurn } from './moderation.js?v=2026.10.9.4';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -83,37 +85,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.9.3';
+} from './execution.js?v=2026.10.9.4';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.9.3';
+} from './recovery.js?v=2026.10.9.4';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.9.3';
+} from './idempotency.js?v=2026.10.9.4';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.9.3';
+} from './memorylife.js?v=2026.10.9.4';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.9.3';
+} from './trajectory.js?v=2026.10.9.4';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.3';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.3';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.4';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.4';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.9.3';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.3';
+} from './experiments.js?v=2026.10.9.4';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.4';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -129,12 +131,12 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.9.3';
-import { createToolRunner } from './toolrunner.js?v=2026.10.9.3';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.3';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.3';
+} from './executionContext.js?v=2026.10.9.4';
+import { createToolRunner } from './toolrunner.js?v=2026.10.9.4';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.4';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.4';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.3';
+import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.4';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -286,7 +288,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.9.3';
+} from './toolrunner.js?v=2026.10.9.4';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {
@@ -453,6 +455,7 @@ export function createAgent(store, hooks = {}) {
       searchEnabled: relaySupports('search'),
       crawlEnabled: relaySupports('crawl'),
       fileEnabled: relaySupports('file'),
+      localBrowserEnabled: localBrowserAvailable(),
       sandboxEnabled: store.state.settings.sandboxEnabled !== false,
       canDispatch,
     });
@@ -588,6 +591,7 @@ export function createAgent(store, hooks = {}) {
       t0 = performance.now(); // 整轮计时：思考 + 生成 + 沙箱执行
       abortController = new AbortController();
       signal = abortController.signal;
+      setStatus('connecting'); // readiness probes are part of this cancellable turn
       // 沙箱关闭时仍保留文件/生图/时间/委派工具（只有代码执行三件套被摘掉）
       // Worker 状态来自运行时健康探测：null 等待启动探测，false 在网页意图下可复探，
       // true 则复用已确认的路由与 capability，避免每个普通回合重复请求 /api/health。
@@ -627,6 +631,9 @@ export function createAgent(store, hooks = {}) {
         }
         if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
       }
+      try { await probeLocalBrowser({ signal }); }
+      catch (err) { if (err.name !== 'AbortError') console.warn('[Dubhe] local browser health', err); }
+      if (signal.aborted) { abortController = null; setStatus('cancelled'); emit('onCancelled'); return false; }
       return true;
     }
 
@@ -642,6 +649,7 @@ export function createAgent(store, hooks = {}) {
       // 两条路径算出的表必须逐项一致；不一致说明有人只改了一处，当场报缺陷而不是让它悄悄生效。
       legacyTools = toolsFor(settings.sandboxEnabled, { remoteCpp: settings.remoteCppEnabled !== false })
         .filter((t) => {
+          if (t.name === 'browser_sandbox') return localBrowserAvailable();
           if (t.name === 'fetch_url') return relayOk && settings.webEnabled !== false;
           if (t.name === 'search_web') return relayOk && settings.webEnabled !== false && relaySupports('search');
           if (t.name === 'crawl_site') return relayOk && settings.webEnabled !== false && relaySupports('crawl');
@@ -705,6 +713,7 @@ export function createAgent(store, hooks = {}) {
         canDispatch,
         overrides: {
           ...userCapabilityOverrides,
+          sandbox: { ...(userCapabilityOverrides.sandbox || {}), browser: localBrowserAvailable() },
           web: {
             ...(userCapabilityOverrides.web || {}),
             search: relayOk && settings.webEnabled !== false && relaySupports('search'),
@@ -968,7 +977,7 @@ export function createAgent(store, hooks = {}) {
           let tb = createThinkingTracker(); // Anthropic 思考块（含 signature），随消息持久化并在下一轮回传
           let text = '', reasoning = '';
           let reasonT0 = 0;
-          let sawToolDelta = false, lastChipPaint = 0;
+          let sawToolDelta = false;
           let web = null; // 服务端联网进度：{status, queries, sources, results}
           const usage = {};
           let finishReason = null;
@@ -1000,9 +1009,12 @@ export function createAgent(store, hooks = {}) {
                 onWebFallback: (m, why) => emit('onWebFallback', m, why), // 被拒 → 剥掉字段重试并说明
                 messages: buildMessages(model, relayOk, jevNote, turnPlan, iterations, nexusState),
                 onEvent: (ev) => {
+                  if (signal.aborted) return;
                   if (!streamed) { streamed = true; setStatus('streaming'); }
                   switch (ev.type) {
                     case 'text':
+                      if (signal.aborted) break;
+                      recordOutputText(assistantMsg, text.length, text.length + ev.text.length);
                       text += ev.text;
                       store.updateMessage(assistantMsg.id, { text });
                       emit('onDelta', assistantMsg, text);
@@ -1023,15 +1035,14 @@ export function createAgent(store, hooks = {}) {
                       tb.signature(ev.index, ev.signature);
                       break;
                     case 'tool_delta': {
+                      if (signal.aborted) break;
                       acc.push(ev);
+                      recordOutputTool(assistantMsg, ev.index);
+                      assistantMsg.toolOrderIndices = acc.indices();
                       sawToolDelta = true;
                       // 流式期间把半成品 toolCalls 推到界面（节流约一帧），不能只写 store 不 emit
-                      const now = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-                      if (now - lastChipPaint > 50) {
-                        lastChipPaint = now;
-                        store.updateMessage(assistantMsg.id, { toolCalls: acc.result() });
-                        emit('onToolDelta', assistantMsg);
-                      }
+                      store.updateMessage(assistantMsg.id, { toolCalls: acc.result() });
+                      emit('onToolDelta', assistantMsg); // UI coalesces frames without losing argument chunks
                       break;
                     }
                     case 'web_search': {
@@ -1428,7 +1439,13 @@ export function createAgent(store, hooks = {}) {
         });
     }
 
-    if (!(await stagePremise())) return;
+    try { if (!(await stagePremise())) return; }
+    catch (err) {
+      abortController = null;
+      if (err.name === 'AbortError' || signal?.aborted) { setStatus('cancelled'); emit('onCancelled'); }
+      else { setStatus('error'); emit('onError', err); }
+      return;
+    }
     stageDone('premise');
     stagePlan();
     stageDone('plan');
@@ -1441,7 +1458,8 @@ export function createAgent(store, hooks = {}) {
         setStatus('cancelled');
         // 中断是显式状态：不留「工具还在跑」的模糊态，刷新后据此判断可续跑阶段
         exec.machine.transition(EXECUTION_STATES.INTERRUPTED, '用户中止（Abort）', { phase: exec.machine.state });
-        const last = [...store.state.messages].reverse().find((m) => m.role === 'assistant' && !m.done);
+        const userAt = store.state.messages.findLastIndex((m) => m.role === 'user');
+        const last = store.state.messages.slice(userAt + 1).reverse().find((m) => m.role === 'assistant');
         if (last) store.updateMessage(last.id, { cancelled: true, done: true });
         emit('onCancelled');
       } else {
@@ -1565,6 +1583,7 @@ export function createAgent(store, hooks = {}) {
       crawl: webOn && relaySupports('crawl'),
       file: webOn && relaySupports('file'),
       remoteCpp: settings.remoteCppEnabled !== false,
+      browser: localBrowserAvailable(),
     }, TOOL_DEFS);
     const sel = selectToolsForTurn({ allowed: wl.allowed, text, attachments, recentTools: recentToolNames(store.state.messages) });
     return {

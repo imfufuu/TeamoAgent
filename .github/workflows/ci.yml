@@ -38,6 +38,9 @@ jobs:
       - name: tests/server_checks.py · 本地中继护栏自检（git 白名单 / SSRF / HTML 抽取）
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs tests/server_checks.py
+      - name: tests/sandbox_server_checks.py · 本地网页项目与 API 安全边界
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/sandbox_server_checks.py
       - name: tests/agent.test.mjs · 主单测（解析 / 状态机 / 纯函数 / 源码契约）
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs tests/agent.test.mjs
@@ -101,6 +104,16 @@ jobs:
       - name: tests/worker.test.mjs · Cloudflare 中继 Worker 单测（Mock fetch，不请求外网）
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs tests/worker.test.mjs
+      - name: tests/streaming-tools.mjs · 工具/正文时序、取消位置与真实流式输出
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/streaming-tools.mjs
+      - name: 安装本地网页验收用 Chromium（与 jsdom 冒烟分开）
+        if: ${{ !cancelled() }}
+        run: |
+          npx playwright install --with-deps chromium
+      - name: tests/sandbox-browser.mjs · 真实 Chromium 运行/交互/截图与隔离
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/sandbox-browser.mjs
       - name: '汇总测试计数（::notice:: + job summary）'
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs --summary

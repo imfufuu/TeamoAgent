@@ -8,7 +8,7 @@
 // 本模块只做前两项的**独立复核**与第三项的**如实声明**；它不生产审计事件（那是执行内核的事），
 // 所以它可以站在「外部 Store」的位置去核对内核写下的东西——这也是它唯一有资格做的事。
 import { sha256Hex, GENESIS_TURN_DIGEST } from './nexus.js';
-import { AUDIT_SCHEMA_VERSION, canonicalJSON, verifyExecutionAudit } from './execution.js?v=2026.10.9.3';
+import { AUDIT_SCHEMA_VERSION, canonicalJSON, verifyExecutionAudit } from './execution.js?v=2026.10.9.4';
 
 export const AUDIT_TRACE_POLICY_VERSION = 'audit-trace-2.5.0';
 

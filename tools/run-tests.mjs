@@ -24,6 +24,7 @@ const RESULT_DIR = process.env.DUBHE_TEST_RESULTS || path.join(ROOT, '.test-resu
 export const PYTHON_CHECKS = [
   { id: 'server.py py_compile', cmd: ['python3', '-m', 'py_compile', 'server.py'], countable: false },
   { id: 'tests/server_checks.py', cmd: ['python3', 'tests/server_checks.py'] },
+  { id: 'tests/sandbox_server_checks.py', cmd: ['python3', 'tests/sandbox_server_checks.py'] },
 ];
 
 export function listTestFiles() {

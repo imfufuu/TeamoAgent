@@ -73,6 +73,7 @@ function pushLog(logs, level, text) {
   logs.__bytes = (logs.__bytes || 0) + t.length;
   if (logs.__bytes > LOG_MAX_BYTES) { logs.__dropped = (logs.__dropped || 0) + 1; return; }
   logs.push({ level, text: t.length > 64 * 1024 ? `${t.slice(0, 64 * 1024)}…[单条日志截断]` : t });
+  post({ __log: logs[logs.length - 1] });
 }
 function flushLogs(logs) {
   if (logs.__dropped) logs.push({ level: 'warn', text: `[沙箱] 日志超出上限（${LOG_MAX_ENTRIES} 条 / 1 MB），已丢弃 ${logs.__dropped} 条` });

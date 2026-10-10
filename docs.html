@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.9.3" />
+<meta name="app-version" content="2026.10.9.4" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -214,7 +214,15 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.3</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-10</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.4</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-10</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag add">ADD</span><span><strong>本地沙箱网页与真实 Chromium</strong>：Agent 调试自己生成的 HTML/CSS/JS 项目，支持持续点击、输入、重载及 PNG 截图；只接受沙箱项目，不恢复公网 URL 截图。需本机 <code>npm ci &amp;&amp; npm run setup:browser</code> 后运行 <code>python3 server.py</code>，Pages 本身没有原生浏览器。<a href="LOCAL_BROWSER.md">安装与边界</a>。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>工具时序与停止位置</strong>：工具 → 正文 → 工具按输出时间线展示，只合并相邻同类调用；「已停止」在最后未完成输出之后。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>流式与折叠</strong>：参数、编辑预览、读取与控制台增量显示，不提前写半截 JSON；本轮有任意正文才允许完成后自动折叠，纯工具轮保持展开，手动状态优先。</span></li>
+        </ul></div>
+      </div>
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.3</span><span class="ver-date">2026-10-10</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>撤回误加的公网网页截图（构建 .9.3）</strong>：原需求是 Agent 为自己生成并启动的网页进行浏览器调试时能截图（类似 Puppeteer），不是公网 URL 截图。已删除误加的截图工具、云端路由、能力声明、配置说明和专用测试；其余改进与方案 B 图标保留，本构建不新增替代截图实现。</span></li>
         </ul></div>
@@ -229,7 +237,7 @@
         <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.1</span><span class="ver-date">2026-10-09</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>图表点击的灰块与「先闪到上一个再回来」（构建 .9.1）</strong>：触屏点按时系统 tap highlight 会给 28px 透明热区涂灰，已关掉；触摸的 pointerover / pointerout 时序会把上一次选中的浮层重新显示，现在触摸只通过点击切换选中。</span></li>
-          <li><span class="tag fix">FIX</span><span><strong>「Ran command(s)」行为（构建 .9.1）</strong>：① 完成时不再出现「入参 / 出参」按钮，行高不再悄悄跳高；② 折叠块只在有命令正在执行时展开，没有文本输出时也会在命令结束后自动收起，不再等下一条命令；③ 同一工具的多次调用逐条展开，不再合并成「某工具 ×N」；④ 详情为 COMMAND / STDOUT / STDERR 三窗口（STDERR 有才出现），复制按钮移到每个窗口的右上角。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>「Ran command(s)」行为（构建 .9.1）</strong>：① 完成时不再出现「入参 / 出参」按钮，行高不再悄悄跳高；② 原完成即折叠规则已在 .9.4 更新为本轮有正文才折叠，纯工具轮保持展开；③ 同一工具的多次调用逐条展开，不再合并成「某工具 ×N」；④ 详情为 COMMAND / STDOUT / STDERR 三窗口（STDERR 有才出现），复制按钮移到每个窗口的右上角。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>「更早的消息」阈值拉高（构建 .9.1）</strong>：消息数上限 60 → 120，字数上限 24,000 → 120,000，几条短消息不再出现接缝。</span></li>
           <li><span class="tag add">ADD</span><span><strong>快捷地图增强（构建 .9.1）</strong>：<code>:::chart map</code> 支持滚轮 / Ctrl+滚轮 / 触控板捏合缩放、拖动平移、双击与 ⟲ 复位、＋ / − 按钮与键盘（+ − 0、方向键），底部附「前五名」排行条；缩放不写回消息，重新渲染即回到 100%。</span></li>
           <li><span class="tag imp">IMPROVE</span><span><strong>设置页 / 文件面板密度与暗色对比度（构建 .9.1）</strong>：触屏层控件统一 ≥ 40px，左下角四键一行；暗色次要文字由 3.43:1 提到 5.7:1（WCAG AA 正文 4.5:1，<code>tools/contrast.mjs</code> 量化）。</span></li>
@@ -508,7 +516,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.9.3 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.9.4 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
