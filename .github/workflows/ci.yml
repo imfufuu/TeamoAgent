@@ -110,10 +110,19 @@ jobs:
       - name: 安装本地网页验收用 Chromium（与 jsdom 冒烟分开）
         if: ${{ !cancelled() }}
         run: |
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit
       - name: tests/sandbox-browser.mjs · 真实 Chromium 运行/交互/截图与隔离
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs tests/sandbox-browser.mjs
+      - name: 双语 / 反馈 / 通知 / 源码契约
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/features-core.mjs
+      - name: Chromium / WebKit JS Worker
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/js-worker-browser.mjs
+      - name: 双语界面与离线分享浏览器回归
+        if: ${{ !cancelled() }}
+        run: node tools/run-tests.mjs tests/share-ui-browser.mjs
       - name: '汇总测试计数（::notice:: + job summary）'
         if: ${{ !cancelled() }}
         run: node tools/run-tests.mjs --summary

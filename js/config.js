@@ -1,3 +1,6 @@
+import { getLanguage } from './locale.js';
+import { systemPromptEnglish, OUTPUT_SPEC_EN } from './prompt-en.js';
+export { OUTPUT_SPEC_EN };
 // ─── TeamoRouter 接入配置 ──────────────────────────────────────────────
 // 调研自 https://teamorouter.cn/zh/docs/api-integration（2026-09 版）
 //   · Base URL: https://api.teamorouter.com
@@ -19,7 +22,7 @@ import { claudeThinkingBudget, reasoningEffortFor } from './reasoning.js';
 // 的 ~10 分钟缓存。每次改动样式或入口逻辑都要 bump 一次（有单测校验二者一致）。
 // 发布版本（正式版标识，界面/文档都读它）与构建戳（每次改动递增，用于 ?v= 缓存击穿）
 export const APP_RELEASE = 'V1.7';
-export const APP_VERSION = '2026.10.9.5';
+export const APP_VERSION = '2026.10.10.1';
 export const ANTHROPIC_VERSION = '2023-06-01';
 // 思考链加密（不返回可见思考正文）的模型模式：菜单显示「思考链已加密」。
 // 另有运行时自学：某模型真实返回过 hidden thinking 后也会被标记（见 agent.js observedHiddenThink）。
@@ -29,6 +32,7 @@ export const THINKING_BUDGET = 4096;     // 思考 token 预算（Anthropic budg
 export const TOOL_LOOP_MAX = 0;          // 0 = 不限制（有上限会掐死多步 Agent）
 export const SUBAGENT_LOOP_MAX = 0;      // 0 = 不限制
 export const REQUEST_TIMEOUT_MS = 600000; // 官方服务器最长支持 600s
+export const SANDBOX_JS_STARTUP_TIMEOUT_MS = 12000; // startup is not user-code execution; WebKit may load scripts slowly
 export const SANDBOX_JS_TIMEOUT_MS = 8000;
 export const SANDBOX_PY_TIMEOUT_MS = 120000; // Pyodide 首次加载较慢（运行时常驻，后续执行秒级）
 export const STORAGE_KEY = 'dubhe-agent-state-v1';
@@ -366,6 +370,7 @@ export const OUTPUT_SPEC = [
 ].join('\n');
 
 export function systemPrompt(now = new Date(), opts = {}) {
+  if ((opts.language || getLanguage()) === 'en') return systemPromptEnglish(now, opts);
   // opts.webEnabled===false 时，工具清单里的联网说明要换成「本轮关闭」，
   // 否则提示词一边说「请求已带上原生搜索字段」一边又关着开关，模型会以为能查实时信息。
   const webOn = opts.webEnabled !== false;
@@ -427,6 +432,7 @@ export function systemPrompt(now = new Date(), opts = {}) {
     '- 写到回复或沙箱文件里的代码，当前这一段要写全、能直接运行/编译；不要用省略号代替实现。整项目拆成多步：先文件列表和接口，每次一个文件、最多 1–3 个函数；做不完就在末尾写 <<<CONTINUE>>>。',
     '- Git 可用性必须说清：用户询问当前是否有 Git，或要求 Git/仓库操作时，先调用 run_git（优先 `git status --short`，必要时 `git --version`），并在回复开头区分「本机中继提供的真实 Git」与「浏览器内置、仅支持有限本地命令的 DubheGit 模拟器」。以本次工具结果中的 note、cwd 和错误为准；内置模拟器不等于安装了系统 Git，也不能远端 clone/push。失败时说明实际原因与仍可用的边界，不得猜测或笼统声称可用。',
     '- 工具调用参数必须是合法 JSON。工具结果会以 tool 消息返回给你，请基于真实结果继续推理。工具描述里的每个字都作数：不要把 files 猜成 fileSystem / fs。',
+    '- 长命令首段发完整 code，或先写入源码文件再用 path 执行；SDK 会保留长命令源码。只有变量名、语法或小段逻辑错误时，先核验副作用，必要时只读错误附近，再用 write_file(mode=replace, old_text, new_text) 最小局部补丁，随后以 path 重跑。不要为了改一行重新发送整段命令。启动/环境错误与代码错误要分清，后者不必重复探测整个环境。',
     '- 不熟悉的 API 先探测再假设。沙箱失败后第一件事是探测环境（JS：typeof console、Object.keys(files)、typeof fetch），不要换一个名字再盲试。小步：先跑几行确认环境，再写完整逻辑。探测到的键格式本轮记住，接着用。',
     '- 多步任务先想清楚「哪几步可以并行执行」，在同一轮里一次发出多个互不依赖的工具调用，不要一步一等。',
     allowDispatch
@@ -447,3 +453,5 @@ export function systemPrompt(now = new Date(), opts = {}) {
     OUTPUT_SPEC,
   ].join('\n');
 }
+
+export function outputSpec(language = getLanguage()) { return language === 'en' ? OUTPUT_SPEC_EN : OUTPUT_SPEC; }

@@ -118,7 +118,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('HTML file viewer runs an interactive isolated preview, cannot access parent state, and stops its native session on close', async () => {
       uiBrowser = await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
-      const context = await uiBrowser.newContext(); await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
+      const context = await uiBrowser.newContext({ locale: 'zh-CN' }); await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
       const page = await context.newPage(); const uiErrors = []; page.on('pageerror', (e) => uiErrors.push(e.message)); page.setDefaultTimeout(10000); await page.goto(base + '/app.html');
       await page.evaluate(async ({ files }) => {
         const { createStore } = await import('./js/state.js'), { createAgent } = await import('./js/agent.js'), { mountUI } = await import('./js/ui.js');
@@ -143,7 +143,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('Edit UI keeps stable filenames, streams full untruncated source, and folds at write completion in real Chromium', async () => {
       uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
-      const context = await uiBrowser.newContext();
+      const context = await uiBrowser.newContext({ locale: 'zh-CN' });
       try {
         await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
         const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
@@ -182,7 +182,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('real Chromium reveals concurrent results one-by-one in launch order and defers the final assistant message', async () => {
       uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
-      const context = await uiBrowser.newContext();
+      const context = await uiBrowser.newContext({ locale: 'zh-CN' });
       try {
         await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
         const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
@@ -219,7 +219,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('real Agent/UI keeps each same-path write snapshot behind the launch-order frontier in Chromium', async () => {
       uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
-      const context = await uiBrowser.newContext();
+      const context = await uiBrowser.newContext({ locale: 'zh-CN' });
       try {
         await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
         const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
@@ -270,7 +270,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('Chromium renders terminal errors after unfinished output without releasing buffered tasks or leaving a live Edit caret', async () => {
       uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
-      const context = await uiBrowser.newContext();
+      const context = await uiBrowser.newContext({ locale: 'zh-CN' });
       try {
         await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
         const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
@@ -300,7 +300,7 @@ await test('local Chromium project-only acceptance', async (t) => {
     });
     await t.test('the real Agent kernel mounts the local tool, starts a project and commits a genuine screenshot', async () => {
       const { createAgent } = await import('../js/agent.js'), { createStore } = await import('../js/state.js');
-      const lb = await import('../js/localbrowser.js?v=2026.10.9.5');
+      const lb = await import('../js/localbrowser.js?v=2026.10.10.1');
       const oldFetch = globalThis.fetch, oldLocation = globalThis.location; let step = 0, id;
       globalThis.location = { protocol: 'http:', origin: base };
       globalThis.fetch = async (url, opts = {}) => {

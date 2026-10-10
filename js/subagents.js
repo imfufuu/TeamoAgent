@@ -1,3 +1,5 @@
+import { getLanguage } from './locale.js';
+import { SPECIALIST_PROMPTS_EN } from './subagents-en.js';
 // ─── 子智能体注册表 ────────────────────────────────────────────────────
 // 主 Agent 通过 dispatch_subagent 工具委派任务；子智能体 = 专属系统提示词 + 工具子集，
 // 与主 Agent 同模型、独立上下文（看不到会话历史，task 必须自包含）、不可再委派（防递归）。
@@ -130,6 +132,11 @@ export function findSubagent(id) {
 // 旧版结尾写着「简单任务直接自己处理，不要为了委派而委派；一次委派一个明确的子任务」，
 // 实测模型据此几乎从不主动调用 dispatch_subagent，等于把子智能体功能藏了起来。
 export function subagentGuide(opts) {
+  if ((opts?.language || getLanguage()) === 'en') {
+    if (opts?.allow === false) return '## Specialist delegation\nDelegation is disabled below Max/Ultra. Answer directly or do the steps yourself; never pretend a specialist was called.';
+    const catalog = SUBAGENTS.map(a => `- ${a.id} (${a.tag}): ${SPECIALIST_PROMPTS_EN[a.id]}`).join('\n');
+    return `## Specialist delegation\nSpecialists share your model but have independent context and their documented tool subsets; they cannot recursively delegate.\n${catalog}\nDelegate relevant independent professional dimensions together in one wave. Supply self-contained code/data/constraints/output requirements. Integrate and cross-check actual reports; cover missing/failed reports yourself. Straightforward questions still deserve direct answers.${opts?.ultra ? '\nUltra: parallel relevant specialists and cross-check their evidence before delivery.' : ''}`;
+  }
   if (opts && opts.allow === false) {
     return [
       '',
@@ -163,3 +170,5 @@ export function subagentGuide(opts) {
     ] : []),
   ].join('\n');
 }
+
+export function specialistPrompt(def, language = getLanguage()) { return language === 'en' ? `You are the ${def.tag} specialist. ${SPECIALIST_PROMPTS_EN[def.id] || 'Work within your documented tool subset and disclose limitations.'}` : def.prompt; }

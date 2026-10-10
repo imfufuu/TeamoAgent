@@ -11,13 +11,13 @@ import {
   resumeExecutionState,
   summarizeExecutionRecord,
   evaluateExecutionKernelAcceptance,
-} from './execution.js?v=2026.10.9.5';
-import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.9.5';
-import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.9.5';
-import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.9.5';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.9.5';
-import { appendExperimentSample } from './experiments.js?v=2026.10.9.5';
-import { reconcileAudit } from './audit.js?v=2026.10.9.5';
+} from './execution.js?v=2026.10.10.1';
+import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.10.1';
+import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.10.1';
+import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.10.1';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.10.1';
+import { appendExperimentSample } from './experiments.js?v=2026.10.10.1';
+import { reconcileAudit } from './audit.js?v=2026.10.10.1';
 import { auditFootprintAgainstStore, recordRouteLatencySample, evaluateNexusAcceptanceMetrics } from './nexus.js';
 
 /**
@@ -274,4 +274,5 @@ export function finalizeTurn({
   syncFS();
   store.notify();
   emit('onTurnTiming', Math.round(performance.now() - t0)); // emit 内部已吞掉视图层异常
+  emit('onTaskFinished', { status, durationMs: Math.round(performance.now() - t0), sessionId, turnId: machine.turnId });
 }

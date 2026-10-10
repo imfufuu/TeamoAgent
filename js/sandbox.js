@@ -2,7 +2,7 @@
 // JS 沙箱：独立 Web Worker，无 DOM/fetch 访问面，超时强制 terminate
 // Python 沙箱：Pyodide（WASM）跑在独立 Worker 中，可终止；CDN 加载失败时优雅降级
 
-import { SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.9.5';
+import { APP_VERSION, SANDBOX_JS_STARTUP_TIMEOUT_MS, SANDBOX_JS_TIMEOUT_MS, SANDBOX_PY_TIMEOUT_MS } from './config.js?v=2026.10.10.1';
 import { readLocal, writeLocal } from './legacy-keys.js';
 import { SANDBOX_STORAGE_CAP } from './storagefmt.js';
 
@@ -369,85 +369,93 @@ function savePyPkgs(list) {
 // 文件加载再失败时，取源码文本回退为 blob Worker，仍失败则给出明确诊断。
 // rpc：{ method: async (params) => result }——主线程替沙箱做它自己做不了的事（目前只有受控 fetch）。
 // 通道是 MessageChannel 的一端，随首条消息 transfer 给 Worker；Worker 侧把它关在闭包里，用户代码拿不到。
-function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts = [], onOutput = null, signal = null } = {}) {
+function runInWorker(workerFile, payload, timeoutMs, { rpc = null, extraScripts = [], onOutput = null, onPhase = null, signal = null } = {}) {
   return new Promise((resolve) => {
-    let settled = false;
-    let active = null; // { worker, dispose }
-    let triedBlob = false;
-    let channel = null;
-    const openChannel = () => {
-      if (!rpc || typeof MessageChannel !== 'function') return null;
-      channel = new MessageChannel();
-      channel.port1.onmessage = async (ev) => {
-        const d = ev.data || {};
-        const fn = rpc[d.method];
-        let reply;
-        try { reply = fn ? await fn(d.params || {}) : { error: `沙箱 RPC 不支持 ${d.method}` }; }
-        catch (err) { reply = { error: String((err && err.message) || err).slice(0, 300) }; }
-        try { channel.port1.postMessage({ id: d.id, ...(reply && typeof reply === 'object' ? reply : { result: reply }) }); } catch { /* Worker 已终止 */ }
-      };
-      return channel.port2;
+    let settled = false, active = null, triedBlob = false, started = false;
+    let execTimer = null, attemptTimer = null;
+    const fetchAbort = new AbortController();
+    const sourceURL = (name) => { const u = new URL(name, import.meta.url); u.searchParams.set('v', APP_VERSION); return u; };
+    const closeActive = () => {
+      if (!active) return;
+      try { active.worker.terminate(); active.port?.close(); } catch { /* closed */ }
+      active.dispose(); active = null;
     };
-
     const finish = (v) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', abort);
-      if (active) { try { active.worker.terminate(); } catch { /* noop */ } active.dispose(); }
-      if (channel) { try { channel.port1.close(); } catch { /* noop */ } }
-      resolve(v);
+      clearTimeout(bootTimer); clearTimeout(execTimer); clearTimeout(attemptTimer);
+      fetchAbort.abort(); signal?.removeEventListener('abort', abort); closeActive();
+      resolve({ ...v, started });
     };
+    const bootstrapFail = (detail) => finish({ ok: false, bootstrapFailed: true, logs: [], files: payload.files || {},
+      error: { message: `沙箱 Worker 启动失败：${detail}。代码尚未执行；请检查 CSP、网络或在独立标签页打开应用。` } });
     const abort = () => finish({ ok: false, aborted: true, logs: [], files: payload.files || {}, error: { message: '执行已停止' } });
-    const timer = setTimeout(() => finish({
-      ok: false, timedOut: true, logs: [], files: payload.files || {},
-      error: { message: `执行超时（>${Math.round(timeoutMs / 1000)}s），沙箱已强制终止` },
-    }), timeoutMs);
-
+    const bootTimer = setTimeout(() => bootstrapFail(`未在 ${SANDBOX_JS_STARTUP_TIMEOUT_MS / 1000}s 内就绪`), SANDBOX_JS_STARTUP_TIMEOUT_MS);
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) { abort(); return; }
+    onPhase?.('bootstrap');
     const spawn = async (useBlob) => {
       if (settled) return;
-      let worker = null;
-      let dispose = () => {};
+      if (!useBlob) closeActive();
+      clearTimeout(attemptTimer);
+      let worker, dispose = () => {};
       try {
         if (useBlob) {
-          const res = await fetch(new URL(workerFile, import.meta.url));
-          if (!res.ok) throw new Error(`无法获取沙箱脚本 ${workerFile}（HTTP ${res.status}）`);
-          let src = await res.text();
-          // blob: Worker 里相对路径的 importScripts 解析不到（基准是 blob:），把附属脚本（运行时垫片）直接拼在前面
-          for (const extra of extraScripts) {
-            try { const r2 = await fetch(new URL(extra, import.meta.url)); if (r2.ok) src = `${await r2.text()}\n;\n${src}`; } catch { /* 没有垫片也能跑，只是退化为仅 console + files */ }
-          }
-          const url = URL.createObjectURL(new Blob([src], { type: 'text/javascript' }));
-          worker = new Worker(url);
-          dispose = () => URL.revokeObjectURL(url);
-        } else {
-          worker = new Worker(new URL(workerFile, import.meta.url));
-        }
+          const fetchText = async (name) => { const r = await fetch(sourceURL(name), { signal: fetchAbort.signal, cache: 'reload' }); if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`); return r.text(); };
+          const texts = await Promise.all([...extraScripts, workerFile].map(fetchText));
+          if (settled || started) return;
+          const url = URL.createObjectURL(new Blob([texts.join('\n;\n')], { type: 'text/javascript' }));
+          dispose = () => URL.revokeObjectURL(url); worker = new Worker(url);
+        } else worker = new Worker(sourceURL(workerFile));
       } catch (err) {
+        dispose();
+        if (settled || started) return;
         if (!useBlob && !triedBlob) { triedBlob = true; return spawn(true); }
-        return finish({ ok: false, logs: [], files: payload.files || {}, error: { message: `沙箱创建失败：${err.message}` } });
+        return bootstrapFail(String(err.message || err));
       }
       if (settled) { worker.terminate(); dispose(); return; }
-      active = { worker, dispose };
+      closeActive();
+      const mine = { worker, dispose, port: null, sent: false }; active = mine;
+      const start = () => {
+        if (settled || active !== mine || mine.sent) return;
+        mine.sent = true; started = true;
+        clearTimeout(bootTimer); clearTimeout(attemptTimer); fetchAbort.abort(); onPhase?.('executing');
+        execTimer = setTimeout(() => finish({ ok: false, timedOut: true, logs: [], files: payload.files || {},
+          error: { message: `执行超时（>${Math.round(timeoutMs / 1000)}s），沙箱已强制终止` } }), timeoutMs);
+        let transfer = [];
+        if (rpc && typeof MessageChannel === 'function') {
+          const channel = new MessageChannel(); mine.port = channel.port1; transfer = [channel.port2];
+          channel.port1.onmessage = async (ev) => {
+            if (settled || active !== mine) return;
+            const d = ev.data || {}; let reply;
+            try { reply = typeof rpc[d.method] === 'function' ? await rpc[d.method](d.params || {}) : { error: `沙箱 RPC 不支持 ${d.method}` }; }
+            catch (err) { reply = { error: String(err.message || err).slice(0, 300) }; }
+            if (!settled && active === mine) try { channel.port1.postMessage({ id: d.id, ...(reply && typeof reply === 'object' ? reply : { result: reply }) }); } catch { /* closed */ }
+          };
+        }
+        try { worker.postMessage(payload, transfer); }
+        catch (err) { started = false; bootstrapFail(`参数无法传入 Worker：${err.message}`); }
+      };
       worker.onmessage = (e) => {
-        if (e.data?.__log) { if (!settled) onOutput?.(e.data.__log); return; }
-        finish(e.data);
+        if (settled || active !== mine) return;
+        let data = e.data;
+        if (typeof data === 'string') try { data = JSON.parse(data); } catch { return bootstrapFail('无法解析 Worker 的响应'); }
+        if (data?.__dubheReady === 'js-runtime-2') { start(); return; }
+        if (data?.__log) { onOutput?.(data.__log); return; }
+        if (!mine.sent || !data || typeof data.ok !== 'boolean') return;
+        finish(data);
       };
+      worker.onmessageerror = () => !mine.sent ? bootstrapFail('无法读取启动握手') : finish({ ok: false, logs: [], error: { message: '沙箱 Worker 响应无法反序列化；执行结果丢失，请先核验文件状态。' } });
       worker.onerror = (e) => {
-        if (settled) return;
-        try { worker.terminate(); } catch { /* noop */ }
-        dispose(); active = null;
-        if (!useBlob && !triedBlob) { triedBlob = true; return spawn(true); }
+        if (settled || active !== mine) return;
+        e.preventDefault?.();
+        if (!mine.sent && !useBlob && !triedBlob) { triedBlob = true; return spawn(true); }
         const detail = [e.message, e.filename && `${e.filename.split('/').pop()}:${e.lineno}`].filter(Boolean).join(' @ ');
-        finish({
-          ok: false, logs: [], files: payload.files || {},
-          error: { message: `沙箱 Worker 加载失败${detail ? '：' + detail : ''}（可能受页面 CSP 限制，请尝试在新标签页打开本应用）` },
-        });
+        if (!mine.sent) bootstrapFail(detail || '脚本被浏览器拒绝');
+        else finish({ ok: false, logs: [], error: { message: `沙箱 Worker 执行失败：${detail || '运行时崩溃，结果丢失'}` } });
       };
-      const port = openChannel();
-      if (port) worker.postMessage(payload, [port]); else worker.postMessage(payload);
+      // Some WebKit/CSP failures never dispatch onerror. Fall back while the shared bootstrap deadline still has room.
+      if (!useBlob) attemptTimer = setTimeout(() => { if (!settled && active === mine && !mine.sent) { triedBlob = true; spawn(true); } }, 6000);
     };
     spawn(false);
   });
@@ -477,7 +485,7 @@ export async function runJavaScript(code, fsObj, opts = {}) {
   const t0 = performance.now();
   const files = fsObj.export();
   const rpc = createSandboxNetRpc(opts.net);
-  let out = await runInWorker('worker-js.js', { code, files, net: { enabled: !!rpc, ...SANDBOX_NET_LIMITS } }, SANDBOX_JS_TIMEOUT_MS, { rpc, extraScripts: ['worker-shims.js'], signal: opts.signal, onOutput: opts.onOutput });
+  let out = await runInWorker('worker-js.js', { code, files, net: { enabled: !!rpc, ...SANDBOX_NET_LIMITS } }, SANDBOX_JS_TIMEOUT_MS, { rpc, extraScripts: ['worker-shims.js'], signal: opts.signal, onOutput: opts.onOutput, onPhase: opts.onPhase });
   if (out.files && !out.timedOut) out = noteWorkerFiles(out, applyWorkerFiles(fsObj, files, out.files));
   return { ...out, durationMs: Math.round(performance.now() - t0) };
 }

@@ -1,12 +1,14 @@
-import { sandboxProject, sandboxBrowserRequest } from './localbrowser.js?v=2026.10.9.5';
+import { text } from './locale.js';
+import { prepareCommandArgs, retainCommandSource, commandRepairNote } from './commandsource.js?v=2026.10.10.1';
+import { sandboxProject, sandboxBrowserRequest } from './localbrowser.js?v=2026.10.10.1';
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES, LEGACY_TOOL_ALIASES as REG_LEGACY_TOOL_ALIASES } from './capabilities.js';
 import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.9.5';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.10.1';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
-import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.9.5';
+import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.10.1';
 import { fetchPage, gitRun, relaySearch, relayCrawl, relayDownload, fileNameFromUrl, RELAY_FILE_MAX_BYTES } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
@@ -14,12 +16,12 @@ import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.9.5';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.10.1';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.9.5';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.10.1';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -49,13 +51,14 @@ export const TOOL_DEFS = [
 
   {
     name: 'execute_javascript',
-    description: '在隔离的 Web Worker 沙箱中执行 JavaScript（支持顶层 await）。有 console、files，以及 Node 风格垫片：require（fs→映射到 files / path / buffer / util / events / crypto[sha256·sha1·md5·hmac·随机] / os / process / assert / url / querystring / timers）、Buffer、process、document.createElement("canvas")（OffscreenCanvas，await canvas.toDataURL()）。联网开启且中继可用时 fetch（仅 GET，经中继，≤8 次 / ≤2MB 每次）与 importScripts（加载 CDN 库，如 jsDelivr UMD 包）可用，否则调用会报「沙箱内网络未开启」；没有真实 DOM、XMLHttpRequest、WebSocket、child_process / http 等 Node 原生模块。files 是无原型的字典对象（Object.create(null)：files.constructor 为 undefined，用 Object.keys(files) / "k" in files 判断），键=完整相对路径，例 files["files/a.txt"] = "hi"。它是会话文件系统的完整快照：此前 write_file / 其它工具 / 上一次沙箱写的文件都在里面；本次对 files 的新增、修改、delete 在执行结束后同步回会话文件系统，后续任何工具（read_file / text_tool / 下一次 execute_*）都能看到，结果末尾的 files_keys 列出同步后的键。不熟悉就先探测：typeof console、Object.keys(files)。失败后先探测环境，不要换一个 API 名再猜。代码必须完整可运行。return 值或最后表达式作为结果。',
+    description: '在隔离的 Web Worker 沙箱中执行 JavaScript（支持顶层 await）。有 console、files，以及 Node 风格垫片：require（fs→映射到 files / path / buffer / util / events / crypto[sha256·sha1·md5·hmac·随机] / os / process / assert / url / querystring / timers）、Buffer、process、document.createElement("canvas")（OffscreenCanvas，await canvas.toDataURL()）。联网开启且中继可用时 fetch（仅 GET，经中继，≤8 次 / ≤2MB 每次）与 importScripts（加载 CDN 库，如 jsDelivr UMD 包）可用，否则调用会报「沙箱内网络未开启」；没有真实 DOM、XMLHttpRequest、WebSocket、child_process / http 等 Node 原生模块。files 是无原型的字典对象（Object.create(null)：files.constructor 为 undefined，用 Object.keys(files) / "k" in files 判断），键=完整相对路径，例 files["files/a.txt"] = "hi"。它是会话文件系统的完整快照：此前 write_file / 其它工具 / 上一次沙箱写的文件都在里面；本次对 files 的新增、修改、delete 在执行结束后同步回会话文件系统，后续任何工具（read_file / text_tool / 下一次 execute_*）都能看到，结果末尾的 files_keys 列出同步后的键。不熟悉就先探测：typeof console、Object.keys(files)。失败后先探测环境，不要换一个 API 名再猜。首段代码必须完整可运行；长命令保留源码 path，小错误最小补丁再按 path 执行。return 值或最后表达式作为结果。',
     parameters: {
       type: 'object',
       properties: {
+        path: { type: 'string', description: '已有沙箱源码文件路径，代替 code。小错误用 write_file(mode=replace) 局部修补后按 path 重跑，不要重发全文。' },
         code: { type: 'string', description: '要执行的 JavaScript 代码' },
       },
-      required: ['code'],
+      anyOf: [{ required: ['code'] }, { required: ['path'] }],
     },
   },
   {
@@ -64,10 +67,11 @@ export const TOOL_DEFS = [
     parameters: {
       type: 'object',
       properties: {
+        path: { type: 'string', description: '已有沙箱源码文件路径，代替 code。小错误用 write_file(mode=replace) 局部修补后按 path 重跑，不要重发全文。' },
         code: { type: 'string', description: '要执行的 Python 代码' },
         packages: { type: 'array', items: { type: 'string' }, description: '可选：先安装的 PyPI / Pyodide 包名，如 ["numpy","pandas"]。代码里的 import 也会自动尝试安装。' },
       },
-      required: ['code'],
+      anyOf: [{ required: ['code'] }, { required: ['path'] }],
     },
   },
   {
@@ -689,13 +693,15 @@ async function executeToolBody(outerName, outerArgs, ctx) {
           + (path ? `\n真实 Chromium 截图已保存 ${path}${persistenceNote(fs, path)}；用 ![沙箱网页](sandbox://${path}) 展示，analyze_image 识读。` : '');
       }
       case 'execute_javascript': {
+        args = prepareCommandArgs(name, args, fs);
         emit({ status: 'running', lang: 'javascript' });
         // .35：顶栏联网开且中继可用时，沙箱内 fetch / importScripts 经主线程走中继（GET-only、次数 / 字节上限）
-        const out = await runJavaScript(args.code || '', fs, { signal: ctx.signal, onOutput: (log) => emit({ stream: log.level === 'error' ? 'stderr' : 'stdout', delta: `[${log.level}] ${log.text}\n` }), net: { enabled: !!ctx.webEnabled, fetchPage: (p) => fetchPage({ ...p, signal: ctx.signal }) } });
-        emit({ status: out.ok ? 'ok' : 'error', lang: 'javascript', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
-        return formatExecResult('JavaScript', out);
+        const out = await runJavaScript(args.code || '', fs, { signal: ctx.signal, onOutput: (log) => emit({ stream: log.level === 'error' ? 'stderr' : 'stdout', delta: `[${log.level}] ${log.text}\n` }), onPhase: (phase) => emit({ workerStage: phase, status: 'running', note: phase === 'bootstrap' ? '正在启动 JS Worker…' : 'JS Worker 已就绪，执行中…' }), net: { enabled: !!ctx.webEnabled, fetchPage: (p) => fetchPage({ ...p, signal: ctx.signal }) } });
+        emit({ status: out.ok ? 'ok' : 'error', sandboxOk: !!out.ok, lang: 'javascript', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut, sandboxBootstrapFailed: !!out.bootstrapFailed, sandboxStarted: !!out.started });
+        return formatExecResult('JavaScript', out) + commandRepairNote(retainCommandSource(name, args, ctx, out));
       }
       case 'execute_python': {
+        args = prepareCommandArgs(name, args, fs);
         if (!pythonAvailable()) {
           const msg = 'Python 沙箱不可用（Pyodide CDN 加载失败），请改用 execute_javascript。';
           emit({ status: 'error', lang: 'python', error: { message: msg } });
@@ -704,8 +710,8 @@ async function executeToolBody(outerName, outerArgs, ctx) {
         emit({ status: 'running', lang: 'python', note: '执行中…' });
         const extraPkgs = Array.isArray(args.packages) ? args.packages.map((p) => String(p || '').trim()).filter(Boolean) : [];
         const out = await runPython(args.code || '', fs, (note) => emit({ status: 'running', lang: 'python', note }), extraPkgs, { signal: ctx.signal, onOutput: (log) => emit({ stream: log.level === 'error' ? 'stderr' : 'stdout', delta: `[${log.level}] ${log.text}\n` }) });
-        emit({ status: out.ok ? 'ok' : 'error', lang: 'python', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
-        return formatExecResult('Python', out);
+        emit({ status: out.ok ? 'ok' : 'error', sandboxOk: !!out.ok, lang: 'python', logs: out.logs, result: out.result, error: out.error, durationMs: out.durationMs, timedOut: out.timedOut });
+        return formatExecResult('Python', out) + commandRepairNote(retainCommandSource(name, args, ctx, out));
       }
       case 'execute_cpp': {
         emit({ status: 'running', lang: 'cpp', note: '远程编译执行中（代码已发送至 godbolt.org）…' });
@@ -724,8 +730,8 @@ async function executeToolBody(outerName, outerArgs, ctx) {
         }
         const argv = Array.isArray(args.args) ? args.args.map((a) => String(a)) : [];
         const out = await runCpp(code, { files: extraFiles, stdin, args: argv });
-        emit({ status: out.ok ? 'ok' : 'error', lang: 'cpp', logs: out.logs, error: out.error, durationMs: out.durationMs });
-        return formatExecResult('C++', out);
+        emit({ status: out.ok ? 'ok' : 'error', sandboxOk: !!out.ok, lang: 'cpp', logs: out.logs, error: out.error, durationMs: out.durationMs });
+        return formatExecResult('C++', out) + commandRepairNote(retainCommandSource(name, { ...args, code }, ctx, out));
       }
       case 'write_file': {
         // 路径缺失/非法要在本地挡掉：否则沙箱里会凭空多出「undefined」这种文件，
@@ -1569,15 +1575,15 @@ async function executeToolBody(outerName, outerArgs, ctx) {
 function formatExecResult(lang, out) {
   const parts = [];
   if (out.logs && out.logs.length) {
-    parts.push('── 控制台输出 ──\n' + out.logs.map((l) => `[${l.level}] ${l.text}`).join('\n'));
+    parts.push(text('── 控制台输出 ──\n', '── Console ──\n') + out.logs.map((l) => `[${l.level}] ${l.text}`).join('\n'));
   }
-  if (out.result !== undefined) parts.push(`── 返回值 ──\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2)}`);
+  if (out.result !== undefined) parts.push(`${text('── 返回值 ──', '── Result ──')}\n${typeof out.result === 'string' ? out.result : JSON.stringify(out.result, null, 2)}`);
   if (!out.ok) {
-    const errMsg = (out.error && out.error.message) || '沙箱未返回错误信息';
+    const errMsg = ((out.error?.name ? `${out.error.name}: ` : '') + (out.error?.message || text('沙箱未返回错误信息', 'The sandbox returned no error details')));
     const stack = out.error && out.error.stack ? String(out.error.stack).split('\n').slice(1, 4).join('\n') : '';
-    parts.push(`── 错误 ──\n${errMsg}${stack ? `\n${stack}` : ''}`);
+    parts.push(`${text('── 错误 ──', '── Error ──')}\n${errMsg}${stack ? `\n${stack}` : ''}`);
   }
-  if (!parts.length) parts.push('（执行完成，无输出）');
+  if (!parts.length) parts.push(text('（执行完成，无输出）', '(Completed without output)'));
   if (lang === 'JavaScript' || lang === 'Python') {
     const keys = Object.keys(out.files || {});
     const shown = keys.slice(0, 40);
@@ -1589,8 +1595,8 @@ function formatExecResult(lang, out) {
   if (lang === 'Python' && Array.isArray(out.installed)) {
     parts.push(`[包缓存] 本会话已装：${out.installed.length ? out.installed.join(', ') : '（无）'}。同一 Worker 不重装；刷新后新运行时再 loadPackage，通常走浏览器缓存。`);
   }
-  parts.push(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`);
-  return `[${lang} 沙箱]\n${parts.join('\n')}`;
+  parts.push(text(`[执行耗时 ${out.durationMs}ms${out.timedOut ? '，已超时终止' : ''}]`, `[Duration ${out.durationMs}ms${out.timedOut ? '; terminated on timeout' : ''}]`));
+  return `[${lang} ${text('沙箱', 'sandbox')}]\n${parts.join('\n')}`;
 }
 
 function u8ToB64(u8) {

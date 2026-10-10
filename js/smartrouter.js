@@ -2,7 +2,7 @@
 // 用户可见服务提供商，但不暴露具体模型 ID（满足用户隐私/抽象需求）。
 // 路由策略为本地启发式（0ms 决策），不需要额外网络请求。
 
-import { SMART_ROUTER_ID } from './config.js?v=2026.10.9.5';
+import { SMART_ROUTER_ID } from './config.js?v=2026.10.10.1';
 
 // 路由类别
 const TASK_CATEGORY = {

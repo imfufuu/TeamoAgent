@@ -1,3 +1,5 @@
+import { feedbackPrompt } from './feedback.js';
+import { getLanguage } from './locale.js';
 // ─── Agent 核心：工具调用循环（Hermes 式回合生命周期）────────────────
 // idle → moderating → thinking → streaming → tool_executing → (loop) → done / error / cancelled
 //
@@ -16,17 +18,17 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES } from './capabilities.js';
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.5';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.10.1';
 import { TOOL_DEFS, executeTool } from './tools.js';
-import { probeLocalBrowser, localBrowserAvailable } from './localbrowser.js?v=2026.10.9.5';
-import { recordOutputText, recordOutputTool } from './toolflow.js?v=2026.10.9.5';
+import { probeLocalBrowser, localBrowserAvailable } from './localbrowser.js?v=2026.10.10.1';
+import { recordOutputText, recordOutputTool } from './toolflow.js?v=2026.10.10.1';
 import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
-import { subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.5';
-import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.9.5';
+import { subagentGuide, specialistPrompt } from './subagents.js';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, outputSpec, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.10.1';
+import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.10.1';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
@@ -62,7 +64,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.9.5';
+import { moderateUserTurn } from './moderation.js?v=2026.10.10.1';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -85,37 +87,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.9.5';
+} from './execution.js?v=2026.10.10.1';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.9.5';
+} from './recovery.js?v=2026.10.10.1';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.9.5';
+} from './idempotency.js?v=2026.10.10.1';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.9.5';
+} from './memorylife.js?v=2026.10.10.1';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.9.5';
+} from './trajectory.js?v=2026.10.10.1';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.5';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.5';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.10.1';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.10.1';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.9.5';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.5';
+} from './experiments.js?v=2026.10.10.1';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.10.1';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -131,12 +133,12 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.9.5';
-import { createToolRunner } from './toolrunner.js?v=2026.10.9.5';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.5';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.5';
+} from './executionContext.js?v=2026.10.10.1';
+import { createToolRunner } from './toolrunner.js?v=2026.10.10.1';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.10.1';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.10.1';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildFileEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.5';
+import { buildFileEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.10.1';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -231,7 +233,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
   const subTools = subagentTools(sandboxEnabled, def, { remoteCpp });
   const memBlock = formatMemory(memory);
   const messages = [
-    { role: 'system', text: `${def.prompt}\n\n你是 Dubhe Agent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}${memBlock ? `\n\n${memBlock}` : ''}\n\n${OUTPUT_SPEC}` },
+    { role: 'system', text: `${specialistPrompt(def)}\n\n${getLanguage() === 'en' ? `You are ${def.tag}, a Dubhe Agent specialist. Give a final report without small talk. Current time: ${new Date().toISOString()}` : `你是 Dubhe Agent 体系中的「${def.name}」子智能体。直接产出最终报告，不要寒暄。当前时间：${new Date().toISOString()}`}${memBlock ? `\n\n${memBlock}` : ''}\n\n${outputSpec()}` },
     { role: 'user', text: task },
   ];
   let finalText = '';
@@ -288,7 +290,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.9.5';
+} from './toolrunner.js?v=2026.10.10.1';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {
@@ -519,6 +521,7 @@ export function createAgent(store, hooks = {}) {
         toolTableNote: formatToolTableNote(nexusState && nexusState.turnDropped, nexusState && nexusState.turnDeferred),
       }),
       ephemeral: [
+        feedbackPrompt(messages, getLanguage()),
         govBudget.footprintNote,
         activeMemReminder,
         govBudget.degradationNote,

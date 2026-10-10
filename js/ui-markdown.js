@@ -1,3 +1,4 @@
+import { text as messageLocaleText } from './locale.js';
 // ─── UI · Markdown / 消息片段渲染（P4 拆分：从 ui.js 模块级抽出，不依赖 mountUI 闭包）────────
 // 拥有：DOM 小工具（$ / $$ / el / esc）、安全链接与沙箱媒体（safeHref / safeImgSrc / sandboxPath / hydrateSandboxMedia）、
 //       编辑预览片段、choice / chart 围栏、代码高亮与 KaTeX、markdown-it 引擎（getMd）、renderMarkdown 及其围栏/行内码保护、
@@ -5,8 +6,8 @@
 // 不拥有：任何 store / agent 状态、toast、消息列表与 mountUI 内的交互。本文件绝不 import ui.js。
 import { contextBudgetFor } from './context.js';
 import { ICON } from './icons.js';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.9.5';
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.9.5';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.10.1';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.10.1';
 
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -332,7 +333,7 @@ export function fenceHtml(lang, code, escapeFn, open = false, attributes = null)
   const body = highlightCode(code, L, escapeFn);
   const head = open
     ? `<div class="code-head code-head-open"><span class="code-lang">${escapeFn(L)}</span></div>`
-    : `<div class="code-head"><span class="code-lang">${escapeFn(L)}</span><button class="copy-code" type="button">复制</button></div>`;
+    : `<div class="code-head"><span class="code-lang">${escapeFn(L)}</span><button class="copy-code" type="button">${messageLocaleText('复制', 'Copy')}</button></div>`;
   const classes = ['code-block', open ? 'code-block-open' : '', ...(attributes && attributes.classes || [])].filter(Boolean).join(' ');
   const outerAttrs = pandocAttributesHtml(attributes, classes);
   return `<div${outerAttrs}>${head}<pre data-lang="${escapeFn(L)}"><code class="hljs">${body}</code></pre></div>`;

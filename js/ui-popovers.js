@@ -3,13 +3,13 @@
 //       token 构成与本轮费用弹层（showTokBreak）。
 // 不拥有：会话统计文字（updateStats 留在 ui.js）、能力条弹层（ui-capability.js 复用这里的 hide/place）。
 // 只读 store，不改状态；本文件绝不 import ui.js。
-import { $, esc } from './ui-markdown.js?v=2026.10.9.5';
-import { providerOf, systemPrompt } from './config.js?v=2026.10.9.5';
+import { $, esc } from './ui-markdown.js?v=2026.10.10.1';
+import { providerOf, systemPrompt } from './config.js?v=2026.10.10.1';
 import { providerIcon } from './icons.js';
 import { estimateTokens } from './context.js';
 import { tokenBreakdown, formatTokBreak } from './commands.js';
 import { priceBadgeFor, formatUsd } from './pricing.js';
-import { modelDisplayName } from './smartrouter.js?v=2026.10.9.5';
+import { modelDisplayName } from './smartrouter.js?v=2026.10.10.1';
 
 export function installPopovers({ store }) {
   function hideTokPop() {

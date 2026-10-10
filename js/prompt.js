@@ -1,3 +1,4 @@
+import { getLanguage } from './locale.js';
 // ─── 提示词装配（Hermes 风格三层：stable → context → volatile，外加 ephemeral）──
 // 参考：Nous Research hermes-agent 的 prompt_builder / system_prompt
 //   · cached = stable（身份、技能目录）→ context（项目/子智能体指引）→ volatile（记忆、沙箱快照、时间）
@@ -25,7 +26,11 @@ export function assembleSystemLayers({
   return { messages, stable, context, volatile, cached, ephemeral: eph };
 }
 
-export function formatRuntime({ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote } = {}) {
+export function formatRuntime({ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote, language = getLanguage() } = {}) {
+  if (language === 'en') {
+    const lines = ['# Dubhe Agent runtime', 'Framework: Dubhe Helix 3.0 · DC (Dubhe Cambrian)', now ? `Current time: ${now instanceof Date ? now.toISOString() : String(now)}` : '', model ? `Session model: ${model}` : '', imageModel ? `Configured image model: ${imageModel}; generate_image uses this ID, never pass a model argument.` : '', 'Use :::chart for statistics, :::flow / render_mermaid for processes, :::mind for mind maps, render_dot / SVG for architecture. Do not use image generation for these.'];
+    return join([...lines, filesNote, webNote, relayNote, toolTableNote]);
+  }
   const lines = ['# Dubhe Agent runtime', '底层框架：Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武；前身 Helix 2.5 / 天枢2.5）'];
   if (now) lines.push(`当前时间：${now instanceof Date ? now.toISOString() : String(now)}`);
   if (model) lines.push(`Session model: ${model}`);
