@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 // ui.js 已拆分：源码级断言读 UI 层整体（ui.js + ui-files-panel.js + ui-lightbox.js + quickviz.js）
-const readUi = () => ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
+const readUi = () => ['../js/ui.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
 // P4：agent.js 已拆出 toolrunner.js（工具执行与记账）/ turnfinalizer.js（回合收尾）；「agent 收尾应做 X」类断言读三者整体
 const readAgent = () => ['../js/agent.js', '../js/toolrunner.js', '../js/turnfinalizer.js'].map(read).join('\n');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));
@@ -220,7 +220,8 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   // 当前版本不在模型菜单做隐藏思考检测；保留徽章样式仅兼容旧消息状态。
   assert.match(ui, /handleSystemCommand/, '应有 /system 命令执行器');
   assert.match(ui, /'__system__'/, '应支持 __system__ 伪模型');
-  assert.match(ui, /node\._userToggle == null\) node\.classList\.toggle\('expanded', !!live \|\| !turnHasAssistantText/, '文件行应流式展开，完成后按正文判断折叠');
+  assert.match(ui, /node\._userToggle == null \? autoOpen : node\._userToggle/, '文件折叠使用真实完成态，按本轮正文判断，手动状态优先');
+  assert.match(ui, /autoOpen = node\._active \|\| !turnHasAssistantText/, '文件完成态与整条消息是否仍在输出解耦');
   assert.match(css0, /md-c-red/, '调色板应存在');
   assert.match(css0, /badge\.enc/, '加密徽章样式应存在');
   // 2026.9.27.15：缩放柄只留右下角 + 清空同步环形缓冲 + 不记录复制动作

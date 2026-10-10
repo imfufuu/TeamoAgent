@@ -141,9 +141,166 @@ await test('local Chromium project-only acceptance', async (t) => {
       await assert.rejects(rpc({ action: 'inspect', preview_id: id }), /不存在|已停止/);
       await context.close();
     });
+    await t.test('Edit UI keeps stable filenames, streams full untruncated source, and folds at write completion in real Chromium', async () => {
+      uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
+      const context = await uiBrowser.newContext();
+      try {
+        await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
+        const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
+        await page.evaluate(async () => {
+          const { createStore } = await import('./js/state.js'), { createAgent } = await import('./js/agent.js'), { mountUI } = await import('./js/ui.js');
+          const st = createStore(); st.clearAllSessions(); st.state.apiKey = 'sk-ui-edit-fixture';
+          const a = createAgent(st, {}), x = { st, a, status: 'streaming' }; a.getStatus = () => x.status;
+          x.ui = mountUI(st, a); x.ui.onUserMessage(st.pushMessage({ role: 'user', text: '完整编辑预览' }));
+          st.pushMessage({ role: 'assistant', text: '先写入文件。', model: 'gpt-5.6-sol', done: true }); x.ui.rebuildMessages();
+          x.initial = Array.from({ length: 24 }, (_, i) => `FIRST ${i + 1}`).join('\n');
+          x.c = { id: 'native-edit-full', name: 'write_file', args: { __raw: '{"path":"site/full.txt","content":' + JSON.stringify(x.initial).slice(0, -1) } };
+          x.m = st.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: [x.c], done: false }); x.ui.onAssistantStart(x.m);
+          x.fold = document.querySelector('.edited-files'); x.path = x.fold.querySelector('.edit-path'); x.previewPath = x.fold.querySelector('.ep-path');
+          x.head = x.fold.querySelector('.ep-head'); x.firstLine = x.fold.querySelector('.ep-tx:not(.ep-empty)'); x.removedPaths = 0;
+          x.observer = new MutationObserver((records) => { for (const record of records) for (const node of record.removedNodes) if (node === x.path || node.contains?.(x.path) || node === x.previewPath || node.contains?.(x.previewPath)) x.removedPaths++; });
+          x.observer.observe(x.fold, { subtree: true, childList: true });
+          x.long = 'LONG-CODE-'.repeat(650); x.source = x.initial + '\n' + x.long + '\nLAST';
+          x.c.args.__raw = '{"path":"site/full.txt","content":' + JSON.stringify(x.source).slice(0, -1); x.ui.onToolDelta(x.m);
+          window.__editFixture = x;
+        });
+        await page.waitForFunction(() => document.querySelector('.edited-files .ep-body')?.textContent.includes('LAST'));
+        const live = await page.evaluate(() => {
+          const x = window.__editFixture, fold = document.querySelector('.edited-files');
+          const rows = [...fold.querySelectorAll('.ep-tx:not(.ep-empty)')].map((row) => row.textContent);
+          return { stable: fold === x.fold && fold.querySelector('.edit-path') === x.path && fold.querySelector('.ep-path') === x.previewPath && fold.querySelector('.ep-head') === x.head && fold.querySelector('.ep-tx:not(.ep-empty)') === x.firstLine,
+            removedPaths: x.removedPaths, first: rows[0], last: rows.at(-1), long: rows.at(-2), count: rows.length,
+            unmutated: !x.a.fs.has('site/full.txt'), expanded: fold.classList.contains('expanded'), overflow: getComputedStyle(fold.querySelector('.ep-body')).overflowY };
+        });
+        assert.equal(live.stable, true); assert.equal(live.removedPaths, 0); assert.equal(live.first, 'FIRST 1'); assert.equal(live.last, 'LAST');
+        assert.equal(live.long, 'LONG-CODE-'.repeat(650)); assert.equal(live.count, 26); assert.equal(live.unmutated, true); assert.equal(live.expanded, true); assert.equal(live.overflow, 'auto');
+        await page.evaluate(() => { const x = window.__editFixture; x.c.args = { path: 'site/full.txt', content: x.source }; x.a.fs.write(x.c.args.path, x.source); x.ui.onToolEvent(x.c, { status: 'ok', settled: true, finalOutput: '已写入 site/full.txt' }); });
+        await page.waitForFunction(() => !document.querySelector('.edited-files')?.classList.contains('expanded'));
+        const done = await page.evaluate(() => { const x = window.__editFixture; x.observer.disconnect(); return { same: document.querySelector('.edited-files') === x.fold, title: x.fold.querySelector('.chip-name').textContent, messageDone: x.m.done, status: x.status, rows: x.fold.querySelectorAll('.ep-tx:not(.ep-empty)').length, fromDisk: x.fold.querySelector('.ep-meta').textContent }; });
+        assert.equal(done.same, true); assert.equal(done.title, 'Edited file'); assert.equal(done.messageDone, false); assert.equal(done.status, 'streaming'); assert.equal(done.rows, 26); assert.match(done.fromDisk, /来自已落盘文件/); assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    });
+    await t.test('real Chromium reveals concurrent results one-by-one in launch order and defers the final assistant message', async () => {
+      uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
+      const context = await uiBrowser.newContext();
+      try {
+        await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
+        const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
+        const early = await page.evaluate(async () => {
+          const { createStore } = await import('./js/state.js'), { createAgent } = await import('./js/agent.js'), { mountUI } = await import('./js/ui.js');
+          const st = createStore(); st.clearAllSessions(); st.state.apiKey = 'sk-ui-order-fixture';
+          const a = createAgent(st, {}), x = { st, a, status: 'executing', seen: [] }; a.getStatus = () => x.status; x.ui = mountUI(st, a);
+          x.ui.onUserMessage(st.pushMessage({ role: 'user', text: '并发任务有序显示' }));
+          x.calls = [1, 2, 3].map((n) => ({ id: `native-order-${n}`, name: 'execute_javascript', args: { code: `return ${n}` }, settled: false }));
+          x.m = st.pushMessage({ role: 'assistant', text: '', model: 'gpt-5.6-sol', toolCalls: x.calls, done: true }); x.ui.onAssistantStart(x.m);
+          x.first = document.querySelector('.tool-call-chip'); x.seen.push({ id: x.first.dataset.callId, at: performance.now() });
+          x.observer = new MutationObserver((records) => { for (const record of records) for (const node of record.addedNodes) {
+            const added = node.matches?.('.tool-call-chip') ? [node] : [...(node.querySelectorAll?.('.tool-call-chip') || [])];
+            for (const chip of added) x.seen.push({ id: chip.dataset.callId, at: performance.now() });
+          } }); x.observer.observe(document.querySelector('#messages'), { childList: true, subtree: true });
+          x.ui.onToolEvent(x.calls[2], { status: 'ok', settled: true, finalOutput: 'THIRD-NATIVE-OUTPUT' });
+          x.ui.onToolEvent(x.calls[1], { status: 'ok', settled: true, finalOutput: 'SECOND-NATIVE-OUTPUT' });
+          window.__orderFixture = x;
+          return { widgets: document.querySelectorAll('.tool-call-chip').length, hidden: !document.querySelector('#messages').textContent.includes('THIRD-NATIVE-OUTPUT') };
+        });
+        assert.equal(early.widgets, 1); assert.equal(early.hidden, true);
+        const held = await page.evaluate(() => {
+          const x = window.__orderFixture; x.ui.onToolEvent(x.calls[0], { status: 'ok', settled: true, finalOutput: 'FIRST-NATIVE-OUTPUT' }); x.status = 'done';
+          x.reply = x.st.pushMessage({ role: 'assistant', text: 'FINAL-NATIVE-ANSWER', model: 'gpt-5.6-sol', done: true }); x.ui.onAssistantStart(x.reply);
+          return { widgets: document.querySelectorAll('.tool-call-chip').length, replyHidden: !document.querySelector(`#messages .msg[data-id="${x.reply.id}"]`) };
+        });
+        assert.equal(held.widgets, 1); assert.equal(held.replyHidden, true);
+        await page.waitForFunction(() => document.querySelectorAll('.tool-call-chip').length === 3 && document.querySelector('#messages').textContent.includes('FINAL-NATIVE-ANSWER'));
+        const final = await page.evaluate(() => { const x = window.__orderFixture; x.observer.disconnect(); return { same: document.querySelector('.tool-call-chip') === x.first, order: x.seen, text: document.querySelector('#messages').textContent }; });
+        assert.equal(final.same, true); assert.deepEqual(final.order.map((entry) => entry.id), ['native-order-1', 'native-order-2', 'native-order-3']);
+        assert.ok(final.order[2].at - final.order[1].at >= 60, 'completed backlog must span separate reveal ticks, not bulk insertion');
+        assert.match(final.text, /FIRST-NATIVE-OUTPUT/); assert.match(final.text, /SECOND-NATIVE-OUTPUT/); assert.match(final.text, /THIRD-NATIVE-OUTPUT/); assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    });
+    await t.test('real Agent/UI keeps each same-path write snapshot behind the launch-order frontier in Chromium', async () => {
+      uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
+      const context = await uiBrowser.newContext();
+      try {
+        await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
+        const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
+        const held = await page.evaluate(async () => {
+          const { createStore } = await import('./js/state.js'), { createAgent } = await import('./js/agent.js'), { mountUI } = await import('./js/ui.js');
+          const st = createStore(); st.clearAllSessions();
+          Object.assign(st.state, { apiKey: 'sk-native-snapshot-fixture', model: 'gpt-5.6-sol', relayOk: false, files: {} });
+          Object.assign(st.state.settings, { webEnabled: false, jevEnabled: false, thinking: false });
+          let ui, requests = 0; const first = 'FIRST-CALL-ONLY\nold\nTAIL', second = first + '\nSECOND-CALL-ONLY';
+          const third = second.replace('old', 'THIRD-CALL-ONLY');
+          const args = [{ path: 'same.txt', content: first }, { path: 'same.txt', mode: 'append', content: '\nSECOND-CALL-ONLY' },
+            { path: 'same.txt', mode: 'replace', old_text: 'old', new_text: 'THIRD-CALL-ONLY' }];
+          const savedFetch = window.fetch;
+          window.fetch = async (url) => {
+            if (String(url).includes('/api/sandbox-web/health')) return new Response('{}', { status: 404 });
+            const delta = requests++ === 0 ? { tool_calls: args.map((a, index) => ({ index, id: `native-snapshot-${index}`, function: { name: 'write_file', arguments: JSON.stringify(a) } })) }
+              : { content: '已完成 same.txt 的三次写入。' };
+            return new Response('data: ' + JSON.stringify({ choices: [{ delta, finish_reason: delta.tool_calls ? 'tool_calls' : 'stop' }] }) + '\n\ndata: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
+          };
+          const a = createAgent(st, {
+            onStatus: (s) => ui?.setStatus(s), onUserMessage: (_text, m) => ui?.onUserMessage(m),
+            onAssistantStart: (m) => ui?.onAssistantStart(m), onAssistantDone: (m) => ui?.onAssistantDone(m),
+            onDelta: (m) => ui?.onDelta(m), onToolDelta: (m) => ui?.onToolDelta(m),
+            onToolEvent: (c, p) => ui?.onToolEvent(c, p), onToolResult: (c, r) => ui?.onToolResult(c, r),
+            onTempCommit: (m) => ui?.onTempCommit(m),
+          });
+          ui = mountUI(st, a);
+          try { await a.send('同一路径依次写入、追加和替换，最后保留 same.txt'); }
+          finally { window.fetch = savedFetch; }
+          window.__snapshotFixture = { st, a, ui, first, second, third };
+          const fold = document.querySelector('.edited-files');
+          return { source: [...fold.querySelectorAll('.ep-tx:not(.ep-empty)')].map((n) => n.textContent).join('\n'),
+            foot: fold.querySelector('.ep-foot').textContent, disk: a.fs.read('same.txt'),
+            replyHidden: !document.querySelector('#messages').textContent.includes('已完成 same.txt 的三次写入。'),
+            snapshots: st.state.messages.find((m) => m.toolCalls?.length)?.toolCalls.map((c) => c.editPreviewSnapshot.content) };
+        });
+        assert.equal(held.source, 'FIRST-CALL-ONLY\nold\nTAIL'); assert.equal(held.foot, ''); assert.equal(held.replyHidden, true);
+        assert.match(held.disk, /SECOND-CALL-ONLY/); assert.match(held.disk, /THIRD-CALL-ONLY/);
+        assert.deepEqual(held.snapshots, ['FIRST-CALL-ONLY\nold\nTAIL', 'FIRST-CALL-ONLY\nold\nTAIL\nSECOND-CALL-ONLY', 'FIRST-CALL-ONLY\nTHIRD-CALL-ONLY\nTAIL\nSECOND-CALL-ONLY']);
+        await page.waitForFunction(() => document.querySelector('.ep-foot')?.textContent.includes('3 次') && document.querySelector('#messages').textContent.includes('已完成 same.txt 的三次写入。'));
+        const final = await page.evaluate(() => { const x = window.__snapshotFixture; x.ui.rebuildMessages(); return {
+          source: [...document.querySelectorAll('.edited-files .ep-tx:not(.ep-empty)')].map((n) => n.textContent).join('\n'),
+          firstAgain: x.a.getEditPreview([JSON.parse(JSON.stringify(x.st.state.messages.find((m) => m.toolCalls?.length).toolCalls[0]))]).content,
+          expanded: document.querySelector('.edited-files').classList.contains('expanded'),
+        }; });
+        assert.equal(final.source, held.disk); assert.equal(final.firstAgain, held.source); assert.equal(final.expanded, false); assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    });
+    await t.test('Chromium renders terminal errors after unfinished output without releasing buffered tasks or leaving a live Edit caret', async () => {
+      uiBrowser ||= await chromium.launch({ headless: true, chromiumSandbox: false, args: ['--disable-dev-shm-usage'] });
+      const context = await uiBrowser.newContext();
+      try {
+        await context.route('**/*', (route) => { if (new URL(route.request().url()).origin === base && !/\/js\/main\.js/.test(route.request().url())) route.continue(); else route.abort(); });
+        const page = await context.newPage(), errors = []; page.on('pageerror', (e) => errors.push(e.message)); await page.goto(base + '/app.html');
+        const immediate = await page.evaluate(async () => {
+          const { createStore } = await import('./js/state.js'), { createAgent } = await import('./js/agent.js'), { mountUI } = await import('./js/ui.js');
+          const st = createStore(); st.clearAllSessions(); st.state.apiKey = 'sk-native-error-fixture';
+          const a = createAgent(st, {}), x = { st, a, status: 'streaming' }; a.getStatus = () => x.status; x.ui = mountUI(st, a);
+          x.ui.onUserMessage(st.pushMessage({ role: 'user', text: '中断错误边界' }));
+          x.calls = [{ id: 'native-error-first', name: 'write_file', args: { __raw: '{"path":"unfinished.txt","content":"UNFINISHED-NATIVE' } },
+            { id: 'native-error-hidden', name: 'read_file', args: { path: 'HIDDEN-NATIVE-READ.txt' } }];
+          x.m = st.pushMessage({ role: 'assistant', text: '', toolCalls: x.calls, done: true }); x.ui.onAssistantStart(x.m);
+          const fold = document.querySelector('.edited-files'); x.path = fold.querySelector('.edit-path');
+          x.status = 'error'; x.ui.setStatus('error');
+          x.err = st.pushMessage({ role: 'assistant', text: '', error: 'FATAL-NATIVE-ERROR', done: true }); x.ui.onAssistantDone(x.err);
+          x.ui.onToolEvent(x.calls[1], { status: 'ok', settled: true, finalOutput: 'LATE-HIDDEN-NATIVE-OUTPUT' });
+          window.__errorFixture = x;
+          return { error: document.querySelector('.err-box')?.textContent, stable: fold.querySelector('.edit-path') === x.path,
+            caret: !!fold.querySelector('.ep-caret'), state: fold.querySelector('.ep-state').textContent,
+            ordered: !!(document.querySelector(`.msg[data-id="${x.m.id}"]`).compareDocumentPosition(document.querySelector(`.msg[data-id="${x.err.id}"]`)) & Node.DOCUMENT_POSITION_FOLLOWING) };
+        });
+        assert.match(immediate.error, /FATAL-NATIVE-ERROR/); assert.equal(immediate.stable, true); assert.equal(immediate.caret, false); assert.equal(immediate.state, '未完成'); assert.equal(immediate.ordered, true);
+        await page.waitForTimeout(200);
+        const held = await page.evaluate(() => { const x = window.__errorFixture; return { text: document.querySelector('#messages').textContent, settled: x.calls[0].settled === true, file: x.a.fs.has('unfinished.txt') }; });
+        assert.ok(!held.text.includes('HIDDEN-NATIVE-READ')); assert.ok(!held.text.includes('LATE-HIDDEN-NATIVE-OUTPUT')); assert.match(held.text, /UNFINISHED-NATIVE/);
+        assert.equal(held.settled, false); assert.equal(held.file, false); assert.deepEqual(errors, []);
+      } finally { await context.close(); }
+    });
     await t.test('the real Agent kernel mounts the local tool, starts a project and commits a genuine screenshot', async () => {
       const { createAgent } = await import('../js/agent.js'), { createStore } = await import('../js/state.js');
-      const lb = await import('../js/localbrowser.js?v=2026.10.9.4');
+      const lb = await import('../js/localbrowser.js?v=2026.10.9.5');
       const oldFetch = globalThis.fetch, oldLocation = globalThis.location; let step = 0, id;
       globalThis.location = { protocol: 'http:', origin: base };
       globalThis.fetch = async (url, opts = {}) => {

@@ -205,7 +205,7 @@ click($('#attach-btn'));
 ok('点击附件按钮展开附件菜单', $('#attach-menu')?.hidden === false && $('#attach-btn')?.getAttribute('aria-expanded') === 'true');
 click($('#attach-btn'));
 ok('再次点击附件按钮收起附件菜单', $('#attach-menu')?.hidden === true && $('#attach-btn')?.getAttribute('aria-expanded') === 'false');
-const readUiSrc = () => ['js/ui.js', 'js/ui-markdown.js', 'js/ui-model-picker.js', 'js/ui-popovers.js', 'js/ui-command-palette.js', 'js/ui-system-commands.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/ui-capability.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
+const readUiSrc = () => ['js/ui.js', 'js/ui-toolflow.js', 'js/ui-editpreview.js', 'js/ui-markdown.js', 'js/ui-model-picker.js', 'js/ui-popovers.js', 'js/ui-command-palette.js', 'js/ui-system-commands.js', 'js/ui-files-panel.js', 'js/ui-lightbox.js', 'js/ui-attachments.js', 'js/ui-capability.js', 'js/quickviz.js'].map((f) => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('\n');
 const photoEditorSource = readUiSrc();
 ok('保存后的相机照片回到 addFiles，普通附件 change 路径独立', /openPhotoEditor\(photo\)[\s\S]*?addFiles\(\[edited\]\)/.test(photoEditorSource) && /fileInput\.addEventListener\('change', \(\) => \{ addFiles\(fileInput\.files\)/.test(photoEditorSource));
 const photoMath = await import(path.join(ROOT, 'js/photo-editor.js'));
@@ -759,7 +759,7 @@ console.log('\n⑳ .36 回归：能力表里把禁用工具全部启用后，弹
       : new Response('nf', { status: 404 });
   try {
     net.resetRelayProbe();
-    const lb = await import('../js/localbrowser.js?v=2026.10.9.4'); await lb.probeLocalBrowser({ force: true });
+    const lb = await import('../js/localbrowser.js?v=2026.10.9.5'); await lb.probeLocalBrowser({ force: true });
     store.state.relayOk = await net.relayAvailable();
     store.state.settings.webEnabled = true;
     ui.syncWeb();

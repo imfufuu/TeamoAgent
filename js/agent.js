@@ -16,17 +16,17 @@
 //   · 生图：不作为对话模型直接调用，统一由主智能体经 generate_image 工具发起
 
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES } from './capabilities.js';
-import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.4';
+import { streamChat, createToolCallAccumulator, createThinkingTracker, getTransport } from './api.js?v=2026.10.9.5';
 import { TOOL_DEFS, executeTool } from './tools.js';
-import { probeLocalBrowser, localBrowserAvailable } from './localbrowser.js?v=2026.10.9.4';
-import { recordOutputText, recordOutputTool } from './toolflow.js?v=2026.10.9.4';
+import { probeLocalBrowser, localBrowserAvailable } from './localbrowser.js?v=2026.10.9.5';
+import { recordOutputText, recordOutputTool } from './toolflow.js?v=2026.10.9.5';
 import { relayAvailable, relaySupports, relayState } from './net.js';
 import { createFS, createTempFS } from './sandbox.js';
 import { effectiveApiKey } from './adminkey.js';
 import { compactMessages, contextBudgetFor } from './context.js';
 import { subagentGuide } from './subagents.js';
-import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.4';
-import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.9.4';
+import { TOOL_LOOP_MAX, SUBAGENT_LOOP_MAX, systemPrompt, OUTPUT_SPEC, DEFAULT_IMAGE_MODEL, SMART_ROUTER_ID, FALLBACK_MODELS, resolveModelAlias } from './config.js?v=2026.10.9.5';
+import { routeModel, isSmartRouter } from './smartrouter.js?v=2026.10.9.5';
 import { planTurn } from './jev.js';
 import { assembleSystemLayers, formatRuntime, formatBudgetNote } from './prompt.js';
 import { formatSkillsIndex, selectSkillBodies, distillSkill, rememberSkill, pruneLearnedSkillsWithReport } from './skills.js';
@@ -62,7 +62,7 @@ import {
   createTurnTelemetry,
   verifyRuntimePremises,
 } from './nexus.js';
-import { moderateUserTurn } from './moderation.js?v=2026.10.9.4';
+import { moderateUserTurn } from './moderation.js?v=2026.10.9.5';
 // ─── P0 执行内核（Dubhe Helix 2.5 · P0）：统一状态机 + 预算与风险治理 + 工具契约校验 ───
 // 新模块单独成文件并带 ?v=（混版纪律）：旧版 agent.js 不 import 它，不会因缺导出白屏。
 import {
@@ -85,37 +85,37 @@ import {
   summarizeExecutionRecord,
   createConfirmationGate,
   GUARD_MODES,
-} from './execution.js?v=2026.10.9.4';
+} from './execution.js?v=2026.10.9.5';
 // ─── P1（Dubhe Helix 2.5）：执行检查点与恢复 / 幂等账本 / 记忆生命周期 / 轨迹级评测 ───
 import {
   createCheckpointStore,
   planResume,
   formatResumePlan,
-} from './recovery.js?v=2026.10.9.4';
+} from './recovery.js?v=2026.10.9.5';
 import {
   createIdempotencyLedger,
-} from './idempotency.js?v=2026.10.9.4';
+} from './idempotency.js?v=2026.10.9.5';
 import {
   resolveRecallStates,
   planMemoryInjection,
   evaluateMemoryWriteGate,
-} from './memorylife.js?v=2026.10.9.4';
+} from './memorylife.js?v=2026.10.9.5';
 import {
   evaluateTrajectory,
   summarizeTrajectoryTotals,
   appendTrajectoryEntry,
-} from './trajectory.js?v=2026.10.9.4';
+} from './trajectory.js?v=2026.10.9.5';
 
 // ─── P2（Dubhe Helix 2.5）：策略版本化 / 统一指标 / 策略实验 / 故障注入 / 审计目标分层 ───
-import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.4';
-import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.4';
+import { snapshotPolicies, verifyPolicyRegistry, diffPolicySnapshots, formatPolicyLine, formatPolicyDriftReport } from './policy.js?v=2026.10.9.5';
+import { formatMetricsPanel, METRIC_DEFS } from './metrics.js?v=2026.10.9.5';
 import {
   resolveExperimentAssignment,
   experimentPolicyOverrides,
   summarizeExperiment,
   formatExperimentReport,
-} from './experiments.js?v=2026.10.9.4';
-import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.4';
+} from './experiments.js?v=2026.10.9.5';
+import { createFaultInjector, formatFaultReport, FAULT_KINDS } from './faults.js?v=2026.10.9.5';
 // P2：统一执行上下文（单一真相源）——工具表由它派生，「声明允许 Web 但工具表没有 Web」在此当场判为缺陷
 import {
   createTurnExecutionContext,
@@ -131,12 +131,12 @@ import {
   recentToolNames,
   describeDropReason,
   formatDroppedTools,
-} from './executionContext.js?v=2026.10.9.4';
-import { createToolRunner } from './toolrunner.js?v=2026.10.9.4';
-import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.4';
-import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.4';
+} from './executionContext.js?v=2026.10.9.5';
+import { createToolRunner } from './toolrunner.js?v=2026.10.9.5';
+import { finalizeTurn } from './turnfinalizer.js?v=2026.10.9.5';
+import { formatAuditGoalsReport, auditBoundaryStatement } from './audit.js?v=2026.10.9.5';
 // P3：编辑直播预览保持独立模块，旧缓存组合下缺少它也不影响核心对话。
-import { buildEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.4';
+import { buildFileEditPreview, formatEditPreviewNote, pathsOfEdits } from './editpreview.js?v=2026.10.9.5';
 
 // 沙箱开关只该管住代码执行 —— 这份列表与 tools.js 里的 CODE_TOOL_NAMES 必须一致
 //（有单测钉住）。故意不在这里 import toolsFor/CODE_TOOL_NAMES：静态站点没有构建器，
@@ -288,7 +288,7 @@ export async function runSubagent(def, task, { apiKey, model, thinking, reasonin
 export {
   PARALLEL_TOOLS, batchToolCalls, toolAccessSet, toolCallsConflict, NETWORK_TOOLS, PARALLEL_LIMITS,
   toolCategoryOf, plannedConcurrency, runWithCategoryLimits, planToolWaves,
-} from './toolrunner.js?v=2026.10.9.4';
+} from './toolrunner.js?v=2026.10.9.5';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export function createAgent(store, hooks = {}) {
@@ -1548,22 +1548,8 @@ export function createAgent(store, hooks = {}) {
     store.notify();
   }
 
-  // 取某条消息的编辑预览（界面只拿结果渲染，不再自己解析半截 JSON）。
-  // 已落盘的内容优先从 fs 读回：那才是「文件现在长什么样」，而不是模型当时想写什么。
-  const getEditPreview = (toolCalls = [], { preferDisk = true } = {}) => {
-    const preview = buildEditPreview(toolCalls);
-    if (!preview) return null;
-    if (preferDisk && preview.path && preview.status === 'written') {
-      try {
-        const onDisk = fs.read(preview.path);
-        if (typeof onDisk === 'string' && onDisk) {
-          const patched = buildEditPreview([{ name: 'write_file', args: { path: preview.path, content: onDisk } }]);
-          if (patched) return { ...patched, fromDisk: true, paths: preview.paths, writes: preview.writes, samePathWrites: preview.samePathWrites, chars: patched.chars };
-        }
-      } catch { /* 文件已被删除或路径不合法 → 回落到流式内容 */ }
-    }
-    return preview;
-  };
+  // Full preview uses per-call snapshots, so later hidden writes cannot leak forward.
+  const getEditPreview = (toolCalls = [], options = {}) => buildFileEditPreview(toolCalls, fs, options);
 
   // P3 修正（能力门控不透明）：按**当前开关态**预演工具表 diff——顶栏能力条点开就能看到
   // 「已禁用 N 个：dispatch_subagent（思考档位需 Max/Ultra）…」，与真正发请求时 deriveToolWhitelist 的结果逐项一致

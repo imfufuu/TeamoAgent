@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.4` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.5` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -31,7 +31,14 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 
 **管理员口令（`admin-{8 位数字/字母}`）**：在 API Key 框里填管理员口令，请求会改用管理员密钥发出。源码里既没有明文密钥也没有明文口令：口令经 scrypt（N=2^16 · r=8 · p=1，64 MiB 内存困难）派生出加密密钥与校验密钥，管理员密钥与**有效期（14 天）**一起加密存放并带 HMAC 校验——口令错、密文或有效期被改、或已过期，都无法解封；到期那一刻起即使口令正确也不再替换。校验在桌面约 0.3–0.8 秒。换发 / 续期：`node tools/seal-admin.mjs --gen <密钥> [天数]`。到期后请同时在网关侧作废旧密钥。
 
-## 本地沙箱网页与真实 Chromium（构建 2026.10.9.4）
+## Edit 与并发任务展示（构建 2026.10.9.5）
+
+- **后台仍并行执行**：保留原有依赖图、波次与类别并发限制；只调整前端呈现。按调用发起顺序，前一个任务实际结算后再逐个显示后一个，缓存后续输出及消息，不一次加载全部任务。
+- **真实结算而非暂时成功**：内核重试、核验未结束时不推进展示；即使后台已经全部完成，也逐个释放积压任务，最终正文不会跳到任务队列前面。正文与文件 / 命令分组仍是时间线边界。
+- **完整 Edit**：文件名与代码 DOM 稳定；所有已收到内容及长行均可回看。写入结束即时按既定规则折叠：本轮有任意正文（前置也算）才自动收起，纯工具轮保持展开，手动状态优先。
+- **中断与恢复**：停止 / 报错冻结待展示队列；报错及时可见，不把未执行任务当成完成；同一提问重新生成时重置展示状态，忽略旧任务迟到事件。
+
+## 本地沙箱网页与真实 Chromium（构建 2026.10.9.4 引入）
 
 ```bash
 npm ci
@@ -47,7 +54,7 @@ Agent 可用 `browser_sandbox` 启动自己生成的 HTML/CSS/JS 项目，持续
 
 ## P3：编辑直播预览（Dubhe Helix 2.5（天枢2.5））
 
-P3 补上「看得见 Agent 正在写什么」：写文件时折叠行显示 **Editing File(s)**，预览窗显示最近约 10 行（行号、写入模式、总行数与字符数）；流式期间节流刷新，换文件或收尾立即刷新。半截 JSON 也能逐字符安全解析，完成后优先读取已落盘内容；完成后变为 Edited File(s) N；本轮有正文才自动折叠，纯工具轮及手动展开保持可见。
+P3 补上「看得见 Agent 正在写什么」：写文件时显示 **Editing File(s)**，预览窗展示已收到的**完整内容**（包括长行），不再只截取尾部 10 行；窗口可滚动，文件名、标题与已有代码行增量更新，不随每次参数更新重建或闪烁。半截 JSON 只用于预览，不提前写入文件；追加 / 替换预览包含完整候选文件。成功后展示**本次调用的真实写入快照**，不会串入后续同路径修改，随即按本轮正文与手动状态规则更新折叠，不必等整轮对话结束。
 
 > 验收：`npm run test:p3`（半截 JSON 扫描、预览字段与 UI 冒烟）。
 
@@ -530,7 +537,9 @@ js/filetree.js    路径 → 目录树的纯函数（层级还原、大小汇总
 js/config.js      常量与模型目录（含 APP_VERSION：入口资源 ?v= 的单一真源）
 js/suggestions.js 空状态任务示例池 + 随机抽取（纯函数，可单测）
 js/icons.js       供应商品牌 Logo + 界面线性图标（currentColor，随主题反色）
-js/editpreview.js 编辑直播预览（半截 JSON 扫描 → 最近 N 行预览窗，纯函数）
+js/editpreview.js 编辑直播预览（半截 JSON → 全文 / 每调用写入快照，不提前改文件）
+js/toolpresentation.js 前端发起顺序队列（后续结果与消息缓冲，后台执行不变）
+js/ui-editpreview.js 文件名 / 标题 / 代码行稳定 DOM 与完成时折叠
 js/agent.js       工具调用循环状态机
 js/state.js       多会话记录 / 消息 / 检查点回滚 / localStorage 持久化（v1 数据自动迁移）
 js/ui.js          渲染与交互

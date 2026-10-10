@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.9.4" />
+<meta name="app-version" content="2026.10.9.5" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -214,7 +214,16 @@
 
     <div class="timeline">
       <div class="ver-block latest reveal">
-        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.4</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-10</span></div>
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.5</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-10</span></div>
+        <div class="ver-card"><ul>
+          <li><span class="tag fix">FIX</span><span><strong>Edit 写完即时折叠</strong>：实际工具结算后按本轮正文规则收起，不必等待整轮结束；前置正文也算，纯工具轮与手动展开保持可见。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>文件名稳定 / 完整预览</strong>：路径与代码行增量刷新，不再反复闪烁；显示全篇与长行。每次写入独立保存真实快照，同一路径后续修改不会污染更早的预览。</span></li>
+          <li><span class="tag imp">IMPROVE</span><span><strong>后台并行，前端顺序显示</strong>：按发起顺序，前一任务结算后逐个展示后一任务；后续输出与最终正文先缓冲，积压结果也不一次全部加载。保留正文与命令 / 文件分组边界。</span></li>
+          <li><span class="tag fix">FIX</span><span><strong>报错与重试</strong>：错误及时可见，冻结未展示任务并停下光标；同一提问重新生成重置展示状态，旧任务迟到输出不会串入新任务。</span></li>
+        </ul></div>
+      </div>
+      <div class="ver-block reveal">
+        <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.4</span><span class="ver-date">2026-10-10</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag add">ADD</span><span><strong>本地沙箱网页与真实 Chromium</strong>：Agent 调试自己生成的 HTML/CSS/JS 项目，支持持续点击、输入、重载及 PNG 截图；只接受沙箱项目，不恢复公网 URL 截图。需本机 <code>npm ci &amp;&amp; npm run setup:browser</code> 后运行 <code>python3 server.py</code>，Pages 本身没有原生浏览器。<a href="LOCAL_BROWSER.md">安装与边界</a>。</span></li>
           <li><span class="tag fix">FIX</span><span><strong>工具时序与停止位置</strong>：工具 → 正文 → 工具按输出时间线展示，只合并相邻同类调用；「已停止」在最后未完成输出之后。</span></li>
@@ -516,7 +525,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.9.4 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.9.5 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">

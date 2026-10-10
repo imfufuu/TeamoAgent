@@ -1,29 +1,11 @@
-// ─── P3 增量（Dubhe Helix 2.5 · P3）：编辑可视化 —— 「正在写入的代码」预览 ──────────
-// 目标（用户诉求）：编辑文件时显示 "Editing File(s)"，展开能看到具体在改哪些文件；
-// 下方一个小窗口，流式刷新最近生成的 ~10 行代码。
-//
-// 为什么不直接把 toolCalls 里的完整 content 丢给界面：
-//   1) 写入内容可能上百 KB，每帧重算会拖慢渲染 → 这里只截尾部 N 行、且有字符上限；
-//   2) 流式期间 arguments 是**半截 JSON**（api.js 的累积器解析失败时给 { __raw }），
-//      直接 JSON.parse 拿不到东西，用户就只能等整段写完才看到任何预览。
-//      scanJSONString 专门吃这种半截文本：按 JSON 转义规则扫一个键的字符串值，
-//      未闭合就是「还在写」——这正是预览要显示的中间态。
-//
-// 本模块是纯函数（无 DOM、无 store），既能被 agent 调用，也能在 node 里直接测。
-
-export const EDIT_PREVIEW_POLICY_VERSION = 'edit-preview-2.5.1';
-export const EDIT_PREVIEW_SCHEMA_VERSION = 'edit-preview-schema-1';
-
-/** 预览窗口显示的行数（用户要求「10 行左右」）。 */
+// Editing previews decode partial JSON without touching the filesystem. Full source
+// (including long lines) is available; the DOM renderer patches it at most every 50ms.
+// tailLines remains an explicit legacy utility, NOT the editing display policy.
+export const EDIT_PREVIEW_POLICY_VERSION = 'edit-preview-3.0.1';
+export const EDIT_PREVIEW_SCHEMA_VERSION = 'edit-preview-schema-2';
 export const PREVIEW_LINES = 10;
-/** 参与行切分的尾部字符上限：超长内容只取尾部，保证每帧计算是常数级。 */
 export const PREVIEW_SCAN_CHARS = 4000;
-/** 单行显示上限：压缩过的单行 JSON/日志可能上万字符，截断避免把布局撑破。 */
 export const PREVIEW_LINE_MAX = 240;
-/**
- * 预览窗刷新节流（毫秒）：直播期间每 ~50ms 合并刷新，换文件/收尾时立即刷。
- * 只刷新有界预览，而不是每帧重排整个文件——长文件逐帧重建会把界面拖卡。
- */
 export const PREVIEW_REFRESH_MS = 50;
 
 /** 会产生「文件写入」预览的工具（可扩展；默认只认 write_file）。 */
@@ -107,34 +89,36 @@ export function extractEditCall(call) {
   let content = '';
   let complete = false;
   let replaceHint = '';
+  let pathComplete = false;
   if (raw) {
     const p = scanJSONString(raw, 'path');
     const m = scanJSONString(raw, 'mode');
     const c = scanJSONString(raw, 'content');
     const nw = scanJSONString(raw, 'new_text');
     const oldT = scanJSONString(raw, 'old_text');
-    path = p.value || '';
-    mode = m.value || '';
-    if (c.found) { content = c.value; complete = c.complete; }
-    if (!c.found && nw.found) { content = nw.value; complete = nw.complete; replaceHint = oldT.value || ''; }
+    path = p.value || ''; pathComplete = p.complete;
+    replaceHint = oldT.value || '';
+    mode = String(m.value || 'overwrite').toLowerCase();
+    const value = mode === 'replace' && nw.found ? nw : c;
+    if (value.found) { content = value.value; complete = value.complete; }
     if (!path && !content) {
       // 参数还没写到任何有用的键（例如只收到 `{"pa`）→ 视为「正在准备」
       return { id: call.id, name: call.name, path: '', mode: '', content: '', complete: false, pending: true };
     }
   } else {
     const args = (call.args && typeof call.args === 'object') ? call.args : {};
-    path = String(args.path || '');
-    mode = String(args.mode || '');
+    path = String(args.path || ''); pathComplete = !!path;
+    replaceHint = String(args.old_text || '');
+    mode = String(args.mode || 'overwrite').toLowerCase();
     content = args.content != null ? String(args.content) : '';
-    if (!content && args.new_text != null) {
+    if (args.new_text != null && mode === 'replace') {
       content = String(args.new_text);
       replaceHint = String(args.old_text || '');
     }
     complete = true;
   }
-  if (!EDIT_MODES[mode]) mode = path && String(call.args && call.args.old_text || '').length ? 'replace' : (mode || 'overwrite');
-  if (mode === 'overwrite' && replaceHint) mode = 'replace';
-  return { id: call.id, name: call.name, path, mode, content, complete, pending: false };
+  if (!EDIT_MODES[mode]) mode = 'overwrite';
+  return { id: call.id, name: call.name, path, pathComplete, mode, content, replaceHint, complete, pending: false, status: call.status };
 }
 
 /** 取一条消息里所有「写文件」类调用（保持模型给出的顺序）。 */
@@ -177,24 +161,28 @@ export function tailLines(text, { lines = PREVIEW_LINES, scanChars = PREVIEW_SCA
  * 组装预览对象（agent 通过 getEditPreview 暴露给界面，界面不再自己解析 toolCalls）。
  * 返回 null 表示这条消息没有可预览的写入。
  */
-export function buildEditPreview(toolCalls = [], { now = () => Date.now(), lines = PREVIEW_LINES } = {}) {
+export function buildEditPreview(toolCalls = [], { now = () => Date.now(), content } = {}) {
   const edits = collectEdits(toolCalls);
   if (!edits.length) return null;
   const withPath = edits.filter((e) => e.path);
   const last = withPath.length ? withPath[withPath.length - 1] : edits[edits.length - 1];
-  const tail = tailLines(last.content, { lines });
+  const source = content == null ? last.content : String(content);
+  const full = source.replace(/\r\n?/g, '\n');
+  const lines = full.length ? full.split('\n').map((text, index) => ({ no: index + 1, text })) : [];
   const samePath = withPath.filter((e) => e.path === last.path);
   const modeDef = EDIT_MODES[last.mode] || EDIT_MODES.overwrite;
   return {
     policyVersion: EDIT_PREVIEW_POLICY_VERSION,
     path: last.path,
+    content: source,
+    callId: last.id,
     mode: last.mode,
     modeLabel: modeDef.label,
-    lines: tail.lines,
-    lineCount: tail.total,
-    clipped: tail.clipped,
-    truncatedLines: tail.truncatedLines,
-    chars: charCount(last.content),
+    lines,
+    lineCount: lines.length,
+    clipped: false,
+    truncatedLines: false,
+    chars: charCount(source),
     // 展示用单位标签：字符数 ≠ 字节数，如实标注，不假装是体积
     unit: '字符',
     paths: [...new Set(edits.map((e) => e.path).filter(Boolean))],
@@ -202,9 +190,58 @@ export function buildEditPreview(toolCalls = [], { now = () => Date.now(), lines
     samePathWrites: samePath.length,
     pending: !!last.pending,
     complete: !!last.complete,
-    status: last.complete ? 'written' : 'streaming',
+    status: last.status === 'ok' ? 'written' : (last.status === 'error' ? 'error' : (last.status === 'running' ? 'writing' : (last.complete ? 'ready' : 'streaming'))),
     at: now(),
   };
+}
+
+// Metadata belongs to the call, not its object identity or provider ID. It survives
+// JSON-cloned messages/session restore without crossing reused IDs in another turn.
+export function captureEditPreviewBase(call, fs, { refresh = false } = {}) {
+  if (call?.name !== 'write_file') return null;
+  const edit = extractEditCall(call);
+  if (!edit?.pathComplete || edit.mode === 'overwrite') return null;
+  if (refresh || call.editPreviewBase?.path !== edit.path) {
+    let content = '';
+    try { content = fs.read(edit.path); } catch { /* append may create a file */ }
+    call.editPreviewBase = { path: edit.path, content: String(content ?? '') };
+  }
+  return call.editPreviewBase;
+}
+
+export function captureEditPreviewSnapshot(call, fs, { path, refresh = false } = {}) {
+  if (call?.name !== 'write_file') return null;
+  const edit = extractEditCall(call);
+  if (!edit?.pathComplete) return null;
+  if (!refresh && call.editPreviewSnapshot?.path === edit.path) return call.editPreviewSnapshot;
+  let content;
+  try { content = fs.read(path || edit.path); } catch { return null; }
+  if (typeof content !== 'string') return null;
+  return (call.editPreviewSnapshot = { path: edit.path, content });
+}
+
+/** Full candidate while streaming; after success, this call's own actual file snapshot. */
+export function buildFileEditPreview(toolCalls, fs, { preferDisk = true } = {}) {
+  const preview = buildEditPreview(toolCalls);
+  if (!preview) return null;
+  const call = [...toolCalls].reverse().find((c) => c?.name === 'write_file'
+    && c.id === preview.callId && extractEditCall(c)?.path === preview.path);
+  const edit = extractEditCall(call);
+  if (preferDisk && call?.status === 'ok') {
+    // New runner captures before later writes can start. Lazy capture also supports
+    // legacy/standalone callers; never refresh a successful snapshot during repaint.
+    const snapshot = captureEditPreviewSnapshot(call, fs);
+    if (snapshot) return { ...buildEditPreview(toolCalls, { content: snapshot.content }), fromDisk: true };
+  }
+  const base = call?.status === 'ok' ? call.editPreviewBase : captureEditPreviewBase(call, fs);
+  if (edit && base?.path === edit.path) {
+    let content = base.content;
+    if (edit.mode === 'append') content += edit.content;
+    else if (edit.mode === 'replace' && edit.replaceHint && content.includes(edit.replaceHint))
+      content = content.replace(edit.replaceHint, edit.content); // matches write_file's $ substitution semantics
+    return { ...buildEditPreview(toolCalls, { content }), provisional: call.status !== 'ok' };
+  }
+  return { ...preview, provisional: call?.status !== 'ok' };
 }
 
 /** 一行摘要（面板头部 / 报告用）。 */

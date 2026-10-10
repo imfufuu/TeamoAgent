@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.9.4';
+} from '../js/api.js?v=2026.10.9.5';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,10 +28,10 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.9.4');
+const api = await import('../js/api.js?v=2026.10.9.5');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
-const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
+const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
 function readUiSource() {
   const fsp = _fs;
   return UI_SOURCE_PARTS.map((rel) => fsp.readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
@@ -778,12 +778,12 @@ test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色
   assert.doesNotMatch(ROUTER_ICON_SVG, /TeamoRouter|TEAMOROUTER/i, '不再复刻第三方产品 LOGO');
 });
 
-test('2026.10.9.4 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
+test('2026.10.9.5 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
   const fsp = await import('node:fs');
   const changelog = fsp.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.4 ·/m, 'CHANGELOG 顶部新增 2026.10.9.4 条目');
-  assert.match(readme, /构建 `2026\.10\.9\.4`/);
+  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.5 ·/m, 'CHANGELOG 顶部新增 2026.10.9.5 条目');
+  assert.match(readme, /构建 `2026\.10\.9\.5`/);
 });
 
 group('多模态标识');
@@ -2827,6 +2827,7 @@ test('Worker 侧 Pyodide API 名称与陈旧全局（回归锚点）', async () 
 
 // ───────────────────────── 会话记录（入列时机 / 自动标题 / 一键清空）─────────────────────────
 const withLS = async (fn) => {
+  await drainSaves(); // isolate delayed writes from earlier stores before swapping storage
   const realLS = globalThis.localStorage;
   const mem = new Map();
   globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
@@ -3247,7 +3248,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.9.4');
+  const api = await import('../js/api.js?v=2026.10.9.5');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -5317,7 +5318,7 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.9.4');
+  assert.equal(APP_VERSION, '2026.10.9.5');
   assert.match(html, /Dubhe Agent V1\.7 —/);
   const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
   assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
@@ -8589,7 +8590,7 @@ test('Ran Command(s) 折叠头图标是终端提示符 >_（ICON.terminal），�
   assert.ok(ICON.terminal, 'icons.js 需导出 terminal');
   assert.match(ICON.terminal, /<path d="m4\.5 7 5 5-5 5"\/>/, '> 形折线');
   assert.match(ICON.terminal, /<path class="term-caret" d="M12\.5 17\.2H19\.5"\/>/, '_ 下划线单独成 path 以便闪烁');
-  assert.match(ui, /fold\.innerHTML = `<span class="chip-ico chip-ico-term">\$\{ICON\.terminal \|\| ICON\.tool \|\| ''\}<\/span>/, '折叠头用 terminal 图标');
+  assert.match(ui, /(?:fold|groupFold)\.innerHTML = `<span class="chip-ico chip-ico-term">\$\{ICON\.terminal \|\| ICON\.tool \|\| ''\}<\/span>/, '折叠头用 terminal 图标');
   assert.match(css, /\.ran-commands\.live > \.chip-ico \{ animation: none; \}/, '运行中不再旋转');
   assert.match(css, /\.ran-commands\.live > \.chip-ico \.term-caret \{ animation: termCaret [\d.]+s steps\(1, end\) infinite; \}/, '下划线光标闪烁');
   assert.match(css, /\.ran-commands\.done > \.chip-ico \.term-caret \{ animation: none; opacity: 1; \}/, '跑完停止闪烁');
@@ -8974,10 +8975,12 @@ test('UI：Edited File(s) 折叠按 tempCommit 把丢弃项划线并标「已丢
   const agentSrc = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   assert.match(ui, /const tempCommit = liveNow \? null : findTurnTempCommit\(msgsAll, idxA, pathsOfEdit\);/, '直播期间不标注，收尾后才看提交结果');
   assert.match(ui, /discardedForFold\(tempCommit, \{ editedCount: edited\.length, hostHasCommit: !!\(m && m\.tempCommit\) \}\)/);
-  assert.match(ui, /<li class="mono fold-discarded" title="回合结束时最终回答没有提到这个文件，临时沙箱已把它丢弃；在回答里写出路径或文件名即可保留">\$\{esc\(x\)\}<span class="fold-tag">已丢弃 · 回答未引用<\/span><\/li>/);
-  assert.match(ui, /本轮丢弃 \$\{discardedSet\.size\} 个未在回答中引用的临时文件；internal\/ 与 uploads\/ 下的文件总是保留。/);
-  assert.match(ui, /node\.classList\.toggle\('has-discarded', discardedSet\.size > 0\);/);
-  assert.match(ui, /edited\.length \? editFoldLabel\(edited\.length, \{ live: !!liveNow \}\) : discardedFoldLabel\(paths\.length\)/);
+  assert.match(ui, /row\.item\.classList\.toggle\('fold-discarded', dropped\)/, '丢弃标记增量更新，而不是重建文件名');
+  assert.match(ui, /row\.item\.title = dropped \? '回合结束时最终回答没有提到这个文件，临时沙箱已把它丢弃；在回答里写出路径或文件名即可保留'/);
+  assert.match(ui, /text\(row\.tag, dropped \? '已丢弃 · 回答未引用' : ''\)/);
+  assert.match(ui, /本轮丢弃 \$\{discarded\.size\} 个未在回答中引用的临时文件；internal\/ 与 uploads\/ 下的文件总是保留。/);
+  assert.match(ui, /node\.classList\.toggle\('has-discarded', discarded\.size > 0\);/);
+  assert.match(ui, /edited\.length \? editFoldLabel\(edited\.length, \{ live: liveNow \}\) : discardedFoldLabel\(paths\.length\)/);
   assert.match(css, /\.edited-files li\.fold-discarded \{ color: var\(--fg-3\); text-decoration: line-through;/);
   assert.match(css, /\.edited-files li\.fold-discarded \.fold-tag \{ margin-left: 8px;[^}]*color: #dc2626;/);
   assert.match(css, /\.edited-files \.fold-note \{/);
@@ -9166,7 +9169,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.9.4'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.9.5'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9208,7 +9211,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.4');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.5');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
