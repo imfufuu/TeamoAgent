@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.9.2';
+} from '../js/api.js?v=2026.10.9.3';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,7 +28,7 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.9.2');
+const api = await import('../js/api.js?v=2026.10.9.3');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
 const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
@@ -672,7 +672,7 @@ test('2026.10.9.1：几条短消息（含中等工具输出）不触发「更早
   assert.equal(historyWindowStart(short), 0, '十几轮短对话 + 一次 9000 字工具输出：默认阈值下不切窗口');
 });
 
-group('2026.10.9.1：图表 / Run command(s) / 设置与面板密度 / 暗色 AA / 能力抽屉 / 地图 / 截图');
+group('2026.10.9.1：图表 / Run command(s) / 设置与面板密度 / 暗色 AA / 能力抽屉 / 地图');
 test('第 1 条：图表触屏点按不产生灰块，触摸不参与悬停预览（防 B→A→B 闪烁）', async () => {
   const fsp = await import('node:fs');
   const css = fsp.readFileSync(new URL('../css/styles.css', import.meta.url), 'utf8');
@@ -769,36 +769,6 @@ test('第 2 条：快捷地图 —— 视图夹取 / 以指针为中心缩放 / 
   assert.match(css, /\.md-map-vp \.md-chart-region \{ vector-effect: non-scaling-stroke; \}/);
 });
 
-test('第 5 条：网页截图 —— 工具 / 能力位 pageShot / 中继端点与 PNG 头解析 / Worker 能力声明', async () => {
-  const net = await import('../js/net.js');
-  const reg = await import('../js/capabilities.js');
-  const nexus = await import('../js/nexus.js');
-  assert.equal(reg.CAPABILITY_REGISTRY.screenshot_web.group, 'pageShot');
-  assert.equal(reg.CAPABILITY_REGISTRY.screenshot_web.kind, 'network');
-  assert.ok(reg.NETWORK_TOOL_NAMES.includes('screenshot_web'), '网络类并发限流自动覆盖截图');
-  const off = nexus.computeCapabilityVector({ relayOk: true, webEnabled: true, sandboxEnabled: true, canDispatch: false });
-  assert.ok(off.disabledTools.includes('screenshot_web') && !off.enabledTools.includes('screenshot_web'), '中继未声明 screenshot → 禁用');
-  const on = nexus.computeCapabilityVector({ relayOk: true, webEnabled: true, screenshotEnabled: true, sandboxEnabled: true, canDispatch: false });
-  assert.ok(on.enabledTools.includes('screenshot_web') && on.pageShotActive === true);
-  const noWeb = nexus.computeCapabilityVector({ relayOk: true, webEnabled: false, screenshotEnabled: true, sandboxEnabled: true, canDispatch: false });
-  assert.equal(noWeb.pageShotActive, false, '联网关闭时截图也关闭');
-  // PNG 头：1×1 的最小合法文件头（IHDR 宽高在偏移 16 / 20）
-  const head = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0x05, 0x00, 0, 0, 0x03, 0x20]);
-  assert.deepEqual(net.pngSize(head), { width: 1280, height: 800 });
-  assert.equal(net.pngSize(new Uint8Array([1, 2, 3])), null);
-  assert.equal(net.relaySupports('screenshot'), false, '未探测到中继时不声明截图能力');
-  assert.equal(net.relayCapabilities().screenshot, false);
-  const r = await net.relayScreenshot({ url: 'ftp://x/y' });
-  assert.equal(r.ok, false);
-  assert.match(r.error, /http\(s\)/);
-  const ex = await import('../js/execution.js');
-  assert.ok(ex.getToolContract('screenshot_web'), '契约已登记');
-  const tools = (await import('../js/tools.js')).TOOL_DEFS;
-  const def = tools.find((t) => t.name === 'screenshot_web');
-  assert.deepEqual(def.parameters.properties.viewport.enum, ['desktop', 'tablet', 'mobile']);
-  assert.deepEqual(def.parameters.required, ['url']);
-});
-
 test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色 currentColor、viewBox 32、无渐变与品牌色、装饰性（aria-hidden）', async () => {
   const { ROUTER_ICON_SVG } = await import('../js/smartrouter.js');
   assert.match(ROUTER_ICON_SVG, /^<svg [^>]*viewBox="0 0 32 32"/, '视口 32×32');
@@ -808,12 +778,12 @@ test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色
   assert.doesNotMatch(ROUTER_ICON_SVG, /TeamoRouter|TEAMOROUTER/i, '不再复刻第三方产品 LOGO');
 });
 
-test('2026.10.9.2 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
+test('2026.10.9.3 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
   const fsp = await import('node:fs');
   const changelog = fsp.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-09 · 构建 2026\.10\.9\.2 ·/m, 'CHANGELOG 顶部新增 2026.10.9.2 条目');
-  assert.match(readme, /构建 `2026\.10\.9\.2`/);
+  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.3 ·/m, 'CHANGELOG 顶部新增 2026.10.9.3 条目');
+  assert.match(readme, /构建 `2026\.10\.9\.3`/);
 });
 
 group('多模态标识');
@@ -3277,7 +3247,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.9.2');
+  const api = await import('../js/api.js?v=2026.10.9.3');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4912,7 +4882,7 @@ test('run_git 无中继仍在工具表，且 net.js 含内置沙箱 Git 引擎',
   const ag = fsp.readFileSync(new URL('../js/agent.js', import.meta.url), 'utf8');
   const net = fsp.readFileSync(new URL('../js/net.js', import.meta.url), 'utf8');
   const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
-  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web'\]\)/);
+  assert.match(ag, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file'\]\)/);
   assert.match(ag, /内置沙箱 Git/);
   assert.match(net, /function localGitRun/);
   assert.match(net, /git version DubheGit/);
@@ -5347,7 +5317,7 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.9.2');
+  assert.equal(APP_VERSION, '2026.10.9.3');
   assert.match(html, /Dubhe Agent V1\.7 —/);
   const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
   assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
@@ -8060,7 +8030,7 @@ test('estimateTokens：同一消息对象重复估算走缓存，字段变化后
 group('V1.7.1 续：同波按类别限流 / ui.js 拆分契约');
 test('runWithCategoryLimits：网络类 ≤ 4、本地 ≤ 8 并发，结果按原序回填，单个失败不拖累其它', async () => {
   const { runWithCategoryLimits, plannedConcurrency, NETWORK_TOOLS, PARALLEL_LIMITS } = await import('../js/agent.js');
-  assert.deepEqual([...NETWORK_TOOLS].sort(), ['crawl_site', 'download_file', 'fetch_url', 'screenshot_web', 'search_web']);
+  assert.deepEqual([...NETWORK_TOOLS].sort(), ['crawl_site', 'download_file', 'fetch_url', 'search_web']);
   assert.deepEqual(PARALLEL_LIMITS, { network: 4, default: 8 });
   const items = [...Array(10)].map((_, i) => ({ index: i, name: 'fetch_url' })).concat([...Array(12)].map((_, i) => ({ index: 10 + i, name: 'regex' })));
   const active = { net: 0, loc: 0 }; const peak = { net: 0, loc: 0 };
@@ -8381,7 +8351,7 @@ test('analyze_video 工具：定义 / 契约 / 并行与访问表 / 执行路径
   assert.match(def.description, /不要传 model/);
   assert.match(def.description, /16MB/);
   assert.deepEqual(Object.keys(def.parameters.properties).sort(), ['path', 'prompt']);
-  assert.equal(TOOL_DEFS.length, 33, '工具总数 37 → 38（analyze_video）→ 39（download_file）→ 32（P6：9 个本地小工具合成 text_tool + data_tool）→ 33（2026.10.9.1：screenshot_web）');
+  assert.equal(TOOL_DEFS.length, 32, '工具总数 37 → 38（analyze_video）→ 39（download_file）→ 32（P6：9 个本地小工具合成 text_tool + data_tool）');
   const c = ex.getToolContract('analyze_video');
   assert.equal(c.sideEffect, 'remote');
   assert.equal(c.external, true);
@@ -8547,7 +8517,7 @@ test('download_file 工具：定义 / 契约 / 能力门控 / 网络类限流 / 
   assert.match(agentSrc, /if \(t\.name === 'download_file'\) return relayOk && settings\.webEnabled !== false && relaySupports\('file'\);/);
   const toolrunnerSrc = fsp.readFileSync(new URL('../js/toolrunner.js', import.meta.url), 'utf8');
   assert.match(toolrunnerSrc, /case 'download_file': return \{ reads: \[\], writes: a\.path \? strList\(a\.path\) : \[ACCESS_ANY\] \};/);
-  assert.match(agentSrc, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web'\]\)/);
+  assert.match(agentSrc, /RELAY_ONLY_TOOLS = new Set\(\['fetch_url', 'search_web', 'crawl_site', 'download_file'\]\)/);
   const cfgSrc = fsp.readFileSync(new URL('../js/config.js', import.meta.url), 'utf8');
   assert.match(cfgSrc, /- download_file：把 http\(s\) 链接指向的文件/);
   // 执行：非法 URL 直接失败，不发请求
@@ -8564,7 +8534,7 @@ test('net.js relayDownload：走声明 file 能力的 Worker，超限拒绝，�
   assert.equal(net.fileNameFromUrl('https://a.b/', 'application/pdf'), 'download.pdf');
   assert.equal(net.fileNameFromUrl('https://a.b/%E6%B5%8B%E8%AF%95.zip'), '测试.zip');
   const caps = net.relayCapabilities();
-  assert.deepEqual(Object.keys(caps).sort(), ['crawl', 'file', 'screenshot', 'search']);
+  assert.deepEqual(Object.keys(caps).sort(), ['crawl', 'file', 'search']);
   const bad = await net.relayDownload({ url: 'not-a-url' });
   assert.equal(bad.ok, false);
   assert.match(bad.error, /只接受 http\(s\)/);
@@ -9074,7 +9044,6 @@ test('deriveToolWhitelistFromBits 与整轮上下文 deriveToolWhitelist 逐项�
   const off = ec.deriveToolWhitelistFromBits({ relay: true, web: true, sandbox: true, dispatch: false, search: true, crawl: false, file: true, remoteCpp: false }, TOOL_DEFS);
   assert.deepEqual(off.dropped, [
     { name: 'crawl_site', reason: 'relay-crawl-unavailable' },
-    { name: 'screenshot_web', reason: 'relay-screenshot-unavailable' },
     { name: 'execute_cpp', reason: 'remote-cpp-off' },
     { name: 'dispatch_subagent', reason: 'capability-dispatch-off' },
   ].sort((a, b) => off.dropped.findIndex((d) => d.name === a.name) - off.dropped.findIndex((d) => d.name === b.name)));
@@ -9153,8 +9122,8 @@ test('端到端：中继在线但只声明 fetch/search 时，【联网】段「
     assert.equal(calls.length, 1);
     const sys = calls[0].body.messages.filter((m) => m.role === 'system').map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))).join('\n');
     assert.match(sys, /本轮已开启；中继健康检查通过/);
-    assert.match(sys, /实际网页工具表：search_web（网页搜索）、fetch_url（读取单个网页）。未列出的 crawl_site（中继未声明 crawl） \/ download_file（中继未声明 file） \/ screenshot_web（中继未声明 screenshot） 本轮不可用。/);
-    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：crawl_site（中继未声明 crawl）、screenshot_web（中继未声明 screenshot）、download_file（中继未声明 file）/);
+    assert.match(sys, /实际网页工具表：search_web（网页搜索）、fetch_url（读取单个网页）。未列出的 crawl_site（中继未声明 crawl） \/ download_file（中继未声明 file） 本轮不可用。/);
+    assert.match(sys, /【工具表】本轮已禁用 \d+ 个：crawl_site（中继未声明 crawl）、download_file（中继未声明 file）/);
     const sent = (calls[0].body.tools || []).map((t) => (t.function && t.function.name) || t.name);
     assert.ok(sent.includes('fetch_url') && sent.includes('search_web') && !sent.includes('crawl_site') && !sent.includes('download_file'));
     const pv = agent.previewToolTable({ text: '随便聊聊' });
@@ -9196,7 +9165,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.9.2'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.9.3'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9238,7 +9207,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.2');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.3');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -10028,11 +9997,11 @@ test('能力登记处：TOOL_DEFS ↔ 登记表 ↔ execution.js 契约三方一
   // 派生表（集合）必须与 Helix 2.5 手抄的清单一致——登记处是重构不是改行为
   const same = (a, b) => assert.deepEqual([...a].sort(), [...b].sort());
   same(reg.PARALLEL_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'get_browser_environment', 'fetch_url', 'search_web', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'date_calc', 'convert_units', 'analyze_image', 'text_tool']);
-  same(reg.NETWORK_TOOL_NAMES, ['fetch_url', 'search_web', 'crawl_site', 'download_file', 'screenshot_web']); // 2026.10.9.1：+screenshot_web（网络类）
+  same(reg.NETWORK_TOOL_NAMES, ['fetch_url', 'search_web', 'crawl_site', 'download_file']);
   same(reg.READ_ONLY_TOOL_NAMES, ['read_file', 'list_files', 'search_files', 'get_current_time', 'regex', 'hash', 'codec', 'unicode', 'evaluate_expression', 'diff_text', 'json_tool', 'csv_tool', 'date_calc', 'text_tool', 'convert_units', 'data_tool']);
   same(reg.HEAVY_TOOL_NAMES, ['write_file', 'delete_file', 'copy_file', 'zip_files', 'unzip_file', 'execute_javascript', 'execute_python', 'execute_cpp', 'generate_image', 'dispatch_subagent', 'fetch_url', 'run_git', 'analyze_image', 'render_mermaid', 'render_dot', 'execute_sql']);
   assert.deepEqual([...reg.CORE_TOOL_NAMES], ['execute_javascript', 'execute_python', 'execute_cpp', 'write_file', 'read_file', 'list_files', 'delete_file', 'copy_file', 'fetch_url', 'search_web', 'analyze_image', 'dispatch_subagent'], '核心表顺序不变');
-  assert.deepEqual(Object.keys(reg.CAPABILITY_GATED_TOOL_GROUPS), ['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'pageShot', 'codeSandbox', 'subagentSwarm']);
+  assert.deepEqual(Object.keys(reg.CAPABILITY_GATED_TOOL_GROUPS), ['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'subagentSwarm']);
   assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.codeSandbox], ['execute_javascript', 'execute_python', 'execute_cpp']);
   assert.deepEqual([...reg.CAPABILITY_GATED_TOOL_GROUPS.webFetch], ['fetch_url']);
   // 消费方确实在用派生表（不是各自又抄了一份）

@@ -647,7 +647,6 @@ export function computeCapabilityVector({
   searchEnabled = false,
   crawlEnabled = false,
   fileEnabled = false,
-  screenshotEnabled = false,
   sandboxEnabled = true,
   canDispatch = false,
 } = {}) {
@@ -660,19 +659,17 @@ export function computeCapabilityVector({
   const workerSearchActive = Boolean(webFetchActive && searchEnabled);
   const siteCrawlerActive = Boolean(webFetchActive && crawlEnabled);
   const fileDownloadActive = Boolean(webFetchActive && fileEnabled);
-  const pageShotActive = Boolean(webFetchActive && screenshotEnabled);
   const codeSandboxActive = Boolean(s);
   const subagentSwarmActive = Boolean(d);
   const disabledToolGroups = [];
   const disabledTools = [];
   if (!webFetchActive) {
     disabledToolGroups.push(!r ? 'webFetch(no-relay)' : 'webFetch(web-off)');
-    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch, ...CAPABILITY_GATED_TOOL_GROUPS.workerSearch, ...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler, ...CAPABILITY_GATED_TOOL_GROUPS.fileDownload, ...CAPABILITY_GATED_TOOL_GROUPS.pageShot);
+    disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.webFetch, ...CAPABILITY_GATED_TOOL_GROUPS.workerSearch, ...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler, ...CAPABILITY_GATED_TOOL_GROUPS.fileDownload);
   } else {
     if (!workerSearchActive) { disabledToolGroups.push('workerSearch(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.workerSearch); }
     if (!siteCrawlerActive) { disabledToolGroups.push('siteCrawler(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.siteCrawler); }
     if (!fileDownloadActive) { disabledToolGroups.push('fileDownload(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.fileDownload); }
-    if (!pageShotActive) { disabledToolGroups.push('pageShot(unavailable)'); disabledTools.push(...CAPABILITY_GATED_TOOL_GROUPS.pageShot); }
   }
   if (!codeSandboxActive) {
     disabledToolGroups.push('codeSandbox(sandbox-off)');
@@ -688,7 +685,6 @@ export function computeCapabilityVector({
     ...(workerSearchActive ? CAPABILITY_GATED_TOOL_GROUPS.workerSearch : []),
     ...(siteCrawlerActive ? CAPABILITY_GATED_TOOL_GROUPS.siteCrawler : []),
     ...(fileDownloadActive ? CAPABILITY_GATED_TOOL_GROUPS.fileDownload : []),
-    ...(pageShotActive ? CAPABILITY_GATED_TOOL_GROUPS.pageShot : []),
     ...(codeSandboxActive ? CAPABILITY_GATED_TOOL_GROUPS.codeSandbox : []),
     ...(subagentSwarmActive ? CAPABILITY_GATED_TOOL_GROUPS.subagentSwarm : []),
   ];
@@ -699,7 +695,6 @@ export function computeCapabilityVector({
     workerSearchActive,
     siteCrawlerActive,
     fileDownloadActive,
-    pageShotActive,
     codeSandboxActive,
     subagentSwarmActive,
     enabledTools,

@@ -1,24 +1,24 @@
 // ─── Agent 工具集：定义 + 执行调度 ─────────────────────────────────────
 import { CODE_TOOL_NAMES as REG_CODE_TOOL_NAMES, LEGACY_TOOL_ALIASES as REG_LEGACY_TOOL_ALIASES } from './capabilities.js';
 import { runJavaScript, runPython, runCpp, pythonAvailable, persistenceNote } from './sandbox.js';
-import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.9.2';
+import { generateImage, editImage, bytesToDataUrl, dataUrlToBytes, sniffImage } from './api.js?v=2026.10.9.3';
 import { analyzeImage, analyzeVideo, VISION_TOOL_MODEL, VIDEO_TOOL_MODEL } from './vision.js';
 import { pdfToImages, pdfExtractText } from './pdfpages.js';
 import { SUBAGENTS } from './subagents.js';
-import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.9.2';
-import { fetchPage, gitRun, relaySearch, relayCrawl, relayDownload, relayScreenshot, fileNameFromUrl, RELAY_FILE_MAX_BYTES } from './net.js';
+import { DEFAULT_IMAGE_MODEL, IMAGE_SIZES, IMAGE_QUALITIES, IMAGE_FORMATS, IMAGE_BACKGROUNDS, IMAGE_MODEL_IDS, resolveImageModel, resolveVisionModel, resolveVideoModel } from './config.js?v=2026.10.9.3';
+import { fetchPage, gitRun, relaySearch, relayCrawl, relayDownload, fileNameFromUrl, RELAY_FILE_MAX_BYTES } from './net.js';
 import { createZip, fileBytesFromValue } from './zip.js';
 import { unpackZip, unpackZipFromDataUrl } from './unzip.js';
 import { runRegex, runHash, runCodec, runUnicode } from './codetools.js';
 import { searchFiles, diffText, jsonTool, formatSearch } from './worktools.js';
 import { formatMemory, upsertFacts, isValidMemoryFact, forgetMemoryFact, purgeMemoryFact, restoreMemoryFact, getSoftArchivedMemories } from './memory.js';
 import { evaluateExpression, formatMathResult } from './mathtool.js';
-import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.9.2';
+import { getCoarseBrowserEnvironment } from './browser-env.js?v=2026.10.9.3';
 import { runSql, formatSqlResult } from './sqltool.js';
 import { renderMermaid, renderDot } from './diagram.js';
 import { runCsv, runDateCalc, runTextTool, runConvertUnits, runQrCode } from './utiltools.js';
 // P1 记忆生命周期：写入门槛（长期有用 / 用户明确表达 / 敏感信息 / 错误偏置）
-import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.9.2';
+import { evaluateMemoryWriteGate } from './memorylife.js?v=2026.10.9.3';
 
 
 const STRUCTURED_DIAGRAM_RE = /(图表|统计图|折线图|柱状图|条形图|饼图|环形图|散点图|曲线图|趋势图|位移[-－—–]?时间图|路程[-－—–]?时间图|s[-－—–]?t\s*图|流程图|思维导图|脑图|架构图|时序图|甘特图|chart|line\s+chart|bar\s+chart|pie\s+chart|scatter\s+plot|flowchart|mind\s*map|architecture\s+diagram|sequence\s+diagram|mermaid|graphviz|DOT\s*(?:图|diagram|源码|source)|SVG\s*(?:图|diagram|源码|source|矢量))/i;
@@ -261,26 +261,6 @@ export const TOOL_DEFS = [
         mode: { type: 'string', enum: ['text', 'raw'], description: 'text=去标签正文（默认）；raw=原始 HTML/JSON（自己做正则/解析时用）' },
         max_bytes: { type: 'integer', description: '最多抓取字节数，默认 2000000，上限 4000000' },
         save_path: { type: 'string', description: '可选：把全文写到沙箱的指定路径（默认 web/<host>/<slug>.md）' },
-      },
-      required: ['url'],
-    },
-  },
-  {
-    name: 'screenshot_web',
-    description:
-      '对一个 http(s) 网页截图（PNG，保存到沙箱 outputs/）。适用于「看看这个页面长什么样」「截一张整页长图」「看移动端版式」等需要视觉确认的场景；纯文字内容请用 fetch_url。' +
-      '视口预设：desktop 1280×800（默认）/ tablet 820×1180 / mobile 390×844；full_page=true 截整页长图；selector 只截某个 CSS 选择器对应的元素；wait_ms 在加载后额外等待（动态页面可用）。' +
-      '只在中继声明 screenshot 能力时出现（Worker 需配置 Browser Run 凭据）。截图按量计费，只在用户需要看页面外观时使用。' +
-      '完成后用 ![说明](sandbox://outputs/screenshot-001.png) 把图嵌进正文；需要读图细节时再用 analyze_image。',
-    parameters: {
-      type: 'object',
-      properties: {
-        url: { type: 'string', description: '页面完整网址（含 http:// 或 https://）' },
-        viewport: { type: 'string', enum: ['desktop', 'tablet', 'mobile'], description: '视口：desktop 1280×800（默认）/ tablet 820×1180 / mobile 390×844' },
-        full_page: { type: 'boolean', description: '是否截整页长图（默认 false，只截首屏）' },
-        selector: { type: 'string', description: '可选：只截取该 CSS 选择器对应的元素' },
-        wait_ms: { type: 'integer', description: '可选：页面加载后额外等待的毫秒数（0–10000）' },
-        path: { type: 'string', description: '可选：沙箱保存路径（默认 outputs/screenshot-NNN.png）' },
       },
       required: ['url'],
     },
@@ -856,33 +836,6 @@ async function executeToolBody(outerName, outerArgs, ctx) {
         }
         emit({ status: 'ok', fsChange: !!r.savedTo, note: `${r.status || ''} ${(r.chars / 1024).toFixed(1)}K${r.savedTo ? ` → ${r.savedTo}` : ''}` });
         return `[抓取完成] ${r.url}（HTTP ${r.status || '?'} · ${r.contentType || '未知类型'} · ${r.chars} 字符${r.savedTo ? ` · 全文已存 ${r.savedTo}${persistenceNote(fs, r.savedTo)}` : ''}）${r.note ? `\n说明：${r.note}` : ''}\n\n${r.preview}`;
-      }
-      case 'screenshot_web': {
-        const url = String(args.url || '').trim();
-        emit({ status: 'running', note: `截图 ${url.slice(0, 50)}` });
-        let r;
-        try {
-          r = await relayScreenshot({
-            url, viewport: args.viewport, fullPage: args.full_page === true, waitMs: args.wait_ms,
-            selector: args.selector ? String(args.selector) : '', signal: ctx.signal,
-          });
-        } catch (err) {
-          if (err && (err.name === 'AbortError' || ctx.signal && ctx.signal.aborted)) throw err;
-          r = { ok: false, error: err.message };
-        }
-        if (!r.ok) {
-          emit({ status: 'error', error: { message: r.error } });
-          return `screenshot_web 失败：${r.error}`;
-        }
-        const path = args.path ? normalizeFsPath(args.path) : nextOutputPath(fs, 'screenshot', 'png');
-        try { fs.write(path, bytesToDataUrl(r.bytes, 'image/png')); } catch (err) {
-          emit({ status: 'error', error: { message: err.message } });
-          return `screenshot_web 失败：写入 ${path} 出错：${err.message}`;
-        }
-        const kb = (r.bytes.length / 1024).toFixed(0);
-        emit({ status: 'ok', fsChange: true, note: `${r.width}×${r.height} → ${path}` });
-        return `[截图完成] ${r.finalUrl}\n保存：${path}${persistenceNote(fs, path)} · ${r.width}×${r.height} · 视口 ${r.viewport}${args.full_page === true ? ' · 整页' : ''}${args.selector ? ` · 元素 ${args.selector}` : ''} · ${kb} KB\n`
-          + `请在回复中用 ![页面截图](sandbox://${path}) 展示；需要读图细节时用 analyze_image 识读该文件。`;
       }
       case 'download_file': {
         const url = String(args.url || '').trim();

@@ -16,7 +16,7 @@ import { readLocal } from './legacy-keys.js';
 
 let RELAY = { base: '', fetch: '/api/fetch', git: '/api/git', health: '/api/health' };
 let activeRelay = null; // { base, label, endpoints, capabilities }
-let featureRelays = { search: null, crawl: null, file: null, screenshot: null };
+let featureRelays = { search: null, crawl: null, file: null };
 let relayOk = null;
 let relayProbe = null;
 // P8 单点依赖：失败不再是「探测一次、永远 false」。
@@ -56,7 +56,7 @@ function userRelayOverride() {
 }
 function relayEndpoints(base) {
   const b = String(base || '').replace(/\/+$/, '');
-  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health`, search: `${b}/api/search`, crawl: `${b}/api/crawl`, file: `${b}/api/file`, screenshot: `${b}/api/screenshot` };
+  return { base: b, fetch: `${b}/api/fetch`, git: `${b}/api/git`, health: `${b}/api/health`, search: `${b}/api/search`, crawl: `${b}/api/crawl`, file: `${b}/api/file` };
 }
 async function probeRelayEndpoint(endpoints, signal, timeoutMs = 3500) {
   // AbortSignal.any/timeout 老浏览器可能没有，手动派生一个 ctrl
@@ -97,7 +97,7 @@ export async function relayAvailable(signal) {
     for (const url of PUBLIC_RELAY_CANDIDATES) candidates.push({ base: url, label: 'public', endpoints: relayEndpoints(url) });
     const unique = candidates.filter((c, i, all) => all.findIndex((x) => x.endpoints.base === c.endpoints.base) === i);
     let selected = null;
-    featureRelays = { search: null, crawl: null, file: null, screenshot: null };
+    featureRelays = { search: null, crawl: null, file: null };
     // 先保留既有的中继优先级（同源 → 用户指定 → 公共），同时继续探测至找到声明搜索/爬虫能力的 Worker。
     // 这样本地 server.py 可继续服务 fetch/git，而新增工具不会误打到它的 404 路由。
     for (const c of unique) {
@@ -108,8 +108,7 @@ export async function relayAvailable(signal) {
       if (!featureRelays.search && probe.capabilities.includes('search')) featureRelays.search = candidate;
       if (!featureRelays.crawl && probe.capabilities.includes('crawl')) featureRelays.crawl = candidate;
       if (!featureRelays.file && probe.capabilities.includes('file')) featureRelays.file = candidate;
-      if (!featureRelays.screenshot && probe.capabilities.includes('screenshot')) featureRelays.screenshot = candidate;
-      if (selected && featureRelays.search && featureRelays.crawl && featureRelays.file && featureRelays.screenshot) break;
+      if (selected && featureRelays.search && featureRelays.crawl && featureRelays.file) break;
     }
     if (selected) {
       activeRelay = selected;
@@ -120,7 +119,7 @@ export async function relayAvailable(signal) {
       return true;
     }
     activeRelay = null;
-    featureRelays = { search: null, crawl: null, file: null, screenshot: null };
+    featureRelays = { search: null, crawl: null, file: null };
     // 回落到同源默认值
     RELAY = { base: '', ...relayEndpoints('') };
     relayOk = false;
@@ -145,7 +144,7 @@ export function noteRelayNetworkError(reason = '') {
   relayLastError = String(reason || '').slice(0, 160);
   if (relayProbe) return relayProbe; // 已经在探了
   relayOk = null; relayFailedAt = 0;
-  activeRelay = null; featureRelays = { search: null, crawl: null, file: null, screenshot: null };
+  activeRelay = null; featureRelays = { search: null, crawl: null, file: null };
   RELAY = { base: '', ...relayEndpoints('') };
   broadcastRelayStatus(null, { reprobing: true, reason: relayLastError });
   return relayAvailable().catch(() => false);
@@ -160,12 +159,12 @@ export function currentRelay() { return relayOk && activeRelay ? { base: activeR
 
 /** Worker 特性由 health.capabilities 声明；不要仅凭 /api/health=ok 假设存在新路由。 */
 export function relaySupports(feature) { return !!(relayOk && featureRelays[String(feature || '').toLowerCase()]); }
-export function relayCapabilities() { return { search: relaySupports('search'), crawl: relaySupports('crawl'), file: relaySupports('file'), screenshot: relaySupports('screenshot') }; }
+export function relayCapabilities() { return { search: relaySupports('search'), crawl: relaySupports('crawl'), file: relaySupports('file') }; }
 
 /** 重置探测缓存（测试 / 切换环境时用） */
 export function resetRelayProbe() {
   relayOk = null; relayProbe = null; activeRelay = null; relayFailedAt = 0;
-  featureRelays = { search: null, crawl: null, file: null, screenshot: null };
+  featureRelays = { search: null, crawl: null, file: null };
   RELAY = { base: '', ...relayEndpoints('') };
 }
 
@@ -313,53 +312,6 @@ export async function relayDownload({ url = '', maxBytes = RELAY_FILE_MAX_BYTES,
   } catch (err) {
     if (err && err.name === 'AbortError') throw err;
     return { ok: false, error: `无法跨域拉取 ${target}：${err && err.message ? err.message : String(err)}。${ok ? '当前中继未声明 file 能力，请部署新版 relay/worker.js。' : RELAY_HINT}` };
-  }
-}
-
-// ── 网页截图（/api/screenshot，Worker 声明 screenshot 能力且配置了 Browser Run 才可用）──────
-export const SCREENSHOT_VIEWPORTS = Object.freeze(['desktop', 'tablet', 'mobile']);
-const PNG_SIG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-
-/** 读 PNG 文件头的宽高（IHDR，大端）；不是 PNG 返回 null */
-export function pngSize(bytes) {
-  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes || []);
-  if (b.length < 24 || PNG_SIG.some((v, i) => b[i] !== v)) return null;
-  const u32 = (o) => ((b[o] << 24) >>> 0) + (b[o + 1] << 16) + (b[o + 2] << 8) + b[o + 3];
-  return { width: u32(16), height: u32(20) };
-}
-
-/**
- * 经中继截取网页 PNG。返回 { ok, bytes, width, height, finalUrl } 或 { ok:false, error }。
- * viewport: desktop(1280×800) / tablet(820×1180) / mobile(390×844)；fullPage 整页长图；selector 只截一个元素；waitMs 额外等待。
- */
-export async function relayScreenshot({ url = '', viewport = 'desktop', fullPage = false, waitMs = 0, selector = '', signal } = {}) {
-  const target = String(url || '').trim();
-  if (!/^https?:\/\//i.test(target)) return { ok: false, error: `只接受 http(s) 绝对地址，收到：${target || '(空)'}` };
-  if (!await relayAvailable(signal)) return { ok: false, error: `没有可用中继。${RELAY_HINT}` };
-  const candidate = featureRelays.screenshot;
-  if (!candidate) return { ok: false, error: '当前可用中继未声明截图能力（需要 Worker 配置 CF_ACCOUNT_ID 与 CF_API_TOKEN，见 relay/README.md）。' };
-  const vp = SCREENSHOT_VIEWPORTS.includes(viewport) ? viewport : 'desktop';
-  const query = new URLSearchParams({ url: target, viewport: vp });
-  if (fullPage) query.set('full_page', '1');
-  const wait = Math.max(0, Math.min(10000, Math.floor(Number(waitMs) || 0)));
-  if (wait) query.set('wait_ms', String(wait));
-  if (selector) query.set('selector', String(selector).slice(0, 200));
-  try {
-    const res = await fetch(`${candidate.endpoints.screenshot}?${query.toString()}`, { signal });
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      return { ok: false, error: `截图失败（HTTP ${res.status}）：${j.error || res.statusText || '未知原因'}`, status: res.status };
-    }
-    const bytes = new Uint8Array(await res.arrayBuffer());
-    const size = pngSize(bytes);
-    if (!size) return { ok: false, error: '中继返回的不是 PNG 图片' };
-    let finalUrl = target;
-    try { finalUrl = decodeURI(res.headers.get('x-dubhe-final-url') || '') || target; } catch { finalUrl = target; }
-    return { ok: true, bytes, width: size.width, height: size.height, finalUrl, viewport: vp };
-  } catch (err) {
-    if (err && err.name === 'AbortError') throw err;
-    if (isNetworkLevelError(err)) noteRelayNetworkError(`screenshot_web: ${err && err.message}`);
-    return { ok: false, error: `中继截图异常：${err && err.message ? err.message : String(err)}。${RELAY_HINT}` };
   }
 }
 

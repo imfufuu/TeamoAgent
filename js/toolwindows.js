@@ -2,7 +2,7 @@
 // 「Ran command(s)」里每条命令展开后是三个窗口：COMMAND / STDOUT / STDERR（有内容才出现）。
 // 每个窗口右上角各一枚复制按钮，复制的是本窗口的原文。替代旧版「入参 / 出参」两个按钮。
 // 纯函数（不碰 DOM 状态），便于单测；ui.js 只负责接线。
-import { esc } from './ui-markdown.js?v=2026.10.9.2';
+import { esc } from './ui-markdown.js?v=2026.10.9.3';
 
 /** execute_* 的结果正文里，错误段落的分隔标记（见 tools.js formatExecResult）。 */
 export const WINDOW_ERROR_MARK = '── 错误 ──';
