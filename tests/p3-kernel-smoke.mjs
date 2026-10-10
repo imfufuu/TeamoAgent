@@ -1,6 +1,6 @@
 // ─── P3 增量冒烟（Dubhe Helix 2.5 · P3）─────────────────────────────────────────────
 // 目的：把编辑直播预览在**真实数据形状**上跑一遍，断言可核验的输出。
-//   · js/editpreview.js —— 流式半截 JSON → 最近 N 行预览窗
+//   · js/editpreview.js —— 流式半截 JSON → 全文预览窗（tailLines 仅是显式旧工具）
 // 运行：node tests/p3-kernel-smoke.mjs
 //
 // 纪律：不 mock 被测模块；半截 JSON 与 Unicode 转义必须无损。
@@ -69,7 +69,7 @@ check('extractEditCall：已解析对象 / 半截 JSON / 参数未到 三种形�
 });
 
 check('extractEditCall：局部替换（new_text/old_text）也当作一次编辑', () => {
-  const e = extractEditCall({ id: 'c1', name: 'write_file', args: { path: 'a.md', old_text: '旧', new_text: '新' } });
+  const e = extractEditCall({ id: 'c1', name: 'write_file', args: { path: 'a.md', mode: 'replace', old_text: '旧', new_text: '新' } });
   assert.equal(e.mode, 'replace');
   assert.equal(e.content, '新');
 });
@@ -116,7 +116,7 @@ check('buildEditPreview：字段齐全（路径 / 模式 / 行数 / 字符数 / 
   assert.equal(p.modeLabel, '整文件写入');
   assert.equal(p.lineCount, 4);
   assert.equal(p.chars, charCount('a\nb\nc\nd'));
-  assert.equal(p.status, 'written');
+  assert.equal(p.status, 'ready', '完整参数不等于写入成功');
   assert.equal(p.complete, true);
   assert.deepEqual(p.paths, ['out/report.md', 'tmp/scratch.json']);
   assert.equal(p.writes, 3);
@@ -126,14 +126,32 @@ check('buildEditPreview：字段齐全（路径 / 模式 / 行数 / 字符数 / 
   assert.equal(buildEditPreview(undefined), null);
 });
 
-check('buildEditPreview：流式中判 streaming，写完才判 written', () => {
+check('buildEditPreview：streaming / ready / written 不把参数闭合当成实际写入', () => {
   const live = buildEditPreview([rawCall('l1', '{"path":"big.md","content":"line1\\nline2')]);
   assert.equal(live.status, 'streaming');
   assert.equal(live.complete, false);
   assert.equal(live.path, 'big.md');
   assert.ok(live.lines.length >= 1, '流式期间也应能显示已到达的行');
   const done = buildEditPreview([writeCall('big.md', 'line1\nline2')]);
-  assert.equal(done.status, 'written');
+  assert.equal(done.status, 'ready');
+  assert.equal(buildEditPreview([{ ...writeCall('big.md', 'line1\nline2'), status: 'ok' }]).status, 'written');
+  assert.equal(buildEditPreview([{ ...writeCall('big.md', 'x'), status: 'error' }]).status, 'error');
+});
+
+check('全文预览：首行到末行都显示，长行不截断，行号从 1 开始', () => {
+  const long = '压缩代码'.repeat(1500);
+  const source = ['FIRST', ...Array.from({ length: 80 }, (_, i) => `line ${i}`), long, 'LAST'].join('\n');
+  const p = buildEditPreview([writeCall('all.js', source)]);
+  assert.equal(p.lines.length, 83); assert.equal(p.lines[0].no, 1);
+  assert.equal(p.lines.at(-2).text, long); assert.equal(p.lines.at(-1).text, 'LAST');
+  assert.equal(p.lines.map((line) => line.text).join('\n'), source);
+  assert.equal(p.content, source); assert.equal(p.clipped, false); assert.equal(p.truncatedLines, false);
+});
+
+check('全文预览：内容同长度但变更仍无损，空文件可表示', () => {
+  const p = buildEditPreview([writeCall('all.md', 'abc')], { content: 'xyz' });
+  assert.equal(p.lines[0].text, 'xyz'); assert.equal(p.chars, 3);
+  const empty = buildEditPreview([writeCall('all.md', '')]); assert.equal(empty.content, ''); assert.deepEqual(empty.lines, []);
 });
 
 check('文案：折叠行直播显示 Editing files，完成显示 Edited files N', () => {

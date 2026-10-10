@@ -1,4 +1,5 @@
-import { appendToolStream } from './toolflow.js?v=2026.10.9.4';
+import { appendToolStream } from './toolflow.js?v=2026.10.9.5';
+import { captureEditPreviewBase, captureEditPreviewSnapshot } from './editpreview.js?v=2026.10.9.5';
 // ─── 工具运行器（P4 拆分：从 agent.js 抽出「单个工具调用的执行与记账」）────────────────────
 // 拥有：① 同一波工具调用的调度（只读并发 / 写串行 / 委派限流：batchToolCalls · planToolWaves · runWithCategoryLimits）；
 //       ② 每次调用的完整生命周期——契约预检（validateToolCallPre）→ 风险分级与确认闸门 → 预算扣减 → 幂等账本回放
@@ -15,10 +16,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.9.4';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.4';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.4';
-import { toolName } from './executionContext.js?v=2026.10.9.4';
+} from './execution.js?v=2026.10.9.5';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.5';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.5';
+import { toolName } from './executionContext.js?v=2026.10.9.5';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -171,6 +172,7 @@ export function planToolWaves(calls) {
 export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
   function toolCtxFor(call, turn) {
     const fs = getFs();
+    captureEditPreviewBase(call, fs, { refresh: true });
     return {
       fs,
       memory: store.state.memory,
@@ -194,6 +196,8 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         if (patch?.stream) { appendToolStream(call, patch); patch = { ...patch, liveOutput: call.liveOutput }; }
         if (['running', 'ok', 'error'].includes(patch?.status)) call.status = patch.status;
         if (patch && patch.billing) call.billing = patch.billing;
+        if (patch?.status === 'ok' && patch.editedPath)
+          captureEditPreviewSnapshot(call, fs, { path: patch.editedPath, refresh: true });
         emit('onToolEvent', call, patch);
       },
       dispatch: async (agentId, subTask, onNote) => {
@@ -265,7 +269,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       return closed;
     };
 
-    const runOne = async (call) => {
+    const runCall = async (call) => {
       if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
       emit('onToolStart', call);
       let toolDef = toolDefByName.get(call.name) || null;
@@ -634,6 +638,23 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       const left = exec.budgetGov.remaining('toolCalls');
       if (Number.isFinite(left) && left <= 1) notes += `\n\n⚠️ 执行内核：本轮工具调用预算即将用尽（剩余 ${left}），后续调用会被拒绝，请尽快收敛结论。`;
       return `${String(result)}${notes}`;
+    };
+
+    // Per-call settlement is emitted immediately, NOT at Promise.all/wave completion.
+    // The UI may queue it for launch-order presentation; execution stays concurrent.
+    const runOne = async (call) => {
+      if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      call.settled = false;
+      const started = Date.now();
+      const result = await runCall(call);
+      if (turn.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      call.settled = true;
+      if (!['ok', 'error'].includes(call.status)) call.status = 'ok';
+      call.durationMs ??= Math.max(1, Date.now() - started);
+      if (call.status === 'ok') captureEditPreviewSnapshot(call, getFs());
+      emit('onToolEvent', call, { status: call.status, settled: true, durationMs: call.durationMs,
+        note: call.errorNote || '', finalOutput: String(result) });
+      return result;
     };
 
     for (const b of planToolWaves(calls)) {

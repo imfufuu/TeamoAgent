@@ -1,6 +1,6 @@
 // ─── P3 DOM 冒烟（tests/p3-dom-smoke.mjs）─────────────────────────────────
 // 用 jsdom 真挂载 app.html + mountUI，验证编辑直播预览在界面这一层接通：
-//   ① 编辑直播折叠行（Editing Files）+ 预览窗（最近 N 行 / 行号 / 写入中游标 / 节流字段）
+//   ① 编辑直播折叠行（Editing Files）+ 预览窗（全文 / 行号 / 写入中游标 / 节流字段）
 // 依赖 jsdom（npm ci 会装；CI 必跑本文件，未安装时本地自动跳过）。
 //   node tests/p3-dom-smoke.mjs          # 需 npm i -D jsdom
 import fs from 'node:fs';
@@ -72,7 +72,7 @@ ok('半截参数标注「内容生成中」，不伪装文件已写入', /内容
 ok('预览窗显示行号 + 已到达的内容', $$('.edited-files .ep-line').length >= 2 && /第一行/.test($('.edited-files .ep-body').textContent));
 ok('写入中显示光标（直播语义）', !!$('.edited-files .ep-caret'));
 ok('预览窗标题含模式 / 行数 / 字符数', /整文件写入/.test(win.querySelector('.ep-head').textContent) && /行/.test(win.querySelector('.ep-head').textContent), win.querySelector('.ep-head').textContent);
-ok('刷新是有界节流的（50ms，实时预览而非整文件重排）', /EDIT_PREVIEW_REFRESH_MS/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
+ok('刷新是有界节流的（50ms，全文增量更新而非整文件重建）', /EDIT_PREVIEW_REFRESH_MS/.test(fs.readFileSync(path.join(ROOT, 'js/ui.js'), 'utf8')));
 
 // 完成：换成完整参数 + done → 折叠回 Edited Files N，预览窗仍在（可回看）
 const doneMsg = store.updateMessage(liveMsg.id, { toolCalls: [{ id: 'call-live-1', name: 'write_file', args: { path: 'tmp/live.md', content: '第一行\n第二行\n第三行' } }], done: true, text: '已写入。' });

@@ -5,8 +5,8 @@
 // 不拥有：任何 store / agent 状态、toast、消息列表与 mountUI 内的交互。本文件绝不 import ui.js。
 import { contextBudgetFor } from './context.js';
 import { ICON } from './icons.js';
-import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.9.4';
-import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.9.4';
+import { prepareMarkdownExtensions, parsePandocAttributes, pandocAttributesHtml } from './markdown-extensions.js?v=2026.10.9.5';
+import { parseChartInfo, parseDiagramInfo, renderQuickChart, renderQuickDiagram, CHART_DIRECT_ALIASES } from './quickviz.js?v=2026.10.9.5';
 
 export const $ = (sel, el = document) => el.querySelector(sel);
 export const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
@@ -54,24 +54,25 @@ export const headingSlug = (text) => {
     .slice(0, 80);
   return s || 'section';
 };
-// P3：预览窗 HTML（最近 N 行 + 行号 + 模式/行数/字符数）。只在节流命中时重建。
+// Full editing preview HTML for static/export consumers; live UI uses stable DOM patches.
+export const editPreviewMeta = (preview) => [
+  preview.modeLabel,
+  preview.lineCount ? `${preview.lineCount} 行` : '',
+  preview.chars ? `${preview.chars} ${preview.unit || '字符'}` : '',
+  preview.fromDisk ? '来自已落盘文件' : '',
+  preview.provisional ? '预览，尚未写入' : '',
+].filter(Boolean).join(' · ');
+export const editPreviewFoot = (preview) => preview.writes > 1
+  ? `本轮对该路径写入 ${preview.samePathWrites} 次${preview.paths.length > 1 ? `，共涉及 ${preview.paths.length} 个文件` : ''}`
+  : '';
 export const editPreviewHtml = (preview, live) => {
   if (!preview) return '';
   const rows = (preview.lines || []).map((l) => `<div class="ep-line"><span class="ep-no">${esc(String(l.no))}</span><span class="ep-tx">${esc(l.text) || '&nbsp;'}</span></div>`).join('');
-  const meta = [
-    preview.modeLabel,
-    preview.lineCount ? `${preview.lineCount} 行` : '',
-    preview.chars ? `${preview.chars} ${preview.unit || '字符'}` : '',
-    preview.clipped ? '仅显示尾部' : '',
-    preview.fromDisk ? '来自已落盘文件' : '',
-  ].filter(Boolean).join(' · ');
-  const foot = preview.writes > 1
-    ? `<div class="ep-foot mono">本轮对该路径写入 ${preview.samePathWrites} 次${preview.paths.length > 1 ? `，共涉及 ${preview.paths.length} 个文件` : ''}</div>`
-    : '';
+  const meta = editPreviewMeta(preview), foot = editPreviewFoot(preview);
   return `<div class="edit-preview" data-policy="${esc(preview.policyVersion || '')}" data-status="${esc(preview.status || '')}">`
-    + `<div class="ep-head mono">${esc(preview.path || '(路径未定)')}${meta ? `<span class="ep-meta">${esc(meta)}</span>` : ''}</div>`
+    + `<div class="ep-head mono"><span class="ep-path">${esc(preview.path || '(路径未定)')}</span>${meta ? `<span class="ep-meta">${esc(meta)}</span>` : ''}</div>`
     + `<div class="ep-body">${rows || '<div class="ep-line"><span class="ep-tx ep-empty">（还没有内容）</span></div>'}${live && !preview.complete ? '<span class="ep-caret" aria-hidden="true"></span>' : ''}</div>`
-    + foot
+    + (foot ? `<div class="ep-foot mono">${esc(foot)}</div>` : '')
     + '</div>';
 };
 const parseChoiceOpts = (body) => {

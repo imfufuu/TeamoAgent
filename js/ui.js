@@ -1,11 +1,13 @@
-import { paintOrderedAssistant, renderToolChipDetail } from './ui-toolflow.js?v=2026.10.9.4';
-import { adjacentToolMessages, turnHasAssistantText, appendToolStream, toolFamily } from './toolflow.js?v=2026.10.9.4';
+import { createToolPresentation, presentationCallSettled, turnToolResults } from './toolpresentation.js?v=2026.10.9.5';
+import { paintEditFoldContent, syncEditingFold } from './ui-editpreview.js?v=2026.10.9.5';
+import { paintOrderedAssistant, renderToolChipDetail, paintCommandRows, ownerOfTool, paintVisibleTurn, activeToolOwner } from './ui-toolflow.js?v=2026.10.9.5';
+import { adjacentToolMessages, turnHasAssistantText, appendToolStream, toolFamily } from './toolflow.js?v=2026.10.9.5';
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.9.4';
-import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js?v=2026.10.9.4';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.9.5';
+import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js?v=2026.10.9.5';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.9.4';
+import { getTransport } from './api.js?v=2026.10.9.5';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
@@ -18,28 +20,28 @@ import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.9.4';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.9.4';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.9.4';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.9.4';
-import { installAttachments } from './ui-attachments.js?v=2026.10.9.4';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.9.4';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.9.4';
-import { installPopovers } from './ui-popovers.js?v=2026.10.9.4';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.9.4';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.9.4';
-import { decorateGeoMap, installMapInteractions } from './quickmap.js?v=2026.10.9.4';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.9.5';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.9.5';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.9.5';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.9.5';
+import { installAttachments } from './ui-attachments.js?v=2026.10.9.5';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.9.5';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.9.5';
+import { installPopovers } from './ui-popovers.js?v=2026.10.9.5';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.9.5';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.9.5';
+import { decorateGeoMap, installMapInteractions } from './quickmap.js?v=2026.10.9.5';
 
 // 预览窗刷新节流：直播时每 ~50ms 合并更新（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 
 // P4：Markdown / 消息片段渲染与 DOM 小工具已拆到 ui-markdown.js（纯函数，不依赖 mountUI 闭包）
 import {
-  $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, editPreviewHtml, hydrateSandboxMedia, bindFoldRows,
+  $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.9.4';
+} from './ui-markdown.js?v=2026.10.9.5';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.9.4';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.9.5';
 
 // ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
 export const MAX_TOAST_STACK = 3;
@@ -104,6 +106,62 @@ export function mountUI(store, agent) {
   const commandToggle = new Map();
   const callToggle = new Map();
   const fileToggle = new Map();
+  const toolResultBuffer = new Map();
+  const deferredAssistantIds = new Set();
+  let presentationScope = '', presentationStopped = false;
+  const toolPresentation = createToolPresentation({
+    readMessage: (id) => store.state.messages.find((m) => m.id === id),
+    resultIds: () => new Set(toolResults().keys()),
+    schedule: (fn, ms) => {
+      const timer = { frame: null, timeout: null };
+      timer.frame = requestAnimationFrame(() => { timer.frame = null; timer.timeout = setTimeout(fn, ms); });
+      return timer;
+    },
+    cancel: (timer) => { if (timer.frame != null) cancelAnimationFrame(timer.frame); if (timer.timeout != null) clearTimeout(timer.timeout); },
+    onAdvance: (m) => {
+      syncPresentationScope();
+      const wrap = msgNodes.get(m.id);
+      if (wrap) paintAssistant(wrap, m);
+      flushDeferredAssistants(); scrollToBottom();
+    },
+  });
+  function syncPresentationScope() {
+    const user = store.state.messages.findLast((m) => m.role === 'user' && !m.silent);
+    const scope = `${store.state.activeSessionId || ''}:${user?.id || ''}`;
+    if (scope !== presentationScope) {
+      presentationScope = scope; toolPresentation.clear(); toolResultBuffer.clear();
+      deferredAssistantIds.clear(); liveToolCallIds.clear(); presentationStopped = false;
+    }
+  }
+  function toolResults(ownerId) {
+    const msgs = store.state.messages;
+    const at = ownerId == null ? msgs.length - 1 : msgs.findIndex((m) => m.id === ownerId);
+    const current = at >= msgs.findLastIndex((m) => m.role === 'user' && !m.silent);
+    return new Map([...(current ? toolResultBuffer : []), ...turnToolResults(msgs, ownerId)]);
+  }
+  function displayedMessages() {
+    const messages = store.state.messages;
+    return messages.map((m) => m.role !== 'assistant' ? m : (toolPresentation.deferred(m, messages)
+      ? { ...m, text: '', toolCalls: [], tempCommit: null, webSearch: null } : toolPresentation.project(m, { advance: false })));
+  }
+  function flushDeferredAssistants() {
+    if (presentationStopped) return;
+    for (const m of store.state.messages) {
+      if (!deferredAssistantIds.has(m.id)) continue;
+      if (toolPresentation.deferred(m, store.state.messages)) break;
+      deferredAssistantIds.delete(m.id); appendMessage(m);
+    }
+  }
+  function syncFileFold(node) {
+    syncEditingFold(node, { messages: store.state.messages, visibleMessages: displayedMessages(),
+      resultIds: new Set(toolResults(node?.dataset.ownerId).keys()),
+      busy: getBusy() && !presentationStopped });
+  }
+  function syncCompletedToolFolds() {
+    for (const fold of $$('.ran-commands', msgList)) syncRanCommandsFold(fold);
+    for (const fold of $$('.edited-files, .explored-files', msgList)) syncFileFold(fold);
+  }
+
   // 未决的高风险确认卡（每个回合结束时由 agent 作废；重绘消息时一并清掉，避免残留旧卡）
   const confirmNodes = new Map();
   const clearConfirmCards = () => {
@@ -134,7 +192,7 @@ export function mountUI(store, agent) {
       rafPending = false;
       const queue = [...pendingPaints.values()]; pendingPaints.clear();
       for (const msg of queue) { const w = msgNodes.get(msg.id); if (w) paintAssistant(w, msg); }
-      scrollToBottom();
+      flushDeferredAssistants(); scrollToBottom();
     });
   };
 
@@ -1201,7 +1259,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
   }
   function toolCallSettled(chip, id) {
     const status = chip && chip._toolStates && chip._toolStates[id] && chip._toolStates[id].status;
-    return hasToolOutput(chip, id) || status === 'ok' || status === 'error';
+    return chip?._toolStates?.[id]?.settled !== false && (hasToolOutput(chip, id) || status === 'ok' || status === 'error');
   }
   function syncRanCommandsFold(fold) {
     if (!fold) return;
@@ -1215,11 +1273,9 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const allDone = children.every((chip) => chip.classList.contains('done'));
     const cancelled = children.some((chip) => chip.dataset.cancelled === 'true');
     const failed = children.some((chip) => chip.classList.contains('fail'));
-    // 2026.10.9.1（第 4 条）：折叠块只在「有命令正在执行」时展开（live / expanded 同源）。
-    // 旧规则是「忙碌且未全部完成」——下一条命令还在流式生成参数、尚未开始执行时，块也会整块展开等它，
-    // 而 .ran-commands.live 的 CSS 会强制显示详情，所以即使去掉 expanded 也收不起来。
+    // Pending calls stay visible; completed calls fold only when this turn has body text.
     const anyRunning = children.some((chip) => chip.classList.contains('running'));
-    const hasText = turnHasAssistantText(store.state.messages, fold.dataset.ownerId);
+    const hasText = turnHasAssistantText(displayedMessages(), fold.dataset.ownerId);
     const autoOpen = !allDone || !hasText;
     const label = $('.chip-name', fold);
     if (label) label.textContent = total === 1 ? 'Ran command' : `Ran commands ${total}`;
@@ -1245,7 +1301,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       if (allDone && cancelled) {
         state.textContent = '已停止'; state.title = '';
       } else if (allDone) {
-        state.innerHTML = timeHtml.trim();
+        if (state.innerHTML !== timeHtml.trim()) state.innerHTML = timeHtml.trim();
         state.title = `${total} 条命令${failedCount ? ` · ${failedCount} 条失败` : ''}${totalMs > 0 ? ` · 总耗时 ${fmtSpan(totalMs)}` : ''}`;
       } else {
         state.textContent = anyRunning ? (settled ? `执行中 ${settled}/${total}` : '执行中…') : '等待参数 / 执行';
@@ -1263,7 +1319,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const ids = toolIds(chip);
     const terminal = (id) => {
       const status = chip._toolStates[id] && chip._toolStates[id].status;
-      return hasToolOutput(chip, id) || status === 'ok' || status === 'error';
+      return chip._toolStates[id]?.settled !== false && (hasToolOutput(chip, id) || status === 'ok' || status === 'error');
     };
     const allDone = chip.dataset.cancelled === 'true' || (ids.length > 0 && ids.every(terminal));
     const failed = chip.dataset.cancelled !== 'true' && ids.some((id) => {
@@ -1289,11 +1345,13 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
         const item = chip._toolStates[failId] || {};
         const errTxt = String(item.note || chip._outs[failId] || '工具失败').slice(0, 400);
         const durF = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
-        state.innerHTML = `<span class="chip-fail" role="img" aria-label="失败" title="${esc(errTxt)}">✗</span>${durF > 0 ? `<span class="chip-time">${fmtSpan(durF)}</span>` : ''}`;
+        const stateHtml = `<span class="chip-fail" role="img" aria-label="失败" title="${esc(errTxt)}">✗</span>${durF > 0 ? `<span class="chip-time">${fmtSpan(durF)}</span>` : ''}`;
+        if (state.innerHTML !== stateHtml) state.innerHTML = stateHtml;
         state.title = errTxt; state.classList.add('bad');
       } else if (allDone) {
         const dur = ids.map((id) => chip._toolStates[id] && chip._toolStates[id].durationMs).filter((x) => Number.isFinite(Number(x))).reduce((a, b) => a + Number(b), 0);
-        state.innerHTML = `<span class="chip-ok" role="img" aria-label="成功">✓</span>${dur > 0 ? `<span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
+        const stateHtml = `<span class="chip-ok" role="img" aria-label="成功">✓</span>${dur > 0 ? `<span class="chip-time">${fmtSpan(dur)}</span>` : ''}`;
+        if (state.innerHTML !== stateHtml) state.innerHTML = stateHtml;
         state.title = ''; state.classList.remove('bad');
       } else {
         state.textContent = running ? (running.note || '执行中…') : (settled ? `${settled}/${ids.length}` : '…');
@@ -1302,7 +1360,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     }
     if (chip._userToggle == null) {
       const owner = chip.closest('.ran-commands')?.dataset.ownerId;
-      chip.classList.toggle('expanded', !allDone || !turnHasAssistantText(store.state.messages, owner));
+      chip.classList.toggle('expanded', !allDone || !turnHasAssistantText(displayedMessages(), owner));
     } else chip.classList.toggle('expanded', chip._userToggle);
     syncRanCommandsFold(chip.closest('.ran-commands'));
   }
@@ -1310,9 +1368,14 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
   // 2026.10.9.1（第 4 条）：详情 = COMMAND / STDOUT / STDERR 三窗口（见 toolwindows.js），每个窗口右上角一枚复制按钮。
   // 一条命令一个芯片（不再按工具名合并）；chip._win 保存三段原文，复制按钮直接读它，不从 DOM 里抠文本。
   function paintAssistant(wrap, m) {
+    if (!m._displayFragment) {
+      syncPresentationScope();
+      if (toolPresentation.deferred(m, store.state.messages)) return;
+      m = toolPresentation.project(m);
+    }
     if (paintOrderedAssistant(wrap, m, {
       paintPart: paintAssistant, paintMeta: paintTurnMeta, paintFoot, syncShell: syncAssistantShell,
-      syncFolds: () => { for (const fold of $$('.ran-commands', msgList)) syncRanCommandsFold(fold); },
+      syncFolds: syncCompletedToolFolds,
       refreshActions: refreshActionVisibility,
     })) return;
     wrap.classList.toggle('cancelled', !!m.cancelled);
@@ -1430,7 +1493,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     }
     // Text and file operations are timeline barriers; merge adjacent commands only.
     const chips = $('.tool-chips', wrap);
-    const msgsAll = store.state.messages;
+    const msgsAll = displayedMessages();
     const idxA = msgsAll.findIndex((x) => x.id === m.id);
     const commandCallsOf = (msg) => ((msg && msg.toolCalls) || []).filter((t) => t && !FILE_FOLD_TOOLS.has(t.name));
     const commandCluster = m._displayFragment ? [m] : adjacentToolMessages(msgsAll, m.id, (t) => !FILE_FOLD_TOOLS.has(t.name));
@@ -1443,64 +1506,11 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     // 2026.10.9.1（第 4 条）：每条调用各占一行、逐条可展开，不再合并成「某工具 ×N」
     const groups = mergedCalls.map((t) => ({ name: t.name, items: [t] }));
     const sig = groups.map((g) => `${g.name}:${g.items.map((t) => t.id).join('+')}`).join('|');
-    if (chips.dataset.sig !== sig) {
-      chips.dataset.sig = sig;
-      chips.innerHTML = '';
-      if (groups.length) {
-        const fold = el('div', 'ran-commands');
-        fold.dataset.sig = sig;
-        fold.dataset.ownerId = m.id;
-        const scope = String(msgsAll[turnRange(msgsAll, idxA)[0]]?.id || m.id);
-        fold.dataset.groupId = scope + ':' + String(mergedCalls[0]?.id || m.id);
-        fold._userToggle = commandToggle.get(fold.dataset.groupId) ?? null;
-        fold.innerHTML = `<span class="chip-ico chip-ico-term">${ICON.terminal || ICON.tool || ''}</span><span class="mono chip-name"></span><span class="chip-state">…</span><div class="chip-detail"><div class="fold-inner"><div class="ran-command-items"></div></div></div>`;
-        fold.addEventListener('click', (e) => {
-          if (e.target.closest('.tool-call-chip, a, button, .chip-copy')) return;
-          fold.classList.toggle('expanded');
-          fold._userToggle = fold.classList.contains('expanded');
-          commandToggle.set(fold.dataset.groupId, fold._userToggle);
-        });
-        chips.appendChild(fold);
-        const itemsBox = $('.ran-command-items', fold);
-        for (const g of groups) {
-          const child = el('div', 'chip tool-call-chip');
-          const ids = g.items.map((t) => t.id).filter(Boolean);
-          child.dataset.callIds = ids.join(',');
-          child.dataset.callId = ids[0] || '';
-          child._toggleKey = scope + ':' + child.dataset.callId;
-          child._userToggle = callToggle.get(child._toggleKey) ?? null;
-          child.innerHTML = `<span class="chip-ico">${ICON.tool || ''}</span><span class="mono chip-name">${esc(g.name)}</span><span class="chip-state">…</span>`;
-          child.addEventListener('click', (e) => {
-            if (e.target.closest('.chip-copy, button, a')) return;
-            child.classList.toggle('expanded');
-            child._userToggle = child.classList.contains('expanded');
-            callToggle.set(child._toggleKey, child._userToggle);
-          });
-          const detail = el('div', 'chip-detail mono');
-          child.appendChild(detail);
-          child._detail = detail;
-          child._items = g.items.map((t) => ({ id: t.id, args: t.args, name: t.name, liveOutput: t.liveOutput }));
-          child._args = g.items.length === 1 ? g.items[0].args : g.items.map((t) => t.args);
-          child._outs = {};
-          child._toolStates = {};
-          for (const t of g.items) {
-            if (t && t.id != null && (t.status || Number.isFinite(Number(t.durationMs)))) {
-              child._toolStates[String(t.id)] = { status: t.status || undefined, note: t.errorNote || '', durationMs: Number.isFinite(Number(t.durationMs)) ? Number(t.durationMs) : undefined };
-            }
-          }
-          for (const t of g.items) {
-            const k = String(t && t.id);
-            if (liveToolCallIds.has(k) && child._toolStates[k] == null) child._toolStates[k] = { status: 'running' };
-          }
-          itemsBox.appendChild(child);
-        }
-      }
-    }
+    const scope = String(msgsAll[turnRange(msgsAll, idxA)[0]]?.id || m.id);
+    paintCommandRows(chips, { groups, sig, scope, ownerId: m.id, commandToggle, callToggle, liveToolCallIds });
     const fold = $('.ran-commands', chips);
     if (fold) {
-      const resultById = new Map((store.state.messages || [])
-        .filter((x) => x && x.role === 'tool' && x.toolCallId != null)
-        .map((x) => [String(x.toolCallId), x]));
+      const resultById = toolResults(m.id);
       for (const g of groups) {
         const ids = g.items.map((t) => String(t.id || '')).filter(Boolean);
         const child = $$('.tool-call-chip', fold).find((x) => String(x.dataset.callIds || '') === ids.join(','));
@@ -1515,14 +1525,14 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
             child._outs[id] = body;
             const previous = child._toolStates[id] || {};
             child._toolStates[id] = {
-              ...previous,
+              ...previous, settled: true,
               status: previous.status === 'error' || t.status === 'error' || toolResultFailed(body) ? 'error' : 'ok',
               note: previous.note || t.errorNote || '',
               durationMs: Number.isFinite(Number(previous.durationMs)) ? previous.durationMs : (Number.isFinite(Number(t.durationMs)) ? Number(t.durationMs) : undefined),
             };
           } else if (t.status || Number.isFinite(Number(t.durationMs))) {
             const previous = child._toolStates[id] || {};
-            if (!previous.status) child._toolStates[id] = { ...previous, status: t.status || undefined, note: previous.note || t.errorNote || '', durationMs: Number.isFinite(Number(previous.durationMs)) ? previous.durationMs : Number(t.durationMs) };
+            child._toolStates[id] = { ...previous, status: t.status || previous.status, settled: t.settled, note: t.errorNote || t.progressNote || previous.note || '', durationMs: Number.isFinite(Number(previous.durationMs)) ? previous.durationMs : Number(t.durationMs) };
           }
         }
         if (m.cancelled) {
@@ -1684,90 +1694,81 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
         }
         const label = paths.length === 1 ? one : `${many} ${paths.length}`;
         node.innerHTML = `<span class="chip-ico think-ico">${icon || ''}</span><span class="mono chip-name">${esc(label)}</span><div class="chip-detail"><div class="fold-inner"><ul>${paths.map((x) => `<li class="mono">${esc(x)}</li>`).join('')}</ul></div></div>`;
-        // 与思考/工具芯片同构：流式期间展开，回合完成后自动折叠（用户手动展开过则尊重）
-        if (node._userToggle == null) node.classList.toggle('expanded', !!live || !turnHasAssistantText(msgsAll, m.id));
-        else node.classList.toggle('expanded', node._userToggle);
+        node.dataset.ownerId = m.id;
+        node._activeCalls = fileCluster(name).flatMap((x) => x.toolCalls || []).filter((c) => toolFamily(c) === 'explored');
+        syncFileFold(node);
         dropEarlierFold(cls, extractor);
       } else if (node) node.remove();
       return $(`.${cls}`, wrap) || afterEl;
     };
-    // P3：写文件的折叠行 = 直播「Editing File(s)」+ 下方预览窗（最近 ~10 行，节流刷新）。
-    // 完成后自动变回「Edited File(s) N」并折叠——展开时仍能看到最后写入的内容。
+    // Editing shows full content. Its stable shell is never rebuilt for a parameter delta.
     const paintEditFold = (afterEl, liveNow) => {
       const edited = mergedPaths('write_file', pathsOfEdit);
-      // P2 修正：回合结束后把临时沙箱丢弃的文件标进 Edited File(s)（tempCommit 挂在回合最终消息上；脚本生成后被丢弃的产物也列出来）
       const tempCommit = liveNow ? null : findTurnTempCommit(msgsAll, idxA, pathsOfEdit);
       const discardedSet = new Set(discardedForFold(tempCommit, { editedCount: edited.length, hostHasCommit: !!(m && m.tempCommit) }));
       const paths = edited.slice();
-      for (const d of discardedSet) if (!paths.includes(d)) paths.push(d);
-      const calls = (m && m.toolCalls) || [];
+      for (const path of discardedSet) if (!paths.includes(path)) paths.push(path);
+      const calls = fileCluster('write_file').flatMap((x) => x.toolCalls || []).filter((c) => c.name === 'write_file');
       let node = $('.edited-files', wrap);
       if (paths.length) {
-        const previewOf = () => {
-          if (!calls.length) return null;
-          try {
-            if (agent && typeof agent.getEditPreview === 'function') return agent.getEditPreview(calls, { preferDisk: calls.every((c) => c.status === 'ok') });
-          } catch { /* 旧内核 → 本地纯函数 */ }
-          return buildEditPreview(calls);
-        };
-        const preview = previewOf();
-        // 预览窗按「文件 + 行数 + 字符数 + 状态」做签名：内容没变就不重排（长文件逐帧重建是卡顿主因）
-        const sig = [liveNow ? 'live' : 'done', paths.join('\u0001'), [...discardedSet].join('\u0001'), preview ? `${preview.lineCount}/${preview.chars}/${preview.status}` : 'none'].join('\u0002');
-        const now = Date.now();
         if (!node) {
           node = el('div', 'edited-files');
           node._toggleKey = fileToggleKey('edited-files'); node._userToggle = fileToggle.get(node._toggleKey) ?? null;
           node.addEventListener('click', (e) => {
-            if (e.target.closest('a, button, .chip-copy')) return;
-            node.classList.toggle('expanded');
-            node._userToggle = node.classList.contains('expanded');
+            if (e.target.closest('a, button, .chip-copy, .edit-preview')) return;
+            node.classList.toggle('expanded'); node._userToggle = node.classList.contains('expanded');
             fileToggle.set(node._toggleKey, node._userToggle);
           });
           afterEl.after(node);
-          node._sig = '';
-        } else if (node._prev !== afterEl) {
-          afterEl.after(node);
+        } else if (node.previousElementSibling !== afterEl) afterEl.after(node);
+        node.dataset.ownerId = m.id; node._activeCalls = calls;
+        const now = Date.now(), last = calls.at(-1);
+        const pathChanged = node._previewPath !== (pathsOfEdit({ toolCalls: last ? [last] : [] })[0] || '');
+        const statusChanged = node._previewLive !== liveNow || node._previewCallId !== last?.id;
+        const due = pathChanged || statusChanged || !liveNow || node._previewAt == null || now - node._previewAt >= EDIT_PREVIEW_REFRESH_MS;
+        if (due) {
+          if (node._previewTimer != null) clearTimeout(node._previewTimer); node._previewTimer = null;
+          let preview = null;
+          try { preview = agent.getEditPreview?.(calls, { preferDisk: last?.status === 'ok' }); } catch { /* legacy kernel */ }
+          node._preview = preview || buildEditPreview(calls);
+          node._previewAt = now; node._previewPath = node._preview?.path || '';
+          node._previewLive = liveNow; node._previewCallId = last?.id;
+        } else if (node._previewTimer == null) {
+          // A final small delta inside the throttle window must not disappear forever.
+          node._previewTimer = setTimeout(() => {
+            node._previewTimer = null;
+            if (!node.isConnected) return;
+            const latest = store.state.messages.find((x) => x.id === m.id);
+            if (latest && !latest.cancelled) schedulePaint(latest);
+          }, Math.max(1, EDIT_PREVIEW_REFRESH_MS - (now - node._previewAt)));
         }
-        node._prev = afterEl;
-        const label = edited.length ? editFoldLabel(edited.length, { live: !!liveNow }) : discardedFoldLabel(paths.length);
-        // 节流：直播期间预览窗每 EDIT_PREVIEW_REFRESH_MS 刷一次；换文件或收尾时立刻刷（不然窗口会落后几秒）
-        const pathChanged = node._previewPath !== (preview && preview.path || '');
-        const throttleOk = !liveNow || node._previewAt == null || (now - node._previewAt) >= EDIT_PREVIEW_REFRESH_MS;
-        if (node._sig !== sig && (pathChanged || throttleOk)) {
-          node._sig = sig;
-          node._previewAt = now;
-          node._previewPath = (preview && preview.path) || '';
-          const head = `<span class="chip-ico think-ico">${ICON.edited || ''}</span><span class="mono chip-name">${esc(label)}</span>` +
-            (preview && liveNow ? `<span class="chip-state ep-state">${esc(calls.some((c) => c.args?.__raw) ? '内容生成中…' : (calls.some((c) => c.status === 'running') ? '写入中…' : '参数已就绪'))}</span>` : '');
-          const list = `<ul>${paths.map((x) => (discardedSet.has(x)
-            ? `<li class="mono fold-discarded" title="回合结束时最终回答没有提到这个文件，临时沙箱已把它丢弃；在回答里写出路径或文件名即可保留">${esc(x)}<span class="fold-tag">已丢弃 · 回答未引用</span></li>`
-            : `<li class="mono">${esc(x)}</li>`)).join('')}</ul>`;
-          const dropNote = discardedSet.size ? `<div class="fold-note">本轮丢弃 ${discardedSet.size} 个未在回答中引用的临时文件；internal/ 与 uploads/ 下的文件总是保留。</div>` : '';
-          const win = preview ? editPreviewHtml(preview, liveNow) : '';
-          node.innerHTML = `${head}<div class="chip-detail"><div class="fold-inner">${list}${dropNote}${win}</div></div>`;
-          node.classList.toggle('has-discarded', discardedSet.size > 0);
-        }
-        if (node._userToggle == null) node.classList.toggle('expanded', !!liveNow || !turnHasAssistantText(msgsAll, m.id));
-        else node.classList.toggle('expanded', node._userToggle);
-        dropEarlierFold('edited-files', pathsOfEdit);
-      } else if (node) node.remove();
+        const label = edited.length ? editFoldLabel(edited.length, { live: liveNow }) : discardedFoldLabel(paths.length);
+        const state = liveNow ? (calls.some((c) => c.args?.__raw) ? '内容生成中…' : (calls.some((c) => c.status === 'running') ? '写入中…' : '参数已就绪')) : (last?.status === 'error' ? '写入失败' : ((m.cancelled || presentationStopped) && last && !presentationCallSettled(last, resultIds) ? '未完成' : ''));
+        paintEditFoldContent(node, { icon: ICON.edited || '', label, paths, discarded: discardedSet,
+          preview: node._preview, live: liveNow, state });
+        syncFileFold(node); dropEarlierFold('edited-files', pathsOfEdit);
+      } else if (node) {
+        if (node._previewTimer != null) clearTimeout(node._previewTimer);
+        node.remove();
+      }
       return $('.edited-files', wrap) || afterEl;
     };
     const afterRead = paintPathFold('explored-files', 'read_file', ICON.file, 'Explored file', 'Explored files', chips, pathsOfExplored);
-    const currentTurn = idxA >= msgsAll.findLastIndex((x) => x.role === 'user');
-    const writing = currentTurn && getBusy() && !m.cancelled && (m.toolCalls || []).some((c) => c.name === 'write_file' && !['ok', 'error'].includes(c.status) && !msgsAll.some((x) => x.role === 'tool' && String(x.toolCallId) === String(c.id)));
-    const afterEdit = paintEditFold(afterRead, live || writing);
+    const currentTurn = idxA >= msgsAll.findLastIndex((x) => x.role === 'user' && !x.silent);
+    const resultIds = new Set(toolResults(m.id).keys());
+    const writing = currentTurn && getBusy() && !m.cancelled && !presentationStopped && fileCluster('write_file').flatMap((x) => x.toolCalls || []).some((c) => c.name === 'write_file' && !presentationCallSettled(c, resultIds));
+    const afterEdit = paintEditFold(afterRead, !!writing);
     const read = (m.toolCalls || []).filter((c) => c.name === 'read_file').at(-1);
     const readNode = $('.explored-files', wrap);
     if (read && readNode) {
-      const tm = msgsAll.find((x) => x.role === 'tool' && String(x.toolCallId) === String(read.id));
+      const tm = toolResults(m.id).get(String(read.id));
       const value = tm ? String(tm.content || '') : String(read.liveOutput?.stdout || '');
       const active = currentTurn && getBusy() && !m.cancelled && !tm && (read.status === 'running' || live);
       const label = $('.chip-name', readNode); if (active && label) label.textContent = read.status === 'running' ? 'Exploring file' : 'Preparing read';
       let pre = $('.file-read-stream', readNode);
       if (!pre) { pre = el('pre', 'file-read-stream mono'); $('.fold-inner', readNode)?.appendChild(pre); }
       pre.textContent = value.slice(-65536) || (active ? '读取中…' : '（空文件）');
-      if (readNode._userToggle == null) readNode.classList.toggle('expanded', active || !turnHasAssistantText(msgsAll, m.id));
+      syncFileFold(readNode);
     }
     let tail = wrap.querySelector(':scope > .message-tail');
     if (m.cancelled) {
@@ -1775,7 +1776,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       tail.innerHTML = '<span class="cancelled-tag">已停止</span>';
       if (tail.previousElementSibling !== afterEdit) afterEdit.after(tail);
     } else if (tail) tail.remove();
-    for (const pendingFold of $$('.ran-commands', msgList)) syncRanCommandsFold(pendingFold);
+    syncCompletedToolFolds();
     // meta（无 msg-head 的续消息没有该节点；多轮工具调用时汇总整轮 token 与官方预估价格到本轮首条 msg-head）
     paintTurnMeta(wrap, m);
     paintFoot(wrap, m);
@@ -1981,6 +1982,12 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     }
   }
   function appendMessage(m) {
+    syncPresentationScope();
+    if (m.role === 'assistant' && toolPresentation.deferred(m, store.state.messages)) {
+      deferredAssistantIds.add(m.id); return;
+    }
+    deferredAssistantIds.delete(m.id);
+    if (msgNodes.has(m.id)) return;
     clearEmpty();
     const wrap = messageNode(m);
     msgNodes.set(m.id, wrap);
@@ -2044,7 +2051,8 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
 
   function rebuildMessages() {
     cancelRollbackAnim();
-    clearConfirmCards();
+    clearConfirmCards(); syncPresentationScope(); pendingPaints.clear();
+    for (const node of $$('.edited-files', msgList)) if (node._previewTimer != null) clearTimeout(node._previewTimer);
     msgNodes.clear(); msgList.innerHTML = '';
     renderEmpty();
     // 收集可见消息（跳过 tool/silent）
@@ -2080,7 +2088,9 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
   function attachToolResult(toolMsg) {
     const id = String(toolMsg && toolMsg.toolCallId != null ? toolMsg.toolCallId : '');
     if (!id) return;
-    const chip = $$('.tool-call-chip', msgList).find((c) => toolIds(c).includes(id));
+    const owner = ownerOfTool(store.state.messages, { id }, toolMsg);
+    const scope = owner && msgNodes.get(owner.id);
+    const chip = scope && $$('.tool-call-chip', scope).find((c) => toolIds(c).includes(id));
     if (!chip) return;
     const body = String(toolMsg.content == null ? '' : toolMsg.content);
     if (!chip._outs) chip._outs = {};
@@ -2090,7 +2100,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const previous = chip._toolStates[id] || {};
     const kernelErr = toolMsg.status === 'error';
     chip._toolStates[id] = {
-      ...previous,
+      ...previous, settled: true,
       status: previous.status === 'error' || kernelErr || toolResultFailed(body) ? 'error' : 'ok',
       note: previous.note || toolMsg.errorNote || '',
       durationMs: Number.isFinite(Number(toolMsg.durationMs)) ? Number(toolMsg.durationMs) : previous.durationMs,
@@ -2148,6 +2158,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
   function setStatus(s) {
     const [label, cls] = STATUS[s] || STATUS.idle;
     const busy = ['moderating', 'connecting', 'thinking', 'streaming', 'executing'].includes(s);
+    if (busy && presentationStopped) { presentationScope = ''; syncPresentationScope(); }
     if (busy) {
       if (!busySince) busySince = performance.now();
       statusDot.className = `dot busy ${s}`;
@@ -2748,14 +2759,19 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       else if (bar) bar.prepend(chip);
       else wrap.appendChild(chip);
     },
-    onAssistantStart(m) { appendMessage(m); },
-    onDelta(m) { schedulePaint(m); for (const fold of $$('.ran-commands', msgList)) syncRanCommandsFold(fold); },
+    onAssistantStart(m) { syncPresentationScope(); if (getBusy()) toolPresentation.watch(m); appendMessage(m); },
+    onDelta(m) { schedulePaint(m); syncCompletedToolFolds(); },
     onReasoning(m) { schedulePaint(m); },
     onToolDelta(m) { schedulePaint(m); },
     onAssistantDone(m) {
+      if (m.error) {
+        pendingPaints.clear(); toolPresentation.freeze(); presentationStopped = true;
+        paintVisibleTurn(store.state.messages, msgNodes, paintAssistant, m.id);
+        if (!msgNodes.has(m.id)) appendMessage(m);
+      }
       const wrap = msgNodes.get(m.id);
       if (wrap) paintAssistant(wrap, m);
-      scrollToBottom();
+      flushDeferredAssistants(); scrollToBottom();
       renderSessions(); // 刷新会话记录的轮数/时间
       refreshActionVisibility();
       updateTransportBadge();
@@ -2824,20 +2840,23 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
       scrollToBottom();
     },
     onToolResult(call, result) {
+      const owner = activeToolOwner(store.state.messages, call, presentationStopped);
+      if (!owner) return;
+      toolResultBuffer.delete(String(call.id));
       renderFiles();
       updateStats();
       renderMemory();
       // 同步回填对话流中的工具芯片（成功 ✓ / 失败红点 + 耗时 + 展开详情）；
       // 耗时与成败以内核写回 call 的结论为准（所有工具都有，不依赖工具自己是否上报 durationMs）
       attachToolResult({ toolCallId: call.id, content: result, status: call.status, durationMs: call.durationMs, errorNote: call.errorNote });
-      const owner = store.state.messages.find((m) => m.role === 'assistant' && m.toolCalls?.some((c) => c.id === call.id));
-      if (owner) schedulePaint(owner);
+      schedulePaint(owner);
     },
     // 用户点了「停止」：Agent 已把那条消息标成 cancelled+done，但视图不会自己重画 ——
     // 停止前若首字还没到，屏上会一直留着「正在连接 xxx，等待首个响应…」和转圈。
     // 这里显式重绘这一条（并收起未完成的工具芯片），保证停下就是停下。
     onCancelled() {
-      pendingPaints.clear();
+      pendingPaints.clear(); toolPresentation.freeze(); presentationStopped = true;
+      for (const node of $$('.edited-files', msgList)) if (node._previewTimer != null) { clearTimeout(node._previewTimer); node._previewTimer = null; }
       const userAt = store.state.messages.findLastIndex((m) => m.role === 'user');
       const current = store.state.messages.slice(userAt + 1);
       const last = current.slice().reverse().find((m) => m.role === 'assistant' && m.cancelled)
@@ -2857,42 +2876,52 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     // 沙箱执行进度 → 回写到对应工具芯片的状态位（Pyodide 首次加载 10~30s、
     // C++ 远程编译、子智能体委派都需要可见的进度，否则界面看起来像卡死）
     onToolEvent(call, patch) {
-      const id = String(call && call.id || '');
-      const chip = $$('.tool-call-chip', msgList).find((node) => toolIds(node).includes(id));
-      const owner = store.state.messages.find((x) => x.role === 'assistant' && x.toolCalls?.some((c) => String(c.id) === id));
-      if (owner?.cancelled) return;
+      syncPresentationScope();
+      const id = String(call?.id || '');
+      const owner = activeToolOwner(store.state.messages, call, presentationStopped);
+      if (!owner) return;
       if (['running', 'ok', 'error'].includes(patch.status)) call.status = patch.status;
+      if (typeof patch.settled === 'boolean') call.settled = patch.settled;
+      if (patch.note) call.progressNote = String(patch.note);
+      if (patch.status === 'running' || patch.status === 'ok') call.errorNote = '';
+      if (patch.status === 'error') call.errorNote = String(patch.error?.message || patch.note || '工具失败').slice(0, 400);
+      if (patch.durationMs != null) call.durationMs = Number(patch.durationMs);
       if (patch.stream && !patch.liveOutput) appendToolStream(call, patch);
-      if (owner) schedulePaint(owner);
-      if (!chip) return;
-      if (!chip._toolStates) chip._toolStates = {};
+      if (Object.hasOwn(patch, 'finalOutput')) toolResultBuffer.set(id, {
+        role: 'tool', toolCallId: id, content: String(patch.finalOutput), status: call.status,
+        durationMs: call.durationMs, errorNote: call.errorNote,
+      });
       if (patch.status === 'running') liveToolCallIds.add(id);
-      else if (patch.status === 'ok' || patch.status === 'error') liveToolCallIds.delete(id);
-      if (['running', 'ok', 'error'].includes(patch.status)) {
-        const previous = chip._toolStates[id] || {};
-        const errTxt = String((patch.error && patch.error.message) || patch.note || '工具失败').slice(0, 400);
-        chip._toolStates[id] = {
-          ...previous,
-          status: patch.status,
-          note: patch.status === 'error' ? errTxt : (patch.note || previous.note || ''),
-          durationMs: patch.durationMs != null ? Number(patch.durationMs) : previous.durationMs,
-        };
-        syncToolChip(chip);
-      }
+      else if ((patch.status === 'ok' || patch.status === 'error') && call.settled !== false) liveToolCallIds.delete(id);
+      // Hidden calls still receive their real state/media; don't drop patches just
+      // because their widgets have not been created by the presentation queue yet.
       if (patch.image) {
-        // 图走正文 sandbox:// 占位，不在芯片里画。仍记在 toolCall 上，好进 IDB。
         call.image = patch.image;
         if (patch.imagePath) call.imagePath = patch.imagePath;
         if (patch.width) call.width = patch.width;
         if (patch.height) call.height = patch.height;
         store.save();
       }
+      if (owner) schedulePaint(owner);
+      const scope = msgNodes.get(owner.id);
+      const chip = scope && $$('.tool-call-chip', scope).find((node) => toolIds(node).includes(id));
+      if (!chip) return;
+      chip._toolStates ||= {};
+      if (['running', 'ok', 'error'].includes(patch.status)) {
+        const previous = chip._toolStates[id] || {};
+        chip._toolStates[id] = { ...previous, status: patch.status, settled: call.settled,
+          note: call.errorNote || patch.note || previous.note || '',
+          durationMs: patch.durationMs != null ? Number(patch.durationMs) : previous.durationMs };
+        syncToolChip(chip);
+      }
+      if (Object.hasOwn(patch, 'finalOutput')) attachToolResult(toolResultBuffer.get(id));
       if (patch.stream) {
         chip._items = (owner?.toolCalls || [call]).filter((c) => toolIds(chip).includes(String(c.id)));
         renderToolChipDetail(chip);
       }
       if (patch.status === 'running' || patch.image || patch.stream) scrollToBottom();
     },
+
     attachToolResult,
     // 用户附件已通过审核并复制到沙箱 uploads/ → 刷新文件面板并提示（可在面板内单个下载或整包 ZIP）
     onFsChange(paths) {

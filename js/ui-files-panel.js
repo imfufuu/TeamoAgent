@@ -1,4 +1,4 @@
-import { sandboxProject, sandboxBrowserRequest, probeLocalBrowser } from './localbrowser.js?v=2026.10.9.4';
+import { sandboxProject, sandboxBrowserRequest, probeLocalBrowser } from './localbrowser.js?v=2026.10.9.5';
 // Dubhe Agent · 侧栏沙箱文件面板（从 ui.js 的 mountUI 拆出，V1.7.1）
 // 职责：文件树渲染（容量条 / 折叠目录 / 行内操作）、单文件与整包 ZIP 下载、文件预览窗。
 // 只依赖 store.state.files 与少量渲染工具；通过 installFilesPanel(deps) 注入，返回 { renderFiles, openFileViewer, downloadFile }。
