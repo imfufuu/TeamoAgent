@@ -13,7 +13,6 @@
  *   GET /api/search?q=...              → SearXNG（配置时）优先 → DuckDuckGo HTML → DuckDuckGo Lite（POST）→ Brave HTML → Bing RSS 依次回退
  *   GET /api/crawl?url=...             → 同源、有限页数/深度的 HTML 正文抓取
  *   GET /api/file?url=...              → 跨域二进制文件拉取（图片 / PDF / 视频 / ZIP，≤ 16MB，原样回传 + CORS）
- *   GET /api/screenshot?url=...        → 网页截图（Cloudflare Browser Run，PNG ≤ 8MB；仅配置 CF_ACCOUNT_ID + CF_API_TOKEN 时出现）
  *                                      可选 max_pages、max_depth、max_bytes、max_chars
  *   GET /                              → 版本提示
  *
@@ -26,7 +25,7 @@
  *   · CORS 全开供静态站点直连；公开部署建议再用 Cloudflare Rate Limiting 限流
  */
 
-const WORKER_VERSION = '1.8.0';
+const WORKER_VERSION = '1.7.1';
 const UA = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0 Safari/537.36 Dubhe-Agent-Relay/${WORKER_VERSION}`;
 const MAX_FETCH_BYTES = 4_000_000;
 const MAX_FILE_BYTES = 16 * 1024 * 1024; // /api/file：与前端视频附件上限一致；Worker 128MB 内存，16MB 一次性缓冲安全
@@ -611,64 +610,6 @@ function json(obj, status = 200, extra = {}) {
   });
 }
 
-// ── 网页截图（Cloudflare Browser Run REST · /browser-rendering/screenshot）─────────────
-// 只有 env.CF_ACCOUNT_ID 与 env.CF_API_TOKEN 都已配置时才声明 screenshot 能力：健康检查据此决定前端是否提供
-// screenshot_web 工具，所以未配置的 Worker 行为与旧版完全一致。Token 需要「Browser Rendering Write」权限。
-// 视口预设：desktop 1280×800 / tablet 820×1180 / mobile 390×844；full_page 长图；selector 只截单个元素；wait_ms 额外等待。
-// 返回 PNG 原字节（≤ 8MB）。Browser Run 按量计费，前端只在用户明确要求截图时才会调用。
-const SCREENSHOT_VIEWPORTS = Object.freeze({
-  desktop: { width: 1280, height: 800, isMobile: false },
-  tablet: { width: 820, height: 1180, isMobile: true },
-  mobile: { width: 390, height: 844, isMobile: true },
-});
-const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
-const SCREENSHOT_TIMEOUT_MS = 40_000;
-const PNG_MAGIC = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-const screenshotConfigured = (env = {}) => !!(env && env.CF_ACCOUNT_ID && env.CF_API_TOKEN);
-
-async function takeScreenshot(env, { url, viewport = 'desktop', width, height, fullPage = false, waitMs = 0, selector = '' } = {}) {
-  const preset = SCREENSHOT_VIEWPORTS[viewport] || SCREENSHOT_VIEWPORTS.desktop;
-  const w = clampInt(width, 320, 1920, preset.width);
-  const h = clampInt(height, 320, 2400, preset.height);
-  const body = {
-    url,
-    viewport: { width: w, height: h, deviceScaleFactor: 1, isMobile: preset.isMobile, hasTouch: preset.isMobile },
-    gotoOptions: { waitUntil: 'networkidle2', timeout: SCREENSHOT_TIMEOUT_MS - 10_000 },
-    screenshotOptions: { fullPage: !!fullPage, type: 'png', omitBackground: false },
-  };
-  if (waitMs > 0) body.waitForTimeout = waitMs;
-  if (selector) body.selector = selector;
-  const endpoint = `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(env.CF_ACCOUNT_ID)}/browser-rendering/screenshot?cacheTTL=0`;
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { authorization: `Bearer ${env.CF_API_TOKEN}`, 'content-type': 'application/json', accept: 'image/png, application/json' },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(SCREENSHOT_TIMEOUT_MS),
-  });
-  if (!res.ok) {
-    let detail = '';
-    try {
-      const j = await res.json();
-      detail = (Array.isArray(j.errors) && j.errors.map((x) => (x && x.message) || String(x)).join('; ')) || j.error || '';
-    } catch { detail = res.statusText || ''; }
-    throw Object.assign(new Error(`Browser Run 截图失败（HTTP ${res.status}）${detail ? `：${String(detail).slice(0, 300)}` : ''}`), { status: res.status >= 500 ? 502 : 400 });
-  }
-  let bytes;
-  if (/application\/json/i.test(res.headers.get('content-type') || '')) {
-    // 若接口以 JSON 返回 base64 结果，同样解码
-    const j = await res.json().catch(() => ({}));
-    const b64 = typeof j.result === 'string' ? j.result : (typeof j.data === 'string' ? j.data : '');
-    if (!b64) throw Object.assign(new Error('Browser Run 返回了无法识别的 JSON 响应'), { status: 502 });
-    const bin = atob(b64);
-    bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  } else {
-    bytes = new Uint8Array(await res.arrayBuffer());
-  }
-  if (bytes.byteLength > MAX_SCREENSHOT_BYTES) throw Object.assign(new Error(`截图超过 ${Math.round(MAX_SCREENSHOT_BYTES / 1024 / 1024)}MB 上限（试试关闭整页或换小视口）`), { status: 413 });
-  if (bytes.byteLength < PNG_MAGIC.length || PNG_MAGIC.some((b, i) => bytes[i] !== b)) throw Object.assign(new Error('Browser Run 返回的不是 PNG 图片'), { status: 502 });
-  return { bytes, width: w, height: h };
-}
-
 export default {
   async fetch(request, env = {}) {
     const url = new URL(request.url);
@@ -679,9 +620,7 @@ export default {
     if (request.method !== 'GET') return json({ error: '只允许 GET 请求' }, 405);
     if (url.pathname === '/api/health') {
       // Keep this legacy health identifier stable for clients that inspect metadata.
-      const capabilities = ['fetch', 'search', 'crawl', 'file'];
-      if (screenshotConfigured(env)) capabilities.push('screenshot');
-      return json({ ok: true, relay: 'dubhe-cf-worker', version: WORKER_VERSION, capabilities, limits: { file_bytes: MAX_FILE_BYTES, screenshot_bytes: MAX_SCREENSHOT_BYTES } });
+      return json({ ok: true, relay: 'dubhe-cf-worker', version: WORKER_VERSION, capabilities: ['fetch', 'search', 'crawl', 'file'], limits: { file_bytes: MAX_FILE_BYTES } });
     }
     if (url.pathname === '/api/search') {
       try {
@@ -740,38 +679,6 @@ export default {
         return json({ error: err && err.message ? err.message : String(err), url: target }, 502);
       }
     }
-    if (url.pathname === '/api/screenshot') {
-      // 网页截图：未配置 Browser Run 凭据时 404 并说明原因；URL 先过同一套 SSRF 护栏（guardUrl）再交给 Browser Run。
-      if (!screenshotConfigured(env)) return json({ error: '本 Worker 未配置网页截图（需要 CF_ACCOUNT_ID 与 CF_API_TOKEN，见 relay/README.md）' }, 404);
-      const target = url.searchParams.get('url') || '';
-      let safe;
-      try { safe = await guardUrl(target); } catch (err) { return json({ error: err && err.message ? err.message : String(err), url: target }, 400); }
-      try {
-        const shot = await takeScreenshot(env, {
-          url: safe,
-          viewport: String(url.searchParams.get('viewport') || 'desktop').toLowerCase(),
-          width: url.searchParams.get('width'),
-          height: url.searchParams.get('height'),
-          fullPage: /^(1|true|yes)$/i.test(url.searchParams.get('full_page') || ''),
-          waitMs: clampInt(url.searchParams.get('wait_ms'), 0, 10000, 0),
-          selector: String(url.searchParams.get('selector') || '').slice(0, 200),
-        });
-        return new Response(shot.bytes, {
-          status: 200,
-          headers: {
-            ...CORS,
-            'content-type': 'image/png',
-            'content-length': String(shot.bytes.length),
-            'cache-control': 'no-store',
-            'x-dubhe-final-url': encodeURI(safe),
-            'x-dubhe-viewport': `${shot.width}x${shot.height}`,
-            'access-control-expose-headers': 'content-type, content-length, x-dubhe-final-url, x-dubhe-viewport',
-          },
-        });
-      } catch (err) {
-        return json({ error: err && err.message ? err.message : String(err), url: target }, err && err.status ? err.status : 502);
-      }
-    }
     if (url.pathname === '/api/fetch') {
       try {
         const target = url.searchParams.get('url');
@@ -804,8 +711,7 @@ export default {
       `  GET  /api/fetch?url=<URL>[&mode=text|raw][&max=4000000]\n` +
       `  GET  /api/search?q=<query>[&limit=1..10]\n` +
       `  GET  /api/crawl?url=<URL>[&max_pages=1..5][&max_depth=0..2]\n` +
-      `  GET  /api/file?url=<URL>[&max=1024..${MAX_FILE_BYTES}]   （二进制原样回传，≤16MB）\n` +
-      `  GET  /api/screenshot?url=<URL>[&viewport=desktop|tablet|mobile][&full_page=1][&wait_ms=0..10000][&selector=CSS]   （需 CF_ACCOUNT_ID / CF_API_TOKEN，返回 PNG）\n\n` +
+      `  GET  /api/file?url=<URL>[&max=1024..${MAX_FILE_BYTES}]   （二进制原样回传，≤16MB）\n\n` +
       `部署说明见仓库 relay/worker.js；搜索可选配置 SEARXNG_URL。\n` +
       `公开部署建议为 /api/search 与 /api/crawl 配置 Cloudflare 限流规则。\n`,
       { status: 200, headers: { 'content-type': 'text/plain; charset=utf-8', ...CORS } },

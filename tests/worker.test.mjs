@@ -22,7 +22,7 @@ test('Worker health advertises versioned fetch/search/crawl capabilities', async
   const { response, body } = await jsonCall('/api/health');
   assert.equal(response.status, 200);
   assert.equal(body.ok, true);
-  assert.equal(body.version, '1.8.0');
+  assert.equal(body.version, '1.7.1');
   assert.equal(body.relay, 'dubhe-cf-worker', 'health identifier remains stable for compatibility');
   assert.deepEqual(body.capabilities, ['fetch', 'search', 'crawl', 'file']);
   assert.equal(body.limits.file_bytes, 16 * 1024 * 1024);
@@ -32,7 +32,7 @@ test('Worker root banner uses the Dubhe Agent identity', async () => {
   const response = await worker.fetch(makeRequest('/'));
   const text = await response.text();
   assert.equal(response.status, 200);
-  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.8\.0/);
+  assert.match(text, /Dubhe Agent Cloudflare Relay v1\.7\.1/);
   assert.match(text, /GET  \/api\/file\?url=/);
 });
 
@@ -459,64 +459,3 @@ test('search and crawl validate required parameters', async () => {
   const longSearch = await jsonCall(`/api/search?q=${'x'.repeat(501)}`);
   assert.equal(longSearch.response.status, 400);
 });
-
-// ── 2026.10.9.1 · 网页截图（Browser Run）────────────────────────────────────────
-const SHOT_ENV = { CF_ACCOUNT_ID: 'acc123', CF_API_TOKEN: 'tok-test' };
-const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-
-test('截图能力：未配置 Browser Run 凭据时不声明 screenshot，路由返回 404 并说明原因', async () => {
-  const { body } = await jsonCall('/api/health');
-  assert.equal(body.capabilities.includes('screenshot'), false, '未配置时健康检查不得声明 screenshot');
-  const { response, body: err } = await jsonCall('/api/screenshot?url=' + encodeURIComponent('https://example.com/'), {});
-  assert.equal(response.status, 404);
-  assert.match(err.error, /CF_ACCOUNT_ID/);
-});
-
-test('截图能力：配置凭据后健康检查声明 screenshot，且 URL 先过 SSRF 护栏', async () => {
-  const { body } = await jsonCall('/api/health', SHOT_ENV);
-  assert.ok(body.capabilities.includes('screenshot'));
-  assert.equal(body.limits.screenshot_bytes, 8 * 1024 * 1024);
-  const { response, body: bad } = await jsonCall('/api/screenshot?url=' + encodeURIComponent('http://169.254.169.254/latest/meta-data'), SHOT_ENV);
-  assert.equal(response.status, 400);
-  assert.match(bad.error, /内网|环回|保留/);
-  const { response: r2 } = await jsonCall('/api/screenshot?url=ftp%3A%2F%2Fexample.com%2F', SHOT_ENV);
-  assert.equal(r2.status, 400);
-});
-
-test('截图能力：按视口预设调用 Browser Run，返回 PNG 原字节与 CORS 头', async () => {
-  let seen = null;
-  const mock = async (input, init) => {
-    seen = { url: String(input), init };
-    return new Response(PNG_BYTES, { status: 200, headers: { 'content-type': 'image/png' } });
-  };
-  const response = await withMockFetch(mock, () => worker.fetch(makeRequest(
-    '/api/screenshot?url=' + encodeURIComponent('https://example.com/a') + '&viewport=mobile&full_page=1&wait_ms=1500&selector=' + encodeURIComponent('#main'),
-  ), SHOT_ENV));
-  assert.equal(response.status, 200);
-  assert.equal(response.headers.get('content-type'), 'image/png');
-  assert.equal(response.headers.get('access-control-allow-origin'), '*');
-  assert.equal(response.headers.get('x-dubhe-viewport'), '390x844');
-  assert.deepEqual(new Uint8Array(await response.arrayBuffer()), PNG_BYTES);
-  assert.equal(seen.url, 'https://api.cloudflare.com/client/v4/accounts/acc123/browser-rendering/screenshot?cacheTTL=0');
-  assert.equal(seen.init.headers.authorization, 'Bearer tok-test');
-  const body = JSON.parse(seen.init.body);
-  assert.equal(body.url, 'https://example.com/a');
-  assert.equal(body.viewport.width, 390);
-  assert.equal(body.viewport.isMobile, true);
-  assert.equal(body.screenshotOptions.fullPage, true);
-  assert.equal(body.screenshotOptions.type, 'png');
-  assert.equal(body.waitForTimeout, 1500);
-  assert.equal(body.selector, '#main');
-});
-
-test('截图能力：上游非 PNG / 报错 / 超限都以明确错误返回，不把坏数据回给前端', async () => {
-  const notPng = await withMockFetch(async () => new Response('<html>oops</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
-    () => worker.fetch(makeRequest('/api/screenshot?url=' + encodeURIComponent('https://example.com/')), SHOT_ENV));
-  assert.equal(notPng.status, 502);
-  assert.match((await notPng.json()).error, /不是 PNG/);
-  const upstream = await withMockFetch(async () => new Response(JSON.stringify({ success: false, errors: [{ message: 'quota exceeded' }] }), { status: 429, headers: { 'content-type': 'application/json' } }),
-    () => worker.fetch(makeRequest('/api/screenshot?url=' + encodeURIComponent('https://example.com/')), SHOT_ENV));
-  assert.equal(upstream.status, 400);
-  assert.match((await upstream.json()).error, /quota exceeded/);
-});
-
