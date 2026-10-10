@@ -1,6 +1,6 @@
 // UI-only launch-order queue. Execution, protocol messages and persisted chronology
 // are never reordered or delayed: later real output stays in the store until shown.
-import { displayParts } from './toolflow.js?v=2026.10.9.5';
+import { displayParts } from './toolflow.js?v=2026.10.10.1';
 
 export const TOOL_REVEAL_MS = 80;
 export function presentationCallSettled(call, resultIds = new Set()) {

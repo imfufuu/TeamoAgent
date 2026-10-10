@@ -1,5 +1,6 @@
-import { appendToolStream } from './toolflow.js?v=2026.10.9.5';
-import { captureEditPreviewBase, captureEditPreviewSnapshot } from './editpreview.js?v=2026.10.9.5';
+import { prepareCommandArgs } from './commandsource.js?v=2026.10.10.1';
+import { appendToolStream } from './toolflow.js?v=2026.10.10.1';
+import { captureEditPreviewBase, captureEditPreviewSnapshot } from './editpreview.js?v=2026.10.10.1';
 // ─── 工具运行器（P4 拆分：从 agent.js 抽出「单个工具调用的执行与记账」）────────────────────
 // 拥有：① 同一波工具调用的调度（只读并发 / 写串行 / 委派限流：batchToolCalls · planToolWaves · runWithCategoryLimits）；
 //       ② 每次调用的完整生命周期——契约预检（validateToolCallPre）→ 风险分级与确认闸门 → 预算扣减 → 幂等账本回放
@@ -16,10 +17,10 @@ import {
   validateToolCallPre, validateToolResultPost, classifyToolRisk, summarizeArgs, fsDigest,
   guardRequiresConfirmation, formatConfirmationRequest, formatConfirmationDecision,
   formatBudgetLedger, formatBudgetRecovery,
-} from './execution.js?v=2026.10.9.5';
-import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.9.5';
-import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.9.5';
-import { toolName } from './executionContext.js?v=2026.10.9.5';
+} from './execution.js?v=2026.10.10.1';
+import { buildCheckpoint, diffFileState, digestArtifact } from './recovery.js?v=2026.10.10.1';
+import { operationKey, planReplay, digestResultText } from './idempotency.js?v=2026.10.10.1';
+import { toolName } from './executionContext.js?v=2026.10.10.1';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // 一次委派最多并发几个子智能体（再高就是自己跟自己抢网关并发额度了）
@@ -174,7 +175,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
     const fs = getFs();
     captureEditPreviewBase(call, fs, { refresh: true });
     return {
-      fs,
+      fs, callId: call.id,
       memory: store.state.memory,
       memoryArchive: store.state.memoryArchive,
       setMemory: (next) => {
@@ -195,6 +196,8 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         if (turn.signal?.aborted) return;
         if (patch?.stream) { appendToolStream(call, patch); patch = { ...patch, liveOutput: call.liveOutput }; }
         if (['running', 'ok', 'error'].includes(patch?.status)) call.status = patch.status;
+        if (patch && Object.hasOwn(patch, 'sandboxOk')) call.sandboxOk = !!patch.sandboxOk;
+        if (patch && Object.hasOwn(patch, 'sandboxBootstrapFailed')) call.sandboxBootstrapFailed = !!patch.sandboxBootstrapFailed;
         if (patch && patch.billing) call.billing = patch.billing;
         if (patch?.status === 'ok' && patch.editedPath)
           captureEditPreviewSnapshot(call, fs, { path: patch.editedPath, refresh: true });
@@ -307,9 +310,17 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       }
 
       // ② 调用前契约校验：Schema / 能力掩码 / 能力约束 / 预算 / 幂等键（同一份判决同时进审计）
+
+      let checkedArgs;
+      try { checkedArgs = prepareCommandArgs(call.name, call.args, fs); }
+      catch (err) {
+        recordBlocked(call, { reason: err.message, failure: { kind: 'INVALID_ARGS', label: '源码参数无效', retryable: false, maxRetries: 0, verifyFirst: false }, notes: ['source-invalid'] });
+        return `工具执行失败: ${err.message}`;
+      }
+
       const pre = validateToolCallPre({
         name: call.name,
-        args: call.args,
+        args: checkedArgs,
         toolDef,
         tools: exec.toolList,
         capabilities: exec.capabilities,
@@ -317,7 +328,8 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         seenIdempotency: exec.seenIdempotency,
         turnBudget: { turnId: exec.execCtx.turnId },
       });
-      const risk = classifyToolRisk({ name: call.name, args: call.args, contract: pre.contract, fs, userText: exec.execCtx.userIntent });
+
+      const risk = classifyToolRisk({ name: call.name, args: checkedArgs, contract: pre.contract, fs, userText: exec.execCtx.userIntent });
       exec.machine.audit.record('tool-preflight', {
         name: call.name, decision: pre.decision, errors: pre.errors.map((e) => e.id),
         riskLevel: risk.level, riskReasons: risk.reasons, requiresConfirmation: risk.requiresConfirmation,
@@ -345,7 +357,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       }
 
       // ②b 幂等回放裁决（P1）：同一个逻辑操作不重复执行——满足则复用，不确定则先核验，外部副作用重复则拦截
-      const opKey = operationKey({ toolName: call.name, args: call.args });
+      const opKey = operationKey({ toolName: call.name, args: checkedArgs });
       const ledgerEntry = exec.ledger.lookup(opKey);
       if (ledgerEntry) {
         const targetPath = (pre.contract && pre.contract.sideEffect === 'filesystem') ? (extractFilePath(call.args) || '') : '';
@@ -492,7 +504,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       let execError = null;
       const inflightPromise = (async () => {
         try {
-          const raw = String(await executeTool(call.name, call.args, toolCtx));
+          const raw = String(await executeTool(call.name, checkedArgs, toolCtx));
           if (injectedFault && exec.faultInjector) {
             const mutated = exec.faultInjector.afterToolResult({ fault: injectedFault, result: raw, name: call.name });
             if (mutated.error) throw mutated.error;
@@ -520,9 +532,9 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
       let fsAfter = fsDigest(filesAfter);
       let delta = diffFileState(filesBefore, filesAfter);
       let post = validateToolResultPost({
-        name: call.name, args: call.args, contract: pre.contract, result, ok: !execError,
+        name: call.name, args: call.args, contract: pre.contract, result, ok: !execError && call.sandboxOk !== false,
         durationMs: Date.now() - t0, fsBefore, fsAfter, error: execError,
-        timedOut: /超时|timed out|timeout/i.test(String(result)),
+        timedOut: !call.sandboxBootstrapFailed && /超时|timed out|timeout/i.test(String(result)),
       });
       let failure = post.failureKind;
       let retried = false;
@@ -545,7 +557,7 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         filesBefore = fs.export();
         fsBefore = fsDigest(filesBefore);
         try {
-          result = await executeTool(call.name, call.args, toolCtx);
+          result = await executeTool(call.name, checkedArgs, toolCtx);
           execError = null;
         } catch (err) {
           execError = err;
@@ -555,9 +567,9 @@ export function createToolRunner({ store, emit, getFs, runSubagent } = {}) {
         fsAfter = fsDigest(filesAfter);
         delta = diffFileState(filesBefore, filesAfter);
         post = validateToolResultPost({
-          name: call.name, args: call.args, contract: pre.contract, result, ok: !execError,
+          name: call.name, args: call.args, contract: pre.contract, result, ok: !execError && call.sandboxOk !== false,
           durationMs: Date.now() - tR, fsBefore, fsAfter, error: execError,
-          timedOut: /超时|timed out|timeout/i.test(String(result)),
+          timedOut: !call.sandboxBootstrapFailed && /超时|timed out|timeout/i.test(String(result)),
         });
         failure = post.failureKind;
         retried = true;

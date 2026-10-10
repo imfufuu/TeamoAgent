@@ -14,7 +14,7 @@ import { createHash } from 'node:crypto';
 
 const read = (rel) => fs.readFileSync(new URL(rel, import.meta.url), 'utf8');
 // ui.js 已拆分：源码级断言读 UI 层整体（ui.js + ui-files-panel.js + ui-lightbox.js + quickviz.js）
-const readUi = () => ['../js/ui.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
+const readUi = () => ['../js/ui.js', '../js/ui-common.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'].map(read).join('\n');
 // P4：agent.js 已拆出 toolrunner.js（工具执行与记账）/ turnfinalizer.js（回合收尾）；「agent 收尾应做 X」类断言读三者整体
 const readAgent = () => ['../js/agent.js', '../js/toolrunner.js', '../js/turnfinalizer.js'].map(read).join('\n');
 const exists = (rel) => fs.existsSync(new URL(rel, import.meta.url));

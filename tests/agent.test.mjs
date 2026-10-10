@@ -5,7 +5,7 @@ import {
   createToolCallAccumulator, createThinkingTracker, buildOpenAIMessages, buildAnthropicPayload,
   authHeaders, toOpenAITools, toAnthropicTools,
   thinkingDisabledFor, __resetThinkingFallbackForTests,
-} from '../js/api.js?v=2026.10.9.5';
+} from '../js/api.js?v=2026.10.10.1';
 import { protocolOf, providerOf, supportsFastMode, ENCRYPTED_THINKING_RE } from '../js/config.js';
 import { renderMarkdown } from '../js/ui.js';
 import _fs from 'node:fs';
@@ -28,10 +28,10 @@ const storeNoWeb = (st) => { st.state.settings.webEnabled = false; st.state.sett
 const drainSaves = () => new Promise((r) => setTimeout(r, 350));
 // 命名空间引用：新增用例集中使用，避免与顶部具名 import 冲突
 const cfg = await import('../js/config.js');
-const api = await import('../js/api.js?v=2026.10.9.5');
+const api = await import('../js/api.js?v=2026.10.10.1');
 // V1.7.1：ui.js 已拆出 ui-files-panel.js / ui-lightbox.js / quickviz.js。源码级断言（grep 字符串）
 // 一律读「UI 层整体」，拆分不应改变这些契约；只需精确到某个文件的断言请直接 readFileSync 该文件。
-const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
+const UI_SOURCE_PARTS = ['../js/ui.js', '../js/ui-common.js', '../js/ui-toolflow.js', '../js/ui-editpreview.js', '../js/ui-markdown.js', '../js/ui-model-picker.js', '../js/ui-popovers.js', '../js/ui-command-palette.js', '../js/ui-system-commands.js', '../js/ui-files-panel.js', '../js/ui-lightbox.js', '../js/ui-attachments.js', '../js/ui-capability.js', '../js/quickviz.js'];
 function readUiSource() {
   const fsp = _fs;
   return UI_SOURCE_PARTS.map((rel) => fsp.readFileSync(new URL(rel, import.meta.url), 'utf8')).join('\n');
@@ -778,12 +778,12 @@ test('第 6 条定稿：智能路由图标 = 方案 B（轨道枢纽）：单色
   assert.doesNotMatch(ROUTER_ICON_SVG, /TeamoRouter|TEAMOROUTER/i, '不再复刻第三方产品 LOGO');
 });
 
-test('2026.10.9.5 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
+test('2026.10.10.1 版本与文档：构建号、CHANGELOG 与 README 同步', async () => {
   const fsp = await import('node:fs');
   const changelog = fsp.readFileSync(new URL('../CHANGELOG.md', import.meta.url), 'utf8');
   const readme = fsp.readFileSync(new URL('../README.md', import.meta.url), 'utf8');
-  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.9\.5 ·/m, 'CHANGELOG 顶部新增 2026.10.9.5 条目');
-  assert.match(readme, /构建 `2026\.10\.9\.5`/);
+  assert.match(changelog, /^## Dubhe Agent V1\.7 Stable · 2026-10-10 · 构建 2026\.10\.10\.1 ·/m, 'CHANGELOG 顶部新增 2026.10.10.1 条目');
+  assert.match(readme, /构建 `2026\.10\.10\.1`/);
 });
 
 group('多模态标识');
@@ -3248,7 +3248,7 @@ test('网络层错误才换域名：HTTP 4xx/5xx 与主动停止都不换', asyn
 });
 
 test('请求期切换：.com 网络失败 → 自动用 .cn 重放并记住', async () => {
-  const api = await import('../js/api.js?v=2026.10.9.5');
+  const api = await import('../js/api.js?v=2026.10.10.1');
   const ep = await import('../js/endpoint.js');
   const realFetch = globalThis.fetch;
   const savedLS = globalThis.localStorage;
@@ -4517,7 +4517,8 @@ test('工具成功绿色✓、失败红色✗；入参/出参不展开；清空�
   assert.match(ui, /e\.key === 'b'/);
   assert.match(ui, /chip-copy/);
   assert.match(html, /id="cap-line"/);
-  assert.match(ui, /可粘贴或拖入附件/);
+  assert.match(ui, /你出想法，Duhbe来实现/);
+  assert.match(ui, /Ideas in\. Software out\./);
   assert.equal(ui.includes('slice(0, 3000)'), false, '工具出参芯片应展示全文，不要截成 3000 字');
   assert.match(ui, /m.cancelled/);
   assert.match(css, /.msg.cancelled .chip .chip-ico/);
@@ -5318,7 +5319,7 @@ test('V1.7 发布标识与构建号已同步', async () => {
   const home = fsp.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
   const docs = fsp.readFileSync(new URL('../docs.html', import.meta.url), 'utf8');
   assert.equal(APP_RELEASE, 'V1.7');
-  assert.equal(APP_VERSION, '2026.10.9.5');
+  assert.equal(APP_VERSION, '2026.10.10.1');
   assert.match(html, /Dubhe Agent V1\.7 —/);
   const vRe = APP_VERSION.split('.').join('[.]'); // 版本比较用字符类，免得每次构建都要改这里
   assert.match(home, new RegExp('Dubhe Agent V1[.]7 · 构建 ' + vRe));
@@ -7898,7 +7899,9 @@ test('Worker 源码：JS 沙箱拆除联网/派生/存储原语并私有化 post
   const fsp = await import('node:fs');
   const js = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
   const py = fsp.readFileSync(new URL('../js/worker-py.js', import.meta.url), 'utf8');
-  assert.match(js, /const post = self\.postMessage\.bind\(self\)/, '真实 postMessage 应先私有化');
+  assert.match(js, /const rawPost = self\.postMessage\.bind\(self\)/, '真实 postMessage 应先私有化');
+  assert.match(js, /^\(\(\) => \{/);
+  assert.match(js, /delete proto\.postMessage/, '原型不能留着可伪造结果的 transport');
   for (const n of ['fetch', 'importScripts', 'XMLHttpRequest', 'WebSocket', 'EventSource', 'Worker', 'BroadcastChannel', 'indexedDB', 'caches', 'navigator']) assert.ok(js.includes(`'${n}'`), `JS 沙箱应移除 ${n}`);
   assert.match(js, /lockdown\(\);[\s\S]*new Function\(/, '必须先 lockdown 再执行用户代码');
   assert.doesNotMatch(js, /self\.onmessage\s*=/, '应改用 addEventListener，并锁死 onmessage');
@@ -9159,7 +9162,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
   assert.match(agentSrc, /turn\.dropped = whitelist\.dropped;/);
   assert.match(agentSrc, /toolTableNote: formatToolTableNote\(nexusState && nexusState\.turnDropped, nexusState && nexusState\.turnDeferred\),/); // P6 起多带 deferred
   assert.match(agentSrc, /tools: turnTools, dropped: nexusState && nexusState\.turnDropped, deferred: nexusState && nexusState\.turnDeferred \}\)/, '【联网】段也吃同一份 dropped（P6 起再加 deferred）');
-  assert.match(prompt, /export function formatRuntime\(\{ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote \} = \{\}\)/);
+  assert.match(prompt, /export function formatRuntime\(\{ now, model, imageModel, filesNote, webNote, relayNote, toolTableNote, language = getLanguage\(\) \} = \{\}\)/);
   assert.match(prompt, /const extra = join\(\[filesNote, webNote, relayNote, toolTableNote\]\);/);
   assert.match(css, /\.cap-line \.cap-pill \{ font: inherit; color: inherit;[^}]*cursor: pointer;/);
   assert.match(css, /\.cap-line \.cap-pill-drop \{ color: #b45309; \}/);
@@ -9169,7 +9172,7 @@ test('UI 接线：ui-capability.js 提供能力条 + 弹层；ui.js 经 installC
 group('P4 修正：巨型单文件 → agent.js 抽出 toolrunner.js / turnfinalizer.js；ui.js 再拆 5 个 install*(deps) 模块；nexus.js 立界不拆');
 
 test('toolrunner.js：createToolRunner(deps) 返回 runToolCalls / toolCtxFor；agent.js 转发的调度导出与 toolrunner 同一引用', async () => {
-  const tr = await import('../js/toolrunner.js?v=2026.10.9.5'); // 与 agent.js 的 import 同一实例（带 ?v=）
+  const tr = await import('../js/toolrunner.js?v=2026.10.10.1'); // 与 agent.js 的 import 同一实例（带 ?v=）
   const ag = await import('../js/agent.js');
   assert.equal(typeof tr.createToolRunner, 'function');
   const runner = tr.createToolRunner({ store: { state: { settings: {} } }, emit: () => {}, getFs: () => null, runSubagent: async () => '' });
@@ -9211,7 +9214,7 @@ test('ui.js 第三刀：ui-markdown / ui-model-picker / ui-popovers / ui-command
     assert.ok(name in md, `ui-markdown.js 应导出 ${name}`);
   }
   const uiMod = await import('../js/ui.js');
-  const mdV = await import('../js/ui-markdown.js?v=2026.10.9.5');
+  const mdV = await import('../js/ui-markdown.js?v=2026.10.10.1');
   assert.strictEqual(uiMod.renderMarkdown, mdV.renderMarkdown, 'ui.js 再导出同一个 renderMarkdown（旧 import 路径不变）');
   assert.strictEqual(uiMod.videoBlobUrl, mdV.videoBlobUrl);
   assert.match(ui, /const \{ inSystem, isSystemIsolated, selectModel, chatModels, updateModelBtn, renderModelMenu \} = installModelPicker\(\{/);
@@ -10271,10 +10274,12 @@ test('沙箱垫片：require(fs→files / path / buffer / crypto / util / events
   const tools = fsp.readFileSync(new URL('../js/tools.js', import.meta.url), 'utf8');
   assert.match(tools, /runJavaScript\(args\.code \|\| '', fs, \{ signal: ctx\.signal, onOutput: \(log\) => emit\([\s\S]*?net: \{ enabled: !!ctx\.webEnabled, fetchPage: \(p\) => fetchPage\(\{ \.\.\.p, signal: ctx\.signal \}\) \} \}\)/);
   const worker = fsp.readFileSync(new URL('../js/worker-js.js', import.meta.url), 'utf8');
-  assert.ok(worker.indexOf("importScripts('./worker-shims.js')") < worker.indexOf('function lockdown()'), '垫片脚本在 lockdown（会删掉 importScripts）之前加载');
+  const shimAt = worker.indexOf("importScripts('./worker-shims.js' +");
+  assert.ok(shimAt >= 0 && shimAt < worker.indexOf('function lockdown()'), '版本化垫片脚本必须存在且在 lockdown 之前加载');
   const sandbox = fsp.readFileSync(new URL('../js/sandbox.js', import.meta.url), 'utf8');
   assert.match(sandbox, /extraScripts: \['worker-shims\.js'\]/);
-  assert.match(sandbox, /worker\.postMessage\(payload, \[port\]\)/, 'rpc 端口随首条消息 transfer 给 Worker');
+  assert.match(sandbox, /transfer = \[channel\.port2\]/, 'rpc 私有端口放入首条消息的 transfer 列表');
+  assert.match(sandbox, /worker\.postMessage\(payload, transfer\)/, 'rpc 端口随首条消息 transfer 给 Worker');
   // 描述如实：工具表与系统提示都写明可用范围与限制
   const { TOOL_DEFS } = await import('../js/tools.js');
   const js = TOOL_DEFS.find((t) => t.name === 'execute_javascript').description;

@@ -1,3 +1,5 @@
+import { installLanguage } from './ui-language.js?v=2026.10.10.1';
+installLanguage();
 import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY, LEGACY_HOME_THEME_KEY } from './theme.js';
 import { TRACK } from './home-beats.js';
 

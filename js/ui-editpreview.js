@@ -1,6 +1,6 @@
 // Stable editing DOM: filenames, headers, existing lines and scroll position survive
 // parameter deltas. Only new/changed lines are patched; no per-delta innerHTML reset.
-import { editPreviewMeta, editPreviewFoot } from './ui-markdown.js?v=2026.10.9.5';
+import { editPreviewMeta, editPreviewFoot } from './ui-markdown.js?v=2026.10.10.1';
 
 const make = (tag, cls, text) => {
   const node = document.createElement(tag); node.className = cls;
@@ -78,8 +78,8 @@ export function paintEditFoldContent(node, { icon = '', label, paths, discarded,
   dom.previewPath = preview.path;
 }
 
-import { presentationCallSettled } from './toolpresentation.js?v=2026.10.9.5';
-import { turnHasAssistantText } from './toolflow.js?v=2026.10.9.5';
+import { presentationCallSettled } from './toolpresentation.js?v=2026.10.10.1';
+import { turnHasAssistantText } from './toolflow.js?v=2026.10.10.1';
 export function syncEditingFold(node, { messages, visibleMessages, resultIds, busy }) {
   if (!node) return;
   const owner = messages.find((m) => m.id === node.dataset.ownerId);

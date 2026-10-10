@@ -7,7 +7,7 @@
 //   · 底部「前五名」排行条（按数值降序，带相对占比条）。
 // 视图状态只存在 DOM 节点的 _mapView 上，不写回消息；重新渲染地图即回到 100%。
 // 纯函数（视图夹取 / 缩放 / 排行）与事件委托分开：前者可单测，后者挂在消息列表上（一次性）。
-import { esc } from './ui-markdown.js?v=2026.10.9.5';
+import { esc } from './ui-markdown.js?v=2026.10.10.1';
 
 export const MAP_VIEW_W = 720;
 export const MAP_VIEW_H = 392;

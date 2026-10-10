@@ -48,3 +48,18 @@ self.addEventListener('fetch', (e) => {
     return fresh || new Response('', { status: 504 });
   })());
 });
+
+// Optional local completion alerts. No push service, analytics or prompt content.
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const app = windows.find((c) => new URL(c.url).pathname === new URL('app.html', self.registration.scope).pathname);
+    if (app) { await app.focus(); app.postMessage({ type: 'dubhe-notification-open', sessionId: event.notification.data?.sessionId || '' }); }
+    else {
+      const url = new URL('app.html', self.registration.scope);
+      if (event.notification.data?.sessionId) url.searchParams.set('session', event.notification.data.sessionId);
+      await self.clients.openWindow(url.href);
+    }
+  })());
+});

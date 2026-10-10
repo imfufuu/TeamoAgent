@@ -1,5 +1,5 @@
 // Stable DOM fragments in persisted SSE order; UI business rules stay in ui.js.
-import { displayParts } from './toolflow.js?v=2026.10.9.5';
+import { displayParts } from './toolflow.js?v=2026.10.10.1';
 export function paintOrderedAssistant(wrap, m, { paintPart, paintMeta, paintFoot, syncShell, syncFolds, refreshActions }) {
   const parts = displayParts(m);
     if (!m._displayFragment && (parts.length > 1 || wrap._flowMode || m._sequentialPresentation)) {
@@ -41,7 +41,7 @@ export function paintOrderedAssistant(wrap, m, { paintPart, paintMeta, paintFoot
   return false;
 }
 
-import { toolWindowsOf, renderToolWindowsHtml } from './toolwindows.js?v=2026.10.9.5';
+import { toolWindowsOf, renderToolWindowsHtml } from './toolwindows.js?v=2026.10.10.1';
 export function renderToolChipDetail(chip) {
     if (!chip || !chip._detail) return;
     const w = toolWindowsOf(chip);
@@ -61,7 +61,7 @@ export function renderToolChipDetail(chip) {
   }
 
 
-import { $, $$, el, esc } from './ui-markdown.js?v=2026.10.9.5';
+import { $, $$, el, esc } from './ui-markdown.js?v=2026.10.10.1';
 import { ICON } from './icons.js';
 
 // Append newly-revealed calls without replacing earlier widgets or their windows.

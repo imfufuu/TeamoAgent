@@ -1,14 +1,16 @@
-import { probeLocalBrowser } from './localbrowser.js?v=2026.10.9.5';
+import { installLanguage } from './ui-language.js?v=2026.10.10.1';
+import { installTaskNotifications } from './notifications.js';
+import { probeLocalBrowser } from './localbrowser.js?v=2026.10.10.1';
 // ─── 启动引导 ──────────────────────────────────────────────────────────
-import { createStore } from './state.js?v=2026.10.9.5';
-import { createAgent } from './agent.js?v=2026.10.9.5';
-import { mountUI, toast } from './ui.js?v=2026.10.9.5';
+import { createStore } from './state.js?v=2026.10.10.1';
+import { createAgent } from './agent.js?v=2026.10.10.1';
+import { mountUI, toast } from './ui.js?v=2026.10.10.1';
 import { relayAvailable } from './net.js';
 import { probeGatewayHosts } from './endpoint.js';
 import { isAdminAlias, unlockAdminKey } from './adminkey.js';
-import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.9.5';
-import { mountSettings, applyFontSize, applyMotion, browserFeatureReport } from './settings.js?v=2026.10.9.5';
-import { APP_RELEASE } from './config.js?v=2026.10.9.5';
+import { mountDebugWindow, toggleDebug, debugActive, setDebug } from './debugwindow.js?v=2026.10.10.1';
+import { mountSettings, applyFontSize, applyMotion, browserFeatureReport } from './settings.js?v=2026.10.10.1';
+import { APP_RELEASE } from './config.js?v=2026.10.10.1';
 
 // 启动屏真实进度：模块图已下载并执行到这里 → 「加载模块」完成
 const bootStage = (name) => { try { const g = window.__dubheBootGuard; g && typeof g.stage === 'function' && g.stage(name); } catch { /* 启动屏已移除 */ } };
@@ -22,8 +24,11 @@ store.state.settings.contentModeration = true;
 
 // UI 先挂载（agent hooks 需要引用 ui 方法），再创建 agent 注入 hooks
 let ui = null;
+const languageUI = installLanguage();
+const notifications = installTaskNotifications({ toast });
+
 const hooks = {
-  onStatus: (s) => { ui && ui.setStatus(s); globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('agent.status', String(s)); },
+  onStatus: (s) => { notifications.onStatus(s); ui && ui.setStatus(s); globalThis.__dubheDebugLog && globalThis.__dubheDebugLog('agent.status', String(s)); },
   onUserMessage: (text, msg) => { ui && ui.onUserMessage(msg); ui && ui.renderSessions(); ui && ui.renderFiles(); ui && ui.updateStats(); ui && ui.scrollToBottom(); },
   onJevPlan: (msg) => { ui && ui.onJevPlan && ui.onJevPlan(msg); },
   onFsChange: (paths) => ui && ui.onFsChange && ui.onFsChange(paths),
@@ -55,6 +60,7 @@ const hooks = {
   // P1 执行内核：高风险操作的交互确认（UI 渲染确认卡 → agent.resolveConfirmation 回传决定）
   onConfirmationRequest: (call, requestText, key) => ui && ui.onConfirmationRequest && ui.onConfirmationRequest(call, requestText, key),
   onConfirmationResolved: (call, rec) => ui && ui.onConfirmationResolved && ui.onConfirmationResolved(call, rec),
+  onTaskFinished: (info) => { notifications.finish(info).catch(() => {}); },
   onTurnEnd: () => {
     ui && ui.renderFiles(); ui && ui.renderSessions(); ui && ui.updateStats();
     // 回合结束后让 Agent 给这次会话起个标题（用户手改过的不会被覆盖；失败静默退回兜底标题）
@@ -167,3 +173,13 @@ try {
 } catch { /* SW 不可用不影响应用 */ }
 
 probeLocalBrowser().then(() => { if (ui) ui.syncWeb(); }).catch(() => {});
+
+// A notification may refer to a different locally stored conversation; never interrupt a running one.
+function openNotifiedSession(id) {
+  if (!id || ['moderating','connecting','thinking','streaming','executing'].includes(agent.getStatus())) return;
+  if (store.switchSession(id)) { agent.loadFiles(store.state.files); ui.rebuildMessages(); ui.renderSessions(); ui.renderFiles(); }
+}
+navigator.serviceWorker?.addEventListener('message', (event) => {
+  if (event.data?.type === 'dubhe-notification-open') openNotifiedSession(event.data.sessionId);
+});
+try { openNotifiedSession(new URLSearchParams(location.search).get('session')); } catch { /* unknown ID ignored */ }

@@ -1,36 +1,40 @@
-import { createToolPresentation, presentationCallSettled, turnToolResults } from './toolpresentation.js?v=2026.10.9.5';
-import { paintEditFoldContent, syncEditingFold } from './ui-editpreview.js?v=2026.10.9.5';
-import { paintOrderedAssistant, renderToolChipDetail, paintCommandRows, ownerOfTool, paintVisibleTurn, activeToolOwner } from './ui-toolflow.js?v=2026.10.9.5';
-import { adjacentToolMessages, turnHasAssistantText, appendToolStream, toolFamily } from './toolflow.js?v=2026.10.9.5';
+import { installSharing } from './ui-share.js?v=2026.10.10.1';
+import { text as localeText, onLanguageChange } from './locale.js';
+import { installFeedback } from './ui-feedback.js';
+import { installSpeechInput } from './ui-speech.js';
+import { createToolPresentation, presentationCallSettled, turnToolResults } from './toolpresentation.js?v=2026.10.10.1';
+import { paintEditFoldContent, syncEditingFold } from './ui-editpreview.js?v=2026.10.10.1';
+import { paintOrderedAssistant, renderToolChipDetail, paintCommandRows, ownerOfTool, paintVisibleTurn, activeToolOwner } from './ui-toolflow.js?v=2026.10.10.1';
+import { adjacentToolMessages, turnHasAssistantText, appendToolStream, toolFamily } from './toolflow.js?v=2026.10.10.1';
 // ─── UI 层：渲染 / 交互 / 动画 ─────────────────────────────────────────
-import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.9.5';
-import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js?v=2026.10.9.5';
+import { providerOf, supportsFastMode, DEFAULT_IMAGE_MODEL, APP_VERSION, APP_RELEASE } from './config.js?v=2026.10.10.1';
+import { isSmartRouter, ROUTER_ICON_SVG, SMART_ROUTER_LABEL, modelDisplayName } from './smartrouter.js?v=2026.10.10.1';
 import { REASONING_LEVELS, normalizeReasoningLevel, reasoningLevelLabel, reasoningLevelHint } from './reasoning.js';
 import { fileBytesFromValue, withExtension, mimeFromPath } from './zip.js';
-import { getTransport } from './api.js?v=2026.10.9.5';
+import { getTransport } from './api.js?v=2026.10.10.1';
 import { gatewayBase, gatewayChosenBy, setGatewayBase, otherGatewayBase } from './endpoint.js';
 import { estimateTokens } from './context.js';
 import { providerIcon, APP_LOGO, ICON } from './icons.js';
 import { readThemePreference, writeThemePreference, THEME_STORAGE_KEY } from './theme.js';
 import { autoTitle } from './titler.js';
-import { SUGGESTIONS, pickSuggestions } from './suggestions.js';
+import { SUGGESTIONS, pickSuggestions, localizedSuggestions } from './suggestions.js';
 import { claimsWebSearch, webRefusal } from './websearch.js';
 import { unlockAdminKey, adminUnlocked, isAdminAlias, adminExpiresAt } from './adminkey.js';
 import { shortSuggest } from './commands.js';
 import { summarizeTurnCost, formatUsd } from './pricing.js';
 import { relayAvailable, relaySupports, currentRelay, resetRelayProbe, relayState } from './net.js';
 // P3：编辑直播预览模块单独版本化；缺失时不影响核心对话。
-import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.9.5';
-import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.9.5';
-import { installLightbox } from './ui-lightbox.js?v=2026.10.9.5';
-import { installFilesPanel } from './ui-files-panel.js?v=2026.10.9.5';
-import { installAttachments } from './ui-attachments.js?v=2026.10.9.5';
-import { installCapabilityPop } from './ui-capability.js?v=2026.10.9.5';
-import { installModelPicker } from './ui-model-picker.js?v=2026.10.9.5';
-import { installPopovers } from './ui-popovers.js?v=2026.10.9.5';
-import { installCommandPalette } from './ui-command-palette.js?v=2026.10.9.5';
-import { installSystemCommands } from './ui-system-commands.js?v=2026.10.9.5';
-import { decorateGeoMap, installMapInteractions } from './quickmap.js?v=2026.10.9.5';
+import { buildEditPreview, editFoldLabel, pathsOfEdits, PREVIEW_REFRESH_MS, findTurnTempCommit, discardedForFold, discardedFoldLabel, turnRange } from './editpreview.js?v=2026.10.10.1';
+import { historyWindowStart, previousHistoryWindowStart, HISTORY_WINDOW_MAX_MESSAGES, HISTORY_WINDOW_MAX_CHARS } from './history.js?v=2026.10.10.1';
+import { installLightbox } from './ui-lightbox.js?v=2026.10.10.1';
+import { installFilesPanel } from './ui-files-panel.js?v=2026.10.10.1';
+import { installAttachments } from './ui-attachments.js?v=2026.10.10.1';
+import { installCapabilityPop } from './ui-capability.js?v=2026.10.10.1';
+import { installModelPicker } from './ui-model-picker.js?v=2026.10.10.1';
+import { installPopovers } from './ui-popovers.js?v=2026.10.10.1';
+import { installCommandPalette } from './ui-command-palette.js?v=2026.10.10.1';
+import { installSystemCommands } from './ui-system-commands.js?v=2026.10.10.1';
+import { decorateGeoMap, installMapInteractions } from './quickmap.js?v=2026.10.10.1';
 
 // 预览窗刷新节流：直播时每 ~50ms 合并更新（换文件/收尾立即刷）
 const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
@@ -39,62 +43,18 @@ const EDIT_PREVIEW_REFRESH_MS = PREVIEW_REFRESH_MS;
 import {
   $, $$, el, esc, safeImgSrc, sanitizeSvgRaw, hydrateSandboxMedia, bindFoldRows,
   fmtSize, fmtSpan, contextBudgetLabel, videoBlobUrl, renderAttachments, highlightCode, sysReplyHtml, renderMarkdown,
-} from './ui-markdown.js?v=2026.10.9.5';
+} from './ui-markdown.js?v=2026.10.10.1';
 export { renderMarkdown, videoBlobUrl }; // 兼容旧导入路径（tests / 外部调用方）
-import { renderGeoMapSvg } from './quickviz.js?v=2026.10.9.5';
+import { renderGeoMapSvg } from './quickviz.js?v=2026.10.10.1';
 
-// ── Toast（底部最多堆叠 3 条，超出自动隐藏并移除最旧消息）──────────────────
-export const MAX_TOAST_STACK = 3;
-export function toast(msg, type = 'info', ms = 2600) {
-  const wrap = $('#toasts');
-  if (!wrap) return;
-  const active = [...wrap.querySelectorAll('.toast:not(.leaving)')];
-  while (active.length >= MAX_TOAST_STACK) {
-    const oldest = active.shift();
-    if (oldest) {
-      oldest.classList.remove('in');
-      oldest.classList.add('leaving');
-      setTimeout(() => oldest.remove(), 220);
-    }
-  }
-  const t = el('div', `toast ${type}`, `<span>${esc(msg)}</span>`);
-  wrap.appendChild(t);
-  requestAnimationFrame(() => t.classList.add('in'));
-  const dismiss = () => { if (!t.isConnected) return; t.classList.remove('in'); t.classList.add('leaving'); setTimeout(() => t.remove(), 350); };
-  setTimeout(dismiss, ms);
-  t.dismiss = dismiss; // 调用方可提前收掉（例如「正在处理视频…」在处理完成时）
-  return t;
-}
-
-// ── 主 UI ───────────────────────────────────────────────────────────────
-function fmtClock(ms) {
-  const total = Math.max(0, Math.round(Number(ms) / 1000));
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  if (m <= 0) return `${s}s`;
-  return `${m}m ${s}s`;
-}
-function fmtAgo(ts) {
-  const sec = Math.max(0, Math.round((Date.now() - Number(ts || 0)) / 1000));
-  if (sec < 45) return 'just now';
-  if (sec < 90) return '1 minute ago';
-  if (sec < 3600) {
-    const n = Math.round(sec / 60);
-    return n === 1 ? '1 minute ago' : `${n} minutes ago`;
-  }
-  if (sec < 5400) return '1 hour ago';
-  if (sec < 86400) {
-    const n = Math.round(sec / 3600);
-    return n === 1 ? '1 hour ago' : `${n} hours ago`;
-  }
-  const d = Math.round(sec / 86400);
-  return d === 1 ? '1 day ago' : `${d} days ago`;
-}
+import { toast, MAX_TOAST_STACK, fmtClock, fmtAgo } from './ui-common.js?v=2026.10.10.1';
+export { toast, MAX_TOAST_STACK };
 
 // 这些工具不进 Ran Commands，而是各自的文件折叠（Explored / Edited File(s)）
 const FILE_FOLD_TOOLS = new Set(['write_file', 'read_file', 'analyze_image', 'analyze_pdf', 'analyze_video']);
 
 export function mountUI(store, agent) {
+  let feedbackUI, sharingUI;
   const msgList = $('#messages');
   const composer = $('#composer-input');
   const sendBtn = $('#send-btn');
@@ -1082,9 +1042,9 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     const jb = $('#jump-bottom');
     if (jb) jb.classList.remove('show');
     const exclude = loadLastSuggest();
-    let picks = pickSuggestions(SUGGESTIONS, 3, Math.random, exclude);
+    let picks = pickSuggestions(localizedSuggestions(), 3, Math.random, exclude);
     const same = picks.map((x) => x.text).join('\0') === exclude.join('\0');
-    if (same && SUGGESTIONS.length > 3) picks = pickSuggestions(SUGGESTIONS, 3, Math.random, exclude);
+    if (same && SUGGESTIONS.length > 3) picks = pickSuggestions(localizedSuggestions(), 3, Math.random, exclude);
     saveLastSuggest(picks);
     msgList.appendChild(el('div', 'empty-state', `
       <div class="empty-logo">${APP_LOGO}</div>
@@ -2156,6 +2116,7 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     el.textContent = secs >= 0.8 ? `${secs.toFixed(1)}s` : '';
   }
   function setStatus(s) {
+    feedbackUI?.refresh(); sharingUI?.refresh();
     const [label, cls] = STATUS[s] || STATUS.idle;
     const busy = ['moderating', 'connecting', 'thinking', 'streaming', 'executing'].includes(s);
     if (busy && presentationStopped) { presentationScope = ''; syncPresentationScope(); }
@@ -2647,11 +2608,10 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
 
   function syncComposerPh() {
     if (!composer) return;
-    composer.placeholder = mqPanel.matches
-      ? '输入消息，可粘贴或拖入附件…'
-      : '输入消息，Enter 发送 / Shift+Enter 换行，可拖入或粘贴附件…';
+    composer.placeholder = localeText('你出想法，Duhbe来实现', 'Ideas in. Software out.');
   }
   syncComposerPh();
+  onLanguageChange(() => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
   if (mqPanel.addEventListener) mqPanel.addEventListener('change', () => { syncComposerPh(); if (!store.state.messages.length) { clearEmpty(); renderEmpty(); } });
 
   // ── 全屏预览：见 ui-lightbox.js（图片 / SVG / 图表全屏，缩放拖动，document 级事件委派）──
@@ -2718,6 +2678,9 @@ const MEM_EMPTY_ART = `<svg class="files-empty-art mem-empty-art" viewBox="0 0 1
     try { syncThemeToggle(); syncThemeColor(); } catch { /* noop */ }
     try { syncCapLine(); } catch { /* noop */ }
   }
+  sharingUI = installSharing({ store, agent, getBusy, root: msgList, toast });
+  feedbackUI = installFeedback({ store, agent, getBusy, root: msgList, toast });
+  installSpeechInput({ composer, toast, onInput: autoGrow });
   const ui = {
     setStatus,
     syncToolbar,

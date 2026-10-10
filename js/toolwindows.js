@@ -1,8 +1,9 @@
+import { text as localizedText } from './locale.js';
 // ─── 工具详情三窗口（2026.10.9.1 · 第 4 项）──────────────────────────────────────
 // 「Ran command(s)」里每条命令展开后是三个窗口：COMMAND / STDOUT / STDERR（有内容才出现）。
 // 每个窗口右上角各一枚复制按钮，复制的是本窗口的原文。替代旧版「入参 / 出参」两个按钮。
 // 纯函数（不碰 DOM 状态），便于单测；ui.js 只负责接线。
-import { esc } from './ui-markdown.js?v=2026.10.9.5';
+import { esc } from './ui-markdown.js?v=2026.10.10.1';
 
 /** execute_* 的结果正文里，错误段落的分隔标记（见 tools.js formatExecResult）。 */
 export const WINDOW_ERROR_MARK = '── 错误 ──';
@@ -35,8 +36,9 @@ export function commandWindowText(args) {
  */
 export function splitToolStreams(body) {
   const text = String(body == null ? '' : body);
-  const at = text.indexOf(WINDOW_ERROR_MARK);
-  const errorBlock = at >= 0 ? text.slice(at + WINDOW_ERROR_MARK.length).replace(/^\n/, '') : '';
+  const mark = text.includes(WINDOW_ERROR_MARK) ? WINDOW_ERROR_MARK : '── Error ──';
+  const at = text.indexOf(mark);
+  const errorBlock = at >= 0 ? text.slice(at + mark.length).replace(/^\n/, '') : '';
   const main = at >= 0 ? text.slice(0, at) : text;
   const out = [];
   const err = [];
@@ -51,7 +53,7 @@ function windowHtml({ kind, title, text, extraClass = '', copyLabel }) {
   const payload = String(text == null ? '' : text);
   return `<section class="chip-win chip-win-${kind}${extraClass}" data-win="${kind}">`
     + `<div class="chip-win-h"><span class="chip-win-t">${esc(title)}</span>`
-    + `<button type="button" class="chip-copy" data-which="${kind}" aria-label="复制 ${esc(copyLabel || title)}" title="复制 ${esc(copyLabel || title)}">复制</button></div>`
+    + `<button type="button" class="chip-copy" data-which="${kind}" aria-label="${localizedText('复制', 'Copy')} ${esc(copyLabel || title)}" title="${localizedText('复制', 'Copy')} ${esc(copyLabel || title)}">${localizedText('复制', 'Copy')}</button></div>`
     + `<pre class="chip-win-b${kind === 'command' ? '' : ' chip-result'}${kind === 'stderr' ? ' chip-result-err' : ''}">${esc(payload)}</pre>`
     + '</section>';
 }
@@ -67,7 +69,7 @@ function windowHtml({ kind, title, text, extraClass = '', copyLabel }) {
 export function renderToolWindowsHtml({ command = '', stdout = '', stderr = '', missing = false } = {}) {
   const err = String(stderr || '');
   const out = String(stdout || '');
-  const emptyOut = err ? '（无标准输出）' : '（空输出）';
+  const emptyOut = err ? localizedText('（无标准输出）', '(No stdout)') : localizedText('（空输出）', '(Empty output)');
   return `<div class="fold-inner tool-windows">`
     + windowHtml({ kind: 'command', title: 'COMMAND', text: command, copyLabel: 'COMMAND' })
     + windowHtml({ kind: 'stdout', title: 'STDOUT', text: out || emptyOut, extraClass: missing ? ' tool-result-missing' : '', copyLabel: 'STDOUT' })

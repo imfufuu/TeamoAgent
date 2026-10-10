@@ -1,14 +1,14 @@
-// 2026.10.9.5: chronology, folding, cancellation, incremental file/Worker output.
+// 2026.10.10.1: chronology, folding, cancellation, incremental file/Worker output.
 import test from 'node:test';
 const checks = []; const check = (name, fn) => checks.push([name, fn]);
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { JSDOM } from 'jsdom';
-import { recordOutputText, recordOutputTool, displayParts, turnHasAssistantText, appendToolStream, TOOL_STREAM_MAX_CHARS } from '../js/toolflow.js?v=2026.10.9.5';
-import { createToolPresentation, projectToolPrefix } from '../js/toolpresentation.js?v=2026.10.9.5';
-import { createToolCallAccumulator } from '../js/api.js?v=2026.10.9.5';
+import { recordOutputText, recordOutputTool, displayParts, turnHasAssistantText, appendToolStream, TOOL_STREAM_MAX_CHARS } from '../js/toolflow.js?v=2026.10.10.1';
+import { createToolPresentation, projectToolPrefix } from '../js/toolpresentation.js?v=2026.10.10.1';
+import { createToolCallAccumulator } from '../js/api.js?v=2026.10.10.1';
 import { createFS, createTempFS, websiteDependencies, runJavaScript } from '../js/sandbox.js';
-import { sandboxProject, sandboxBrowserRequest, probeLocalBrowser, resetLocalBrowserProbe } from '../js/localbrowser.js?v=2026.10.9.5';
+import { sandboxProject, sandboxBrowserRequest, probeLocalBrowser, resetLocalBrowserProbe } from '../js/localbrowser.js?v=2026.10.10.1';
 import { computeCapabilityVector } from '../js/nexus.js';
 import { TOOL_DEFS, executeTool } from '../js/tools.js';
 import { buildCapabilityConstraints, checkCapabilityConstraints } from '../js/execution.js';
@@ -16,6 +16,8 @@ import { createTurnExecutionContext, deriveToolWhitelist, selectToolsForTurn } f
 
 const dom = new JSDOM(fs.readFileSync(new URL('../app.html', import.meta.url), 'utf8'), { url: 'http://localhost:8787', pretendToBeVisual: true });
 const { window } = dom;
+// Legacy Chinese contracts are explicit; separate feature/browser tests exercise auto English.
+Object.defineProperty(window.navigator, 'language', { value: 'zh-CN', configurable: true });
 for (const k of ['document', 'window', 'location', 'navigator', 'HTMLElement', 'Element', 'Node', 'CustomEvent', 'Event', 'MouseEvent', 'getComputedStyle', 'requestAnimationFrame', 'cancelAnimationFrame', 'URL', 'Blob', 'FormData', 'File']) if (window[k] !== undefined) Object.defineProperty(globalThis, k, { value: window[k], configurable: true, writable: true });
 globalThis.self = window; globalThis.localStorage = window.localStorage;
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
@@ -248,7 +250,7 @@ check('actual read_file emits all chunks, cancels safely, and does not manufactu
 check('JS Worker intermediate log messages do not resolve execution early', async () => {
   const saved = globalThis.Worker; let finished = false, sawBeforeFinish = false;
   class Worker {
-    constructor() {} terminate() {}
+    constructor() { queueMicrotask(() => this.onmessage({ data: { __dubheReady: 'js-runtime-2' } })); } terminate() {}
     postMessage(p) { queueMicrotask(() => this.onmessage({ data: { __log: { level: 'log', text: 'before await' } } })); setTimeout(() => { finished = true; this.onmessage({ data: { ok: true, result: 42, logs: [], files: p.files } }); }, 15); }
   }
   globalThis.Worker = Worker;
@@ -258,7 +260,7 @@ check('JS Worker intermediate log messages do not resolve execution early', asyn
 
 check('JS Worker abort terminates execution and rejects late filesystem changes', async () => {
   const saved = globalThis.Worker, abort = new AbortController(); let terminated = false;
-  class Worker { constructor() {} terminate() { terminated = true; } postMessage() { setTimeout(() => this.onmessage({ data: { ok: true, logs: [], files: { 'late.txt': 'bad' } } }), 20); } }
+  class Worker { constructor() { queueMicrotask(() => this.onmessage({ data: { __dubheReady: 'js-runtime-2' } })); setTimeout(() => this.onmessage({ data: { ok: true, logs: [], files: { 'late.txt': 'bad' } } }), 20); } terminate() { terminated = true; } postMessage() {} }
   globalThis.Worker = Worker;
   try { const f = createFS(), pending = runJavaScript('return 1', f, { signal: abort.signal }); abort.abort(); const out = await pending; assert.equal(out.aborted, true); assert.ok(terminated); await frame(); assert.ok(!f.has('late.txt')); }
   finally { globalThis.Worker = saved; }
@@ -684,7 +686,7 @@ check('the actual Agent starts independent reads concurrently and settles each w
   } finally { resetLocalBrowserProbe(); globalThis.fetch = saved; }
 });
 
-await test('2026.10.9.5 streamed tools acceptance', async (t) => {
+await test('2026.10.10.1 streamed tools acceptance', async (t) => {
   try { for (const [name, fn] of checks) await t.test(name, fn); }
   finally { dom.window.close(); globalThis.setInterval = nativeSetInterval; globalThis.clearInterval = nativeClearInterval; }
 });

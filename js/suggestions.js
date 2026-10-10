@@ -1,3 +1,5 @@
+import { getLanguage } from './locale.js';
+import { SUGGESTIONS_EN } from './suggestions-en.js';
 // ─── 空状态任务示例池（纯函数 + 数据，便于单测）────────────────────────
 // 卡片展示 30–50 字概括（title 长短不一，卡已拉齐宽度）；点击填入约 200 字的完整提示词（text）。
 // 任务有挑战性，但只使用真实工具：JS/Python/C++ 沙箱、文件、ZIP、生图、
@@ -150,3 +152,5 @@ export function pickSuggestions(list = SUGGESTIONS, n = 3, rnd = Math.random, ex
   }
   return picked;
 }
+
+export function localizedSuggestions() { return getLanguage() === 'en' ? SUGGESTIONS_EN : SUGGESTIONS; }

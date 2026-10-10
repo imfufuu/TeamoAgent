@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<meta name="app-version" content="2026.10.9.5" />
+<meta name="app-version" content="2026.10.10.1" />
 <meta name="app-release" content="V1.7" />
 <meta name="robots" content="noindex" />
 <title>文档 · Dubhe Agent V1.7</title>
@@ -186,7 +186,8 @@
   <span class="nav-spacer"></span>
   <a class="nav-link nav-home" href="./index.html?view=nav">首页</a>
   <a class="nav-link nav-link-sm" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener">GitHub</a>
-  <button id="theme-toggle" class="nav-link" type="button">外观</button>
+  <button type="button" class="language-toggle" data-language-toggle title="语言">EN</button>
+    <button id="theme-toggle" class="nav-link" type="button">外观</button>
   <a class="cta" href="./app.html">打开对话</a>
 </header>
 <nav class="doc-tabs" aria-label="文档分区">
@@ -213,7 +214,8 @@
     <p class="h-sub">新增 <span class="tag add" style="margin:0">ADD</span> · 修复 <span class="tag fix" style="margin:0">FIX</span> · 改进 <span class="tag imp" style="margin:0">IMPROVE</span></p>
 
     <div class="timeline">
-      <div class="ver-block latest reveal">
+      <div class="ver-block latest reveal"><div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.10.1</span><span class="ver-latest">Latest</span><span class="ver-date">2026-10-10</span></div><div class="ver-card"><ul><li><span class="tag imp">IMPROVE</span><span>JS Worker启动/执行分开计时，慢启动不再伪称计算超时；真实Chromium/WebKit回归。</span></li><li><span class="tag imp">IMPROVE</span><span>默认跟随浏览器的中英文界面与英文核心/18种子智能体提示词，输入框新文案。</span></li><li><span class="tag imp">IMPROVE</span><span>多选分享长图与同风格微交互离线HTML，工具/思考可选，不导出未选内容或应用Key/设置。</span></li><li><span class="tag imp">IMPROVE</span><span>浏览器原生语音输入；主动授权后固定超过60秒且后台的完成通知，手动停止不通知。</span></li><li><span class="tag imp">IMPROVE</span><span>可选赞踩仅最新正常完成最终答复，下一轮给模型有限反馈；长命令小错保留源码、最小补丁按path重跑。</span></li></ul></div></div>
+    <div class="ver-block reveal">
         <div class="ver-head"><span class="ver-name">V1.7 Stable</span><span class="ver-build">2026.10.9.5</span><span class="ver-latest">Stable</span><span class="ver-date">2026-10-10</span></div>
         <div class="ver-card"><ul>
           <li><span class="tag fix">FIX</span><span><strong>Edit 写完即时折叠</strong>：实际工具结算后按本轮正文规则收起，不必等待整轮结束；前置正文也算，纯工具轮与手动展开保持可见。</span></li>
@@ -364,7 +366,7 @@
   <section class="page" id="page-agreement">
     <h2>用户协议</h2>
     <p class="h-sub">使用本应用即视为接受本协议全部内容。</p>
-    <div class="legal-meta"><span>版本：V1.4（2026-09-30 修订）</span><span>生效日期：2026-09-30</span></div>
+    <div class="legal-meta"><span>版本：V1.7（2026-10-10 修订）</span><span>生效日期：2026-10-10</span></div>
     <div class="note">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.5"/></svg>
       <span>本应用当前版本为 <strong>V1.7</strong>，仍按「现状」提供。AI 生成内容可能不准确、不完整或过时，<strong>不构成专业建议</strong>，重要决策请自行核实。</span>
@@ -377,7 +379,7 @@
       </ul>
       <h3><span class="no">02</span>软件性质与许可</h3>
       <ul>
-        <li>本应用为纯前端静态网页：对话、沙箱、文件均在你自己的浏览器中运行；模型推理经你配置的 API Key 通过 TeamoRouter 网关完成。</li>
+        <li>本应用以静态前端为主：对话、设置与文件保存在用户设备；模型推理经你配置的 API Key 通过 TeamoRouter 网关完成。JS/Python本地执行，远程C++与用户自行安装的本地浏览器伴侣边界另见服务条款。</li>
         <li><strong>与 TeamoRouter 互不隶属</strong>：作者与 TeamoRouter 及其运营方之间不存在隶属、授权、合作、代理或背书关系；TeamoRouter 的服务条款、计费、可用性与数据处理由其自行负责，你使用其 API Key 产生的费用与争议应直接与 TeamoRouter 解决。本应用中出现的「TeamoRouter」名称、标识与「智能路由」图标仅用于说明兼容的网关与模型来源。</li>
         <li>授予你个人的、不可转让的、免费的使用许可，仅限本协议允许的用途；保留所有未明示授予的权利。</li>
         <li>不提供任何明示或默示的适销性、准确性、不中断或无错误的保证。</li>
@@ -430,7 +432,7 @@
   <section class="page" id="page-terms">
     <h2>服务条款</h2>
     <p class="h-sub">服务范围、可用性与内容边界。</p>
-    <div class="legal-meta"><span>版本：V1.4（2026-09-30 修订）</span><span>生效日期：2026-09-30</span></div>
+    <div class="legal-meta"><span>版本：V1.7（2026-10-10 修订）</span><span>生效日期：2026-10-10</span></div>
     <div class="legal-card">
       <h3><span class="no">01</span>服务说明</h3>
       <ul>
@@ -451,7 +453,7 @@
       </ul>
       <h3><span class="no">04</span>沙箱与文件</h3>
       <ul>
-        <li>代码沙箱在浏览器本地执行生成的代码并维护虚拟文件系统；请勿在沙箱内放置敏感凭据或唯一副本数据。</li>
+        <li>JS/Python在浏览器Worker本地执行；远程C++开启时会发送源码和输入到godbolt.org；网页Chromium需自行安装本地伴侣，不由GitHub Pages或公网截图服务提供。请勿在沙箱内放置敏感凭据或唯一副本数据。</li>
         <li>沙箱文件、会话记录保存在本地浏览器存储中，清除浏览器数据将一并清除；请自行导出备份重要内容。</li>
       </ul>
       <h3><span class="no">05</span>用户行为</h3>
@@ -475,7 +477,7 @@
   <section class="page" id="page-privacy">
     <h2>隐私政策</h2>
     <p class="h-sub">数据最少化、本地优先。</p>
-    <div class="legal-meta"><span>版本：V1.4（2026-09-30 修订）</span><span>生效日期：2026-09-30</span></div>
+    <div class="legal-meta"><span>版本：V1.7（2026-10-10 修订）</span><span>生效日期：2026-10-10</span></div>
     <div class="legal-card">
       <h3><span class="no">01</span>我们如何处理数据（总览）</h3>
       <ul>
@@ -494,11 +496,11 @@
         <li>你发送的消息与附件（含图片）会经 TeamoRouter 网关（<code>api.teamorouter.com</code>）转发给你所选模型的服务商用于生成回复；这是对话功能的必然传输。</li>
         <li>API Key 仅作为网关鉴权凭证发送，不用于其他目的。</li>
         <li>内容审核模型（NudeNet / NSFWJS / Toxicity 等）<strong>在本地浏览器运行</strong>，审核过程不向作者上传任何内容；仅审核通过的图片才会随消息发往网关。</li>
-        <li>第三方服务商对所接收数据的处理受其各自隐私政策约束。</li>
+        <li>浏览器原生语音识别可能由浏览器厂商处理音频，不经过应用中继；不会自动发送识别结果。可选赞/踩保存在本地，仅作为下一轮模型请求的有限质量参考，不向作者上传统计。远程C++会发送源码/输入至godbolt.org，联网工具会发送指定URL或检索词至所选中继与上游。第三方服务商对所接收数据的处理受其各自隐私政策约束。</li>
       </ul>
       <h3><span class="no">04</span>我们不收集的信息</h3>
       <ul>
-        <li>不含统计分析、埋点、广告追踪、指纹采集或行为画像；不请求通知、地理位置、通讯录等敏感权限。</li>
+        <li>不含统计分析、埋点、广告追踪、指纹采集或行为画像。仅在主动开始语音输入时请求麦克风权限、主动开启完成通知时请求通知权限；不请求地理位置或通讯录。</li>
         <li>不主动采集你的设备信息、IP 或使用时长；静态托管（GitHub Pages）侧的基础访问日志由其按自身政策处理，与作者无关。</li>
       </ul>
       <h3><span class="no">05</span>数据保留与安全</h3>
@@ -512,12 +514,13 @@
       </ul>
       <h3><span class="no">07</span>你的权利</h3>
       <ul>
+        <li>多选分享仅在本机生成长图或独立HTML文件，默认正文和附件，工具/思考可选；不会序列化应用设置与本机保存的Key，但选中内容本身可能含敏感信息，请分享前核对。通知固定超过60秒且后台才触发，手动停止不通知；通知内容不包含原始问题、代码、回答或文件路径。</li>
         <li>你对自己的本地数据享有完全控制权：随时查看、导出（/system 通道 <code>/export</code>）、更正或删除。</li>
         <li>因作者不持有你的数据，无需亦无法代为执行「删除请求」——删除即从你的浏览器彻底消失。</li>
       </ul>
       <h3><span class="no">08</span>政策变更与联系</h3>
       <ul>
-        <li>本政策可能随版本更新调整，重大变更将在本页面显著位置说明；本版本自 2026-09-30 起生效。</li>
+        <li>本政策可能随版本更新调整，重大变更将在本页面显著位置说明；本版本于 2026-10-10 更新语音、通知、分享与反馈说明。</li>
         <li>如有疑问或建议请联系：<code>lks.tan.cn@gmail.com</code>。</li>
       </ul>
     </div>
@@ -525,7 +528,7 @@
 </main>
 
 <footer>
-  <span>Dubhe Agent V1.7 · 构建 2026.10.9.5 · 独立项目，与 TeamoRouter 互不隶属</span>
+  <span>Dubhe Agent V1.7 · 构建 2026.10.10.1 · 独立项目，与 TeamoRouter 互不隶属</span>
   <span class="foot-links">
     <a href="mailto:lks.tan.cn@gmail.com">lks.tan.cn@gmail.com</a>
     <a class="gh" href="https://github.com/imfufuu/dubhe-agent" target="_blank" rel="noopener noreferrer" aria-label="GitHub 仓库">
@@ -613,5 +616,6 @@
     addEventListener('scroll', function () { nav.style.borderBottomColor = scrollY > 8 ? 'var(--line)' : 'transparent'; }, { passive: true });
   })();
 </script>
+<script type="module" src="js/docs-language.js?v=2026.10.10.1"></script>
 </body>
 </html>

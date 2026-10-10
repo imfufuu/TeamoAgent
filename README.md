@@ -1,6 +1,6 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.5` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.10.1` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
@@ -672,3 +672,22 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 ## 许可
 
 MIT（见 [LICENSE](./LICENSE)）；打包与运行时第三方组件的许可见 [THIRD-PARTY-NOTICES.md](./THIRD-PARTY-NOTICES.md)。
+
+
+### 双语与对话分享
+
+- 中文 / English 默认跟随浏览器主语言（英文→英文，其余→中文），顶栏或设置可切换并记住选择。英文界面使用英文核心/子智能体系统提示词，回答仍跟随用户输入语言；不会翻译已有消息、代码、文件名或草稿。
+- 输入框：`你出想法，Duhbe来实现` / `Ideas in. Software out.`（按产品需求原样保留文案）。
+- **分享**允许多选用户/助手消息，默认正文与附件，工具详情/思考可选。导出真实 PNG 长图或独立离线 HTML；HTML 使用相同 Markdown、代码高亮、KaTeX 与图表样式，支持折叠、代码复制、主题、图表缩放/全屏、图片/视频预览，无模型/中继连接。不是托管的分享链接，不包含应用设置或保存的 Key；选中正文/附件本身可能含秘密，请先检查。
+- PNG 会展开所选折叠内容、换行超长代码；超过安全画布尺寸完整拆图并下载 ZIP，不截断尾部。极端内容可改用完整 HTML。
+- 麦克风按钮调用浏览器原生 SpeechRecognition / webkitSpeechRecognition，支持临时/最终转录，不自动发送；停止、发送、切换语言或手工修改会拒绝迟到转录。音频可能由浏览器厂商处理，不经过应用中继；不支持的浏览器明确禁用按钮，不偷偷接外部 ASR。
+- 完成通知仅在主动授权后开启：**固定超过60秒且页面后台/失焦**，正常完成或错误可通知，手动停止不通知；无阈值设置，锁屏不展示问题/代码/回答。iOS 需添加至主屏幕并由系统支持；浏览器/OS 暂停后台页面或关闭标签时不保证任务继续运行。
+- 赞/踩完全可选，仅最近一条正常完成的助手最终答复可评，手动停止/错误中断/长度截断不显示。可改选/取消，保存于本地，下一次请求将其作为有限质量信号给模型；不向作者收集统计。
+
+### JS 启动诊断与最小修补
+
+Worker 脚本采用构建版本 URL，并在 ready 握手后才发送代码：启动最多12秒，真正执行仍最多8秒（内核总体契约22秒覆盖两阶段）。加载失败明确标记代码未执行，而不是伪称8秒计算超时。原生网络与受保护目录边界不变，真实传输引用位于私有闭包；日志帧不提前结算。
+
+JS/Python 支持 `path` 读取已存在源码代替重复 `code`；长内联 JS/Python/C++ 命令会保留到 `internal/commands/`。小语法/变量/逻辑错误先核验副作用，使用 `write_file(mode=replace, old_text, new_text)` 最小补丁，随后按源码路径执行。源码在审批与执行之间发生变化时拒绝执行；路径源码参与能力检查及幂等键，不绕过网络限制。
+
+浏览器回归包括真实 Chromium 与 Linux WebKit（不等于用户具体 Safari/iOS 设备），以及浏览器语音/通知 API 的模拟接口测试；不会把这些测试称为真实语音服务或操作系统权限验收。长图渲染依赖本地固定版本 html2canvas 1.4.1（MIT），许可见 `assets/licenses/html2canvas-MIT.txt`。
