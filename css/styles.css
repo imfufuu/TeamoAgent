@@ -2463,3 +2463,16 @@ html[data-motion="off"] .dd-menu, html[data-motion="off"] .md-chart-tooltip, htm
 html[data-motion="off"] .chip-detail > .fold-inner {transform: none !important; }
 html[data-motion="off"] .ran-commands > .chip-ico, html[data-motion="off"] .md-fold > .chip-ico, html[data-motion="off"] .ft-row, html[data-motion="off"] .router-chip, html[data-motion="off"] .photo-tool-button {transition: none !important; }
 html[data-motion="off"] .md-chart-map-loading, html[data-motion="off"] .md-chart-map[data-map-state="ready"] .md-chart-svg {animation: none !important; }
+
+/* Ordered assistant fragments have no independent message gaps/headers. */
+.assistant-flow { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.assistant-flow > .assistant-fragment { margin: 0 !important; padding: 0 !important; min-width: 0; }
+.assistant-fragment.fold-shell { margin: 0 !important; }
+.message-tail { display: block; margin-top: 8px; }
+.file-read-stream { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; margin: 8px 0 0; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-soft); font-size: 12px; line-height: 1.65; color: var(--fg); }
+.fv-web { display: flex; flex-direction: column; min-height: 420px; flex: 1; }
+.fv-web-note { padding: 8px 12px; font-size: 11px; color: var(--fg-2); border-bottom: 1px solid var(--border); }
+.fv-web-note a { margin-left: 8px; color: var(--fg); }
+.fv-web iframe { width: 100%; height: min(70vh, 760px); min-height: 380px; background: #fff; border: 0; }
+
+#fv-run { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; flex-shrink: 0; }

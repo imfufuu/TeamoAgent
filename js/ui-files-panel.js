@@ -1,3 +1,4 @@
+import { sandboxProject, sandboxBrowserRequest, probeLocalBrowser } from './localbrowser.js?v=2026.10.9.4';
 // Dubhe Agent · 侧栏沙箱文件面板（从 ui.js 的 mountUI 拆出，V1.7.1）
 // 职责：文件树渲染（容量条 / 折叠目录 / 行内操作）、单文件与整包 ZIP 下载、文件预览窗。
 // 只依赖 store.state.files 与少量渲染工具；通过 installFilesPanel(deps) 注入，返回 { renderFiles, openFileViewer, downloadFile }。
@@ -227,6 +228,8 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
     }
   }
 
+  let webPreviewId = '';
+  let viewerGeneration = 0;
   const FV_TEXT_MAX = 1 * 1024 * 1024; // 沙箱预览：文本类文件上限 1MB（超出请下载后在本地编辑器查看）
   function openFileViewer(path) {
     const viewer = $('#file-viewer');
@@ -286,6 +289,7 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
     stopViewerMedia();
     viewer.innerHTML = `<div class="file-viewer-head mono">${esc(path)}<span class="fv-size">${fmtSize(byteLen)}</span><span class="fv-actions">`
       + `<button id="fv-dl" type="button" title="下载此文件">${ICON.download}<span>下载</span></button>`
+      + (/\.html?$/i.test(lower) ? `<button id="fv-run" type="button" title="在本地沙箱服务运行并用 Chromium 调试">${ICON.terminal || ICON.tool}<span>运行网页</span></button>` : '')
       + `<button id="fv-close" type="button" title="关闭">${ICON.x}</button></span></div>`
       + bodyHtml;
     viewer.classList.add('open');
@@ -298,6 +302,24 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
     }
     $('#fv-close').addEventListener('click', () => closeViewer());
     $('#fv-dl').addEventListener('click', () => downloadFile(path));
+    $('#fv-run')?.addEventListener('click', async () => {
+      const generation = viewerGeneration;
+      const button = $('#fv-run'); button.disabled = true;
+      try {
+        if (!await probeLocalBrowser({ force: true })) throw new Error('需要本机 npm run setup:browser，然后 python3 server.py；请从本地网页使用此能力，Pages 本身不能运行 Chromium。');
+        if (generation !== viewerGeneration || !viewer.classList.contains('open')) return;
+        if (webPreviewId) { await sandboxBrowserRequest({ action: 'stop', preview_id: webPreviewId }).catch(() => {}); webPreviewId = ''; }
+        const r = await sandboxBrowserRequest({ action: 'start', ...sandboxProject(agent.fs, path) });
+        if (generation !== viewerGeneration || !viewer.classList.contains('open')) { await sandboxBrowserRequest({ action: 'stop', preview_id: r.preview_id }); return; }
+        webPreviewId = r.preview_id;
+        if (!/^\/sandbox-web\/[a-f0-9]{32}\//.test(r.preview_path || '')) throw new Error('无效的本地预览地址');
+        const old = viewer.querySelector('.fv-web'); if (old) old.remove();
+        const box = document.createElement('div'); box.className = 'fv-web';
+        box.innerHTML = `<div class="fv-web-note">本地网页预览 · 与 Agent 调试会话独立 · HTTP 资源仅限当前项目 <a href="${esc(r.preview_path)}" target="_blank" rel="noopener noreferrer">新标签页</a></div><iframe sandbox="allow-scripts" title="沙箱网页 ${esc(path)}" src="${esc(r.preview_path)}"></iframe>`;
+        viewer.appendChild(box); viewer.querySelector('.fv-code')?.setAttribute('hidden', '');
+      } catch (err) { toast(String(err.message || err), 'warn', 8000); }
+      finally { if (generation === viewerGeneration && button.isConnected) button.disabled = false; }
+    });
     const pdfBox = $('.fv-pdf', viewer);
     if (pdfBox) renderPdfPreview(pdfBox, rawStr, path);
   }
@@ -305,8 +327,12 @@ export function installFilesPanel({ store, agent, toast, fmtSize, highlightCode,
   // 关闭查看器：只摘 .open 类的话 <video> 还挂在 DOM 里继续出声（.26 前的 bug：点 ✕ 后音频照放）。
   // 先把所有媒体元素停掉并卸载源，再收起；下一次 openFileViewer 会整体重建 innerHTML。
   function stopViewerMedia() {
+    viewerGeneration += 1;
+    const id = webPreviewId; webPreviewId = '';
+    if (id) sandboxBrowserRequest({ action: 'stop', preview_id: id }).catch(() => {});
     const viewer = $('#file-viewer');
     if (!viewer) return;
+    viewer.querySelector('.fv-web')?.remove();
     for (const m of viewer.querySelectorAll('video, audio')) {
       try { m.pause(); } catch { /* noop */ }
       try { m.removeAttribute('src'); m.load(); } catch { /* noop */ }

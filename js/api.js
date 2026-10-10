@@ -2,7 +2,7 @@
 // 协议路由 + SSE 流式解析 + 传输层（浏览器直连 / 服务端代理兜底）
 // 纯函数导出，便于 node 单测（tests/agent.test.mjs）
 
-import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor, resolveModelAlias } from './config.js?v=2026.10.9.3';
+import { ANTHROPIC_VERSION, MAX_TOKENS, REQUEST_TIMEOUT_MS, protocolOf, thinkingParamsFor, resolveModelAlias } from './config.js?v=2026.10.9.4';
 import { claudeThinkingBudget, normalizeReasoningLevel, reasoningEffortFor } from './reasoning.js';
 import { gatewayBase, setGatewayBase, otherGatewayBase, isNetworkError } from './endpoint.js';
 import { webCapFor, injectWeb, buildResponsesInput, createResponsesStream } from './websearch.js';
@@ -256,7 +256,7 @@ export function createToolCallAccumulator() {
   const map = new Map();
   return {
     push(ev) {
-      if (!map.has(ev.index)) map.set(ev.index, { id: '', name: '', argsText: '' });
+      if (!map.has(ev.index)) map.set(ev.index, { id: '', fallbackId: `call_${Math.random().toString(36).slice(2, 10)}`, name: '', argsText: '' });
       const t = map.get(ev.index);
       if (ev.id) t.id = ev.id;
       if (ev.name) t.name = ev.name;
@@ -265,11 +265,12 @@ export function createToolCallAccumulator() {
       if (ev.replace) { if (ev.argsText) t.argsText = ev.argsText; }
       else if (ev.argsText) t.argsText += ev.argsText;
     },
+    indices() { return [...map.keys()].sort((a, b) => a - b); },
     result() {
       return [...map.entries()].sort((a, b) => a[0] - b[0]).map(([, t]) => {
         let args = {};
         try { args = t.argsText ? JSON.parse(t.argsText) : {}; } catch { args = { __raw: t.argsText }; }
-        return { id: t.id || `call_${Math.random().toString(36).slice(2, 10)}`, name: t.name, args };
+        return { id: t.id || t.fallbackId, name: t.name, args };
       });
     },
   };

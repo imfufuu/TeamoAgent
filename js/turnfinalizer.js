@@ -11,13 +11,13 @@ import {
   resumeExecutionState,
   summarizeExecutionRecord,
   evaluateExecutionKernelAcceptance,
-} from './execution.js?v=2026.10.9.3';
-import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.9.3';
-import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.9.3';
-import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.9.3';
-import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.9.3';
-import { appendExperimentSample } from './experiments.js?v=2026.10.9.3';
-import { reconcileAudit } from './audit.js?v=2026.10.9.3';
+} from './execution.js?v=2026.10.9.4';
+import { summarizeCheckpointHealth } from './recovery.js?v=2026.10.9.4';
+import { summarizeMemoryHealth } from './memorylife.js?v=2026.10.9.4';
+import { evaluateTrajectory, summarizeTrajectoryTotals, appendTrajectoryEntry } from './trajectory.js?v=2026.10.9.4';
+import { buildMetricSnapshot, evaluateMetricGate, formatMetricGate } from './metrics.js?v=2026.10.9.4';
+import { appendExperimentSample } from './experiments.js?v=2026.10.9.4';
+import { reconcileAudit } from './audit.js?v=2026.10.9.4';
 import { auditFootprintAgainstStore, recordRouteLatencySample, evaluateNexusAcceptanceMetrics } from './nexus.js';
 
 /**

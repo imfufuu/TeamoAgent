@@ -220,7 +220,7 @@ await test('debugwindow.js 随项目存在，main.js 挂载且入口齐全（?de
   // 当前版本不在模型菜单做隐藏思考检测；保留徽章样式仅兼容旧消息状态。
   assert.match(ui, /handleSystemCommand/, '应有 /system 命令执行器');
   assert.match(ui, /'__system__'/, '应支持 __system__ 伪模型');
-  assert.match(ui, /node\._userToggle == null\) node\.classList\.toggle\('expanded', !!live\)/, '文件行应流式展开/完成折叠');
+  assert.match(ui, /node\._userToggle == null\) node\.classList\.toggle\('expanded', !!live \|\| !turnHasAssistantText/, '文件行应流式展开，完成后按正文判断折叠');
   assert.match(css0, /md-c-red/, '调色板应存在');
   assert.match(css0, /badge\.enc/, '加密徽章样式应存在');
   // 2026.9.27.15：缩放柄只留右下角 + 清空同步环形缓冲 + 不记录复制动作

@@ -1,12 +1,12 @@
 # ◐ Dubhe Agent — 基于 TeamoRouter 的网页端智能体
 
-> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.3` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
+> **Dubhe Agent V1.7** · 架构 **Dubhe Helix 3.0 · DC（Dubhe Cambrian，天枢·寒武）** · 构建 `2026.10.9.4` · [线上介绍](https://imfufuu.github.io/dubhe-agent/) · 对话 [app.html](./app.html) · [CHANGELOG](./CHANGELOG.md)
 
 [![CI](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/ci.yml)
 [![Pages](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml/badge.svg?branch=main)](https://github.com/imfufuu/dubhe-agent/actions/workflows/pages.yml)
 
 ```bash
-npm ci && npm test   # 一条命令跑完 tests/ 下全部 21 个 .mjs + python 护栏；每个文件通过多少项由 CI 产出（见 Actions → 任一 run 的 Summary）
+npm ci && npm test   # 一条命令跑完 tests/ 下全部 .mjs + Python 护栏；每个文件通过多少项由 CI 产出（见 Actions → 任一 run 的 Summary）
 ```
 
 ## TL;DR
@@ -31,9 +31,23 @@ Key 仅存于浏览器 localStorage，随请求头直发网关。
 
 **管理员口令（`admin-{8 位数字/字母}`）**：在 API Key 框里填管理员口令，请求会改用管理员密钥发出。源码里既没有明文密钥也没有明文口令：口令经 scrypt（N=2^16 · r=8 · p=1，64 MiB 内存困难）派生出加密密钥与校验密钥，管理员密钥与**有效期（14 天）**一起加密存放并带 HMAC 校验——口令错、密文或有效期被改、或已过期，都无法解封；到期那一刻起即使口令正确也不再替换。校验在桌面约 0.3–0.8 秒。换发 / 续期：`node tools/seal-admin.mjs --gen <密钥> [天数]`。到期后请同时在网关侧作废旧密钥。
 
+## 本地沙箱网页与真实 Chromium（构建 2026.10.9.4）
+
+```bash
+npm ci
+npm run setup:browser             # 安装本机 Chromium
+python3 server.py                # 然后打开 http://127.0.0.1:8787/app.html
+```
+
+Agent 可用 `browser_sandbox` 启动自己生成的 HTML/CSS/JS 项目，持续点击/输入/检查控制台，重新加载修改，再截取真实 PNG 到 `outputs/`。HTML 文件查看器也有「运行网页」。**只接受沙箱项目，不接受公网 URL；Pages 与 Cloudflare 中继不能提供此原生能力**。不是任意 npm/Node 后端执行器，OS 沙箱默认开启，未就绪就如实禁用。
+
+时序与流式同时修正：工具 → 正文 → 工具不再拖动合并；停止标记在最后输出之后；参数、编辑预览、文件读取和 Worker 控制台增量显示。工具完成后本轮有任意正文才自动折叠，纯工具轮保持展开，手动操作优先。编辑预览不提前写半截参数到 FS。
+
+安装、边界、项目依赖保留及验收详见 [LOCAL_BROWSER.md](./LOCAL_BROWSER.md)。
+
 ## P3：编辑直播预览（Dubhe Helix 2.5（天枢2.5））
 
-P3 补上「看得见 Agent 正在写什么」：写文件时折叠行显示 **Editing File(s)**，预览窗显示最近约 10 行（行号、写入模式、总行数与字符数）；流式期间节流刷新，换文件或收尾立即刷新。半截 JSON 也能逐字符安全解析，完成后优先读取已落盘内容；回合结束折叠回 Edited File(s) N，展开仍可回看。
+P3 补上「看得见 Agent 正在写什么」：写文件时折叠行显示 **Editing File(s)**，预览窗显示最近约 10 行（行号、写入模式、总行数与字符数）；流式期间节流刷新，换文件或收尾立即刷新。半截 JSON 也能逐字符安全解析，完成后优先读取已落盘内容；完成后变为 Edited File(s) N；本轮有正文才自动折叠，纯工具轮及手动展开保持可见。
 
 > 验收：`npm run test:p3`（半截 JSON 扫描、预览字段与 UI 冒烟）。
 
@@ -398,7 +412,7 @@ ANSWERING → VERIFIED → COMMITTED（COMMITTED 只能从 VERIFIED 进入）
 
 - **自主触发**：系统提示词给了明确的触发条件（交付物含 ≥2 个专业维度、写完代码请 reviewer/debugger 复核、翻译与长文改写等脏活外包、需要真实计算时派分析师），用户不点名也会自己派。
 - **并行委派**：互不依赖的子任务在同一轮里一次发多个 `dispatch_subagent`，运行时最多 3 个并发，结果按调用顺序回填对话。
-- **与代码沙箱解耦**：顶栏「沙箱」只控制三个代码执行工具；关掉后文件读写、生图、子智能体委派照常用（子智能体能用的工具也按同一规则取交集）。
+- **与代码沙箱解耦**：顶栏「沙箱」控制三个代码执行工具和本地 browser_sandbox；关掉后文件读写、生图、子智能体委派照常用（子智能体能用的工具也按同一规则取交集）。
 
 | 分类 | 子智能体 |
 |---|---|
@@ -549,7 +563,7 @@ npm run test:live     # = live-smoke（协议层）+ live-check（图像与工�
 job summary（`::notice::`），**文档里不再手填测试数字——以 Actions 最近一次 run 的汇总为准**。
 
 ```bash
-npm ci && npm test    # 全部（jsdom 随 npm ci 安装；无 key / puppeteer / pyodide 的文件自己打印「⏭ 跳过」并以 0 退出）
+npm ci && npm test    # 全部（jsdom 随 npm ci 安装；无 key / Chromium / puppeteer / pyodide 的文件自己打印「⏭ 跳过」并以 0 退出）
 npm run test:list     # 列出会跑哪些文件（tests/agent.test.mjs 里有自检：ci.yml 的 step 必须与 ls tests/*.mjs 一一对应）
 node tools/run-tests.mjs tests/dom-smoke.mjs   # 单跑一个文件，输出原样透传
 
@@ -641,7 +655,7 @@ python3 server.py    # http://localhost:8787，含 API 代理兜底通道
 ## 说明
 
 - 浏览器直连时 Key 出现在前端，仅适合个人本地使用；生产环境请改为服务端持有 Key。
-- 顶栏「沙箱」开关只决定三个代码执行工具是否下发（文件读写/生图/委派不受影响）；无鉴权中继 `server.py` 因此同源使用，不要暴露到共享网络。
+- 顶栏「沙箱」开关决定三个代码执行工具及本地 browser_sandbox 是否下发（文件读写/生图/委派不受影响）；无鉴权中继 `server.py` 因此同源使用，不要暴露到共享网络。
 - JS/Python 沙箱为浏览器内隔离（Worker 无 DOM；Pyodide 为 WASM），非容器级安全边界。V1.7 加固：JS Worker 执行前拆除 `fetch` / `XMLHttpRequest` / `WebSocket` / `EventSource` / `importScripts` / `Worker` / `BroadcastChannel` / `indexedDB` / `caches` 并私有化 `postMessage`（用户代码无法联网、无法伪造结果帧）；Python Worker 的 `fetch` 只放行 Pyodide CDN 与 PyPI；日志 500 条 / 1 MB、返回值 200 KB、文件 128 MB / 5000 个硬上限；主线程 `sanitizeWorkerFiles` 逐键校验回写路径（拒绝绝对路径、`..`、反斜杠、控制字符、原型键），`internal/` 与 `.git/` 不可被沙箱代码增删改，超容量整体回滚；C++ 通过 Compiler Explorer 公共服务**远程**执行（代码会发送至 godbolt.org）。
 - 页面启用了 CSP（`index.html` meta）：脚本仅放行同源与 Pyodide CDN，连接仅放行网关 / godbolt / CDN / 本站代理；渲染层本身也经注入探针验证。
 - 本地服务器默认仅监听 `127.0.0.1`（代理通道无鉴权，`--host 0.0.0.0` 显式开放需自担风险）。

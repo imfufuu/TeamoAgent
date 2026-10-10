@@ -37,6 +37,7 @@ export const CAPABILITY_REGISTRY = Object.freeze({
   execute_javascript: R('codeSandbox', 'exec', { core: 1, heavy: true, tags: ['code'] }),
   execute_python: R('codeSandbox', 'exec', { core: 2, heavy: true, tags: ['code'] }),
   execute_cpp: R('codeSandbox', 'remote', { core: 3, heavy: true, tags: ['code'] }),
+  browser_sandbox: R('localBrowser', 'exec', { heavy: true, tags: ['code'] }),
   // ── 文件系统（永远在）──
   write_file: R('invariantCore', 'fs-write', { core: 4, heavy: true }),
   read_file: R('invariantCore', 'fs-read', { core: 5, parallel: true, readOnly: true }),
@@ -88,7 +89,7 @@ export const LEGACY_TOOL_ALIASES = Object.freeze({
   qr_code: { tool: 'data_tool', kind: 'qr', parallel: false, readOnly: false },
 });
 
-export const CAPABILITY_GROUPS = Object.freeze(['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'subagentSwarm']);
+export const CAPABILITY_GROUPS = Object.freeze(['invariantCore', 'webFetch', 'workerSearch', 'siteCrawler', 'fileDownload', 'codeSandbox', 'localBrowser', 'subagentSwarm']);
 export const CAPABILITY_KINDS = Object.freeze(['local', 'fs-read', 'fs-write', 'exec', 'network', 'remote', 'cost', 'memory', 'render']);
 
 /** kind → execution.js 契约里允许的 sideEffect（测试据此做三方一致性校验） */

@@ -1,5 +1,5 @@
 // 介绍页与对话页共用一份外观偏好；旧的 home key 仅用于向后迁移。
-import { STORAGE_KEY } from './config.js?v=2026.10.9.3';
+import { STORAGE_KEY } from './config.js?v=2026.10.9.4';
 import { readLocal, writeLocal, removeLocal } from './legacy-keys.js';
 
 export const THEME_STORAGE_KEY = 'dubhe-theme';
